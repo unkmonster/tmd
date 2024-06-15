@@ -27,7 +27,7 @@ func (c *AddHeaderTransport) SetCookie(cookie string) error {
 		return fmt.Errorf("invalid cookie str")
 	}
 	c.csrfToker = cookie[begin:]
-	c.csrfToker = c.csrfToker[:end]
+	c.csrfToker = c.csrfToker[4:end]
 	return nil
 }
 
