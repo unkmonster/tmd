@@ -1,6 +1,12 @@
 package twitter
 
-import "github.com/tidwall/gjson"
+import (
+	"fmt"
+	"io"
+	"net/http"
+
+	"github.com/tidwall/gjson"
+)
 
 type itemContent struct {
 	*gjson.Result
@@ -56,7 +62,7 @@ func (entries *itemEntries) GetItemContents() []itemContent {
 }
 
 type itemInstructions struct {
-	gjson.Result
+	*gjson.Result
 }
 
 func (insts *itemInstructions) GetEntries() entriesMethod {
@@ -89,4 +95,24 @@ func (insts *moduleInstructions) GetEntries() entriesMethod {
 	r := insts.itemInstructions.GetEntries()
 	pe := r.(*itemEntries)
 	return &moduleEntries{*pe}
+}
+
+func getTimeline(client *http.Client, api timelineApi) (string, error) {
+	url := makeUrl(api)
+	resp, err := client.Get(url)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+
+	if resp.StatusCode != 200 {
+		return "", fmt.Errorf("%d %s", resp.StatusCode, data)
+	}
+
+	return string(data), nil
 }

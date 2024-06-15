@@ -23,6 +23,7 @@ type User struct {
 	IsProtected  bool
 	FriendsCount int
 	Followstate  FollowState
+	MediaCount   int
 }
 
 func GetUserById(client *http.Client, id uint64) (*User, error) {
@@ -74,6 +75,7 @@ func parseUserResults(user_results *gjson.Result) (*User, error) {
 	name := legacy.Get("name")
 	screen_name := legacy.Get("screen_name")
 	protected := legacy.Get("protected").Exists()
+	media_count := legacy.Get("media_count")
 
 	usr := User{}
 	if legacy.Get("following").Exists() {
@@ -88,6 +90,7 @@ func parseUserResults(user_results *gjson.Result) (*User, error) {
 	usr.IsProtected = protected
 	usr.Name = name.String()
 	usr.ScreenName = screen_name.String()
+	usr.MediaCount = int(media_count.Int())
 	return &usr, nil
 }
 
@@ -101,4 +104,30 @@ func parseRespJson(resp string) (*User, error) {
 
 func (u *User) IsVisiable() bool {
 	return u.Followstate == FS_FOLLOWING || !u.IsProtected
+}
+
+func (u *User) getMediasOnPage(client *http.Client, cursor string) ([]Tweet, string, error) {
+	api := userMedia{}
+	api.count = 100
+	api.cursor = cursor
+	api.userId = u.Id
+
+	resp, err := getTimeline(client, &api)
+	if err != nil {
+		return nil, "", err
+	}
+
+	j := gjson.Get(resp, "data.user.result.timeline_v2.timeline.instructions")
+	minsts := moduleInstructions{itemInstructions{&j}}
+	entries := minsts.GetEntries()
+	itemContents := entries.GetItemContents()
+	tweets := make([]Tweet, len(itemContents))
+	for i := 0; i < len(itemContents); i++ {
+		tweet_results := itemContents[i].GetTweetResults()
+		ptweet := parseTweetResults(&tweet_results)
+		if ptweet != nil {
+			tweets[i] = *ptweet
+		}
+	}
+	return tweets, entries.GetNextCursor(), nil
 }

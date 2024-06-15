@@ -13,8 +13,8 @@ type api interface {
 }
 
 type timelineApi interface {
-	api
 	SetCursor(cursor string)
+	api
 }
 
 func makeUrl(api api) string {

@@ -1,6 +1,7 @@
 package twitter
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/tidwall/gjson"
@@ -19,6 +20,12 @@ func parseTweetResults(tweet_results *gjson.Result) *Tweet {
 	var err error = nil
 
 	result := tweet_results.Get("result")
+	if !result.Exists() || result.Get("__typename").String() == "TweetTombstone" {
+		return nil
+	}
+	if result.Get("__typename").String() == "TweetWithVisibilityResults" {
+		result = result.Get("tweet")
+	}
 	legacy := result.Get("legacy")
 	user_results := result.Get("core.user_results")
 
@@ -27,7 +34,7 @@ func parseTweetResults(tweet_results *gjson.Result) *Tweet {
 	tweet.Creator, _ = parseUserResults(&user_results)
 	tweet.CreatedAt, err = time.Parse(time.RubyDate, legacy.Get("created_at").String())
 	if err != nil {
-		panic("invalid time format")
+		panic(fmt.Errorf("invalid time format %v", err))
 	}
 	media := result.Get("extended_entities.media")
 	if media.Exists() {
