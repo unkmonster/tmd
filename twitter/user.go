@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/tidwall/gjson"
+	"github.com/unkmonster/tmd2/internal/utils"
 )
 
 type FollowState int
@@ -106,7 +107,10 @@ func (u *User) IsVisiable() bool {
 	return u.Followstate == FS_FOLLOWING || !u.IsProtected
 }
 
-func (u *User) getMediasOnPage(client *http.Client, cursor string) ([]Tweet, string, error) {
+func (u *User) getMediasOnPage(client *http.Client, cursor string) ([]*Tweet, string, error) {
+	if !u.IsVisiable() {
+		return nil, "", nil
+	}
 	api := userMedia{}
 	api.count = 100
 	api.cursor = cursor
@@ -121,13 +125,79 @@ func (u *User) getMediasOnPage(client *http.Client, cursor string) ([]Tweet, str
 	minsts := moduleInstructions{itemInstructions{&j}}
 	entries := minsts.GetEntries()
 	itemContents := entries.GetItemContents()
-	tweets := make([]Tweet, len(itemContents))
+	tweets := make([]*Tweet, len(itemContents))
 	for i := 0; i < len(itemContents); i++ {
 		tweet_results := itemContents[i].GetTweetResults()
 		ptweet := parseTweetResults(&tweet_results)
 		if ptweet != nil {
-			tweets[i] = *ptweet
+			tweets[i] = ptweet
 		}
 	}
-	return tweets, entries.GetNextCursor(), nil
+	if len(itemContents) == 0 {
+		return nil, "", nil
+	}
+	return tweets, entries.getBottomCursor(), nil
+}
+
+func (u *User) GetMeidas(client *http.Client, trange *utils.TimeRange) ([]*Tweet, error) {
+	if !u.IsVisiable() {
+		return nil, nil
+	}
+	var cursor string
+	var done bool
+	var firstPage bool = true
+	results := make([]*Tweet, 0, u.MediaCount)
+
+	// temp
+	var tempMin Tweet
+	var tempMax Tweet
+	if trange != nil {
+		tempMin = Tweet{CreatedAt: trange.Min}
+		tempMax = Tweet{CreatedAt: trange.Max}
+	}
+
+	for !done {
+		currentTweets, next, err := u.getMediasOnPage(client, cursor)
+		if err != nil {
+			return nil, err
+		}
+		if next == "" {
+			done = true
+		} else {
+			cursor = next
+		}
+
+		if trange == nil {
+			results = append(results, currentTweets...)
+			continue
+		}
+
+		// ? 这样就行？
+		comparables := make([]utils.Comparable, len(currentTweets))
+		for i := 0; i < len(currentTweets); i++ {
+			comparables[i] = currentTweets[i]
+		}
+
+		// filter
+		// 过滤掉发布日期超出指定范围的推文，仅需在第一页执行
+		if firstPage && !trange.Max.IsZero() && len(currentTweets) != 0 {
+			firstPage = false
+			index := utils.RFirstGreaterEqual(comparables, &tempMax)
+			if index >= 0 {
+				currentTweets = currentTweets[index+1:]
+				comparables = comparables[index+1:]
+			}
+		}
+		// 过滤掉发布日期小于等于指定范围的推文，
+		// 当发现满足条件的推文，返回不再获取下页
+		if !trange.Min.IsZero() && len(currentTweets) != 0 {
+			index := utils.RFirstLessEqual(comparables, &tempMin)
+			if index < len(currentTweets) {
+				done = true
+				currentTweets = currentTweets[:index]
+			}
+		}
+		results = append(results, currentTweets...)
+	}
+	return results, nil
 }

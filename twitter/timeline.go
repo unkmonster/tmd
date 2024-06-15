@@ -25,7 +25,7 @@ func (itemcontent itemContent) GetTweetResults() gjson.Result {
 }
 
 type entriesMethod interface {
-	GetNextCursor() string
+	getBottomCursor() string
 	GetItemContents() []itemContent
 }
 
@@ -41,7 +41,7 @@ type itemEntries struct {
 	gjson.Result
 }
 
-func (entries *itemEntries) GetNextCursor() string {
+func (entries *itemEntries) getBottomCursor() string {
 	array := entries.Array()
 	for i := len(array) - 1; i >= 0; i-- {
 		if array[i].Get("content.entryType").String() == "TimelineTimelineCursor" &&
