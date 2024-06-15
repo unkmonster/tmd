@@ -1,0 +1,50 @@
+package twitter
+
+import (
+	"time"
+
+	"github.com/tidwall/gjson"
+)
+
+type Tweet struct {
+	Id        uint64
+	Text      string
+	CreatedAt time.Time
+	Creator   *User
+	Urls      []string
+}
+
+func parseTweetResults(tweet_results *gjson.Result) *Tweet {
+	var tweet Tweet
+	var err error = nil
+
+	result := tweet_results.Get("result")
+	legacy := result.Get("legacy")
+	user_results := result.Get("core.user_results")
+
+	tweet.Id = result.Get("rest_id").Uint()
+	tweet.Text = legacy.Get("full_text").String()
+	tweet.Creator, _ = parseUserResults(&user_results)
+	tweet.CreatedAt, err = time.Parse(time.RubyDate, legacy.Get("created_at").String())
+	if err != nil {
+		panic("invalid time format")
+	}
+	media := result.Get("extended_entities.media")
+	if media.Exists() {
+		tweet.Urls = getUrlsFromMedia(&media)
+	}
+	return &tweet
+}
+
+func getUrlsFromMedia(media *gjson.Result) []string {
+	results := []string{}
+	for _, m := range media.Array() {
+		typ := m.Get("type").String()
+		if typ == "video" || typ == "animated_gif" {
+			results = append(results, m.Get("video_info.variants.@reverse.0.url").String())
+		} else if typ == "photo" {
+			results = append(results, m.Get("media_url_https").String())
+		}
+	}
+	return results
+}

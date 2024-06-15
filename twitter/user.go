@@ -1,11 +1,11 @@
 package twitter
 
 import (
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
-	"strconv"
+
+	"github.com/tidwall/gjson"
 )
 
 type FollowState int
@@ -59,51 +59,44 @@ func getUser(client *http.Client, url string) (*User, error) {
 		return nil, fmt.Errorf("%d %s", resp.StatusCode, data)
 	}
 
-	var j interface{}
-	if err = json.Unmarshal(data, &j); err != nil {
-		return nil, err
-	}
-	return parseRespJson(j.(map[string]interface{}))
+	return parseRespJson(string(data))
 }
 
-func parseRespJson(resp map[string]interface{}) (*User, error) {
-	data := resp["data"].(map[string]interface{})
-	if data["user"] == nil {
-		return nil, fmt.Errorf("user does not exist")
-	}
-	user := data["user"].(map[string]interface{})
-	result := user["result"].(map[string]interface{})
-	if result["__typename"] == nil {
+func parseUserResults(user_results *gjson.Result) (*User, error) {
+	result := user_results.Get("result")
+	if result.Get("__typename").String() == "UserUnavailable" {
 		return nil, fmt.Errorf("user unavaiable")
 	}
-	legacy := result["legacy"].(map[string]interface{})
+	legacy := result.Get("legacy")
 
-	id, err := strconv.ParseUint(result["rest_id"].(string), 10, 64)
-	if err != nil {
-		return nil, err
-	}
-
-	name := legacy["name"].(string)
-	screen_name := legacy["screen_name"].(string)
-	friends_count := int(legacy["friends_count"].(float64))
-	protected := legacy["protected"] != nil
-	var followState FollowState
-	if legacy["following"] != nil && legacy["following"].(bool) {
-		followState = FS_FOLLOWING
-	} else if legacy["follow_request_sent"] != nil && legacy["follow_request_sent"].(bool) {
-		followState = FS_REQUESTED
-	} else {
-		followState = FS_UNFOLLOW
-	}
+	restId := result.Get("rest_id")
+	friends_count := legacy.Get("friends_count")
+	name := legacy.Get("name")
+	screen_name := legacy.Get("screen_name")
+	protected := legacy.Get("protected").Exists()
 
 	usr := User{}
-	usr.FriendsCount = friends_count
-	usr.Id = id
+	if legacy.Get("following").Exists() {
+		usr.Followstate = FS_FOLLOWING
+	} else if legacy.Get("follow_request_sent").Exists() {
+		usr.Followstate = FS_REQUESTED
+	} else {
+		usr.Followstate = FS_UNFOLLOW
+	}
+	usr.FriendsCount = int(friends_count.Int())
+	usr.Id = restId.Uint()
 	usr.IsProtected = protected
-	usr.Name = name
-	usr.ScreenName = screen_name
-	usr.Followstate = followState
+	usr.Name = name.String()
+	usr.ScreenName = screen_name.String()
 	return &usr, nil
+}
+
+func parseRespJson(resp string) (*User, error) {
+	user := gjson.Get(resp, "data.user")
+	if !user.Exists() {
+		return nil, fmt.Errorf("user does not exist")
+	}
+	return parseUserResults(&user)
 }
 
 func (u *User) IsVisiable() bool {
