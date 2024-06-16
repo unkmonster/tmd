@@ -3,6 +3,7 @@ package downloading
 import (
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/jmoiron/sqlx"
 	"github.com/unkmonster/tmd2/database"
@@ -56,4 +57,20 @@ func (ue *UserEntity) Rename(title string) error {
 
 func (ue *UserEntity) Path() (string, error) {
 	return ue.dbentity.Path(ue.db)
+}
+
+func (ue *UserEntity) Title() string {
+	return ue.dbentity.Title
+}
+
+func (ue *UserEntity) LatestReleaseTime() time.Time {
+	return ue.dbentity.LatestReleaseTime
+}
+
+func (ue *UserEntity) SetLatestReleaseTime(t time.Time) error {
+	err := database.SetUserEntityLatestReleaseTime(ue.db, int(ue.dbentity.Id.Int32), t)
+	if err == nil {
+		ue.dbentity.LatestReleaseTime = t
+	}
+	return err
 }

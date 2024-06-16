@@ -201,3 +201,7 @@ func (u *User) GetMeidas(client *http.Client, trange *utils.TimeRange) ([]*Tweet
 	}
 	return results, nil
 }
+
+func (u *User) Title() string {
+	return fmt.Sprintf("%s(%s)", u.Name, u.ScreenName)
+}

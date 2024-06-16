@@ -54,7 +54,7 @@ func UniquePath(path string) (string, error) {
 		dir := filepath.Dir(path)
 		base := filepath.Base(path)
 		ext := filepath.Ext(path)
-		stem, _ := strings.CutPrefix(base, ext)
+		stem, _ := strings.CutSuffix(base, ext)
 		stemlen := len(stem)
 
 		// 处理已括号结尾的文件名

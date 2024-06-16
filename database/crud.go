@@ -2,6 +2,7 @@ package database
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/jmoiron/sqlx"
 	_ "github.com/mattn/go-sqlite3"
@@ -79,11 +80,14 @@ func DelUser(db *sqlx.DB, uid uint64) error {
 
 func GetUserById(db *sqlx.DB, uid uint64) (*User, error) {
 	stmt := `SELECT * FROM users WHERE id=?`
-	result := User{}
-	if err := db.Get(&result, stmt, uid); err != nil {
+	result := []User{}
+	if err := db.Select(&result, stmt, uid); err != nil {
 		return nil, err
 	}
-	return &result, nil
+	if len(result) != 0 {
+		return &result[0], nil
+	}
+	return nil, nil
 }
 
 func UpdateUser(db *sqlx.DB, usr *User) error {
@@ -115,12 +119,15 @@ func DelUserEntity(db *sqlx.DB, id uint32) error {
 }
 
 func LocateUserEntityInDir(db *sqlx.DB, uid uint64, parentDIr string) (*UserEntity, error) {
-	stmt := `SELECT * FROM user_entities WHERE uid=? AND parent_dir=?`
-	result := UserEntity{}
-	if err := db.Get(&result, stmt, uid, parentDIr); err != nil {
+	stmt := `SELECT * FROM user_entities WHERE user_id=? AND parent_dir=?`
+	result := []UserEntity{}
+	if err := db.Select(&result, stmt, uid, parentDIr); err != nil {
 		return nil, err
 	}
-	return &result, nil
+	if len(result) != 0 {
+		return &result[0], nil
+	}
+	return nil, nil
 }
 
 func LocateUserEntityInLst(db *sqlx.DB, uid uint64, lstEid uint) (*UserEntity, error) {
@@ -198,5 +205,11 @@ func GetLstEntity(db *sqlx.DB, id int) (*LstEntity, error) {
 func UpdateLstEntity(db *sqlx.DB, entity *LstEntity) error {
 	stmt := `UPDATE lst_entities SET title=? WHERE id=?`
 	_, err := db.Exec(stmt, entity.Titile, entity.Id)
+	return err
+}
+
+func SetUserEntityLatestReleaseTime(db *sqlx.DB, id int, t time.Time) error {
+	stmt := `UPDATE user_entities SET latest_release_time=?`
+	_, err := db.Exec(stmt, t)
 	return err
 }
