@@ -94,8 +94,18 @@ func UpdateUser(db *sqlx.DB, usr *User) error {
 
 func CreateUserEntity(db *sqlx.DB, entity *UserEntity) error {
 	stmt := `INSERT INTO user_entities(user_id, title, parent_dir, parent_lst_entity_id) VALUES(:user_id, :title, :parent_dir, :parent_lst_entity_id)`
-	_, err := db.NamedExec(stmt, entity)
-	return err
+	de, err := db.NamedExec(stmt, entity)
+	if err != nil {
+		return err
+	}
+	lastId, err := de.LastInsertId()
+	if err != nil {
+		return err
+	}
+
+	entity.Id.Int32 = int32(lastId)
+	entity.Id.Valid = true
+	return nil
 }
 
 func DelUserEntity(db *sqlx.DB, id uint32) error {

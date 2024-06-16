@@ -2,8 +2,11 @@ package database
 
 import (
 	"database/sql"
+	"fmt"
 	"path/filepath"
 	"time"
+
+	"github.com/jmoiron/sqlx"
 )
 
 type User struct {
@@ -38,4 +41,19 @@ type LstEntity struct {
 
 func (le *LstEntity) Path() string {
 	return filepath.Join(le.ParentDir, le.Titile)
+}
+
+func (ue *UserEntity) Path(db *sqlx.DB) (string, error) {
+	if ue.ParentDir.Valid {
+		return filepath.Join(ue.ParentDir.String, ue.Title), nil
+	}
+
+	if db != nil && ue.ParentLstEntityId.Valid {
+		lstEntity, err := GetLstEntity(db, int(ue.ParentLstEntityId.Int32))
+		if err != nil {
+			return "", err
+		}
+		return filepath.Join(lstEntity.Path(), ue.Title), nil
+	}
+	return "", fmt.Errorf("no enough info to get path")
 }
