@@ -88,3 +88,22 @@ func (a *userMedia) QueryParam() url.Values {
 func (a *userMedia) SetCursor(cursor string) {
 	a.cursor = cursor
 }
+
+type ListByRestId struct {
+	id uint64
+}
+
+func (*ListByRestId) Path() string {
+	return "/i/api/graphql/ZMQOSpxDo0cP5Cdt8MgEVA/ListByRestId"
+}
+
+func (a *ListByRestId) QueryParam() url.Values {
+	v := url.Values{}
+
+	variables := `{"listId":"%d"}`
+	features := `{"rweb_tipjar_consumption_enabled":true,"responsive_web_graphql_exclude_directive_enabled":true,"verified_phone_label_enabled":false,"responsive_web_graphql_skip_user_profile_image_extensions_enabled":false,"responsive_web_graphql_timeline_navigation_enabled":true}`
+
+	v.Set("variables", fmt.Sprintf(variables, a.id))
+	v.Set("features", features)
+	return v
+}
