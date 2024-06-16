@@ -9,6 +9,10 @@ import (
 	"github.com/unkmonster/tmd2/internal/utils"
 )
 
+type ListBase interface {
+	GetMembers() ([]*User, error)
+}
+
 type List struct {
 	Id          uint64
 	MemberCount int
@@ -58,18 +62,13 @@ func parseList(list *gjson.Result) (*List, error) {
 	return &result, nil
 }
 
-func (list *List) getMembers(client *http.Client, cursor string) ([]*User, string, error) {
-	api := ListMembers{}
-	api.count = 200
-	api.cursor = cursor
-	api.id = list.Id
-
-	data, err := getTimeline(client, &api)
+func getMembersOnePage(client *http.Client, api timelineApi, instsPath string) ([]*User, string, error) {
+	data, err := getTimeline(client, api)
 	if err != nil {
 		return nil, "", err
 	}
 
-	temp := gjson.Get(data, "data.list.members_timeline.timeline.instructions")
+	temp := gjson.Get(data, instsPath)
 	insts := itemInstructions{&temp}
 	entries := insts.GetEntries()
 	itemContents := entries.GetItemContents()
@@ -87,11 +86,12 @@ func (list *List) getMembers(client *http.Client, cursor string) ([]*User, strin
 	return users, entries.getBottomCursor(), nil
 }
 
-func (list *List) GetMembers(client *http.Client) ([]*User, error) {
+func getMembers(client *http.Client, api timelineApi, instsPath string) ([]*User, error) {
 	cursor := ""
 	users := []*User{}
 	for {
-		currentUsers, next, err := list.getMembers(client, cursor)
+		api.SetCursor(cursor)
+		currentUsers, next, err := getMembersOnePage(client, api, instsPath)
 		if err != nil {
 			return nil, err
 		}
@@ -101,4 +101,22 @@ func (list *List) GetMembers(client *http.Client) ([]*User, error) {
 		}
 		cursor = next
 	}
+}
+
+func (list *List) GetMembers(client *http.Client) ([]*User, error) {
+	api := ListMembers{}
+	api.count = 200
+	api.id = list.Id
+	return getMembers(client, &api, "data.list.members_timeline.timeline.instructions")
+}
+
+type UserFollowing struct {
+	creator *User
+}
+
+func (fo UserFollowing) GetMembers(client *http.Client) ([]*User, error) {
+	api := Following{}
+	api.count = 200
+	api.uid = fo.creator.Id
+	return getMembers(client, &api, "data.user.result.timeline.timeline.instructions")
 }
