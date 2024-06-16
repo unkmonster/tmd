@@ -2,6 +2,7 @@ package twitter
 
 import (
 	"io"
+	"log"
 	"net/http"
 
 	"github.com/tidwall/gjson"
@@ -55,4 +56,49 @@ func parseList(list *gjson.Result) (*List, error) {
 	result.MemberCount = int(member_count.Int())
 	result.Name = name.String()
 	return &result, nil
+}
+
+func (list *List) getMembers(client *http.Client, cursor string) ([]*User, string, error) {
+	api := ListMembers{}
+	api.count = 200
+	api.cursor = cursor
+	api.id = list.Id
+
+	data, err := getTimeline(client, &api)
+	if err != nil {
+		return nil, "", err
+	}
+
+	temp := gjson.Get(data, "data.list.members_timeline.timeline.instructions")
+	insts := itemInstructions{&temp}
+	entries := insts.GetEntries()
+	itemContents := entries.GetItemContents()
+
+	users := make([]*User, 0, len(itemContents))
+	for _, ic := range itemContents {
+		user_results := ic.GetUserResults()
+		u, err := parseUserResults(&user_results)
+		if err != nil {
+			log.Printf("%v\n%v", err, user_results)
+			continue
+		}
+		users = append(users, u)
+	}
+	return users, entries.getBottomCursor(), nil
+}
+
+func (list *List) GetMembers(client *http.Client) ([]*User, error) {
+	cursor := ""
+	users := []*User{}
+	for {
+		currentUsers, next, err := list.getMembers(client, cursor)
+		if err != nil {
+			return nil, err
+		}
+		users = append(users, currentUsers...)
+		if next == "" {
+			return users, nil
+		}
+		cursor = next
+	}
 }

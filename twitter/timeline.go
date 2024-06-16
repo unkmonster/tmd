@@ -43,6 +43,9 @@ type itemEntries struct {
 
 func (entries *itemEntries) getBottomCursor() string {
 	array := entries.Array()
+	if len(array) == 2 {
+		return ""
+	}
 	for i := len(array) - 1; i >= 0; i-- {
 		if array[i].Get("content.entryType").String() == "TimelineTimelineCursor" &&
 			array[i].Get("content.cursorType").String() == "Bottom" {
