@@ -58,7 +58,7 @@ func UniquePath(path string) (string, error) {
 		stemlen := len(stem)
 
 		// 处理已括号结尾的文件名
-		if stem[stemlen-1] == ')' {
+		if stemlen > 0 && stem[stemlen-1] == ')' {
 			if left := strings.LastIndex(stem, "("); left != -1 {
 
 				index, err := strconv.Atoi(stem[left+1 : stemlen-1])

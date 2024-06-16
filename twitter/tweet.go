@@ -37,7 +37,7 @@ func parseTweetResults(tweet_results *gjson.Result) *Tweet {
 	if err != nil {
 		panic(fmt.Errorf("invalid time format %v", err))
 	}
-	media := result.Get("extended_entities.media")
+	media := legacy.Get("extended_entities.media")
 	if media.Exists() {
 		tweet.Urls = getUrlsFromMedia(&media)
 	}
