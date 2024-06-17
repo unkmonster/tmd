@@ -1,9 +1,9 @@
 package downloading
 
 import (
-	"net/http"
 	"os"
 
+	"github.com/go-resty/resty/v2"
 	"github.com/jmoiron/sqlx"
 	"github.com/unkmonster/tmd2/database"
 	"github.com/unkmonster/tmd2/internal/utils"
@@ -34,35 +34,7 @@ func syncUser(db *sqlx.DB, user *twitter.User) error {
 	return database.UpdateUser(db, usrdb)
 }
 
-func downloadUser(db *sqlx.DB, client *http.Client, user *twitter.User, entity *UserEntity) ([]*twitter.Tweet, error) {
-	if err := syncUser(db, user); err != nil {
-		return nil, err
-	}
-
-	expectedTitle := string(utils.WinFileName([]byte(user.Title())))
-	if entity.Title() != expectedTitle {
-		if err := entity.Rename(expectedTitle); err != nil {
-			return nil, err
-		}
-	}
-
-	tweets, err := user.GetMeidas(client, &utils.TimeRange{Min: entity.LatestReleaseTime()})
-	if err != nil || len(tweets) == 0 {
-		return nil, err
-	}
-	entity.SetLatestReleaseTime(tweets[0].CreatedAt)
-
-	path, err := entity.Path()
-	if err != nil {
-		return nil, err
-	}
-	os.Mkdir(path, 0755) // ensure dir of user is exists
-
-	failures := BatchDownloadTweet(client, path, tweets)
-	return failures, nil
-}
-
-func DownloadUser(db *sqlx.DB, client *http.Client, user *twitter.User, dir string) ([]*twitter.Tweet, error) {
+func DownloadUser(db *sqlx.DB, client *resty.Client, user *twitter.User, dir string) ([]*twitter.Tweet, error) {
 	user, entity, err := syncUserAndEntityInDir(db, user, dir)
 	if err != nil {
 		return nil, err
@@ -123,7 +95,7 @@ func syncUserAndEntityInDir(db *sqlx.DB, user *twitter.User, dir string) (*twitt
 	return user, &entity, nil
 }
 
-func getTweetAndUpdateLatestReleaseTime(client *http.Client, user *twitter.User, entity *UserEntity) ([]*twitter.Tweet, error) {
+func getTweetAndUpdateLatestReleaseTime(client *resty.Client, user *twitter.User, entity *UserEntity) ([]*twitter.Tweet, error) {
 	tweets, err := user.GetMeidas(client, &utils.TimeRange{Min: entity.LatestReleaseTime()})
 	if err != nil || len(tweets) == 0 {
 		return nil, err

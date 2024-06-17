@@ -1,10 +1,9 @@
 package twitter
 
 import (
-	"io"
 	"log"
-	"net/http"
 
+	"github.com/go-resty/resty/v2"
 	"github.com/tidwall/gjson"
 	"github.com/unkmonster/tmd2/internal/utils"
 )
@@ -20,27 +19,22 @@ type List struct {
 	Creator     *User
 }
 
-func GetLst(client *http.Client, id uint64) (*List, error) {
+func GetLst(client *resty.Client, id uint64) (*List, error) {
 	api := ListByRestId{}
 	api.id = id
 	url := makeUrl(&api)
 
-	resp, err := client.Get(url)
+	resp, err := client.R().Get(url)
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
 
 	err = utils.CheckRespStatus(resp)
 	if err != nil {
 		return nil, err
 	}
 
-	data, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-	list := gjson.Get(string(data), "data.list")
+	list := gjson.Get(resp.String(), "data.list")
 	return parseList(&list)
 }
 
@@ -62,7 +56,7 @@ func parseList(list *gjson.Result) (*List, error) {
 	return &result, nil
 }
 
-func getMembersOnePage(client *http.Client, api timelineApi, instsPath string) ([]*User, string, error) {
+func getMembersOnePage(client *resty.Client, api timelineApi, instsPath string) ([]*User, string, error) {
 	data, err := getTimeline(client, api)
 	if err != nil {
 		return nil, "", err
@@ -86,7 +80,7 @@ func getMembersOnePage(client *http.Client, api timelineApi, instsPath string) (
 	return users, entries.getBottomCursor(), nil
 }
 
-func getMembers(client *http.Client, api timelineApi, instsPath string) ([]*User, error) {
+func getMembers(client *resty.Client, api timelineApi, instsPath string) ([]*User, error) {
 	cursor := ""
 	users := []*User{}
 	for {
@@ -103,7 +97,7 @@ func getMembers(client *http.Client, api timelineApi, instsPath string) ([]*User
 	}
 }
 
-func (list *List) GetMembers(client *http.Client) ([]*User, error) {
+func (list *List) GetMembers(client *resty.Client) ([]*User, error) {
 	api := ListMembers{}
 	api.count = 200
 	api.id = list.Id
@@ -114,7 +108,7 @@ type UserFollowing struct {
 	creator *User
 }
 
-func (fo UserFollowing) GetMembers(client *http.Client) ([]*User, error) {
+func (fo UserFollowing) GetMembers(client *resty.Client) ([]*User, error) {
 	api := Following{}
 	api.count = 200
 	api.uid = fo.creator.Id

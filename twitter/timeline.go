@@ -2,9 +2,8 @@ package twitter
 
 import (
 	"fmt"
-	"io"
-	"net/http"
 
+	"github.com/go-resty/resty/v2"
 	"github.com/tidwall/gjson"
 )
 
@@ -100,22 +99,14 @@ func (insts *moduleInstructions) GetEntries() entriesMethod {
 	return &moduleEntries{*pe}
 }
 
-func getTimeline(client *http.Client, api timelineApi) (string, error) {
+func getTimeline(client *resty.Client, api timelineApi) (string, error) {
 	url := makeUrl(api)
-	resp, err := client.Get(url)
+	resp, err := client.R().Get(url)
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
-
-	data, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", err
+	if resp.StatusCode() != 200 {
+		return "", fmt.Errorf("%s %s", resp.Status(), resp.String())
 	}
-
-	if resp.StatusCode != 200 {
-		return "", fmt.Errorf("%d %s", resp.StatusCode, data)
-	}
-
-	return string(data), nil
+	return resp.String(), nil
 }

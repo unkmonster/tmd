@@ -3,6 +3,7 @@ module github.com/unkmonster/tmd2
 go 1.22.3
 
 require (
+	github.com/go-resty/resty/v2 v2.13.1 // indirect
 	github.com/jmoiron/sqlx v1.4.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/mattn/go-sqlite3 v1.14.22 // indirect
@@ -11,4 +12,5 @@ require (
 	github.com/tidwall/gjson v1.17.1 // indirect
 	github.com/tidwall/match v1.1.1 // indirect
 	github.com/tidwall/pretty v1.2.1 // indirect
+	golang.org/x/net v0.25.0 // indirect
 )

@@ -3,12 +3,12 @@ package downloading
 import (
 	"io"
 	"log"
-	"net/http"
 	"os"
 	"path/filepath"
 	"sync"
 	"time"
 
+	"github.com/go-resty/resty/v2"
 	"github.com/unkmonster/tmd2/internal/utils"
 	"github.com/unkmonster/tmd2/twitter"
 )
@@ -16,7 +16,7 @@ import (
 var mutex sync.Mutex
 
 // 任何一个 url 下载失败直接返回
-func DownloadTweetMedia(client *http.Client, dir string, tweet *twitter.Tweet) error {
+func DownloadTweetMedia(client *resty.Client, dir string, tweet *twitter.Tweet) error {
 	text := string(utils.WinFileName([]byte(tweet.Text)))
 
 	for _, u := range tweet.Urls {
@@ -26,11 +26,10 @@ func DownloadTweetMedia(client *http.Client, dir string, tweet *twitter.Tweet) e
 		}
 
 		// 请求
-		resp, err := client.Get(u)
+		resp, err := client.R().Get(u)
 		if err != nil {
 			return err
 		}
-		defer resp.Body.Close()
 		if err := utils.CheckRespStatus(resp); err != nil {
 			return err
 		}
@@ -50,7 +49,7 @@ func DownloadTweetMedia(client *http.Client, dir string, tweet *twitter.Tweet) e
 		defer os.Chtimes(path, time.Time{}, tweet.CreatedAt)
 		defer file.Close()
 
-		_, err = io.Copy(file, resp.Body)
+		_, err = io.WriteString(file, resp.String())
 		if err != nil {
 			return err
 		}
@@ -58,7 +57,7 @@ func DownloadTweetMedia(client *http.Client, dir string, tweet *twitter.Tweet) e
 	return nil
 }
 
-func BatchDownloadTweet(client *http.Client, dir string, tweets []*twitter.Tweet) []*twitter.Tweet {
+func BatchDownloadTweet(client *resty.Client, dir string, tweets []*twitter.Tweet) []*twitter.Tweet {
 	var tokens = make(chan struct{}, 50)
 	var errChan = make(chan *twitter.Tweet)
 	errors := []*twitter.Tweet{}

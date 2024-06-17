@@ -2,9 +2,8 @@ package twitter
 
 import (
 	"fmt"
-	"io"
-	"net/http"
 
+	"github.com/go-resty/resty/v2"
 	"github.com/tidwall/gjson"
 	"github.com/unkmonster/tmd2/internal/utils"
 )
@@ -27,7 +26,7 @@ type User struct {
 	MediaCount   int
 }
 
-func GetUserById(client *http.Client, id uint64) (*User, error) {
+func GetUserById(client *resty.Client, id uint64) (*User, error) {
 	api := userByRestId{id}
 	getUrl := makeUrl(&api)
 	r, err := getUser(client, getUrl)
@@ -37,7 +36,7 @@ func GetUserById(client *http.Client, id uint64) (*User, error) {
 	return r, err
 }
 
-func GetUserByScreenName(client *http.Client, screenName string) (*User, error) {
+func GetUserByScreenName(client *resty.Client, screenName string) (*User, error) {
 	u := makeUrl(&userByScreenName{screenName: screenName})
 	r, err := getUser(client, u)
 	if err != nil {
@@ -46,22 +45,15 @@ func GetUserByScreenName(client *http.Client, screenName string) (*User, error) 
 	return r, err
 }
 
-func getUser(client *http.Client, url string) (*User, error) {
-	resp, err := client.Get(url)
+func getUser(client *resty.Client, url string) (*User, error) {
+	resp, err := client.R().Get(url)
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
-
-	data, err := io.ReadAll(resp.Body)
-	if err != nil {
+	if err := utils.CheckRespStatus(resp); err != nil {
 		return nil, err
 	}
-	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("%d %s", resp.StatusCode, data)
-	}
-
-	return parseRespJson(string(data))
+	return parseRespJson(resp.String())
 }
 
 func parseUserResults(user_results *gjson.Result) (*User, error) {
@@ -107,7 +99,7 @@ func (u *User) IsVisiable() bool {
 	return u.Followstate == FS_FOLLOWING || !u.IsProtected
 }
 
-func (u *User) getMediasOnPage(client *http.Client, cursor string) ([]*Tweet, string, error) {
+func (u *User) getMediasOnPage(client *resty.Client, cursor string) ([]*Tweet, string, error) {
 	if !u.IsVisiable() {
 		return nil, "", nil
 	}
@@ -139,7 +131,7 @@ func (u *User) getMediasOnPage(client *http.Client, cursor string) ([]*Tweet, st
 	return tweets, entries.getBottomCursor(), nil
 }
 
-func (u *User) GetMeidas(client *http.Client, trange *utils.TimeRange) ([]*Tweet, error) {
+func (u *User) GetMeidas(client *resty.Client, trange *utils.TimeRange) ([]*Tweet, error) {
 	if !u.IsVisiable() {
 		return nil, nil
 	}
