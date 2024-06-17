@@ -117,16 +117,17 @@ func (u *User) getMediasOnPage(client *resty.Client, cursor string) ([]*Tweet, s
 	minsts := moduleInstructions{itemInstructions{&j}}
 	entries := minsts.GetEntries()
 	itemContents := entries.GetItemContents()
-	tweets := make([]*Tweet, len(itemContents))
+	if len(itemContents) == 0 {
+		return nil, "", nil
+	}
+
+	tweets := make([]*Tweet, 0, len(itemContents))
 	for i := 0; i < len(itemContents); i++ {
 		tweet_results := itemContents[i].GetTweetResults()
 		ptweet := parseTweetResults(&tweet_results)
 		if ptweet != nil {
-			tweets[i] = ptweet
+			tweets = append(tweets, ptweet)
 		}
-	}
-	if len(itemContents) == 0 {
-		return nil, "", nil
 	}
 	return tweets, entries.getBottomCursor(), nil
 }

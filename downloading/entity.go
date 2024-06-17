@@ -64,13 +64,13 @@ func (ue *UserEntity) Title() string {
 }
 
 func (ue *UserEntity) LatestReleaseTime() time.Time {
-	return ue.dbentity.LatestReleaseTime
+	return ue.dbentity.LatestReleaseTime.Time
 }
 
 func (ue *UserEntity) SetLatestReleaseTime(t time.Time) error {
 	err := database.SetUserEntityLatestReleaseTime(ue.db, int(ue.dbentity.Id.Int32), t)
 	if err == nil {
-		ue.dbentity.LatestReleaseTime = t
+		ue.dbentity.LatestReleaseTime.Scan(t)
 	}
 	return err
 }

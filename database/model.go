@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	"fmt"
 	"path/filepath"
-	"time"
 
 	"github.com/jmoiron/sqlx"
 )
@@ -21,7 +20,7 @@ type UserEntity struct {
 	Id                sql.NullInt32  `db:"id"`
 	Uid               uint64         `db:"user_id"`
 	Title             string         `db:"title"`
-	LatestReleaseTime time.Time      `db:"latest_release_time"`
+	LatestReleaseTime sql.NullTime   `db:"latest_release_time"`
 	ParentDir         sql.NullString `db:"parent_dir"`
 	ParentLstEntityId sql.NullInt32  `db:"parent_lst_entity_id"`
 }
