@@ -34,8 +34,8 @@ func syncUser(db *sqlx.DB, user *twitter.User) error {
 	return database.UpdateUser(db, usrdb)
 }
 
-func DownloadUser(db *sqlx.DB, client *resty.Client, user *twitter.User, dir string) ([]*twitter.Tweet, error) {
-	user, entity, err := syncUserAndEntityInDir(db, user, dir)
+func DownloadUser(db *sqlx.DB, client *resty.Client, user *twitter.User, dir string) ([]PackgedTweet, error) {
+	entity, err := syncUserAndEntityInDir(db, user, dir)
 	if err != nil {
 		return nil, err
 	}
@@ -44,24 +44,26 @@ func DownloadUser(db *sqlx.DB, client *resty.Client, user *twitter.User, dir str
 		return nil, err
 	}
 
-	path, err := entity.Path()
-	if err != nil {
-		return nil, err
+	// 打包推文
+	pts := make([]PackgedTweet, 0, len(tweets))
+	for _, tw := range tweets {
+		pts = append(pts, TweetInEntity{Tweet: tw, Entity: entity})
 	}
-	failures := BatchDownloadTweet(client, path, tweets)
+
+	failures := batchDownloadTweet(client, pts...)
 	return failures, nil
 }
 
-func syncUserAndEntityInDir(db *sqlx.DB, user *twitter.User, dir string) (*twitter.User, *UserEntity, error) {
+func syncUserAndEntityInDir(db *sqlx.DB, user *twitter.User, dir string) (*UserEntity, error) {
 	if err := syncUser(db, user); err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	expectedTitle := string(utils.WinFileName([]byte(user.Title())))
 
 	newUser := false
 	userdb, err := database.LocateUserEntityInDir(db, user.Id, dir)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	if userdb == nil {
 		userdb = &database.UserEntity{}
@@ -76,23 +78,23 @@ func syncUserAndEntityInDir(db *sqlx.DB, user *twitter.User, dir string) (*twitt
 		// 重命名检测
 		if entity.Title() != expectedTitle {
 			if err := entity.Rename(expectedTitle); err != nil {
-				return nil, nil, err
+				return nil, err
 			}
 		} else {
 			path, err := entity.Path()
 			if err != nil {
-				return nil, nil, err
+				return nil, err
 			}
 			os.Mkdir(path, 0755)
 		}
 
-		return user, &entity, nil
+		return &entity, nil
 	}
 
 	if err := entity.Create(); err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	return user, &entity, nil
+	return &entity, nil
 }
 
 func getTweetAndUpdateLatestReleaseTime(client *resty.Client, user *twitter.User, entity *UserEntity) ([]*twitter.Tweet, error) {

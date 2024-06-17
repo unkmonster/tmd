@@ -10,20 +10,20 @@ import (
 	"github.com/unkmonster/tmd2/twitter"
 )
 
-type PackagedTweet struct {
+type TweetDumper struct {
 	data  map[int][]*twitter.Tweet
 	set   map[int]map[uint64]struct{}
 	init  bool
 	count int
 }
 
-func (pt *PackagedTweet) initialize() {
+func (pt *TweetDumper) initialize() {
 	pt.data = make(map[int][]*twitter.Tweet)
 	pt.set = make(map[int]map[uint64]struct{})
 	pt.count = 0
 }
 
-func (pt *PackagedTweet) Push(eid int, tweets ...*twitter.Tweet) {
+func (pt *TweetDumper) Push(eid int, tweets ...*twitter.Tweet) {
 	if !pt.init {
 		pt.initialize()
 		pt.init = true
@@ -47,7 +47,7 @@ func (pt *PackagedTweet) Push(eid int, tweets ...*twitter.Tweet) {
 	}
 }
 
-func (pt *PackagedTweet) Dump(path string) error {
+func (pt *TweetDumper) Dump(path string) error {
 	exist, err := utils.PathExists(path)
 	if err != nil {
 		return err
@@ -70,8 +70,8 @@ func (pt *PackagedTweet) Dump(path string) error {
 	return err
 }
 
-func (pt *PackagedTweet) Load(path string) error {
-	newPt := PackagedTweet{}
+func (pt *TweetDumper) Load(path string) error {
+	newPt := TweetDumper{}
 	file, err := os.OpenFile(path, os.O_RDONLY, 0666)
 	if err != nil {
 		return err
@@ -93,11 +93,11 @@ func (pt *PackagedTweet) Load(path string) error {
 	return nil
 }
 
-func (pt *PackagedTweet) Clear() {
+func (pt *TweetDumper) Clear() {
 	pt.initialize()
 }
 
-func (pt *PackagedTweet) Data() map[int][]*twitter.Tweet {
+func (pt *TweetDumper) Data() map[int][]*twitter.Tweet {
 	newMap := map[int][]*twitter.Tweet{}
 	for k, v := range pt.data {
 		newMap[k] = make([]*twitter.Tweet, len(v))
@@ -106,6 +106,6 @@ func (pt *PackagedTweet) Data() map[int][]*twitter.Tweet {
 	return newMap
 }
 
-func (pt *PackagedTweet) Count() int {
+func (pt *TweetDumper) Count() int {
 	return pt.count
 }

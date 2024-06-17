@@ -13,10 +13,28 @@ import (
 	"github.com/unkmonster/tmd2/twitter"
 )
 
+type PackgedTweet interface {
+	GetTweet() *twitter.Tweet
+	GetPath() string
+}
+
+type TweetInDir struct {
+	tweet *twitter.Tweet
+	path  string
+}
+
+func (pt TweetInDir) GetTweet() *twitter.Tweet {
+	return pt.tweet
+}
+
+func (pt TweetInDir) GetPath() string {
+	return pt.path
+}
+
 var mutex sync.Mutex
 
 // 任何一个 url 下载失败直接返回
-func DownloadTweetMedia(client *resty.Client, dir string, tweet *twitter.Tweet) error {
+func downloadTweetMedia(client *resty.Client, dir string, tweet *twitter.Tweet) error {
 	text := string(utils.WinFileName([]byte(tweet.Text)))
 
 	for _, u := range tweet.Urls {
@@ -57,23 +75,24 @@ func DownloadTweetMedia(client *resty.Client, dir string, tweet *twitter.Tweet) 
 	return nil
 }
 
-func BatchDownloadTweet(client *resty.Client, dir string, tweets []*twitter.Tweet) []*twitter.Tweet {
-	var tokens = make(chan struct{}, 50)
-	var errChan = make(chan *twitter.Tweet)
-	errors := []*twitter.Tweet{}
+func batchDownloadTweet(client *resty.Client, pts ...PackgedTweet) []PackgedTweet {
+	var tokens = make(chan struct{}, numToken)
+	var errChan = make(chan PackgedTweet)
+	errors := []PackgedTweet{}
 	var wg sync.WaitGroup // number of working goroutines
 
-	for _, tw := range tweets {
+	for _, pt := range pts {
 		wg.Add(1)
-		go func(twe *twitter.Tweet) {
+		go func(pt PackgedTweet) {
 			defer wg.Done()
 			tokens <- struct{}{}
-			if err := DownloadTweetMedia(client, dir, twe); err != nil {
-				errChan <- twe
+			// !! path 会不会为空字符串？
+			if err := downloadTweetMedia(client, pt.GetPath(), pt.GetTweet()); err != nil {
+				errChan <- pt
 				log.Println("failed to download tweet:", err)
 			}
 			<-tokens
-		}(tw)
+		}(pt)
 	}
 
 	go func() {
@@ -82,10 +101,10 @@ func BatchDownloadTweet(client *resty.Client, dir string, tweets []*twitter.Twee
 	}()
 
 	for range errChan {
-		tw := <-errChan
-		if tw != nil {
-			errors = append(errors, tw)
-		}
+		pt := <-errChan
+		errors = append(errors, pt)
 	}
 	return errors
 }
+
+var numToken = 20

@@ -209,7 +209,7 @@ func UpdateLstEntity(db *sqlx.DB, entity *LstEntity) error {
 }
 
 func SetUserEntityLatestReleaseTime(db *sqlx.DB, id int, t time.Time) error {
-	stmt := `UPDATE user_entities SET latest_release_time=?`
-	_, err := db.Exec(stmt, t)
+	stmt := `UPDATE user_entities SET latest_release_time=? WHERE id=?`
+	_, err := db.Exec(stmt, t, id)
 	return err
 }

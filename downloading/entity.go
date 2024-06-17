@@ -74,3 +74,7 @@ func (ue *UserEntity) SetLatestReleaseTime(t time.Time) error {
 	}
 	return err
 }
+
+func (ue *UserEntity) Uid() uint64 {
+	return ue.dbentity.Uid
+}
