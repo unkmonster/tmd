@@ -4,6 +4,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"path/filepath"
 	"strconv"
 	"sync"
 	"time"
@@ -52,33 +53,35 @@ type xRateLimit struct {
 	Remaining int
 	Limit     int
 	Ready     bool
+	Url       string
 }
 
 func (rl *xRateLimit) Req() bool {
 	if !rl.Ready {
-		log.Printf("not ready\n")
+		log.Printf("not ready %s\n", rl.Url)
 		return false
 	}
 
 	if time.Now().After(rl.ResetTime) {
-		log.Printf("expired\n")
+		log.Printf("expired %s\n", rl.Url)
 		rl.Ready = false
 		return false
 	}
 
-	if rl.Remaining > 0 {
+	if rl.Remaining > rl.Limit/100 {
 		rl.Remaining--
-		log.Printf("requested: remaining %d\n", rl.Remaining)
+		log.Printf("requested %s: remaining  %d\n", rl.Url, rl.Remaining)
 		return true
 	} else {
-		log.Printf("[RateLimit] Sleep until %s\n", rl.ResetTime)
+		log.Printf("[RateLimit] %s Sleep until %s\n", rl.Url, rl.ResetTime)
 		time.Sleep(time.Until(rl.ResetTime))
 		rl.Ready = false
 		return false
 	}
 }
 
-func makeRateLimit(header *http.Header) *xRateLimit {
+func makeRateLimit(resp *resty.Response) *xRateLimit {
+	header := resp.Header()
 	limit := header.Get("X-Rate-Limit-Limit")
 	if limit == "" {
 		return nil // 没有速率限制信息
@@ -104,20 +107,25 @@ func makeRateLimit(header *http.Header) *xRateLimit {
 	if err != nil {
 		return nil
 	}
+
+	u, _ := url.Parse(resp.Request.URL)
+	url := filepath.Join(u.Host, u.Path)
+
 	return &xRateLimit{
 		ResetTime: time.Unix(int64(resetTimeNum), 0),
 		Remaining: remainingNum,
 		Limit:     limitNum,
 		Ready:     true,
+		Url:       url,
 	}
 }
 
 func EnableRateLimit(client *resty.Client) {
 	limiters := make(map[string]*xRateLimit)
 	mutexs := sync.Map{}
+	conds := make(map[string]*sync.Cond)
 
 	client.OnBeforeRequest(func(c *resty.Client, req *resty.Request) error {
-		// 对一个 URL 初始化
 		u, err := url.Parse(req.URL)
 		if err != nil {
 			return err
@@ -126,14 +134,24 @@ func EnableRateLimit(client *resty.Client) {
 		mutex := mut.(*sync.Mutex)
 
 		mutex.Lock()
-		limiter, exist := limiters[u.Path]
+		defer mutex.Unlock()
+
+		// 首次请求这个路径，给此路径赋一个初始值后直接开始请求
+		_, exist := limiters[u.Path]
 		if !exist {
 			limiters[u.Path] = &xRateLimit{}
-			limiter = limiters[u.Path]
+			conds[u.Path] = sync.NewCond(mutex)
+			// limiter = limiters[u.Path]
+			// cond = conds[u.Path]
+			return nil
 		}
 
-		if limiter == nil || limiter.Req() {
-			mutex.Unlock()
+		for limiters[u.Path] != nil && !limiters[u.Path].Ready {
+			conds[u.Path].Wait()
+		}
+
+		if limiters[u.Path] != nil {
+			limiters[u.Path].Req()
 		}
 		return nil
 	})
@@ -144,19 +162,21 @@ func EnableRateLimit(client *resty.Client) {
 			return err
 		}
 
-		limiter := limiters[u.Path] // 绝对能获取到
+		// 不获取互斥量，仅在速率限制未就绪的情况下使其就绪并解锁
+		mut, _ := mutexs.Load(u.Path)
+		mutex := mut.(*sync.Mutex)
+
+		mutex.Lock()
+		defer mutex.Unlock()
+		limiter := limiters[u.Path] // 绝对存在
 		if limiter == nil || limiter.Ready {
 			return nil
 		}
 
-		// 不获取互斥量，仅在速率限制未就绪的情况下使其就绪并解锁
-		mut, _ := mutexs.Load(u.Path)
-		mutex := mut.(*sync.Mutex)
 		// 重置速率限制
-		header := resp.Header()
-		newLimiter := makeRateLimit(&header)
+		newLimiter := makeRateLimit(resp)
 		limiters[u.Path] = newLimiter
-		mutex.Unlock()
+		conds[u.Path].Broadcast()
 		return nil
 	})
 }
