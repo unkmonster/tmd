@@ -1,9 +1,11 @@
 package twitter
 
 import (
+	"fmt"
 	"log"
 	"net/http"
 	"net/url"
+	"path/filepath"
 	"strconv"
 	"sync"
 	"time"
@@ -28,11 +30,12 @@ func Login(cookie_str string, authToken string) (*resty.Client, string, error) {
 	client.SetRetryCount(5)
 	//transport
 	client.SetTransport(&http.Transport{
-		MaxIdleConns:        100,
-		MaxIdleConnsPerHost: 100,
-		IdleConnTimeout:     5 * time.Second,
+		MaxIdleConns:          100,
+		MaxIdleConnsPerHost:   100,
+		IdleConnTimeout:       5 * time.Second,
+		TLSHandshakeTimeout:   5 * time.Second,
+		ResponseHeaderTimeout: 5 * time.Second,
 	})
-	// timeout
 	client.SetTimeout(5 * time.Second)
 
 	//
@@ -52,33 +55,35 @@ type xRateLimit struct {
 	Remaining int
 	Limit     int
 	Ready     bool
+	Url       string
 }
 
 func (rl *xRateLimit) Req() bool {
 	if !rl.Ready {
-		log.Printf("not ready\n")
+		log.Printf("not ready %s\n", rl.Url)
 		return false
 	}
 
 	if time.Now().After(rl.ResetTime) {
-		log.Printf("expired\n")
+		log.Printf("expired %s\n", rl.Url)
 		rl.Ready = false
 		return false
 	}
 
-	if rl.Remaining > 0 {
+	if rl.Remaining > rl.Limit/100 {
 		rl.Remaining--
-		log.Printf("requested: remaining %d\n", rl.Remaining)
+		//log.Printf("requested %s: remaining  %d\n", rl.Url, rl.Remaining)
 		return true
 	} else {
-		log.Printf("[RateLimit] Sleep until %s\n", rl.ResetTime)
+		log.Printf("[RateLimit] %s Sleep until %s\n", rl.Url, rl.ResetTime)
 		time.Sleep(time.Until(rl.ResetTime))
 		rl.Ready = false
 		return false
 	}
 }
 
-func makeRateLimit(header *http.Header) *xRateLimit {
+func makeRateLimit(resp *resty.Response) *xRateLimit {
+	header := resp.Header()
 	limit := header.Get("X-Rate-Limit-Limit")
 	if limit == "" {
 		return nil // 没有速率限制信息
@@ -104,59 +109,154 @@ func makeRateLimit(header *http.Header) *xRateLimit {
 	if err != nil {
 		return nil
 	}
+
+	u, _ := url.Parse(resp.Request.URL)
+	url := filepath.Join(u.Host, u.Path)
+
 	return &xRateLimit{
 		ResetTime: time.Unix(int64(resetTimeNum), 0),
 		Remaining: remainingNum,
 		Limit:     limitNum,
 		Ready:     true,
+		Url:       url,
 	}
 }
 
+type rateLimiter struct {
+	limiters sync.Map
+	conds    sync.Map
+}
+
+func (rateLimiter *rateLimiter) Check(url *url.URL) {
+	if !rateLimiter.ShouldWork(url) {
+		return
+	}
+
+	path := url.Path
+	cod, _ := rateLimiter.conds.LoadOrStore(path, sync.NewCond(&sync.Mutex{}))
+	cond := cod.(*sync.Cond)
+	cond.L.Lock()
+	defer cond.L.Unlock()
+
+	lim, loaded := rateLimiter.limiters.LoadOrStore(path, &xRateLimit{})
+	limiter := lim.(*xRateLimit)
+	if !loaded {
+		fmt.Printf("initial req: %s\n", path)
+		return
+	}
+
+	// 保证当前路径的速率限制会被另一个请求更新使其就绪，否则这里会无尽等待
+	for limiter != nil && !limiter.Ready {
+		fmt.Printf("wait for ready: %s\n", path)
+		cond.Wait()
+		lim, loaded := rateLimiter.limiters.LoadOrStore(path, &xRateLimit{})
+		if !loaded {
+			// 上个请求失败了，从它身上继承更新速率限制的重任
+			fmt.Printf("inherited initial req: %s\n", path)
+			return
+		}
+		limiter = lim.(*xRateLimit)
+	}
+
+	// limiter 为 nil 意味着不对此路径做速率限制，否则必须等待至速率限制信息准备就绪
+	if limiter != nil {
+		limiter.Req()
+	}
+	fmt.Printf("start req: %s\n", path)
+}
+
+func (rateLimiter *rateLimiter) Update(resp *resty.Response) {
+	if !rateLimiter.ShouldWork(resp.RawResponse.Request.URL) {
+		return
+	}
+
+	path := resp.RawResponse.Request.URL.Path
+
+	co, _ := rateLimiter.conds.Load(path)
+	cond := co.(*sync.Cond)
+	cond.L.Lock()
+	defer cond.L.Unlock()
+
+	lim, _ := rateLimiter.limiters.Load(path) // 一定能加载到一个值
+	limiter := lim.(*xRateLimit)
+	if limiter == nil || limiter.Ready {
+		return
+	}
+
+	// 重置速率限制
+	newLimiter := makeRateLimit(resp)
+	rateLimiter.limiters.Store(path, newLimiter)
+	cond.Broadcast()
+	fmt.Printf("updated: %s\n", path)
+}
+
+func (rateLimiter *rateLimiter) Reset(url *url.URL) {
+	if !rateLimiter.ShouldWork(url) {
+		return
+	}
+
+	path := url.Path
+	co, ok := rateLimiter.conds.Load(path)
+	if !ok {
+		return
+	}
+	cond := co.(*sync.Cond)
+	cond.L.Lock()
+	defer cond.L.Unlock()
+
+	lim, ok := rateLimiter.limiters.Load(path) // 一定能加载到一个值
+	if !ok {
+		// OnError 但是已被 OnRetry 重置
+		return
+	}
+	limiter := lim.(*xRateLimit)
+	if limiter == nil || limiter.Ready {
+		return
+	}
+
+	// 将此路径设为首次请求的状态
+	rateLimiter.limiters.Delete(path)
+	cond.Signal()
+	fmt.Printf("reseted: %s\n", path)
+}
+
+func (*rateLimiter) ShouldWork(url *url.URL) bool {
+	return true
+	// if url.Host == "video.twimg.com" || url.Host == "pbs.twimg.com" {
+	// 	return false
+	// }
+	// return true
+}
+
+// 在 client.RetryCount 不为0的情况下
+// 每次请求 retryHook 和 respHook 仅有一个被调用
+
 func EnableRateLimit(client *resty.Client) {
-	limiters := make(map[string]*xRateLimit)
-	mutexs := sync.Map{}
+	rateLimiter := rateLimiter{}
 
 	client.OnBeforeRequest(func(c *resty.Client, req *resty.Request) error {
-		// 对一个 URL 初始化
 		u, err := url.Parse(req.URL)
 		if err != nil {
-			return err
+			panic(err)
 		}
-		mut, _ := mutexs.LoadOrStore(u.Path, &sync.Mutex{})
-		mutex := mut.(*sync.Mutex)
-
-		mutex.Lock()
-		limiter, exist := limiters[u.Path]
-		if !exist {
-			limiters[u.Path] = &xRateLimit{}
-			limiter = limiters[u.Path]
-		}
-
-		if limiter == nil || limiter.Req() {
-			mutex.Unlock()
-		}
+		rateLimiter.Check(u)
 		return nil
 	})
 
 	client.OnAfterResponse(func(c *resty.Client, resp *resty.Response) error {
-		u, err := url.Parse(resp.Request.URL)
-		if err != nil {
-			return err
-		}
-
-		limiter := limiters[u.Path] // 绝对能获取到
-		if limiter == nil || limiter.Ready {
-			return nil
-		}
-
-		// 不获取互斥量，仅在速率限制未就绪的情况下使其就绪并解锁
-		mut, _ := mutexs.Load(u.Path)
-		mutex := mut.(*sync.Mutex)
-		// 重置速率限制
-		header := resp.Header()
-		newLimiter := makeRateLimit(&header)
-		limiters[u.Path] = newLimiter
-		mutex.Unlock()
+		rateLimiter.Update(resp)
 		return nil
+	})
+
+	client.AddRetryHook(func(resp *resty.Response, _ error) {
+		if resp == nil {
+			// 请求未发起 (Http.Client.Do 未被调用)
+			return
+		}
+		rateLimiter.Reset(resp.Request.RawRequest.URL)
+	})
+
+	client.OnError(func(req *resty.Request, _ error) {
+		rateLimiter.Reset(req.RawRequest.URL)
 	})
 }
