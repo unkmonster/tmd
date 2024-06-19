@@ -1,5 +1,13 @@
 package utils
 
+/*
+#cgo CPPFLAGS: -DUNICODE=1
+#cgo LDFLAGS: -luuid -lole32 -loleaut32
+#include <Windows.h>
+int msgbox(wchar_t* msg);
+HRESULT CreateLink(wchar_t* lpszPathObj, wchar_t* lpszPathLink);
+*/
+import "C"
 import (
 	"fmt"
 	"os"
@@ -7,6 +15,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"unicode/utf16"
+	"unsafe"
 )
 
 var (
@@ -73,4 +83,13 @@ func UniquePath(path string) (string, error) {
 
 		path = filepath.Join(dir, stem+"(1)"+ext)
 	}
+}
+
+func CreateLink(path string, lnk string) int {
+	u16Path := utf16.Encode([]rune(path))
+	u16Lnk := utf16.Encode([]rune(lnk))
+	pPath := unsafe.Pointer(&u16Path[0])
+	pLnk := unsafe.Pointer(&u16Lnk[0])
+	hr := C.CreateLink((*C.wchar_t)(pPath), (*C.wchar_t)(pLnk))
+	return int(hr)
 }
