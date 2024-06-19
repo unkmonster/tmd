@@ -28,18 +28,18 @@ type UserEntity struct {
 type Lst struct {
 	Id      uint64 `db:"id"`
 	Name    string `db:"name"`
-	OwnerId uint64 `db:"owner_id"`
+	OwnerId uint64 `db:"owner_uid"`
 }
 
 type LstEntity struct {
-	Id        int    `db:"id"`
-	LstId     uint64 `db:"lst_id"`
-	Titile    string `db:"title"`
-	ParentDir string `db:"parent_dir"`
+	Id        sql.NullInt32 `db:"id"`
+	LstId     int64         `db:"lst_id"`
+	Title     string        `db:"title"`
+	ParentDir string        `db:"parent_dir"`
 }
 
 func (le *LstEntity) Path() string {
-	return filepath.Join(le.ParentDir, le.Titile)
+	return filepath.Join(le.ParentDir, le.Title)
 }
 
 func (ue *UserEntity) Path(db *sqlx.DB) (string, error) {

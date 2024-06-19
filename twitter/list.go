@@ -1,6 +1,7 @@
 package twitter
 
 import (
+	"fmt"
 	"log"
 
 	"github.com/go-resty/resty/v2"
@@ -9,7 +10,9 @@ import (
 )
 
 type ListBase interface {
-	GetMembers() ([]*User, error)
+	GetMembers(*resty.Client) ([]*User, error)
+	GetId() int64
+	Title() string
 }
 
 type List struct {
@@ -104,6 +107,14 @@ func (list *List) GetMembers(client *resty.Client) ([]*User, error) {
 	return getMembers(client, &api, "data.list.members_timeline.timeline.instructions")
 }
 
+func (list *List) GetId() int64 {
+	return int64(list.Id)
+}
+
+func (list *List) Title() string {
+	return fmt.Sprintf("%s(%d)", list.Name, list.Id)
+}
+
 type UserFollowing struct {
 	creator *User
 }
@@ -113,4 +124,13 @@ func (fo UserFollowing) GetMembers(client *resty.Client) ([]*User, error) {
 	api.count = 200
 	api.uid = fo.creator.Id
 	return getMembers(client, &api, "data.user.result.timeline.timeline.instructions")
+}
+
+func (fo UserFollowing) GetId() int64 {
+	return -int64(fo.creator.Id)
+}
+
+func (fo UserFollowing) Title() string {
+	name := fmt.Sprintf("%s's Following", fo.creator.ScreenName)
+	return fmt.Sprintf("%s(%d)", name, fo.GetId())
 }

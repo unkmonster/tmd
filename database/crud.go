@@ -2,6 +2,7 @@ package database
 
 import (
 	"fmt"
+	"path/filepath"
 	"time"
 
 	"github.com/jmoiron/sqlx"
@@ -155,7 +156,7 @@ func UpdateUserEntity(db *sqlx.DB, entity *UserEntity) error {
 }
 
 func CreateLst(db *sqlx.DB, lst *Lst) error {
-	stmt := `INSERT INTO lsts(id, name, owner_id) VALUES(:id, :name, :owner_id)`
+	stmt := `INSERT INTO lsts(id, name, owner_uid) VALUES(:id, :name, :owner_uid)`
 	_, err := db.NamedExec(stmt, &lst)
 	return err
 }
@@ -168,11 +169,14 @@ func DelLst(db *sqlx.DB, lid uint64) error {
 
 func GetLst(db *sqlx.DB, lid uint64) (*Lst, error) {
 	stmt := `SELECT * FROM lsts WHERE id = ?`
-	result := Lst{}
-	if err := db.Get(&result, stmt, lid); err != nil {
+	result := []Lst{}
+	if err := db.Select(&result, stmt, lid); err != nil {
 		return nil, err
 	}
-	return &result, nil
+	if len(result) == 0 {
+		return nil, nil
+	}
+	return &result[0], nil
 }
 
 func UpdateLst(db *sqlx.DB, lst *Lst) error {
@@ -182,9 +186,23 @@ func UpdateLst(db *sqlx.DB, lst *Lst) error {
 }
 
 func CreateLstEntity(db *sqlx.DB, entity *LstEntity) error {
+	abs, err := filepath.Abs(entity.ParentDir)
+	if err != nil {
+		return err
+	}
+	entity.ParentDir = abs
+
 	stmt := `INSERT INTO lst_entities(id, lst_id, title, parent_dir) VALUES(:id, :lst_id, :title, :parent_dir)`
-	_, err := db.NamedExec(stmt, &entity)
-	return err
+	r, err := db.NamedExec(stmt, &entity)
+	if err != nil {
+		return err
+	}
+	id, err := r.LastInsertId()
+	if err != nil {
+		return err
+	}
+	entity.Id.Scan(id)
+	return nil
 }
 
 func DelLstEntity(db *sqlx.DB, id int) error {
@@ -195,16 +213,34 @@ func DelLstEntity(db *sqlx.DB, id int) error {
 
 func GetLstEntity(db *sqlx.DB, id int) (*LstEntity, error) {
 	stmt := `SELECT * FROM lst_entities WHERE id=?`
-	result := LstEntity{}
-	if err := db.Get(&result, stmt, id); err != nil {
+	result := []LstEntity{}
+	if err := db.Select(&result, stmt, id); err != nil {
 		return nil, err
 	}
-	return &result, nil
+	if len(result) == 0 {
+		return nil, nil
+	}
+	return &result[0], nil
 }
 
+func LocateLstEntity(db *sqlx.DB, lid int64, parentDir string) (*LstEntity, error) {
+	parentDir, err := filepath.Abs(parentDir)
+	if err != nil {
+		return nil, err
+	}
+	stmt := `SELECT * FROM lst_entities WHERE lst_id=? AND parent_dir=?`
+	result := []LstEntity{}
+	if err := db.Select(&result, stmt, lid, parentDir); err != nil {
+		return nil, err
+	}
+	if len(result) == 0 {
+		return nil, nil
+	}
+	return &result[0], nil
+}
 func UpdateLstEntity(db *sqlx.DB, entity *LstEntity) error {
 	stmt := `UPDATE lst_entities SET title=? WHERE id=?`
-	_, err := db.Exec(stmt, entity.Titile, entity.Id)
+	_, err := db.Exec(stmt, entity.Title, entity.Id.Int32)
 	return err
 }
 

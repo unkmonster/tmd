@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -133,11 +134,14 @@ func (rateLimiter *rateLimiter) Check(url *url.URL) {
 	}
 
 	path := url.Path
+	// 首次遇见某个路径时初始化它
 	cod, _ := rateLimiter.conds.LoadOrStore(path, sync.NewCond(&sync.Mutex{}))
 	cond := cod.(*sync.Cond)
 	cond.L.Lock()
 	defer cond.L.Unlock()
 
+	// 首次遇见某个路径时初始化它
+	// 但在响应头中如果获取不到速率限制信息将此键赋 nil
 	lim, loaded := rateLimiter.limiters.LoadOrStore(path, &xRateLimit{})
 	limiter := lim.(*xRateLimit)
 	if !loaded {
@@ -145,6 +149,7 @@ func (rateLimiter *rateLimiter) Check(url *url.URL) {
 		return
 	}
 
+	// 路径过期后的首个请求可以正常发起，其余请求再次等待
 	// 保证当前路径的速率限制会被另一个请求更新使其就绪，否则这里会无尽等待
 	for limiter != nil && !limiter.Ready {
 		fmt.Printf("wait for ready: %s\n", path)
@@ -221,11 +226,7 @@ func (rateLimiter *rateLimiter) Reset(url *url.URL) {
 }
 
 func (*rateLimiter) ShouldWork(url *url.URL) bool {
-	return true
-	// if url.Host == "video.twimg.com" || url.Host == "pbs.twimg.com" {
-	// 	return false
-	// }
-	// return true
+	return !strings.HasSuffix("url.Host", "twimg.com")
 }
 
 // 在 client.RetryCount 不为0的情况下

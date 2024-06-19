@@ -78,3 +78,47 @@ func (ue *UserEntity) SetLatestReleaseTime(t time.Time) error {
 func (ue *UserEntity) Uid() uint64 {
 	return ue.dbentity.Uid
 }
+
+type ListEntity struct {
+	dbentity *database.LstEntity
+	db       *sqlx.DB
+}
+
+func (ue ListEntity) Create() error {
+	path, _ := ue.Path()
+	if err := os.Mkdir(path, 0755); err != nil && !os.IsExist(err) {
+		return nil
+	}
+	return database.CreateLstEntity(ue.db, ue.dbentity)
+}
+
+func (ue ListEntity) Remove() error {
+	path, _ := ue.Path()
+	if err := os.RemoveAll(path); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return database.DelLstEntity(ue.db, int(ue.dbentity.Id.Int32))
+}
+
+func (ue ListEntity) Rename(title string) error {
+	path, _ := ue.Path()
+	newPath := filepath.Join(filepath.Dir(path), title)
+	err := os.Rename(path, newPath)
+	if os.IsNotExist(err) {
+		err = os.Mkdir(newPath, 0755)
+	}
+	if err != nil && !os.IsExist(err) {
+		return err
+	}
+
+	ue.dbentity.Title = title
+	return database.UpdateLstEntity(ue.db, ue.dbentity)
+}
+
+func (ue ListEntity) Path() (string, error) {
+	return ue.dbentity.Path(), nil
+}
+
+func (ue ListEntity) Title() string {
+	return ue.dbentity.Title
+}
