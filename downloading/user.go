@@ -9,6 +9,7 @@ import (
 )
 
 func syncUser(db *sqlx.DB, user *twitter.User) error {
+	renamed := false
 	isNew := false
 	usrdb, err := database.GetUserById(db, user.Id)
 	if err != nil {
@@ -19,6 +20,8 @@ func syncUser(db *sqlx.DB, user *twitter.User) error {
 		isNew = true
 		usrdb = &database.User{}
 		usrdb.Id = user.Id
+	} else {
+		renamed = usrdb.Name != user.Name || usrdb.ScreenName != user.ScreenName
 	}
 
 	usrdb.FriendsCount = user.FriendsCount
@@ -27,9 +30,17 @@ func syncUser(db *sqlx.DB, user *twitter.User) error {
 	usrdb.ScreenName = user.ScreenName
 
 	if isNew {
-		return database.CreateUser(db, usrdb)
+		err = database.CreateUser(db, usrdb)
+	} else {
+		err = database.UpdateUser(db, usrdb)
 	}
-	return database.UpdateUser(db, usrdb)
+	if err != nil {
+		return err
+	}
+	if renamed || isNew {
+		err = database.RecordUserPreviousName(db, user.Id, user.Name, user.ScreenName)
+	}
+	return err
 }
 
 func getTweetAndUpdateLatestReleaseTime(client *resty.Client, user *twitter.User, entity *UserEntity) ([]*twitter.Tweet, error) {

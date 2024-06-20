@@ -1,6 +1,7 @@
 package downloading
 
 import (
+	"fmt"
 	"io"
 	"log"
 	"os"
@@ -72,6 +73,7 @@ func downloadTweetMedia(client *resty.Client, dir string, tweet *twitter.Tweet) 
 			return err
 		}
 	}
+	fmt.Printf("[%s] %s\n", tweet.Creator.Title(), text)
 	return nil
 }
 

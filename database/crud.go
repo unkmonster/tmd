@@ -261,3 +261,9 @@ func SetUserEntityLatestReleaseTime(db *sqlx.DB, id int, t time.Time) error {
 	_, err := db.Exec(stmt, t, id)
 	return err
 }
+
+func RecordUserPreviousName(db *sqlx.DB, uid uint64, name string, screenName string) error {
+	stmt := `INSERT INTO user_previous_names(uid, screen_name, name, record_date) VALUES(?, ?, ?, ?)`
+	_, err := db.Exec(stmt, uid, screenName, name, time.Now())
+	return err
+}
