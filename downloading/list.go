@@ -30,7 +30,7 @@ func (pt TweetInEntity) GetPath() string {
 	return path
 }
 
-func batchUserDownload(client *resty.Client, db *sqlx.DB, users []*twitter.User, dir string) []TweetInEntity {
+func batchUserDownload(client *resty.Client, db *sqlx.DB, users []*twitter.User, dir string, listEntityId int) []TweetInEntity {
 	getterCount := min(len(users), 25)
 	downloaderCount := 60
 
@@ -60,6 +60,14 @@ func batchUserDownload(client *resty.Client, db *sqlx.DB, users []*twitter.User,
 					continue
 				}
 				entityChan <- entity
+
+				// link
+				linkEntity := NewUserEntityByParentLstPathId(db, u.Id, listEntityId)
+				userLink := NewUserLink(linkEntity, entity)
+				err = syncPath(userLink, entity.Name()+".lnk")
+				if err != nil {
+					fmt.Printf("failed to sync link: %v\n", err)
+				}
 			}
 			fmt.Println("[sync worker]: bye")
 		}()
@@ -70,7 +78,7 @@ func batchUserDownload(client *resty.Client, db *sqlx.DB, users []*twitter.User,
 			for e := range entityChan {
 				tweets, err := getTweetAndUpdateLatestReleaseTime(client, uidToUser[e.Uid()], e)
 				if err != nil {
-					fmt.Fprintf(os.Stderr, "[getting worker] %s: %v\n", e.Title(), err)
+					fmt.Fprintf(os.Stderr, "[getting worker] %s: %v\n", e.Name(), err)
 					//log.Printf("[getting worker] %s: %v", e.Title(), err)
 					continue
 				}
@@ -122,32 +130,11 @@ func batchUserDownload(client *resty.Client, db *sqlx.DB, users []*twitter.User,
 	return failures
 }
 
-func downloadList(client *resty.Client, db *sqlx.DB, list twitter.ListBase, dir string) ([]TweetInEntity, error) {
+func downloadList(client *resty.Client, db *sqlx.DB, list twitter.ListBase, dir string, realDir string) ([]TweetInEntity, error) {
 	expectedTitle := string(utils.WinFileName([]byte(list.Title())))
-	entityDb, err := database.LocateLstEntity(db, list.GetId(), dir)
-	if err != nil {
+	entity := NewListEntity(db, list.GetId(), dir)
+	if err := syncPath(entity, expectedTitle); err != nil {
 		return nil, err
-	}
-	if entityDb == nil {
-		entityDb = &database.LstEntity{}
-		entityDb.LstId = list.GetId()
-		entityDb.ParentDir = dir
-		entityDb.Title = string(expectedTitle)
-	}
-
-	var path string
-	entity := ListEntity{entityDb, db}
-	if !entity.dbentity.Id.Valid {
-		if err := entity.Create(); err != nil {
-			return nil, err
-		}
-	} else if entity.Title() != expectedTitle {
-		if err := entity.Rename(expectedTitle); err != nil {
-			return nil, err
-		}
-	} else {
-		path, _ = entity.Path()
-		os.Mkdir(path, 0755)
 	}
 
 	members, err := list.GetMembers(client)
@@ -155,7 +142,7 @@ func downloadList(client *resty.Client, db *sqlx.DB, list twitter.ListBase, dir 
 		return nil, err
 	}
 
-	return batchUserDownload(client, db, members, path), nil
+	return batchUserDownload(client, db, members, realDir, entity.Id()), nil
 }
 
 func syncList(db *sqlx.DB, list *twitter.List) error {
@@ -169,13 +156,13 @@ func syncList(db *sqlx.DB, list *twitter.List) error {
 	return database.UpdateLst(db, &database.Lst{Id: list.Id, Name: list.Name, OwnerId: list.Creator.Id})
 }
 
-func DownloadList(client *resty.Client, db *sqlx.DB, list *twitter.List, dir string) ([]TweetInEntity, error) {
+func DownloadList(client *resty.Client, db *sqlx.DB, list *twitter.List, dir string, realDir string) ([]TweetInEntity, error) {
 	if err := syncList(db, list); err != nil {
 		return nil, err
 	}
-	return downloadList(client, db, list, dir)
+	return downloadList(client, db, list, dir, realDir)
 }
 
-func DownloadFollowing(client *resty.Client, db *sqlx.DB, list twitter.UserFollowing, dir string) ([]TweetInEntity, error) {
-	return downloadList(client, db, list, dir)
+func DownloadFollowing(client *resty.Client, db *sqlx.DB, list twitter.UserFollowing, dir string, realDir string) ([]TweetInEntity, error) {
+	return downloadList(client, db, list, dir, realDir)
 }

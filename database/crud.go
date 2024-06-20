@@ -98,6 +98,14 @@ func UpdateUser(db *sqlx.DB, usr *User) error {
 }
 
 func CreateUserEntity(db *sqlx.DB, entity *UserEntity) error {
+	if entity.ParentDir.Valid {
+		abs, err := filepath.Abs(entity.ParentDir.String)
+		if err != nil {
+			return err
+		}
+		entity.ParentDir.Scan(abs)
+	}
+
 	stmt := `INSERT INTO user_entities(user_id, title, parent_dir, parent_lst_entity_id) VALUES(:user_id, :title, :parent_dir, :parent_lst_entity_id)`
 	de, err := db.NamedExec(stmt, entity)
 	if err != nil {
@@ -120,6 +128,10 @@ func DelUserEntity(db *sqlx.DB, id uint32) error {
 }
 
 func LocateUserEntityInDir(db *sqlx.DB, uid uint64, parentDIr string) (*UserEntity, error) {
+	parentDIr, err := filepath.Abs(parentDIr)
+	if err != nil {
+		return nil, err
+	}
 	stmt := `SELECT * FROM user_entities WHERE user_id=? AND parent_dir=?`
 	result := []UserEntity{}
 	if err := db.Select(&result, stmt, uid, parentDIr); err != nil {

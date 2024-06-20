@@ -226,7 +226,7 @@ func (rateLimiter *rateLimiter) Reset(url *url.URL) {
 }
 
 func (*rateLimiter) ShouldWork(url *url.URL) bool {
-	return !strings.HasSuffix("url.Host", "twimg.com")
+	return !strings.HasSuffix(url.Host, "twimg.com")
 }
 
 // 在 client.RetryCount 不为0的情况下

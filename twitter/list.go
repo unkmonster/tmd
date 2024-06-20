@@ -132,5 +132,5 @@ func (fo UserFollowing) GetId() int64 {
 
 func (fo UserFollowing) Title() string {
 	name := fmt.Sprintf("%s's Following", fo.creator.ScreenName)
-	return fmt.Sprintf("%s(%d)", name, fo.GetId())
+	return name
 }

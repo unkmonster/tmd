@@ -1,8 +1,6 @@
 package downloading
 
 import (
-	"os"
-
 	"github.com/go-resty/resty/v2"
 	"github.com/jmoiron/sqlx"
 	"github.com/unkmonster/tmd2/database"
@@ -34,6 +32,17 @@ func syncUser(db *sqlx.DB, user *twitter.User) error {
 	return database.UpdateUser(db, usrdb)
 }
 
+func getTweetAndUpdateLatestReleaseTime(client *resty.Client, user *twitter.User, entity *UserEntity) ([]*twitter.Tweet, error) {
+	tweets, err := user.GetMeidas(client, &utils.TimeRange{Min: entity.LatestReleaseTime()})
+	if err != nil || len(tweets) == 0 {
+		return nil, err
+	}
+	if err := entity.SetLatestReleaseTime(tweets[0].CreatedAt); err != nil {
+		return nil, err
+	}
+	return tweets, nil
+}
+
 func DownloadUser(db *sqlx.DB, client *resty.Client, user *twitter.User, dir string) ([]PackgedTweet, error) {
 	entity, err := syncUserAndEntityInDir(db, user, dir)
 	if err != nil {
@@ -60,50 +69,10 @@ func syncUserAndEntityInDir(db *sqlx.DB, user *twitter.User, dir string) (*UserE
 	}
 	expectedTitle := string(utils.WinFileName([]byte(user.Title())))
 
-	newUser := false
-	userdb, err := database.LocateUserEntityInDir(db, user.Id, dir)
+	entity := NewUserEntityByParentDir(db, user.Id, dir)
+	err := syncPath(entity, expectedTitle)
 	if err != nil {
 		return nil, err
 	}
-	if userdb == nil {
-		userdb = &database.UserEntity{}
-		userdb.ParentDir.Scan(dir)
-		userdb.Title = expectedTitle
-		userdb.Uid = user.Id
-		newUser = true
-	}
-
-	entity := UserEntity{dbentity: userdb, db: db}
-	if !newUser {
-		// 重命名检测
-		if entity.Title() != expectedTitle {
-			if err := entity.Rename(expectedTitle); err != nil {
-				return nil, err
-			}
-		} else {
-			path, err := entity.Path()
-			if err != nil {
-				return nil, err
-			}
-			os.Mkdir(path, 0755)
-		}
-
-		return &entity, nil
-	}
-
-	if err := entity.Create(); err != nil {
-		return nil, err
-	}
-	return &entity, nil
-}
-
-func getTweetAndUpdateLatestReleaseTime(client *resty.Client, user *twitter.User, entity *UserEntity) ([]*twitter.Tweet, error) {
-	tweets, err := user.GetMeidas(client, &utils.TimeRange{Min: entity.LatestReleaseTime()})
-	if err != nil || len(tweets) == 0 {
-		return nil, err
-	}
-	if err := entity.SetLatestReleaseTime(tweets[0].CreatedAt); err != nil {
-		return nil, err
-	}
-	return tweets, nil
+	return entity, nil
 }

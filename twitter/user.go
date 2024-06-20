@@ -198,3 +198,7 @@ func (u *User) GetMeidas(client *resty.Client, trange *utils.TimeRange) ([]*Twee
 func (u *User) Title() string {
 	return fmt.Sprintf("%s(%s)", u.Name, u.ScreenName)
 }
+
+func (u *User) Following() UserFollowing {
+	return UserFollowing{u}
+}
