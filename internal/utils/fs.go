@@ -88,6 +88,12 @@ func UniquePath(path string) (string, error) {
 func CreateLink(path string, lnk string) int {
 	u16Path := utf16.Encode([]rune(path))
 	u16Lnk := utf16.Encode([]rune(lnk))
+	if u16Path[len(u16Path)-1] != 0 {
+		u16Path = append(u16Path, 0)
+	}
+	if u16Lnk[len(u16Lnk)-1] != 0 {
+		u16Lnk = append(u16Lnk, 0)
+	}
 	pPath := unsafe.Pointer(&u16Path[0])
 	pLnk := unsafe.Pointer(&u16Lnk[0])
 	hr := C.CreateLink((*C.wchar_t)(pPath), (*C.wchar_t)(pLnk))
