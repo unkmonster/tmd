@@ -23,13 +23,13 @@ func Login(cookie_str string, authToken string) (*resty.Client, string, error) {
 	}
 
 	client := resty.New()
-	// authorization
 	client.SetHeader("cookie", cookie_str)
 	client.SetHeader("X-Csrf-Token", cookie["ct0"])
 	client.SetAuthToken(authToken)
-	// retry
 	client.SetRetryCount(5)
-	//transport
+	client.AddRetryCondition(func(r *resty.Response, err error) bool {
+		return !strings.HasSuffix(r.Request.RawRequest.Host, "twimg.com") && err != nil
+	})
 	client.SetTransport(&http.Transport{
 		MaxIdleConns:          100,
 		MaxIdleConnsPerHost:   100,
@@ -39,7 +39,7 @@ func Login(cookie_str string, authToken string) (*resty.Client, string, error) {
 	})
 	client.SetTimeout(5 * time.Second)
 
-	//
+	// 验证登录是否有效
 	resp, err := client.R().Get("https://api.x.com/1.1/account/settings.json")
 	if err != nil {
 		return nil, "", err

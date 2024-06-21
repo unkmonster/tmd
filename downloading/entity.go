@@ -101,7 +101,11 @@ func (ue *UserEntity) Rename(title string) error {
 		return err
 	}
 	newPath := filepath.Join(filepath.Dir(old), title)
-	if err := os.Rename(old, newPath); err != nil {
+	err = os.Rename(old, newPath)
+	if os.IsNotExist(err) {
+		err = os.Mkdir(newPath, 0755)
+	}
+	if err != nil && !os.IsExist(err) {
 		return err
 	}
 

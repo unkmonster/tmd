@@ -30,7 +30,7 @@ func (pt TweetInEntity) GetPath() string {
 	return path
 }
 
-func batchUserDownload(client *resty.Client, db *sqlx.DB, users []*twitter.User, dir string, listEntityId int) []TweetInEntity {
+func batchUserDownload(client *resty.Client, db *sqlx.DB, users []*twitter.User, dir string, listEntityId int) []*TweetInEntity {
 	getterCount := min(len(users), 25)
 	downloaderCount := 60
 
@@ -43,69 +43,112 @@ func batchUserDownload(client *resty.Client, db *sqlx.DB, users []*twitter.User,
 	close(userChan)
 
 	entityChan := make(chan *UserEntity, len(users))
-	tweetChan := make(chan TweetInEntity, 2*getterCount)
-	failureTw := make(chan TweetInEntity)
-
+	tweetChan := make(chan *TweetInEntity, 2*getterCount)
+	failureTw := make(chan *TweetInEntity)
+	abortChan := make(chan struct{})
 	syncWg := sync.WaitGroup{}
 	getterWg := sync.WaitGroup{}
+	downloaderWg := sync.WaitGroup{}
+
+	abort := sync.OnceFunc(func() {
+		close(abortChan)
+	})
+
+	cancelled := func() bool {
+		select {
+		case <-abortChan:
+			return true
+		default:
+			return false
+		}
+	}
+
+	panicHandler := func() {
+		if p := recover(); p != nil {
+			fmt.Println(p)
+			abort()
+		}
+	}
+
+	userUpdater := func() {
+		defer syncWg.Done()
+		defer panicHandler()
+		for u := range userChan {
+			if cancelled() {
+				break
+			}
+			pathEntity, err := syncUserAndEntityInDir(db, u, dir)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "[sync worker] %s: %v\n", u.Title(), err)
+				continue
+			}
+			entityChan <- pathEntity
+
+			// link
+			linkEntity := NewUserEntityByParentLstPathId(db, u.Id, listEntityId)
+			userLink := NewUserLink(linkEntity, pathEntity)
+			err = syncPath(userLink, pathEntity.Name()+".lnk")
+			if err != nil {
+				fmt.Printf("failed to sync link: %v\n", err)
+			}
+		}
+		fmt.Println("[updating worker]: bye")
+	}
+
+	tweetGetter := func() {
+		defer getterWg.Done()
+		defer panicHandler()
+		for e := range entityChan {
+			if cancelled() {
+				break
+			}
+			tweets, err := getTweetAndUpdateLatestReleaseTime(client, uidToUser[e.Uid()], e)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "[getting worker] %s: %v\n", e.Name(), err)
+				continue
+			}
+			for _, tw := range tweets {
+				pt := TweetInEntity{Tweet: tw, Entity: e}
+				tweetChan <- &pt
+			}
+		}
+	}
+
+	tweetDownloader := func() {
+		defer downloaderWg.Done()
+		var pt *TweetInEntity
+		defer func() {
+			if p := recover(); p != nil {
+				failureTw <- pt
+				fmt.Println("[downloading worker]:", p)
+			}
+		}()
+		for pt = range tweetChan {
+			if cancelled() {
+				failureTw <- pt
+				continue
+			}
+
+			path, _ := pt.Entity.Path()
+			// TODO: 判断可恢复及不可恢复
+			err := downloadTweetMedia(client, path, pt.Tweet)
+			if err != nil {
+				failureTw <- pt
+			}
+		}
+		fmt.Println("[downloading worker]: bye")
+	}
 
 	for i := 0; i < getterCount; i++ {
 		syncWg.Add(1)
-		go func() {
-			defer syncWg.Done()
-			for u := range userChan {
-				entity, err := syncUserAndEntityInDir(db, u, dir)
-				if err != nil {
-					fmt.Fprintf(os.Stderr, "[sync worker] %s: %v\n", u.Title(), err)
-					continue
-				}
-				entityChan <- entity
-
-				// link
-				linkEntity := NewUserEntityByParentLstPathId(db, u.Id, listEntityId)
-				userLink := NewUserLink(linkEntity, entity)
-				err = syncPath(userLink, entity.Name()+".lnk")
-				if err != nil {
-					fmt.Printf("failed to sync link: %v\n", err)
-				}
-			}
-			fmt.Println("[sync worker]: bye")
-		}()
-
+		go userUpdater()
 		getterWg.Add(1)
-		go func() {
-			defer getterWg.Done()
-			for e := range entityChan {
-				tweets, err := getTweetAndUpdateLatestReleaseTime(client, uidToUser[e.Uid()], e)
-				if err != nil {
-					fmt.Fprintf(os.Stderr, "[getting worker] %s: %v\n", e.Name(), err)
-					//log.Printf("[getting worker] %s: %v", e.Title(), err)
-					continue
-				}
-				for _, tw := range tweets {
-					pt := TweetInEntity{Tweet: tw, Entity: e}
-					tweetChan <- pt
-				}
-			}
-			fmt.Println("[getting worker]: bye")
-		}()
+		go tweetGetter()
 	}
 
-	wg := sync.WaitGroup{}
 	for i := 0; i < downloaderCount; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for pt := range tweetChan {
-				//fmt.Println(pt.Tweet.Text)
-				path, _ := pt.Entity.Path()
-				err := downloadTweetMedia(client, path, pt.Tweet)
-				if err != nil {
-					failureTw <- pt
-				}
-			}
-			fmt.Println("[downloading worker]: bye")
-		}()
+		downloaderWg.Add(1)
+		go tweetDownloader()
 	}
 
 	//closer
@@ -118,19 +161,19 @@ func batchUserDownload(client *resty.Client, db *sqlx.DB, users []*twitter.User,
 		close(tweetChan)
 		log.Printf("tweet chan has closed\n")
 
-		wg.Wait()
+		downloaderWg.Wait()
 		close(failureTw)
 		log.Printf("failureTw chan has closed\n")
 	}()
 
-	failures := []TweetInEntity{}
+	failures := []*TweetInEntity{}
 	for pt := range failureTw {
 		failures = append(failures, pt)
 	}
 	return failures
 }
 
-func downloadList(client *resty.Client, db *sqlx.DB, list twitter.ListBase, dir string, realDir string) ([]TweetInEntity, error) {
+func downloadList(client *resty.Client, db *sqlx.DB, list twitter.ListBase, dir string, realDir string) ([]*TweetInEntity, error) {
 	expectedTitle := string(utils.WinFileName([]byte(list.Title())))
 	entity := NewListEntity(db, list.GetId(), dir)
 	if err := syncPath(entity, expectedTitle); err != nil {
@@ -156,13 +199,13 @@ func syncList(db *sqlx.DB, list *twitter.List) error {
 	return database.UpdateLst(db, &database.Lst{Id: list.Id, Name: list.Name, OwnerId: list.Creator.Id})
 }
 
-func DownloadList(client *resty.Client, db *sqlx.DB, list *twitter.List, dir string, realDir string) ([]TweetInEntity, error) {
+func DownloadList(client *resty.Client, db *sqlx.DB, list *twitter.List, dir string, realDir string) ([]*TweetInEntity, error) {
 	if err := syncList(db, list); err != nil {
 		return nil, err
 	}
 	return downloadList(client, db, list, dir, realDir)
 }
 
-func DownloadFollowing(client *resty.Client, db *sqlx.DB, list twitter.UserFollowing, dir string, realDir string) ([]TweetInEntity, error) {
+func DownloadFollowing(client *resty.Client, db *sqlx.DB, list twitter.UserFollowing, dir string, realDir string) ([]*TweetInEntity, error) {
 	return downloadList(client, db, list, dir, realDir)
 }

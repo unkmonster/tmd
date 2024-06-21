@@ -28,6 +28,10 @@ func parseTweetResults(tweet_results *gjson.Result) *Tweet {
 		result = result.Get("tweet")
 	}
 	legacy := result.Get("legacy")
+	// TODO: 利用 rest_id 重新获取推文信息
+	if !legacy.Exists() {
+		return nil
+	}
 	user_results := result.Get("core.user_results")
 
 	tweet.Id = result.Get("rest_id").Uint()
