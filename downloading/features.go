@@ -3,7 +3,6 @@ package downloading
 import (
 	"fmt"
 	"io"
-	"log"
 	"os"
 	"path/filepath"
 	"sync"
@@ -78,23 +77,52 @@ func downloadTweetMedia(client *resty.Client, dir string, tweet *twitter.Tweet) 
 }
 
 func batchDownloadTweet(client *resty.Client, pts ...PackgedTweet) []PackgedTweet {
-	var tokens = make(chan struct{}, numToken)
 	var errChan = make(chan PackgedTweet)
-	errors := []PackgedTweet{}
+	var tweetChan = make(chan PackgedTweet, len(pts))
+	var abortChan = make(chan struct{})
 	var wg sync.WaitGroup // number of working goroutines
+	var numRoutine = min(len(pts), 20)
 
 	for _, pt := range pts {
+		tweetChan <- pt
+	}
+	close(tweetChan)
+
+	abort := sync.OnceFunc(func() {
+		close(abortChan)
+	})
+
+	cancelled := func() bool {
+		select {
+		case <-abortChan:
+			return true
+		default:
+			return false
+		}
+	}
+
+	for i := 0; i < numRoutine; i++ {
 		wg.Add(1)
-		go func(pt PackgedTweet) {
+		go func() {
 			defer wg.Done()
-			tokens <- struct{}{}
-			// !! path 会不会为空字符串？
-			if err := downloadTweetMedia(client, pt.GetPath(), pt.GetTweet()); err != nil {
-				errChan <- pt
-				log.Println("failed to download tweet:", err)
+			var pt PackgedTweet
+			defer func() {
+				if err := recover(); err != nil {
+					abort()
+					errChan <- pt
+				}
+			}()
+
+			for pt = range tweetChan {
+				if cancelled() {
+					errChan <- pt
+					continue
+				}
+				if err := downloadTweetMedia(client, pt.GetPath(), pt.GetTweet()); err != nil {
+					errChan <- pt
+				}
 			}
-			<-tokens
-		}(pt)
+		}()
 	}
 
 	go func() {
@@ -102,11 +130,9 @@ func batchDownloadTweet(client *resty.Client, pts ...PackgedTweet) []PackgedTwee
 		close(errChan)
 	}()
 
-	for range errChan {
-		pt := <-errChan
+	errors := []PackgedTweet{}
+	for pt := range errChan {
 		errors = append(errors, pt)
 	}
 	return errors
 }
-
-var numToken = 20

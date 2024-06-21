@@ -119,10 +119,12 @@ func batchUserDownload(client *resty.Client, db *sqlx.DB, users []*twitter.User,
 		var pt *TweetInEntity
 		defer func() {
 			if p := recover(); p != nil {
+				abort()
 				failureTw <- pt
 				fmt.Println("[downloading worker]:", p)
 			}
 		}()
+
 		for pt = range tweetChan {
 			if cancelled() {
 				failureTw <- pt
@@ -199,13 +201,12 @@ func syncList(db *sqlx.DB, list *twitter.List) error {
 	return database.UpdateLst(db, &database.Lst{Id: list.Id, Name: list.Name, OwnerId: list.Creator.Id})
 }
 
-func DownloadList(client *resty.Client, db *sqlx.DB, list *twitter.List, dir string, realDir string) ([]*TweetInEntity, error) {
-	if err := syncList(db, list); err != nil {
-		return nil, err
+func DownloadList(client *resty.Client, db *sqlx.DB, list twitter.ListBase, dir string, realDir string) ([]*TweetInEntity, error) {
+	tlist, ok := list.(*twitter.List)
+	if ok {
+		if err := syncList(db, tlist); err != nil {
+			return nil, err
+		}
 	}
-	return downloadList(client, db, list, dir, realDir)
-}
-
-func DownloadFollowing(client *resty.Client, db *sqlx.DB, list twitter.UserFollowing, dir string, realDir string) ([]*TweetInEntity, error) {
 	return downloadList(client, db, list, dir, realDir)
 }
