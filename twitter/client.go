@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/go-resty/resty/v2"
+	"github.com/gookit/color"
 	"github.com/tidwall/gjson"
 	"github.com/unkmonster/tmd2/internal/utils"
 )
@@ -62,7 +63,7 @@ type xRateLimit struct {
 
 func (rl *xRateLimit) Req() bool {
 	if !rl.Ready {
-		log.Printf("not ready %s\n", rl.Url)
+		//log.Printf("not ready %s\n", rl.Url)
 		return false
 	}
 
@@ -77,7 +78,7 @@ func (rl *xRateLimit) Req() bool {
 		//log.Printf("requested %s: remaining  %d\n", rl.Url, rl.Remaining)
 		return true
 	} else {
-		log.Printf("[RateLimit] %s Sleep until %s\n", rl.Url, rl.ResetTime)
+		color.Question.Printf("[RateLimit] %s Sleep until %s\n", rl.Url, rl.ResetTime)
 		time.Sleep(time.Until(rl.ResetTime))
 		rl.Ready = false
 		return false
@@ -146,14 +147,14 @@ func (rateLimiter *rateLimiter) Check(url *url.URL) {
 	lim, loaded := rateLimiter.limiters.LoadOrStore(path, &xRateLimit{})
 	limiter := lim.(*xRateLimit)
 	if !loaded {
-		fmt.Printf("initial req: %s\n", path)
+		//fmt.Printf("initial req: %s\n", path)
 		return
 	}
 
 	// 路径过期后的首个请求可以正常发起，其余请求再次等待
 	// 保证当前路径的速率限制会被另一个请求更新使其就绪，否则这里会无尽等待
 	for limiter != nil && !limiter.Ready {
-		fmt.Printf("wait for ready: %s\n", path)
+		//fmt.Printf("wait for ready: %s\n", path)
 		cond.Wait()
 		lim, loaded := rateLimiter.limiters.LoadOrStore(path, &xRateLimit{})
 		if !loaded {
@@ -168,7 +169,7 @@ func (rateLimiter *rateLimiter) Check(url *url.URL) {
 	if limiter != nil {
 		limiter.Req()
 	}
-	fmt.Printf("start req: %s\n", path)
+	//fmt.Printf("start req: %s\n", path)
 }
 
 func (rateLimiter *rateLimiter) Update(resp *resty.Response) {
@@ -193,7 +194,7 @@ func (rateLimiter *rateLimiter) Update(resp *resty.Response) {
 	newLimiter := makeRateLimit(resp)
 	rateLimiter.limiters.Store(path, newLimiter)
 	cond.Broadcast()
-	fmt.Printf("updated: %s\n", path)
+	//fmt.Printf("updated: %s\n", path)
 }
 
 func (rateLimiter *rateLimiter) Reset(url *url.URL) {

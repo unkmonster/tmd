@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/go-resty/resty/v2"
+	"github.com/gookit/color"
 	"github.com/unkmonster/tmd2/internal/utils"
 	"github.com/unkmonster/tmd2/twitter"
 )
@@ -73,7 +74,8 @@ func downloadTweetMedia(client *resty.Client, dir string, tweet *twitter.Tweet) 
 			return err
 		}
 	}
-	fmt.Printf("[%s] %s\n", tweet.Creator.Title(), text)
+
+	fmt.Printf("%s %s\n", color.FgMagenta.Render("["+tweet.Creator.Title()+"]"), text)
 	return nil
 }
 
@@ -81,7 +83,7 @@ var maxDownloadRoutine int
 
 func init() {
 	maxDownloadRoutine = runtime.GOMAXPROCS(0) * 5
-	fmt.Println("MAX_DOWNLOAD_ROUTINE:", maxDownloadRoutine)
+	color.Info.Tips("MAX_DOWNLOAD_ROUTINE: %d\n", maxDownloadRoutine)
 }
 
 func BatchDownloadTweet(client *resty.Client, pts ...PackgedTweet) []PackgedTweet {

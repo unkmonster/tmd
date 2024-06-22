@@ -12,6 +12,7 @@ import (
 	"strconv"
 
 	"github.com/go-resty/resty/v2"
+	"github.com/gookit/color"
 	"github.com/jmoiron/sqlx"
 	"github.com/unkmonster/tmd2/database"
 	"github.com/unkmonster/tmd2/downloading"
@@ -234,7 +235,7 @@ func main() {
 		log.Fatalln("failed to login:", err)
 	}
 	twitter.EnableRateLimit(client)
-	fmt.Println("Logged in as", screenName)
+	fmt.Printf("Logged in as %s\n", color.FgLightBlue.Render(screenName))
 
 	// connect db
 	db, err := connectDatabase(pathHelper.db)

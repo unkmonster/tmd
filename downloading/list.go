@@ -2,11 +2,10 @@ package downloading
 
 import (
 	"fmt"
-	"log"
-	"os"
 	"sync"
 
 	"github.com/go-resty/resty/v2"
+	"github.com/gookit/color"
 	"github.com/jmoiron/sqlx"
 	"github.com/unkmonster/tmd2/database"
 	"github.com/unkmonster/tmd2/internal/utils"
@@ -78,7 +77,7 @@ func BatchUserDownload(client *resty.Client, db *sqlx.DB, users []*twitter.User,
 			}
 			pathEntity, err := syncUserAndEntityInDir(db, u, dir)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "[sync worker] %s: %v\n", u.Title(), err)
+				color.Error.Tips("[sync worker] %s: %v", u.Title(), err)
 				continue
 			}
 			entityChan <- pathEntity
@@ -91,10 +90,10 @@ func BatchUserDownload(client *resty.Client, db *sqlx.DB, users []*twitter.User,
 			userLink := NewUserLink(linkEntity, pathEntity)
 			err = syncPath(userLink, pathEntity.Name()+".lnk")
 			if err != nil {
-				fmt.Printf("failed to sync link: %v\n", err)
+				color.Error.Tips("[sync worker] failed to sync link %s: %v", u.Title(), err)
 			}
 		}
-		fmt.Println("[updating worker]: bye")
+		//fmt.Println("[updating worker]: bye")
 	}
 
 	tweetGetter := func() {
@@ -106,7 +105,7 @@ func BatchUserDownload(client *resty.Client, db *sqlx.DB, users []*twitter.User,
 			}
 			tweets, err := getTweetAndUpdateLatestReleaseTime(client, uidToUser[e.Uid()], e)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "[getting worker] %s: %v\n", e.Name(), err)
+				color.Error.Tips("[getting worker] %s: %v", e.Name(), err)
 				continue
 			}
 			for _, tw := range tweets {
@@ -123,7 +122,7 @@ func BatchUserDownload(client *resty.Client, db *sqlx.DB, users []*twitter.User,
 			if p := recover(); p != nil {
 				abort()
 				failureTw <- pt
-				fmt.Println("[downloading worker]:", p)
+				color.Error.Tips("[downloading worker]: %v", p)
 			}
 		}()
 
@@ -140,7 +139,7 @@ func BatchUserDownload(client *resty.Client, db *sqlx.DB, users []*twitter.User,
 				failureTw <- pt
 			}
 		}
-		fmt.Println("[downloading worker]: bye")
+		//fmt.Println("[downloading worker]: bye")
 	}
 
 	for i := 0; i < getterCount; i++ {
@@ -159,15 +158,15 @@ func BatchUserDownload(client *resty.Client, db *sqlx.DB, users []*twitter.User,
 	go func() {
 		syncWg.Wait()
 		close(entityChan)
-		log.Printf("entity chan has closed\n")
+		//log.Printf("entity chan has closed\n")
 
 		getterWg.Wait()
 		close(tweetChan)
-		log.Printf("tweet chan has closed\n")
+		//log.Printf("tweet chan has closed\n")
 
 		downloaderWg.Wait()
 		close(failureTw)
-		log.Printf("failureTw chan has closed\n")
+		//log.Printf("failureTw chan has closed\n")
 	}()
 
 	failures := []*TweetInEntity{}
