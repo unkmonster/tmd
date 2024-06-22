@@ -7,7 +7,6 @@ import (
 
 	"github.com/jmoiron/sqlx"
 	"github.com/unkmonster/tmd2/database"
-	"github.com/unkmonster/tmd2/internal/utils"
 	"github.com/unkmonster/tmd2/twitter"
 )
 
@@ -24,12 +23,14 @@ func NewDumper() *TweetDumper {
 	return &td
 }
 
-func (td *TweetDumper) Push(eid int, tweet ...*twitter.Tweet) {
+func (td *TweetDumper) Push(eid int, tweet ...*twitter.Tweet) int {
 	_, ok := td.data[eid]
 	if !ok {
 		td.data[eid] = make([]*twitter.Tweet, 0, len(tweet))
 		td.set[eid] = make(map[uint64]struct{})
 	}
+
+	oldCount := td.count
 
 	for _, tw := range tweet {
 		_, exist := td.set[eid][tw.Id]
@@ -40,10 +41,14 @@ func (td *TweetDumper) Push(eid int, tweet ...*twitter.Tweet) {
 		td.set[eid][tw.Id] = struct{}{}
 		td.count++
 	}
+	return td.count - oldCount
 }
 
 func (td *TweetDumper) Load(path string) error {
 	file, err := os.OpenFile(path, os.O_RDONLY, 0666)
+	if os.IsNotExist(err) {
+		return nil
+	}
 	if err != nil {
 		return err
 	}
@@ -66,12 +71,8 @@ func (td *TweetDumper) Load(path string) error {
 }
 
 func (td *TweetDumper) Dump(path string) error {
-	exist, err := utils.PathExists(path)
-	if err != nil {
-		return err
-	}
-	if exist {
-		td.Load(path)
+	if td.count == 0 {
+		return nil
 	}
 
 	data, err := json.MarshalIndent(td.data, "", "    ")
@@ -102,4 +103,8 @@ func (td *TweetDumper) GetTotal(db *sqlx.DB) ([]*TweetInEntity, error) {
 		}
 	}
 	return results, nil
+}
+
+func (td *TweetDumper) Count() int {
+	return td.count
 }

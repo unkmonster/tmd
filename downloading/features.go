@@ -76,12 +76,12 @@ func downloadTweetMedia(client *resty.Client, dir string, tweet *twitter.Tweet) 
 	return nil
 }
 
-func batchDownloadTweet(client *resty.Client, pts ...PackgedTweet) []PackgedTweet {
+func BatchDownloadTweet(client *resty.Client, pts ...PackgedTweet) []PackgedTweet {
 	var errChan = make(chan PackgedTweet)
 	var tweetChan = make(chan PackgedTweet, len(pts))
 	var abortChan = make(chan struct{})
 	var wg sync.WaitGroup // number of working goroutines
-	var numRoutine = min(len(pts), 20)
+	var numRoutine = min(len(pts), 60)
 
 	for _, pt := range pts {
 		tweetChan <- pt

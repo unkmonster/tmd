@@ -21,6 +21,8 @@ func Login(cookie_str string, authToken string) (*resty.Client, string, error) {
 	if err != nil {
 		return nil, "", err
 	}
+	authToken, _ = strings.CutPrefix(authToken, "Bearer")
+	authToken = strings.TrimSpace(authToken)
 
 	client := resty.New()
 	client.SetHeader("cookie", cookie_str)

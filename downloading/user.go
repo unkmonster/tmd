@@ -70,7 +70,7 @@ func DownloadUser(db *sqlx.DB, client *resty.Client, user *twitter.User, dir str
 		pts = append(pts, TweetInEntity{Tweet: tw, Entity: entity})
 	}
 
-	failures := batchDownloadTweet(client, pts...)
+	failures := BatchDownloadTweet(client, pts...)
 	return failures, nil
 }
 

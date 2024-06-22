@@ -30,7 +30,7 @@ func (pt TweetInEntity) GetPath() string {
 	return path
 }
 
-func batchUserDownload(client *resty.Client, db *sqlx.DB, users []*twitter.User, dir string, listEntityId int) []*TweetInEntity {
+func BatchUserDownload(client *resty.Client, db *sqlx.DB, users []*twitter.User, dir string, listEntityId *int) []*TweetInEntity {
 	getterCount := min(len(users), 25)
 	downloaderCount := 60
 
@@ -85,7 +85,10 @@ func batchUserDownload(client *resty.Client, db *sqlx.DB, users []*twitter.User,
 			entityChan <- pathEntity
 
 			// link
-			linkEntity := NewUserEntityByParentLstPathId(db, u.Id, listEntityId)
+			if listEntityId == nil {
+				continue
+			}
+			linkEntity := NewUserEntityByParentLstPathId(db, u.Id, *listEntityId)
 			userLink := NewUserLink(linkEntity, pathEntity)
 			err = syncPath(userLink, pathEntity.Name()+".lnk")
 			if err != nil {
@@ -187,7 +190,8 @@ func downloadList(client *resty.Client, db *sqlx.DB, list twitter.ListBase, dir 
 		return nil, err
 	}
 
-	return batchUserDownload(client, db, members, realDir, entity.Id()), nil
+	eid := entity.Id()
+	return BatchUserDownload(client, db, members, realDir, &eid), nil
 }
 
 func syncList(db *sqlx.DB, list *twitter.List) error {
