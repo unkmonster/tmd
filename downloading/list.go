@@ -32,7 +32,6 @@ func (pt TweetInEntity) GetPath() string {
 
 func BatchUserDownload(client *resty.Client, db *sqlx.DB, users []*twitter.User, dir string, listEntityId *int) []*TweetInEntity {
 	getterCount := min(len(users), 25)
-	downloaderCount := 60
 
 	uidToUser := make(map[uint64]*twitter.User)
 	userChan := make(chan *twitter.User, len(users))
@@ -151,7 +150,7 @@ func BatchUserDownload(client *resty.Client, db *sqlx.DB, users []*twitter.User,
 		go tweetGetter()
 	}
 
-	for i := 0; i < downloaderCount; i++ {
+	for i := 0; i < maxDownloadRoutine; i++ {
 		downloaderWg.Add(1)
 		go tweetDownloader()
 	}

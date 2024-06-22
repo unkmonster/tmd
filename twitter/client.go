@@ -39,8 +39,7 @@ func Login(cookie_str string, authToken string) (*resty.Client, string, error) {
 		TLSHandshakeTimeout:   5 * time.Second,
 		ResponseHeaderTimeout: 5 * time.Second,
 	})
-	client.SetTimeout(5 * time.Second)
-
+	//client.SetTimeout(20 * time.Second)
 	// 验证登录是否有效
 	resp, err := client.R().Get("https://api.x.com/1.1/account/settings.json")
 	if err != nil {

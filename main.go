@@ -258,6 +258,7 @@ func main() {
 
 	// retry for legacy
 	if dumper.Count() != 0 {
+		fmt.Println("loaded legacy tweet:", dumper.Count())
 		legacy, err := dumper.GetTotal(db)
 		if err != nil {
 			log.Fatalln("[Dumper] failed to get total tweet:", err)
