@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 
 	"github.com/go-resty/resty/v2"
 	"github.com/gookit/color"
@@ -59,6 +60,7 @@ func (u *userArgs) Set(str string) error {
 
 	id, err := strconv.ParseUint(str, 10, 64)
 	if err != nil {
+		str, _ := strings.CutPrefix(str, "@")
 		u.screenName = append(u.screenName, str)
 	} else {
 		u.id = append(u.id, id)
@@ -197,11 +199,11 @@ func main() {
 	var usrArgs userArgs
 	var listArgs ListArgs
 	var follArgs userArgs
-	var shouldConf bool
-	flag.BoolVar(&shouldConf, "conf", false, "to configure")
-	flag.Var(&usrArgs, "user", "uid/screen_name to download tweets of that specified user")
-	flag.Var(&listArgs, "list", "list id to download that specified list")
-	flag.Var(&follArgs, "foll", "uid/screen_name to download following of that specified user")
+	var confArg bool
+	flag.BoolVar(&confArg, "conf", false, "to configure")
+	flag.Var(&usrArgs, "user", "uid/screen_name to download tweets of specified user")
+	flag.Var(&listArgs, "list", "list id to download specified list")
+	flag.Var(&follArgs, "foll", "uid/screen_name to download following of specified user")
 	flag.Parse()
 
 	appdata := os.Getenv("appdata")
@@ -216,11 +218,14 @@ func main() {
 	}
 
 	conf, err := readConf(confPath)
-	if os.IsNotExist(err) || shouldConf {
+	if os.IsNotExist(err) || confArg {
 		conf, err = config(confPath)
 	}
 	if err != nil {
 		log.Fatalln("failed to load config:", err)
+	}
+	if confArg {
+		return
 	}
 
 	// ensure path exist
