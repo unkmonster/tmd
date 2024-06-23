@@ -61,27 +61,20 @@ type xRateLimit struct {
 	Url       string
 }
 
-func (rl *xRateLimit) Req() bool {
-	if !rl.Ready {
-		//log.Printf("not ready %s\n", rl.Url)
-		return false
-	}
-
+func (rl *xRateLimit) Req() {
 	if time.Now().After(rl.ResetTime) {
 		log.Printf("expired %s\n", rl.Url)
 		rl.Ready = false
-		return false
+		return
 	}
 
 	if rl.Remaining > rl.Limit/100 {
 		rl.Remaining--
 		//log.Printf("requested %s: remaining  %d\n", rl.Url, rl.Remaining)
-		return true
 	} else {
 		color.Warn.Printf("[RateLimit] %s Sleep until %s\n", rl.Url, rl.ResetTime)
 		time.Sleep(time.Until(rl.ResetTime))
 		rl.Ready = false
-		return false
 	}
 }
 
@@ -100,7 +93,7 @@ func makeRateLimit(resp *resty.Response) *xRateLimit {
 		return nil // 没有速率限制信息
 	}
 
-	resetTimeNum, err := strconv.ParseUint(resetTime, 10, 64)
+	resetTimeNum, err := strconv.ParseInt(resetTime, 10, 64)
 	if err != nil {
 		return nil
 	}
@@ -117,7 +110,7 @@ func makeRateLimit(resp *resty.Response) *xRateLimit {
 	url := filepath.Join(u.Host, u.Path)
 
 	return &xRateLimit{
-		ResetTime: time.Unix(int64(resetTimeNum), 0),
+		ResetTime: time.Unix(resetTimeNum, 0),
 		Remaining: remainingNum,
 		Limit:     limitNum,
 		Ready:     true,
@@ -164,7 +157,7 @@ func (rateLimiter *rateLimiter) Check(url *url.URL) {
 		limiter = lim.(*xRateLimit)
 	}
 
-	// limiter 为 nil 意味着不对此路径做速率限制，否则必须等待至速率限制信息准备就绪
+	// limiter 为 nil 意味着不对此路径做速率限制
 	if limiter != nil {
 		limiter.Req()
 	}

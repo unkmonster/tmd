@@ -71,10 +71,6 @@ func (td *TweetDumper) Load(path string) error {
 }
 
 func (td *TweetDumper) Dump(path string) error {
-	if td.count == 0 {
-		return nil
-	}
-
 	data, err := json.MarshalIndent(td.data, "", "    ")
 	if err != nil {
 		return err

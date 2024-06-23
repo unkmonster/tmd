@@ -124,8 +124,8 @@ func (ue *UserEntity) Name() string {
 func (ue *UserEntity) LoadRecordedName() (bool, error) {
 	var entity *database.UserEntity
 	var err error
-	if ue.entity.Id.Valid {
-		entity, err = database.LocateUserEntityInLst(ue.db, ue.entity.Uid, uint(ue.entity.Id.Int32))
+	if ue.entity.ParentLstEntityId.Valid {
+		entity, err = database.LocateUserEntityInLst(ue.db, ue.entity.Uid, uint(ue.entity.ParentLstEntityId.Int32))
 	} else {
 		entity, err = database.LocateUserEntityInDir(ue.db, ue.entity.Uid, ue.entity.ParentDir.String)
 	}

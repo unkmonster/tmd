@@ -144,12 +144,15 @@ func LocateUserEntityInDir(db *sqlx.DB, uid uint64, parentDIr string) (*UserEnti
 }
 
 func LocateUserEntityInLst(db *sqlx.DB, uid uint64, lstEid uint) (*UserEntity, error) {
-	result := UserEntity{}
-	stmt := `SELECT * FROM user_entities WHERE uid=? AND parent_lst_entity_id=?`
-	if err := db.Get(&result, stmt, uid, lstEid); err != nil {
+	result := []UserEntity{}
+	stmt := `SELECT * FROM user_entities WHERE user_id=? AND parent_lst_entity_id=?`
+	if err := db.Select(&result, stmt, uid, lstEid); err != nil {
 		return nil, err
 	}
-	return &result, nil
+	if len(result) == 0 {
+		return nil, nil
+	}
+	return &result[0], nil
 }
 
 func GetUserEntity(db *sqlx.DB, id int) (*UserEntity, error) {

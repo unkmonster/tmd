@@ -1,10 +1,9 @@
 package twitter
 
 import (
-	"fmt"
-
 	"github.com/go-resty/resty/v2"
 	"github.com/tidwall/gjson"
+	"github.com/unkmonster/tmd2/internal/utils"
 )
 
 type itemContent struct {
@@ -105,8 +104,8 @@ func getTimeline(client *resty.Client, api timelineApi) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if resp.StatusCode() != 200 {
-		return "", fmt.Errorf("%s %s", resp.Status(), resp.String())
+	if err = utils.CheckRespStatus(resp); err != nil {
+		return "", err
 	}
 	return resp.String(), nil
 }
