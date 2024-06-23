@@ -104,6 +104,11 @@ func BatchUserDownload(client *resty.Client, db *sqlx.DB, users []*twitter.User,
 				break
 			}
 			tweets, err := getTweetAndUpdateLatestReleaseTime(client, uidToUser[e.Uid()], e)
+			if utils.IsStatusCode(err, 429) {
+				color.Error.Tips("[getting worker]: %v", err)
+				abort()
+				continue
+			}
 			if err != nil {
 				color.Error.Tips("[getting worker] %s: %v", e.Name(), err)
 				continue

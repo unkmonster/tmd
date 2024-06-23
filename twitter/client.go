@@ -78,7 +78,7 @@ func (rl *xRateLimit) Req() bool {
 		//log.Printf("requested %s: remaining  %d\n", rl.Url, rl.Remaining)
 		return true
 	} else {
-		color.Question.Printf("[RateLimit] %s Sleep until %s\n", rl.Url, rl.ResetTime)
+		color.Warn.Printf("[RateLimit] %s Sleep until %s\n", rl.Url, rl.ResetTime)
 		time.Sleep(time.Until(rl.ResetTime))
 		rl.Ready = false
 		return false
@@ -136,7 +136,6 @@ func (rateLimiter *rateLimiter) Check(url *url.URL) {
 	}
 
 	path := url.Path
-	// 首次遇见某个路径时初始化它
 	cod, _ := rateLimiter.conds.LoadOrStore(path, sync.NewCond(&sync.Mutex{}))
 	cond := cod.(*sync.Cond)
 	cond.L.Lock()
@@ -151,7 +150,7 @@ func (rateLimiter *rateLimiter) Check(url *url.URL) {
 		return
 	}
 
-	// 路径过期后的首个请求可以正常发起，其余请求再次等待
+	// 路径过期后的首个请求可以正常发起，其余请求再次等待其就绪
 	// 保证当前路径的速率限制会被另一个请求更新使其就绪，否则这里会无尽等待
 	for limiter != nil && !limiter.Ready {
 		//fmt.Printf("wait for ready: %s\n", path)
@@ -172,6 +171,7 @@ func (rateLimiter *rateLimiter) Check(url *url.URL) {
 	//fmt.Printf("start req: %s\n", path)
 }
 
+// 对过期，未初始化的路径更新速率限制信息
 func (rateLimiter *rateLimiter) Update(resp *resty.Response) {
 	if !rateLimiter.ShouldWork(resp.RawResponse.Request.URL) {
 		return
@@ -211,7 +211,7 @@ func (rateLimiter *rateLimiter) Reset(url *url.URL) {
 	cond.L.Lock()
 	defer cond.L.Unlock()
 
-	lim, ok := rateLimiter.limiters.Load(path) // 一定能加载到一个值
+	lim, ok := rateLimiter.limiters.Load(path)
 	if !ok {
 		// OnError 但是已被 OnRetry 重置
 		return
@@ -221,10 +221,10 @@ func (rateLimiter *rateLimiter) Reset(url *url.URL) {
 		return
 	}
 
-	// 将此路径设为首次请求的状态
+	// 将此路径设为首次请求前的状态
 	rateLimiter.limiters.Delete(path)
 	cond.Signal()
-	fmt.Printf("reseted: %s\n", path)
+	//fmt.Printf("reseted: %s\n", path)
 }
 
 func (*rateLimiter) ShouldWork(url *url.URL) bool {
@@ -240,7 +240,7 @@ func EnableRateLimit(client *resty.Client) {
 	client.OnBeforeRequest(func(c *resty.Client, req *resty.Request) error {
 		u, err := url.Parse(req.URL)
 		if err != nil {
-			panic(err)
+			return err
 		}
 		rateLimiter.Check(u)
 		return nil

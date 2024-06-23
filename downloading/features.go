@@ -117,7 +117,7 @@ func tweetDownloader(client *resty.Client, wc workerController, errch chan<- Pac
 			continue
 		}
 		err := downloadTweetMedia(client, path, pt.GetTweet())
-		if err != nil {
+		if err != nil && !utils.IsStatusCode(err, 404) {
 			errch <- pt
 		}
 	}

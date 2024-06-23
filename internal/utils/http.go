@@ -20,7 +20,7 @@ func GetExtFromUrl(u string) (string, error) {
 
 func CheckRespStatus(resp *resty.Response) error {
 	if resp.StatusCode() != 200 {
-		return fmt.Errorf("%s: %s", resp.Status(), resp.String())
+		return &HttpStatusError{Code: resp.StatusCode(), Msg: resp.String()}
 	}
 	return nil
 }
@@ -32,9 +32,26 @@ func ParseCookie(cookie string) (map[string]string, error) {
 		item = strings.TrimSpace(item)
 		kv := strings.SplitN(item, "=", 2)
 		if len(kv) != 2 {
-			return nil, fmt.Errorf("kv should be 2 but '%v'", item)
+			return nil, fmt.Errorf("len(kv) should be 2 but '%v'", item)
 		}
 		results[kv[0]] = kv[1]
 	}
 	return results, nil
+}
+
+type HttpStatusError struct {
+	Code int
+	Msg  string
+}
+
+func (err *HttpStatusError) Error() string {
+	return fmt.Sprintf("%d %s", err.Code, err.Msg)
+}
+
+func IsStatusCode(err error, code int) bool {
+	e, ok := err.(*HttpStatusError)
+	if !ok {
+		return false
+	}
+	return e.Code == code
 }
