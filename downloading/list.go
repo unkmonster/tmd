@@ -41,8 +41,8 @@ func BatchUserDownload(client *resty.Client, db *sqlx.DB, users []*twitter.User,
 	close(userChan)
 
 	entityChan := make(chan *UserEntity, len(users))
-	tweetChan := make(chan *TweetInEntity, 2*getterCount)
-	failureTw := make(chan *TweetInEntity)
+	tweetChan := make(chan PackgedTweet, 4*getterCount)
+	errch := make(chan PackgedTweet)
 	abortChan := make(chan struct{})
 	syncWg := sync.WaitGroup{}
 	getterWg := sync.WaitGroup{}
@@ -115,33 +115,6 @@ func BatchUserDownload(client *resty.Client, db *sqlx.DB, users []*twitter.User,
 		}
 	}
 
-	tweetDownloader := func() {
-		defer downloaderWg.Done()
-		var pt *TweetInEntity
-		defer func() {
-			if p := recover(); p != nil {
-				abort()
-				failureTw <- pt
-				color.Error.Tips("[downloading worker]: %v", p)
-			}
-		}()
-
-		for pt = range tweetChan {
-			if cancelled() {
-				failureTw <- pt
-				continue
-			}
-
-			path, _ := pt.Entity.Path()
-			// TODO: 判断可恢复及不可恢复
-			err := downloadTweetMedia(client, path, pt.Tweet)
-			if err != nil {
-				failureTw <- pt
-			}
-		}
-		//fmt.Println("[downloading worker]: bye")
-	}
-
 	for i := 0; i < getterCount; i++ {
 		syncWg.Add(1)
 		go userUpdater()
@@ -149,9 +122,14 @@ func BatchUserDownload(client *resty.Client, db *sqlx.DB, users []*twitter.User,
 		go tweetGetter()
 	}
 
+	wc := workerController{}
+	wc.abort = abort
+	wc.cancelled = cancelled
+	wc.Wg = &downloaderWg
+
 	for i := 0; i < maxDownloadRoutine; i++ {
 		downloaderWg.Add(1)
-		go tweetDownloader()
+		go tweetDownloader(client, wc, errch, tweetChan)
 	}
 
 	//closer
@@ -165,13 +143,13 @@ func BatchUserDownload(client *resty.Client, db *sqlx.DB, users []*twitter.User,
 		//log.Printf("tweet chan has closed\n")
 
 		downloaderWg.Wait()
-		close(failureTw)
+		close(errch)
 		//log.Printf("failureTw chan has closed\n")
 	}()
 
 	failures := []*TweetInEntity{}
-	for pt := range failureTw {
-		failures = append(failures, pt)
+	for pt := range errch {
+		failures = append(failures, pt.(*TweetInEntity))
 	}
 	return failures
 }

@@ -75,7 +75,7 @@ func downloadTweetMedia(client *resty.Client, dir string, tweet *twitter.Tweet) 
 		}
 	}
 
-	fmt.Printf("%s %s\n", color.FgMagenta.Render("["+tweet.Creator.Title()+"]"), text)
+	fmt.Printf("%s %s\n", color.FgLightMagenta.Render("["+tweet.Creator.Title()+"]"), text)
 	return nil
 }
 
@@ -83,7 +83,44 @@ var maxDownloadRoutine int
 
 func init() {
 	maxDownloadRoutine = runtime.GOMAXPROCS(0) * 5
-	color.Info.Tips("MAX_DOWNLOAD_ROUTINE: %d\n", maxDownloadRoutine)
+	//color.Info.Tips("MAX_DOWNLOAD_ROUTINE: %d\n", maxDownloadRoutine)
+}
+
+type workerController struct {
+	Wg        *sync.WaitGroup
+	cancelled func() bool
+	abort     func()
+}
+
+func tweetDownloader(client *resty.Client, wc workerController, errch chan<- PackgedTweet, twech <-chan PackgedTweet) {
+	var pt PackgedTweet
+	defer wc.Wg.Done()
+	defer func() {
+		if p := recover(); p != nil {
+			wc.abort()
+			if pt != nil {
+				errch <- pt
+				color.Error.Tips("[downloading worker]: %v", p)
+			}
+		}
+	}()
+
+	for pt = range twech {
+		if wc.cancelled() {
+			errch <- pt
+			continue
+		}
+
+		path := pt.GetPath()
+		if path == "" {
+			errch <- pt
+			continue
+		}
+		err := downloadTweetMedia(client, path, pt.GetTweet())
+		if err != nil {
+			errch <- pt
+		}
+	}
 }
 
 func BatchDownloadTweet(client *resty.Client, pts ...PackgedTweet) []PackgedTweet {
@@ -111,28 +148,14 @@ func BatchDownloadTweet(client *resty.Client, pts ...PackgedTweet) []PackgedTwee
 		}
 	}
 
+	wc := workerController{}
+	wc.abort = abort
+	wc.cancelled = cancelled
+	wc.Wg = &wg
+
 	for i := 0; i < numRoutine; i++ {
 		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			var pt PackgedTweet
-			defer func() {
-				if err := recover(); err != nil {
-					abort()
-					errChan <- pt
-				}
-			}()
-
-			for pt = range tweetChan {
-				if cancelled() {
-					errChan <- pt
-					continue
-				}
-				if err := downloadTweetMedia(client, pt.GetPath(), pt.GetTweet()); err != nil {
-					errChan <- pt
-				}
-			}
-		}()
+		go tweetDownloader(client, wc, errChan, tweetChan)
 	}
 
 	go func() {
