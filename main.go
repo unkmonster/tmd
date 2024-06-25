@@ -21,10 +21,14 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+type Cookie struct {
+	AuthCoken string `yaml:"auth_token"`
+	Ct0       string `yaml:"ct0"`
+}
+
 type Config struct {
 	RootPath string `yaml:"root_path"`
-	Cookie   string `yaml:"cookie"`
-	Token    string `yaml:"token"`
+	Cookie   Cookie `yaml:"cookie"`
 }
 
 type userArgs struct {
@@ -235,7 +239,7 @@ func main() {
 	}
 
 	// logging
-	client, screenName, err := twitter.Login(conf.Cookie, conf.Token)
+	client, screenName, err := twitter.Login(conf.Cookie.AuthCoken, conf.Cookie.Ct0)
 	if err != nil {
 		log.Fatalln("failed to login:", err)
 	}
@@ -353,32 +357,31 @@ func writeConf(path string, conf *Config) error {
 }
 
 func config(saveto string) (*Config, error) {
+	conf := Config{}
 	scan := bufio.NewScanner(os.Stdin)
+
 	print("enter storage dir: ")
 	scan.Scan()
 	storePath := scan.Text()
-	storePath, err := filepath.Abs(storePath)
-	if err != nil {
-		return nil, err
-	}
-
-	print("enter cookie: ")
-	scan.Scan()
-	cookie := scan.Text()
-
-	print("enter token: ")
-	scan.Scan()
-	token := scan.Text()
-
 	// 确保路径可用
-	err = os.MkdirAll(storePath, 0755)
+	err := os.MkdirAll(storePath, 0755)
+	if err != nil {
+		return nil, err
+	}
+	storePath, err = filepath.Abs(storePath)
 	if err != nil {
 		return nil, err
 	}
 
-	conf := Config{}
-	conf.Cookie = cookie
 	conf.RootPath = storePath
-	conf.Token = token
+
+	print("enter auth_token: ")
+	scan.Scan()
+	conf.Cookie.AuthCoken = scan.Text()
+
+	print("enter ct0: ")
+	scan.Scan()
+	conf.Cookie.Ct0 = scan.Text()
+
 	return &conf, writeConf(saveto, &conf)
 }

@@ -21,39 +21,50 @@
 
 ### 更新/填写配置
 
+第一次运行程序请按要求将配置项依次填入
+
+#### 配置项介绍
+
+1. `storeage path`：存储路径(可以不存在)
+2. `auth_token`：用于登录，见下文
+3. `ct0`：用于登录，见下文
+
+#### 获取 Cookie
+
+1. 使用 Chrome 浏览器打开 https://twitter.com 后，按`F12` 打开开发者控制台
+2. 选中顶部 `应用`，并复制对应项的值
+
+​	![ 2024-06-25 093928.png](https://s2.loli.net/2024/06/25/O6PwWGoqYLZAJXc.png)
+
+#### 更新配置
+
 ```
 tmd2 --conf
 ```
 
-按照提示将配置项依次填入
-
-**配置项**
-
-1. `cookie`：登录 Cookie
-2. `token`：Bearer Token
-3. `storeage path`：存储路径(可以不存在)
-
-[关于获取Cookie, Token](#如何获取-cookietoken)
-
->  **单独修改配置项**请至 `%appdata%/tmd2/conf.yaml` 手动修改
+**执行上述命令将导致引导配置程序重新运行，这将重新配置整个配置文件，而不是单独的配置项。单独修改配置项**请至 `%appdata%/tmd2/conf.yaml` 手动修改
 
 ###  用户下载
 
-```
-tmd2 --user <uid> | <screen_name>
+下载指定用户的媒体推文
 
-eg.
-tmd2 --user hello
-tmd2 --user 123456
+`tmd2 --user <uid> | <screen_name>`
+
+```
+//eg.
+tmd2 --user hello	// 下载 screen_name 为 "hello" 的用户
+tmd2 --user 123456	// 下载 user_id 为 123456 的用户
 ```
 
 ![ 2024-06-22 185026.png](https://s2.loli.net/2024/06/22/u45c1nUwHOKtbjE.png "用户的screen_name")
 
 ### 列表下载
 
-```
-tmd2 --list <list_id>
+下载指定列表中每一个用户的推文
 
+`tmd2 --list <list_id>`
+
+```
 eg.
 tmd2 --list 123456
 ```
@@ -62,9 +73,9 @@ tmd2 --list 123456
 
 ### 关注列表下载
 
-```
-tmd2 --foll <uid> | <screen_name>
-```
+下载指定用户正关注的每个用户的推文
+
+`tmd2 --foll <uid> | <screen_name>`
 
 选项可多选，例如：
 
@@ -73,19 +84,6 @@ tmd2 --user 12345 --user 67890 --list xxx --list xxx
 ```
 
 ## Other
-
-### 如何获取 Cookie，Token
-
-1. 使用 Chrome 浏览器打开 https://twitter.com 后，按`F12` 打开开发者控制台
-2. 选中 *`Fetch/XHR`* 后，按 `CTRL+R` 刷新页面
-3. 随机选中一个请求，并在右侧依次选中标头  -> 请求标头 
-4. 找到 `Cookie` 和 `Authorization` 项，双击选中并复制
-
-​	![ 2024-06-22 173705.png](https://s2.loli.net/2024/06/22/NvrsF7dX3Ggpyh4.png)
-
-> 如果你随机选中的请求中没有发现这两项，重新随机选择一个请求。多选几个一定会有
-
-配置程序时将 Authorization 项的内容粘贴至 token
 
 ### 关于速率限制
 

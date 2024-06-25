@@ -17,18 +17,21 @@ import (
 	"github.com/unkmonster/tmd2/internal/utils"
 )
 
-func Login(cookie_str string, authToken string) (*resty.Client, string, error) {
-	cookie, err := utils.ParseCookie(cookie_str)
-	if err != nil {
-		return nil, "", err
-	}
-	authToken, _ = strings.CutPrefix(authToken, "Bearer")
-	authToken = strings.TrimSpace(authToken)
+const bearer = "AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA"
 
+func Login(authToken string, ct0 string) (*resty.Client, string, error) {
 	client := resty.New()
-	client.SetHeader("cookie", cookie_str)
-	client.SetHeader("X-Csrf-Token", cookie["ct0"])
-	client.SetAuthToken(authToken)
+	client.SetAuthToken(bearer)
+	client.SetCookie(&http.Cookie{
+		Name:  "auth_token",
+		Value: authToken,
+	})
+	client.SetCookie(&http.Cookie{
+		Name:  "ct0",
+		Value: ct0,
+	})
+	client.SetHeader("X-Csrf-Token", ct0)
+
 	client.SetRetryCount(5)
 	client.AddRetryCondition(func(r *resty.Response, err error) bool {
 		return !strings.HasSuffix(r.Request.RawRequest.Host, "twimg.com") && err != nil
