@@ -41,10 +41,9 @@ CREATE TABLE IF NOT EXISTS lst_entities (
 	id INTEGER NOT NULL, 
 	lst_id INTEGER NOT NULL, 
 	title VARCHAR NOT NULL, 
-	parent_dir VARCHAR NOT NULL, 
+	parent_dir VARCHAR NOT NULL COLLATE NOCASE, 
 	PRIMARY KEY (id), 
-	UNIQUE (lst_id, parent_dir), 
-	FOREIGN KEY(lst_id) REFERENCES lsts (id)
+	UNIQUE (lst_id, parent_dir)
 );
 
 CREATE TABLE IF NOT EXISTS user_entities (
@@ -52,10 +51,11 @@ CREATE TABLE IF NOT EXISTS user_entities (
 	user_id INTEGER NOT NULL, 
 	title VARCHAR NOT NULL, 
 	latest_release_time DATETIME, 
-	parent_dir VARCHAR, 
+	parent_dir VARCHAR COLLATE NOCASE, 
 	parent_lst_entity_id INTEGER, 
 	PRIMARY KEY (id), 
-	UNIQUE (user_id, parent_dir, parent_lst_entity_id), 
+	UNIQUE (user_id, parent_dir), 
+	UNIQUE (user_id, parent_lst_entity_id), 
 	CHECK (parent_dir IS NOT NULL OR parent_lst_entity_id IS NOT NULL), 
 	CHECK (parent_dir IS NULL OR parent_lst_entity_id IS NULL), 
 	FOREIGN KEY(user_id) REFERENCES users (id), 
