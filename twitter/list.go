@@ -73,6 +73,9 @@ func getMembersOnePage(client *resty.Client, api timelineApi, instsPath string) 
 	users := make([]*User, 0, len(itemContents))
 	for _, ic := range itemContents {
 		user_results := ic.GetUserResults()
+		if user_results.String() == "{}" {
+			continue
+		}
 		u, err := parseUserResults(&user_results)
 		if err != nil {
 			log.Printf("%v\n%v", err, user_results)
