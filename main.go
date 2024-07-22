@@ -27,8 +27,9 @@ type Cookie struct {
 }
 
 type Config struct {
-	RootPath string `yaml:"root_path"`
-	Cookie   Cookie `yaml:"cookie"`
+	RootPath           string `yaml:"root_path"`
+	Cookie             Cookie `yaml:"cookie"`
+	MaxDownloadRoutine int    `yaml:"max_download_routine"`
 }
 
 type userArgs struct {
@@ -232,13 +233,17 @@ func main() {
 		return
 	}
 
+	if conf.MaxDownloadRoutine != 0 {
+		downloading.MaxDownloadRoutine = conf.MaxDownloadRoutine
+	}
+
 	// ensure path exist
 	pathHelper, err := NewPathHelper(conf.RootPath)
 	if err != nil {
 		log.Fatalln("failed to make dir:", err)
 	}
 
-	// logging
+	// signing in
 	client, screenName, err := twitter.Login(conf.Cookie.AuthCoken, conf.Cookie.Ct0)
 	if err != nil {
 		log.Fatalln("failed to login:", err)
@@ -294,7 +299,7 @@ func main() {
 			count += dumper.Push(te.Entity.Id(), te.Tweet)
 		}
 		dumper.Dump(pathHelper.errorj)
-		fmt.Printf("%d tweet have been dumped\n", count)
+		fmt.Printf("%d tweet have been dumped, add: %d\n", dumper.Count(), count)
 	}()
 
 	if len(task.users) != 0 {
@@ -382,6 +387,13 @@ func config(saveto string) (*Config, error) {
 	print("enter ct0: ")
 	scan.Scan()
 	conf.Cookie.Ct0 = scan.Text()
+
+	print("enter max download routine: ")
+	scan.Scan()
+	conf.MaxDownloadRoutine, err = strconv.Atoi(scan.Text())
+	if err != nil {
+		return nil, err
+	}
 
 	return &conf, writeConf(saveto, &conf)
 }

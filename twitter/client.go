@@ -37,8 +37,8 @@ func Login(authToken string, ct0 string) (*resty.Client, string, error) {
 		return !strings.HasSuffix(r.Request.RawRequest.Host, "twimg.com") && err != nil
 	})
 	client.SetTransport(&http.Transport{
-		MaxIdleConns:          100,
-		MaxIdleConnsPerHost:   100,
+		MaxIdleConns:          0,
+		MaxIdleConnsPerHost:   500,
 		IdleConnTimeout:       5 * time.Second,
 		TLSHandshakeTimeout:   5 * time.Second,
 		ResponseHeaderTimeout: 5 * time.Second,
@@ -64,6 +64,8 @@ type xRateLimit struct {
 	Url       string
 }
 
+var Slept time.Duration
+
 func (rl *xRateLimit) Req() {
 	if time.Now().After(rl.ResetTime) {
 		log.Printf("expired %s\n", rl.Url)
@@ -75,9 +77,11 @@ func (rl *xRateLimit) Req() {
 		rl.Remaining--
 		//log.Printf("requested %s: remaining  %d\n", rl.Url, rl.Remaining)
 	} else {
+		start := time.Now()
 		color.Warn.Printf("[RateLimit] %s Sleep until %s\n", rl.Url, rl.ResetTime)
-		time.Sleep(time.Until(rl.ResetTime))
+		time.Sleep(time.Until(rl.ResetTime) + time.Second*2)
 		rl.Ready = false
+		Slept += time.Since(start)
 	}
 }
 

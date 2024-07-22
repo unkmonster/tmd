@@ -79,10 +79,10 @@ func downloadTweetMedia(client *resty.Client, dir string, tweet *twitter.Tweet) 
 	return nil
 }
 
-var maxDownloadRoutine int
+var MaxDownloadRoutine int
 
 func init() {
-	maxDownloadRoutine = runtime.GOMAXPROCS(0) * 5
+	MaxDownloadRoutine = runtime.GOMAXPROCS(0) * 5
 	//color.Info.Tips("MAX_DOWNLOAD_ROUTINE: %d\n", maxDownloadRoutine)
 }
 
@@ -128,7 +128,7 @@ func BatchDownloadTweet(client *resty.Client, pts ...PackgedTweet) []PackgedTwee
 	var tweetChan = make(chan PackgedTweet, len(pts))
 	var abortChan = make(chan struct{})
 	var wg sync.WaitGroup // number of working goroutines
-	var numRoutine = min(len(pts), maxDownloadRoutine)
+	var numRoutine = min(len(pts), MaxDownloadRoutine)
 
 	for _, pt := range pts {
 		tweetChan <- pt

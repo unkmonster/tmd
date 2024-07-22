@@ -2,6 +2,7 @@ package downloading
 
 import (
 	"fmt"
+	"runtime"
 	"sync"
 
 	"github.com/go-resty/resty/v2"
@@ -30,8 +31,6 @@ func (pt TweetInEntity) GetPath() string {
 }
 
 func BatchUserDownload(client *resty.Client, db *sqlx.DB, users []*twitter.User, dir string, listEntityId *int) []*TweetInEntity {
-	getterCount := min(len(users), maxDownloadRoutine/2)
-
 	uidToUser := make(map[uint64]*twitter.User)
 	userChan := make(chan *twitter.User, len(users))
 	for _, u := range users {
@@ -40,8 +39,9 @@ func BatchUserDownload(client *resty.Client, db *sqlx.DB, users []*twitter.User,
 	}
 	close(userChan)
 
+	getterCount := min(len(users), 2*runtime.GOMAXPROCS(0))
 	entityChan := make(chan *UserEntity, len(users))
-	tweetChan := make(chan PackgedTweet, 4*getterCount)
+	tweetChan := make(chan PackgedTweet, MaxDownloadRoutine) // 尽量不让任何下载例程闲置
 	errch := make(chan PackgedTweet)
 	abortChan := make(chan struct{})
 	syncWg := sync.WaitGroup{}
@@ -132,7 +132,7 @@ func BatchUserDownload(client *resty.Client, db *sqlx.DB, users []*twitter.User,
 	wc.cancelled = cancelled
 	wc.Wg = &downloaderWg
 
-	for i := 0; i < maxDownloadRoutine; i++ {
+	for i := 0; i < MaxDownloadRoutine; i++ {
 		downloaderWg.Add(1)
 		go tweetDownloader(client, wc, errch, tweetChan)
 	}
