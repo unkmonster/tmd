@@ -243,7 +243,7 @@ func main() {
 		log.Fatalln("failed to make dir:", err)
 	}
 
-	// signing in
+	// sign in
 	client, screenName, err := twitter.Login(conf.Cookie.AuthCoken, conf.Cookie.Ct0)
 	if err != nil {
 		log.Fatalln("failed to login:", err)
@@ -264,44 +264,36 @@ func main() {
 	}
 	fmt.Println(task)
 
-	// do job
+	// retry for legacy tweet
 	dumper := downloading.NewDumper()
 	err = dumper.Load(pathHelper.errorj)
 	if err != nil {
 		log.Fatalln("failed to load dumped tweets:", err)
 	}
 
-	// retry for legacy
-	if dumper.Count() != 0 {
-		fmt.Println("loaded legacy tweet:", dumper.Count())
-		legacy, err := dumper.GetTotal(db)
-		if err != nil {
-			log.Fatalln("[Dumper] failed to get total tweet:", err)
-		}
-
-		toretry := make([]downloading.PackgedTweet, 0, len(legacy))
-		for _, leg := range legacy {
-			toretry = append(toretry, leg)
-		}
-
-		newFails := downloading.BatchDownloadTweet(client, toretry...)
-		dumper.Clear()
-		for _, pt := range newFails {
-			te := pt.(*downloading.TweetInEntity)
-			dumper.Push(te.Entity.Id(), te.Tweet)
-		}
+	if err = retryLegacy(dumper, db, client); err != nil {
+		log.Fatalln(err)
 	}
 
 	var todump = make([]*downloading.TweetInEntity, 0)
 	defer func() {
-		count := 0
-		for _, te := range todump {
-			count += dumper.Push(te.Entity.Id(), te.Tweet)
-		}
+		//if err := recover(); err != nil {
+		//println("panic:", err)
 		dumper.Dump(pathHelper.errorj)
-		fmt.Printf("%d tweet have been dumped, add: %d\n", dumper.Count(), count)
+		fmt.Printf("%d tweets have been dumped\n", dumper.Count())
+		//}
 	}()
 
+	defer func() {
+		for _, te := range todump {
+			dumper.Push(te.Entity.Id(), te.Tweet)
+		}
+		retryLegacy(dumper, db, client) // 这应该不会 panic
+		// dumper.Dump(pathHelper.errorj)
+		// fmt.Printf("%d tweets have been dumped\n", dumper.Count())
+	}()
+
+	// do job
 	if len(task.users) != 0 {
 		todump = downloading.BatchUserDownload(client, db, task.users, pathHelper.users, nil)
 	}
@@ -396,4 +388,29 @@ func config(saveto string) (*Config, error) {
 	}
 
 	return &conf, writeConf(saveto, &conf)
+}
+
+func retryLegacy(dumper *downloading.TweetDumper, db *sqlx.DB, client *resty.Client) error {
+	if dumper.Count() == 0 {
+		return nil
+	}
+
+	legacy, err := dumper.GetTotal(db)
+	if err != nil {
+		return err
+	}
+
+	toretry := make([]downloading.PackgedTweet, 0, len(legacy))
+	for _, leg := range legacy {
+		toretry = append(toretry, leg)
+	}
+
+	newFails := downloading.BatchDownloadTweet(client, toretry...)
+	dumper.Clear()
+	for _, pt := range newFails {
+		te := pt.(*downloading.TweetInEntity)
+		dumper.Push(te.Entity.Id(), te.Tweet)
+	}
+
+	return nil
 }
