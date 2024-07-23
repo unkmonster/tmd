@@ -9,6 +9,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 
@@ -17,6 +18,7 @@ import (
 	"github.com/jmoiron/sqlx"
 	"github.com/unkmonster/tmd2/database"
 	"github.com/unkmonster/tmd2/downloading"
+	"github.com/unkmonster/tmd2/internal/utils"
 	"github.com/unkmonster/tmd2/twitter"
 	"gopkg.in/yaml.v3"
 )
@@ -166,7 +168,7 @@ func MakeTask(client *resty.Client, usrArgs userArgs, listArgs ListArgs, follArg
 	return &task, nil
 }
 
-type PathHelper struct {
+type storePath struct {
 	root   string
 	users  string
 	data   string
@@ -174,11 +176,11 @@ type PathHelper struct {
 	errorj string
 }
 
-func NewPathHelper(root string) (*PathHelper, error) {
-	ph := PathHelper{}
+func newStorePath(root string) (*storePath, error) {
+	ph := storePath{}
 	ph.root = root
 	ph.users = filepath.Join(root, "users")
-	ph.data = filepath.Join(root, "data")
+	ph.data = filepath.Join(root, ".data")
 
 	ph.db = filepath.Join(ph.data, "foo.db")
 	ph.errorj = filepath.Join(ph.data, "errors.json")
@@ -213,11 +215,17 @@ func main() {
 	flag.Var(&follArgs, "foll", "uid/screen_name to download following of specified user")
 	flag.Parse()
 
-	appdata := os.Getenv("appdata")
-	if appdata == "" {
-		panic("appdata is not exists")
+	var homepath string
+	if runtime.GOOS == "windows" {
+		homepath = os.Getenv("appdata")
+	} else if runtime.GOOS == "linux" {
+		homepath = os.Getenv("HOME")
 	}
-	appRootPath := filepath.Join(appdata, "tmd2")
+
+	if homepath == "" {
+		panic("failed to get home path from env")
+	}
+	appRootPath := filepath.Join(homepath, ".tmd2")
 	confPath := filepath.Join(appRootPath, "conf.yaml")
 	err := os.Mkdir(appRootPath, 0755)
 	if err != nil && !os.IsExist(err) {
@@ -227,22 +235,26 @@ func main() {
 	conf, err := readConf(confPath)
 	if os.IsNotExist(err) || confArg {
 		conf, err = config(confPath)
+		if err != nil {
+			log.Fatalln("config failure with", err)
+		}
 	}
 	if err != nil {
 		log.Fatalln("failed to load config:", err)
 	}
 	if confArg {
+		color.Info.Println("config done")
 		return
 	}
 
-	if conf.MaxDownloadRoutine != 0 {
+	if conf.MaxDownloadRoutine > 0 {
 		downloading.MaxDownloadRoutine = conf.MaxDownloadRoutine
 	}
 
-	// ensure path exist
-	pathHelper, err := NewPathHelper(conf.RootPath)
+	// ensure store path exist
+	pathHelper, err := newStorePath(conf.RootPath)
 	if err != nil {
-		log.Fatalln("failed to make dir:", err)
+		log.Fatalln("failed to make store dir:", err)
 	}
 
 	// sign in
@@ -251,7 +263,7 @@ func main() {
 		log.Fatalln("failed to login:", err)
 	}
 	twitter.EnableRateLimit(client)
-	fmt.Printf("Logged in as %s\n", color.FgLightBlue.Render(screenName))
+	color.Info.Tips("signed in as %s", color.FgLightBlue.Render(screenName))
 
 	// connect db
 	db, err := connectDatabase(pathHelper.db)
@@ -259,6 +271,7 @@ func main() {
 		log.Fatalln("failed to connect to database:", err)
 	}
 	defer db.Close()
+	color.Info.Tips("database is connected")
 
 	task, err := MakeTask(client, usrArgs, listArgs, follArgs)
 	if err != nil {
@@ -282,7 +295,7 @@ func main() {
 		//if err := recover(); err != nil {
 		//println("panic:", err)
 		dumper.Dump(pathHelper.errorj)
-		fmt.Printf("%d tweets have been dumped\n", dumper.Count())
+		color.Info.Tips("%d tweets have been dumped", dumper.Count())
 		//}
 	}()
 
@@ -310,6 +323,11 @@ func main() {
 }
 
 func connectDatabase(path string) (*sqlx.DB, error) {
+	ex, err := utils.PathExists(path)
+	if err != nil {
+		return nil, err
+	}
+
 	dsn := fmt.Sprintf("file:%s?cache=shared", path)
 	db, err := sqlx.Connect("sqlite3", dsn)
 	if err != nil {
@@ -317,6 +335,9 @@ func connectDatabase(path string) (*sqlx.DB, error) {
 	}
 	database.CreateTables(db)
 	db.SetMaxOpenConns(1)
+	if !ex {
+		color.Primary.Printf("created new db '%s'\n", path)
+	}
 	return db, nil
 }
 

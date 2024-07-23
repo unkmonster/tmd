@@ -96,12 +96,16 @@ func BatchUserDownload(client *resty.Client, db *sqlx.DB, users []*twitter.User,
 			}
 			linkEntity := NewUserEntityByParentLstPathId(db, u.Id, *listEntityId) // .lnk
 			userLink := NewUserLink(linkEntity, pathEntity)
-			err = syncPath(userLink, pathEntity.Name()+".lnk")
+
+			var linkname = pathEntity.Name()
+			if runtime.GOOS == "windows" {
+				linkname += ".lnk"
+			}
+			err = syncPath(userLink, linkname)
 			if err != nil {
 				color.Error.Tips("[sync worker] failed to sync link %s: %v", u.Title(), err)
 			}
 		}
-		//fmt.Println("[updating worker]: bye")
 	}
 
 	tweetGetter := func() {
