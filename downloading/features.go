@@ -81,6 +81,9 @@ func downloadTweetMedia(client *resty.Client, dir string, tweet *twitter.Tweet) 
 
 var MaxDownloadRoutine int
 
+// TODO 多列表同时下载仍会重复同步用户
+var syncedUsers sync.Map
+
 func init() {
 	MaxDownloadRoutine = runtime.GOMAXPROCS(0) * 5
 	//color.Info.Tips("MAX_DOWNLOAD_ROUTINE: %d\n", maxDownloadRoutine)

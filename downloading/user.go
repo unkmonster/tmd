@@ -2,12 +2,14 @@ package downloading
 
 import (
 	"github.com/go-resty/resty/v2"
+	"github.com/gookit/color"
 	"github.com/jmoiron/sqlx"
 	"github.com/unkmonster/tmd2/database"
 	"github.com/unkmonster/tmd2/internal/utils"
 	"github.com/unkmonster/tmd2/twitter"
 )
 
+// 更新数据库中对用户的记录
 func syncUser(db *sqlx.DB, user *twitter.User) error {
 	renamed := false
 	isNew := false
@@ -55,10 +57,17 @@ func getTweetAndUpdateLatestReleaseTime(client *resty.Client, user *twitter.User
 }
 
 func DownloadUser(db *sqlx.DB, client *resty.Client, user *twitter.User, dir string) ([]PackgedTweet, error) {
+	_, loaded := syncedUsers.Load(user.Id)
+	if loaded {
+		color.Note.Printf("Skiped user '%s'\n", user.Title())
+		return nil, nil
+	}
 	entity, err := syncUserAndEntityInDir(db, user, dir)
 	if err != nil {
 		return nil, err
 	}
+
+	syncedUsers.Store(user.Id, entity)
 	tweets, err := getTweetAndUpdateLatestReleaseTime(client, user, entity)
 	if err != nil || len(tweets) == 0 {
 		return nil, err

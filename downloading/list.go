@@ -1,7 +1,6 @@
 package downloading
 
 import (
-	"fmt"
 	"runtime"
 	"sync"
 
@@ -61,26 +60,35 @@ func BatchUserDownload(client *resty.Client, db *sqlx.DB, users []*twitter.User,
 		}
 	}
 
-	panicHandler := func() {
+	panicHandler := func(name string) {
 		if p := recover(); p != nil {
-			fmt.Println(p)
+			color.Danger.Printf("[%s] panic: %v\n", name, p)
 			abort()
 		}
 	}
 
 	userUpdater := func() {
 		defer syncWg.Done()
-		defer panicHandler()
+		defer panicHandler("sync worker")
 		for u := range userChan {
 			if cancelled() {
 				break
 			}
-			pathEntity, err := syncUserAndEntityInDir(db, u, dir)
-			if err != nil {
-				color.Error.Tips("[sync worker] %s: %v", u.Title(), err)
-				continue
+			pe, loaded := syncedUsers.Load(u.Id)
+			var pathEntity *UserEntity
+			var err error
+			if !loaded {
+				pathEntity, err = syncUserAndEntityInDir(db, u, dir)
+				if err != nil {
+					color.Error.Tips("[sync worker] %s: %v", u.Title(), err)
+					continue
+				}
+				syncedUsers.Store(u.Id, pathEntity)
+				entityChan <- pathEntity
+			} else {
+				pathEntity = pe.(*UserEntity)
+				color.Note.Printf("[sync worker] Skiped user '%s'\n", u.Title())
 			}
-			entityChan <- pathEntity
 
 			// link
 			if listEntityId == nil {
@@ -98,7 +106,7 @@ func BatchUserDownload(client *resty.Client, db *sqlx.DB, users []*twitter.User,
 
 	tweetGetter := func() {
 		defer getterWg.Done()
-		defer panicHandler()
+		defer panicHandler("tweet getter")
 		for e := range entityChan {
 			if cancelled() {
 				break

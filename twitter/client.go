@@ -79,7 +79,7 @@ func (rl *xRateLimit) Req() {
 	} else {
 		start := time.Now()
 		color.Warn.Printf("[RateLimit] %s Sleep until %s\n", rl.Url, rl.ResetTime)
-		time.Sleep(time.Until(rl.ResetTime) + time.Second*2)
+		time.Sleep(time.Until(rl.ResetTime) + time.Second*5)
 		rl.Ready = false
 		Slept += time.Since(start)
 	}
