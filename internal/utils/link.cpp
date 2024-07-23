@@ -1,11 +1,20 @@
+#ifdef _WIN32
 #include <Windows.h>
 #include <WinNls.h>
 #include <ShObjIdl.h>
 #include <ShlGuid.h>
-#include <memory>
+#endif
 
+#include <memory>
+#include <filesystem>
+#include <string>
+#include <codecvt>
+#include <locale>
+
+
+#ifdef _WIN32
 extern "C"
-HRESULT CreateLink(wchar_t* lpszPathObj, wchar_t* lpszPathLink)
+HRESULT CreateLink(const wchar_t* lpszPathObj, const wchar_t* lpszPathLink)
 {
     HRESULT hres;
     hres = CoInitializeEx(0, COINIT_MULTITHREADED | COINIT_SPEED_OVER_MEMORY);
@@ -51,9 +60,24 @@ HRESULT CreateLink(wchar_t* lpszPathObj, wchar_t* lpszPathLink)
     }
     return hres;
 }
+#endif
 
-extern "C" int msgbox(wchar_t* msg) {
-    return MessageBoxW(NULL, msg, L"cap", MB_OK);
+std::wstring utf8_to_utf16(const char* str) {
+    std::wstring_convert<std::codecvt_utf8_utf16<wchar_t>> cvt;
+    return cvt.from_bytes(str);
+}
+
+extern "C" 
+int CreateSymLink(const char* path, const char* sympath) {
+#if defined _WIN32
+    auto wpath = utf8_to_utf16(path);
+    auto wsympath = utf8_to_utf16(sympath);
+    return CreateLink(wpath.c_str(), wsympath.c_str());
+#elif defined __unix__
+    std::error_code ec;
+    std::filesystem::create_symlink(path, sympath, ec);
+    return ec.value();
+#endif
 }
 
 // int main() {

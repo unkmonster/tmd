@@ -2,10 +2,9 @@ package utils
 
 /*
 #cgo CPPFLAGS: -DUNICODE=1
-#cgo LDFLAGS: -luuid -lole32 -loleaut32
-#include <Windows.h>
-int msgbox(wchar_t* msg);
-HRESULT CreateLink(wchar_t* lpszPathObj, wchar_t* lpszPathLink);
+#cgo windows LDFLAGS: -luuid -lole32 -loleaut32
+#include <stdlib.h>
+int CreateSymLink(const char* path, const char* sympath);
 */
 import "C"
 import (
@@ -15,7 +14,6 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"unicode/utf16"
 	"unsafe"
 )
 
@@ -86,16 +84,10 @@ func UniquePath(path string) (string, error) {
 }
 
 func CreateLink(path string, lnk string) int {
-	u16Path := utf16.Encode([]rune(path))
-	u16Lnk := utf16.Encode([]rune(lnk))
-	if u16Path[len(u16Path)-1] != 0 {
-		u16Path = append(u16Path, 0)
-	}
-	if u16Lnk[len(u16Lnk)-1] != 0 {
-		u16Lnk = append(u16Lnk, 0)
-	}
-	pPath := unsafe.Pointer(&u16Path[0])
-	pLnk := unsafe.Pointer(&u16Lnk[0])
-	hr := C.CreateLink((*C.wchar_t)(pPath), (*C.wchar_t)(pLnk))
+	cpath := C.CString(path)
+	clnk := C.CString(lnk)
+	defer C.free(unsafe.Pointer(cpath))
+	defer C.free(unsafe.Pointer(clnk))
+	hr := C.CreateSymLink(cpath, clnk)
 	return int(hr)
 }
