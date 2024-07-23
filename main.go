@@ -21,6 +21,8 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// TODO 跨平台支持
+
 type Cookie struct {
 	AuthCoken string `yaml:"auth_token"`
 	Ct0       string `yaml:"ct0"`
@@ -182,17 +184,17 @@ func NewPathHelper(root string) (*PathHelper, error) {
 	ph.errorj = filepath.Join(ph.data, "errors.json")
 
 	// ensure folder exist
-	err := os.Mkdir(ph.root, 0655)
+	err := os.Mkdir(ph.root, 0755)
 	if err != nil && !os.IsExist(err) {
 		return nil, err
 	}
 
-	err = os.Mkdir(ph.users, 0655)
+	err = os.Mkdir(ph.users, 0755)
 	if err != nil && !os.IsExist(err) {
 		return nil, err
 	}
 
-	err = os.Mkdir(ph.data, 0655)
+	err = os.Mkdir(ph.data, 0755)
 	if err != nil && !os.IsExist(err) {
 		return nil, err
 	}
@@ -217,7 +219,7 @@ func main() {
 	}
 	appRootPath := filepath.Join(appdata, "tmd2")
 	confPath := filepath.Join(appRootPath, "conf.yaml")
-	err := os.Mkdir(appRootPath, 0666)
+	err := os.Mkdir(appRootPath, 0755)
 	if err != nil && !os.IsExist(err) {
 		log.Fatalln("failed to make app dir:", err)
 	}
@@ -319,7 +321,7 @@ func connectDatabase(path string) (*sqlx.DB, error) {
 }
 
 func readConf(path string) (*Config, error) {
-	file, err := os.OpenFile(path, os.O_RDONLY, 0666)
+	file, err := os.OpenFile(path, os.O_RDONLY, 0)
 	if err != nil {
 		return nil, err
 	}

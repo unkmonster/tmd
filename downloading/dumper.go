@@ -45,7 +45,7 @@ func (td *TweetDumper) Push(eid int, tweet ...*twitter.Tweet) int {
 }
 
 func (td *TweetDumper) Load(path string) error {
-	file, err := os.OpenFile(path, os.O_RDONLY, 0666)
+	file, err := os.OpenFile(path, os.O_RDONLY, 0)
 	if os.IsNotExist(err) {
 		return nil
 	}
