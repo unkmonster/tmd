@@ -27,7 +27,7 @@ type UserLink struct {
 	Id                sql.NullInt32 `db:"id"`
 	Uid               uint64        `db:"user_id"`
 	Name              string        `db:"name"`
-	ParentLstEntityId sql.NullInt32 `db:"parent_lst_entity_id"`
+	ParentLstEntityId int32         `db:"parent_lst_entity_id"`
 }
 
 type Lst struct {
