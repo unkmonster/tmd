@@ -2,7 +2,6 @@ package database
 
 import (
 	"database/sql"
-	"fmt"
 	"path/filepath"
 
 	"github.com/jmoiron/sqlx"
@@ -17,12 +16,18 @@ type User struct {
 }
 
 type UserEntity struct {
-	Id                sql.NullInt32  `db:"id"`
-	Uid               uint64         `db:"user_id"`
-	Title             string         `db:"title"`
-	LatestReleaseTime sql.NullTime   `db:"latest_release_time"`
-	ParentDir         sql.NullString `db:"parent_dir"`
-	ParentLstEntityId sql.NullInt32  `db:"parent_lst_entity_id"`
+	Id                sql.NullInt32 `db:"id"`
+	Uid               uint64        `db:"user_id"`
+	Name              string        `db:"name"`
+	LatestReleaseTime sql.NullTime  `db:"latest_release_time"`
+	ParentDir         string        `db:"parent_dir"`
+}
+
+type UserLink struct {
+	Id                sql.NullInt32 `db:"id"`
+	Uid               uint64        `db:"user_id"`
+	Name              string        `db:"name"`
+	ParentLstEntityId sql.NullInt32 `db:"parent_lst_entity_id"`
 }
 
 type Lst struct {
@@ -34,25 +39,14 @@ type Lst struct {
 type LstEntity struct {
 	Id        sql.NullInt32 `db:"id"`
 	LstId     int64         `db:"lst_id"`
-	Title     string        `db:"title"`
+	Name      string        `db:"name"`
 	ParentDir string        `db:"parent_dir"`
 }
 
 func (le *LstEntity) Path() string {
-	return filepath.Join(le.ParentDir, le.Title)
+	return filepath.Join(le.ParentDir, le.Name)
 }
 
-func (ue *UserEntity) Path(db *sqlx.DB) (string, error) {
-	if ue.ParentDir.Valid {
-		return filepath.Join(ue.ParentDir.String, ue.Title), nil
-	}
-
-	if db != nil && ue.ParentLstEntityId.Valid {
-		lstEntity, err := GetLstEntity(db, int(ue.ParentLstEntityId.Int32))
-		if err != nil {
-			return "", err
-		}
-		return filepath.Join(lstEntity.Path(), ue.Title), nil
-	}
-	return "", fmt.Errorf("no enough info to get path")
+func (ue *UserEntity) Path(db *sqlx.DB) string {
+	return filepath.Join(ue.ParentDir, ue.Name)
 }
