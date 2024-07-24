@@ -56,17 +56,7 @@ func NewUserEntityByParentDir(db *sqlx.DB, uid uint64, parentDir string) *UserEn
 	ue := UserEntity{}
 	entity := database.UserEntity{}
 	entity.Uid = uid
-	entity.ParentDir.Scan(parentDir)
-	ue.db = db
-	ue.entity = &entity
-	return &ue
-}
-
-func NewUserEntityByParentLstPathId(db *sqlx.DB, uid uint64, eid int) *UserEntity {
-	ue := UserEntity{}
-	entity := database.UserEntity{}
-	entity.Uid = uid
-	entity.ParentLstEntityId.Scan(eid)
+	entity.ParentDir = parentDir
 	ue.db = db
 	ue.entity = &entity
 	return &ue
@@ -109,26 +99,23 @@ func (ue *UserEntity) Rename(title string) error {
 		return err
 	}
 
-	ue.entity.Title = title
+	ue.entity.Name = title
 	return database.UpdateUserEntity(ue.db, ue.entity)
 }
 
 func (ue *UserEntity) Path() (string, error) {
-	return ue.entity.Path(ue.db)
+	return ue.entity.Path(ue.db), nil
 }
 
 func (ue *UserEntity) Name() string {
-	return ue.entity.Title
+	return ue.entity.Name
 }
 
 func (ue *UserEntity) LoadRecordedName() (bool, error) {
 	var entity *database.UserEntity
 	var err error
-	if ue.entity.ParentLstEntityId.Valid {
-		entity, err = database.LocateUserEntityInLst(ue.db, ue.entity.Uid, uint(ue.entity.ParentLstEntityId.Int32))
-	} else {
-		entity, err = database.LocateUserEntityInDir(ue.db, ue.entity.Uid, ue.entity.ParentDir.String)
-	}
+	entity, err = database.LocateUserEntity(ue.db, ue.entity.Uid, ue.entity.ParentDir)
+
 	if err != nil {
 		return false, err
 	}
@@ -140,7 +127,7 @@ func (ue *UserEntity) LoadRecordedName() (bool, error) {
 }
 
 func (ue *UserEntity) SetName(name string) {
-	ue.entity.Title = name
+	ue.entity.Name = name
 }
 
 func (ue *UserEntity) Id() int {
@@ -205,7 +192,7 @@ func (ue *ListEntity) Rename(title string) error {
 		return err
 	}
 
-	ue.entity.Title = title
+	ue.entity.Name = title
 	return database.UpdateLstEntity(ue.db, ue.entity)
 }
 
@@ -214,7 +201,7 @@ func (ue *ListEntity) Path() (string, error) {
 }
 
 func (ue ListEntity) Name() string {
-	return ue.entity.Title
+	return ue.entity.Name
 }
 
 func (ue *ListEntity) LoadRecordedName() (bool, error) {
@@ -230,7 +217,7 @@ func (ue *ListEntity) LoadRecordedName() (bool, error) {
 }
 
 func (ue *ListEntity) SetName(name string) {
-	ue.entity.Title = name
+	ue.entity.Name = name
 }
 
 func (ue *ListEntity) Id() int {
@@ -262,7 +249,7 @@ func (ue *UserLink) Create() error {
 	}
 	hr := utils.CreateLink(path, lnk)
 	if hr != 0 {
-		return fmt.Errorf("failed to create link [%s -> %s]: HRESULT: %d", lnk, path, hr)
+		return fmt.Errorf("failed to create link [%s -> %s]: HRESULT/errno: %d", lnk, path, hr)
 	}
 	return database.CreateUserEntity(ue.db, ue.UserEntity.entity)
 }

@@ -85,6 +85,11 @@ func BatchUserDownload(client *resty.Client, db *sqlx.DB, users []*twitter.User,
 				}
 				syncedUsers.Store(u.Id, pathEntity)
 				entityChan <- pathEntity
+
+				/*
+					TODO 所有当前列表没有连接，为当前列表创建连接
+						 更新除当前列表外所有指向此用户的连接
+				*/
 			} else {
 				pathEntity = pe.(*UserEntity)
 				color.Note.Printf("[sync worker] Skiped user '%s'\n", u.Title())

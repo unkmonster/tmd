@@ -40,7 +40,7 @@ CREATE TABLE IF NOT EXISTS lsts (
 CREATE TABLE IF NOT EXISTS lst_entities (
 	id INTEGER NOT NULL, 
 	lst_id INTEGER NOT NULL, 
-	title VARCHAR NOT NULL, 
+	name VARCHAR NOT NULL, 
 	parent_dir VARCHAR NOT NULL COLLATE NOCASE, 
 	PRIMARY KEY (id), 
 	UNIQUE (lst_id, parent_dir)
@@ -49,15 +49,21 @@ CREATE TABLE IF NOT EXISTS lst_entities (
 CREATE TABLE IF NOT EXISTS user_entities (
 	id INTEGER NOT NULL, 
 	user_id INTEGER NOT NULL, 
-	title VARCHAR NOT NULL, 
+	name VARCHAR NOT NULL, 
 	latest_release_time DATETIME, 
-	parent_dir VARCHAR COLLATE NOCASE, 
-	parent_lst_entity_id INTEGER, 
+	parent_dir VARCHAR COLLATE NOCASE NOT NULL, 
 	PRIMARY KEY (id), 
 	UNIQUE (user_id, parent_dir), 
-	UNIQUE (user_id, parent_lst_entity_id), 
-	CHECK (parent_dir IS NOT NULL OR parent_lst_entity_id IS NOT NULL), 
-	CHECK (parent_dir IS NULL OR parent_lst_entity_id IS NULL), 
+	FOREIGN KEY(user_id) REFERENCES users (id)
+);
+
+CREATE TABLE IF NOT EXISTS user_links (
+	id INTEGER NOT NULL,
+	user_id INTEGER NOT NULL, 
+	name VARCHAR NOT NULL, 
+	parent_lst_entity_id INTEGER NOT NULL,
+	PRIMARY KEY (id),
+	UNIQUE (user_id, parent_lst_entity_id),
 	FOREIGN KEY(user_id) REFERENCES users (id), 
 	FOREIGN KEY(parent_lst_entity_id) REFERENCES lst_entities (id)
 );
@@ -98,15 +104,13 @@ func UpdateUser(db *sqlx.DB, usr *User) error {
 }
 
 func CreateUserEntity(db *sqlx.DB, entity *UserEntity) error {
-	if entity.ParentDir.Valid {
-		abs, err := filepath.Abs(entity.ParentDir.String)
-		if err != nil {
-			return err
-		}
-		entity.ParentDir.Scan(abs)
+	abs, err := filepath.Abs(entity.ParentDir)
+	if err != nil {
+		return err
 	}
+	entity.ParentDir = abs
 
-	stmt := `INSERT INTO user_entities(user_id, title, parent_dir, parent_lst_entity_id) VALUES(:user_id, :title, :parent_dir, :parent_lst_entity_id)`
+	stmt := `INSERT INTO user_entities(user_id, name, parent_dir) VALUES(:user_id, :name, :parent_dir)`
 	de, err := db.NamedExec(stmt, entity)
 	if err != nil {
 		return err
@@ -116,8 +120,7 @@ func CreateUserEntity(db *sqlx.DB, entity *UserEntity) error {
 		return err
 	}
 
-	entity.Id.Int32 = int32(lastId)
-	entity.Id.Valid = true
+	entity.Id.Scan(lastId)
 	return nil
 }
 
@@ -127,7 +130,7 @@ func DelUserEntity(db *sqlx.DB, id uint32) error {
 	return err
 }
 
-func LocateUserEntityInDir(db *sqlx.DB, uid uint64, parentDIr string) (*UserEntity, error) {
+func LocateUserEntity(db *sqlx.DB, uid uint64, parentDIr string) (*UserEntity, error) {
 	parentDIr, err := filepath.Abs(parentDIr)
 	if err != nil {
 		return nil, err
@@ -143,18 +146,6 @@ func LocateUserEntityInDir(db *sqlx.DB, uid uint64, parentDIr string) (*UserEnti
 	return nil, nil
 }
 
-func LocateUserEntityInLst(db *sqlx.DB, uid uint64, lstEid uint) (*UserEntity, error) {
-	result := []UserEntity{}
-	stmt := `SELECT * FROM user_entities WHERE user_id=? AND parent_lst_entity_id=?`
-	if err := db.Select(&result, stmt, uid, lstEid); err != nil {
-		return nil, err
-	}
-	if len(result) == 0 {
-		return nil, nil
-	}
-	return &result[0], nil
-}
-
 func GetUserEntity(db *sqlx.DB, id int) (*UserEntity, error) {
 	result := UserEntity{}
 	stmt := `SELECT * FROM user_entities WHERE id=?`
@@ -165,8 +156,8 @@ func GetUserEntity(db *sqlx.DB, id int) (*UserEntity, error) {
 }
 
 func UpdateUserEntity(db *sqlx.DB, entity *UserEntity) error {
-	stmt := `UPDATE user_entities SET title=?, latest_release_time=? WHERE id=?`
-	_, err := db.Exec(stmt, entity.Title, entity.LatestReleaseTime, entity.Id)
+	stmt := `UPDATE user_entities SET name=?, latest_release_time=? WHERE id=?`
+	_, err := db.Exec(stmt, entity.Name, entity.LatestReleaseTime, entity.Id)
 	return err
 }
 
@@ -207,7 +198,7 @@ func CreateLstEntity(db *sqlx.DB, entity *LstEntity) error {
 	}
 	entity.ParentDir = abs
 
-	stmt := `INSERT INTO lst_entities(id, lst_id, title, parent_dir) VALUES(:id, :lst_id, :title, :parent_dir)`
+	stmt := `INSERT INTO lst_entities(id, lst_id, name, parent_dir) VALUES(:id, :lst_id, :name, :parent_dir)`
 	r, err := db.NamedExec(stmt, &entity)
 	if err != nil {
 		return err
@@ -254,8 +245,8 @@ func LocateLstEntity(db *sqlx.DB, lid int64, parentDir string) (*LstEntity, erro
 	return &result[0], nil
 }
 func UpdateLstEntity(db *sqlx.DB, entity *LstEntity) error {
-	stmt := `UPDATE lst_entities SET title=? WHERE id=?`
-	_, err := db.Exec(stmt, entity.Title, entity.Id.Int32)
+	stmt := `UPDATE lst_entities SET name=? WHERE id=?`
+	_, err := db.Exec(stmt, entity.Name, entity.Id.Int32)
 	return err
 }
 
