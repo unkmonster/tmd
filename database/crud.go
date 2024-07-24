@@ -1,5 +1,6 @@
 package database
 
+// TODO test
 import (
 	"fmt"
 	"path/filepath"
@@ -259,5 +260,53 @@ func SetUserEntityLatestReleaseTime(db *sqlx.DB, id int, t time.Time) error {
 func RecordUserPreviousName(db *sqlx.DB, uid uint64, name string, screenName string) error {
 	stmt := `INSERT INTO user_previous_names(uid, screen_name, name, record_date) VALUES(?, ?, ?, ?)`
 	_, err := db.Exec(stmt, uid, screenName, name, time.Now())
+	return err
+}
+
+func CreateUserLink(db *sqlx.DB, lnk *UserLink) error {
+	stmt := `INSERT INTO user_links(user_id, name, parent_lst_entity_id) VALUES(:user_id, :name, :parent_lst_entity_id)`
+	res, err := db.NamedExec(stmt, lnk)
+	if err != nil {
+		return err
+	}
+
+	id, err := res.LastInsertId()
+	if err != nil {
+		return err
+	}
+
+	lnk.Id.Scan(id)
+	return nil
+}
+
+func DelUserLink(db *sqlx.DB, id int32) error {
+	stmt := `DELETE FROM user_links WHERE id = ?`
+	_, err := db.Exec(stmt, id)
+	return err
+}
+
+func GetUserLinks(db *sqlx.DB, uid uint64) ([]*UserLink, error) {
+	stmt := `SELECT * FROM user_links WHERE user_id = ?`
+	res := []*UserLink{}
+	err := db.Select(&res, stmt, uid)
+	return res, err
+}
+
+func GetUserLink(db *sqlx.DB, uid uint64, parentLstEntityId int32) (*UserLink, error) {
+	stmt := `SELECT * FROM user_links WHERE user_id = ? AND parent_lst_entity_id = ?`
+	res := []UserLink{}
+	err := db.Select(&res, stmt, uid, parentLstEntityId)
+	if err != nil {
+		return nil, err
+	}
+	if len(res) == 0 {
+		return nil, nil
+	}
+	return &res[0], nil
+}
+
+func UpdateUserLink(db *sqlx.DB, id int32, name string) error {
+	stmt := `UPDATE user_links SET name = ? WHERE id = ?`
+	_, err := db.Exec(stmt, name, id)
 	return err
 }
