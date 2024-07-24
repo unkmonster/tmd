@@ -24,8 +24,7 @@ var (
 )
 
 func PathExists(path string) (bool, error) {
-
-	_, err := os.Stat(path)
+	_, err := os.Lstat(path)
 
 	if err == nil {
 

@@ -40,6 +40,7 @@ func syncPath(path SmartPath, expectedName string) error {
 		if err != nil {
 			return err
 		}
+		// 不处理改名也不处理创建，仍要确保路径目录可用
 		err = os.Mkdir(p, 0755)
 		if err == nil || os.IsExist(err) {
 			return nil
@@ -231,9 +232,6 @@ func updateUserLink(lnk *database.UserLink, db *sqlx.DB, path string) error {
 	if runtime.GOOS == "windows" {
 		name += ".lnk"
 	}
-	if lnk.Name == name {
-		return nil
-	}
 
 	linkpath, err := lnk.Path(db)
 	if err != nil {
@@ -243,22 +241,35 @@ func updateUserLink(lnk *database.UserLink, db *sqlx.DB, path string) error {
 	if err != nil {
 		return err
 	}
-	newlinkpath := filepath.Join(filepath.Dir(path), name)
+
+	if lnk.Name == name {
+		// path 是已经同步过的，确保存在的。。。应该吧
+		utils.CreateLink(path, linkpath)
+		return nil
+	}
+
+	newlinkpath := filepath.Join(filepath.Dir(linkpath), name)
 
 	if runtime.GOOS == "windows" {
 		err = os.Rename(linkpath, newlinkpath)
 		if os.IsNotExist(err) {
 			err = utils.CreateLink(path, newlinkpath)
 		}
-		if err != nil {
+		if err != nil && !os.IsExist(err) {
 			return err
 		}
 	} else if runtime.GOOS == "linux" {
 		if err = os.RemoveAll(linkpath); err != nil {
 			return err
 		}
-		if err = utils.CreateLink(path, newlinkpath); err != nil {
+		ex, err := utils.PathExists(newlinkpath)
+		if err != nil {
 			return err
+		}
+		if !ex {
+			if err = utils.CreateLink(path, newlinkpath); err != nil {
+				return err
+			}
 		}
 	} else {
 		return fmt.Errorf("unsupported system: %s", runtime.GOOS)

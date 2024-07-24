@@ -30,7 +30,7 @@ func (pt TweetInEntity) GetPath() string {
 }
 
 // var syncedListUsers = make(map[uint64]map[int64]struct{})
-var syncedListUsers sync.Map //lid -> uid
+var syncedListUsers sync.Map //leid -> uid
 
 func BatchUserDownload(client *resty.Client, db *sqlx.DB, users []*twitter.User, dir string, listEntityId *int) []*TweetInEntity {
 	uidToUser := make(map[uint64]*twitter.User)
@@ -100,17 +100,18 @@ func BatchUserDownload(client *resty.Client, db *sqlx.DB, users []*twitter.User,
 				}
 
 				for _, linkd := range linkds {
+					lpath, _ := linkd.Path(db)
 					if err = updateUserLink(linkd, db, upath); err != nil {
-						color.Error.Tips("[sync worker] failed to sync link %s: %v", u.Title(), err)
+						color.Error.Tips("[sync worker] failed to sync link %s %s: %v", lpath, u.Title(), err)
 					}
-					sl, _ := syncedListUsers.LoadOrStore(*listEntityId, &sync.Map{})
+					sl, _ := syncedListUsers.LoadOrStore(int(linkd.ParentLstEntityId), &sync.Map{})
 					syncedList := sl.(*sync.Map)
 					syncedList.Store(u.Id, struct{}{})
 				}
 
 			} else {
 				pathEntity = pe.(*UserEntity)
-				color.Note.Printf("[sync worker] Skiped synced user '%s'\n", u.Title())
+				color.Note.Printf("[sync worker] skiped synced user '%s'\n", u.Title())
 			}
 
 			// 为当前列表的新用户创建符号链接
@@ -121,6 +122,7 @@ func BatchUserDownload(client *resty.Client, db *sqlx.DB, users []*twitter.User,
 			syncedList := sl.(*sync.Map)
 			_, loaded = syncedList.LoadOrStore(u.Id, struct{}{})
 			if loaded {
+				//color.Note.Printf("[sync worker] skiped synced list user %d/%s\n", *listEntityId, u.Title())
 				continue
 			}
 
