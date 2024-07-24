@@ -83,11 +83,14 @@ func UniquePath(path string) (string, error) {
 	}
 }
 
-func CreateLink(path string, lnk string) int {
+func CreateLink(path string, lnk string) error {
 	cpath := C.CString(path)
 	clnk := C.CString(lnk)
 	defer C.free(unsafe.Pointer(cpath))
 	defer C.free(unsafe.Pointer(clnk))
 	hr := C.CreateSymLink(cpath, clnk)
-	return int(hr)
+	if hr != 0 {
+		return fmt.Errorf("failed to create link: hresult/errno = %d", hr)
+	}
+	return nil
 }

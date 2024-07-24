@@ -62,7 +62,7 @@ func DownloadUser(db *sqlx.DB, client *resty.Client, user *twitter.User, dir str
 		color.Note.Printf("Skiped user '%s'\n", user.Title())
 		return nil, nil
 	}
-	entity, err := syncUserAndEntityInDir(db, user, dir)
+	entity, err := syncUserAndEntity(db, user, dir)
 	if err != nil {
 		return nil, err
 	}
@@ -83,13 +83,13 @@ func DownloadUser(db *sqlx.DB, client *resty.Client, user *twitter.User, dir str
 	return failures, nil
 }
 
-func syncUserAndEntityInDir(db *sqlx.DB, user *twitter.User, dir string) (*UserEntity, error) {
+func syncUserAndEntity(db *sqlx.DB, user *twitter.User, dir string) (*UserEntity, error) {
 	if err := syncUser(db, user); err != nil {
 		return nil, err
 	}
 	expectedTitle := string(utils.WinFileName([]byte(user.Title())))
 
-	entity := NewUserEntityByParentDir(db, user.Id, dir)
+	entity := NewUserEntity(db, user.Id, dir)
 	err := syncPath(entity, expectedTitle)
 	if err != nil {
 		return nil, err
