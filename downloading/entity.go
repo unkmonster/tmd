@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"time"
 
 	"github.com/jmoiron/sqlx"
@@ -52,7 +53,7 @@ type UserEntity struct {
 	db     *sqlx.DB
 }
 
-func NewUserEntityByParentDir(db *sqlx.DB, uid uint64, parentDir string) *UserEntity {
+func NewUserEntity(db *sqlx.DB, uid uint64, parentDir string) *UserEntity {
 	ue := UserEntity{}
 	entity := database.UserEntity{}
 	entity.Uid = uid
@@ -104,7 +105,7 @@ func (ue *UserEntity) Rename(title string) error {
 }
 
 func (ue *UserEntity) Path() (string, error) {
-	return ue.entity.Path(ue.db), nil
+	return ue.entity.Path(), nil
 }
 
 func (ue *UserEntity) Name() string {
@@ -224,22 +225,17 @@ func (ue *ListEntity) Id() int {
 	return int(ue.entity.Id.Int32)
 }
 
-type UserLink struct {
-	*UserEntity
-	target *UserEntity
-}
-
-func (ue *UserLink) Create() error {
-	lnk, err := ue.Path()
-	if err != nil {
-		return err
+func updateUserLink(lnk *database.UserLink, db *sqlx.DB, path string) error {
+	var err error
+	name := filepath.Base(path)
+	if runtime.GOOS == "windows" {
+		name += ".lnk"
 	}
-	lnk, err = filepath.Abs(lnk)
-	if err != nil {
-		return err
+	if lnk.Name == name {
+		return nil
 	}
 
-	path, err := ue.target.Path()
+	linkpath, err := lnk.Path(db)
 	if err != nil {
 		return err
 	}
@@ -247,16 +243,31 @@ func (ue *UserLink) Create() error {
 	if err != nil {
 		return err
 	}
-	hr := utils.CreateLink(path, lnk)
-	if hr != 0 {
-		return fmt.Errorf("failed to create link [%s -> %s]: HRESULT/errno: %d", lnk, path, hr)
-	}
-	return database.CreateUserEntity(ue.db, ue.UserEntity.entity)
-}
+	newlinkpath := filepath.Join(filepath.Dir(path), name)
 
-func NewUserLink(lnk *UserEntity, src *UserEntity) *UserLink {
-	ul := UserLink{}
-	ul.UserEntity = lnk
-	ul.target = src
-	return &ul
+	if runtime.GOOS == "windows" {
+		err = os.Rename(linkpath, newlinkpath)
+		if os.IsNotExist(err) {
+			err = utils.CreateLink(path, newlinkpath)
+		}
+		if err != nil {
+			return err
+		}
+	} else if runtime.GOOS == "linux" {
+		if err = os.RemoveAll(linkpath); err != nil {
+			return err
+		}
+		if err = utils.CreateLink(path, newlinkpath); err != nil {
+			return err
+		}
+	} else {
+		return fmt.Errorf("unsupported system: %s", runtime.GOOS)
+	}
+
+	if err = database.UpdateUserLink(db, lnk.Id.Int32, name); err != nil {
+		return err
+	}
+
+	lnk.Name = name
+	return nil
 }

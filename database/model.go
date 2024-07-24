@@ -47,6 +47,15 @@ func (le *LstEntity) Path() string {
 	return filepath.Join(le.ParentDir, le.Name)
 }
 
-func (ue *UserEntity) Path(db *sqlx.DB) string {
+func (ue *UserEntity) Path() string {
 	return filepath.Join(ue.ParentDir, ue.Name)
+}
+
+func (ul *UserLink) Path(db *sqlx.DB) (string, error) {
+	le, err := GetLstEntity(db, int(ul.ParentLstEntityId))
+	if err != nil {
+		return "", err
+	}
+
+	return filepath.Join(le.Path(), ul.Name), nil
 }

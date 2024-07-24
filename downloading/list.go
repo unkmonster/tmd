@@ -29,6 +29,9 @@ func (pt TweetInEntity) GetPath() string {
 	return path
 }
 
+// var syncedListUsers = make(map[uint64]map[int64]struct{})
+var syncedListUsers sync.Map //lid -> uid
+
 func BatchUserDownload(client *resty.Client, db *sqlx.DB, users []*twitter.User, dir string, listEntityId *int) []*TweetInEntity {
 	uidToUser := make(map[uint64]*twitter.User)
 	userChan := make(chan *twitter.User, len(users))
@@ -74,42 +77,74 @@ func BatchUserDownload(client *resty.Client, db *sqlx.DB, users []*twitter.User,
 			if cancelled() {
 				break
 			}
-			pe, loaded := syncedUsers.Load(u.Id)
+
 			var pathEntity *UserEntity
 			var err error
+
+			pe, loaded := syncedUsers.Load(u.Id)
 			if !loaded {
-				pathEntity, err = syncUserAndEntityInDir(db, u, dir)
+				pathEntity, err = syncUserAndEntity(db, u, dir)
 				if err != nil {
-					color.Error.Tips("[sync worker] %s: %v", u.Title(), err)
+					color.Error.Tips("[sync worker] failed to sync user or entity %s: %v", u.Title(), err)
 					continue
 				}
 				syncedUsers.Store(u.Id, pathEntity)
 				entityChan <- pathEntity
 
-				/*
-					TODO 所有当前列表没有连接，为当前列表创建连接
-						 更新除当前列表外所有指向此用户的连接
-				*/
+				// 同步所有现存的指向此用户的符号链接
+				upath, _ := pathEntity.Path()
+				linkds, err := database.GetUserLinks(db, u.Id)
+				if err != nil {
+					color.Error.Tips("[sync worker] failed to get links to %s: %v", u.Title(), err)
+					continue
+				}
+
+				for _, linkd := range linkds {
+					if err = updateUserLink(linkd, db, upath); err != nil {
+						color.Error.Tips("[sync worker] failed to sync link %s: %v", u.Title(), err)
+					}
+					sl, _ := syncedListUsers.LoadOrStore(*listEntityId, &sync.Map{})
+					syncedList := sl.(*sync.Map)
+					syncedList.Store(u.Id, struct{}{})
+				}
+
 			} else {
 				pathEntity = pe.(*UserEntity)
-				color.Note.Printf("[sync worker] Skiped user '%s'\n", u.Title())
+				color.Note.Printf("[sync worker] Skiped synced user '%s'\n", u.Title())
 			}
 
-			// link
+			// 为当前列表的新用户创建符号链接
 			if listEntityId == nil {
 				continue
 			}
-			linkEntity := NewUserEntityByParentLstPathId(db, u.Id, *listEntityId) // .lnk
-			userLink := NewUserLink(linkEntity, pathEntity)
+			sl, _ := syncedListUsers.LoadOrStore(*listEntityId, &sync.Map{})
+			syncedList := sl.(*sync.Map)
+			_, loaded = syncedList.LoadOrStore(u.Id, struct{}{})
+			if loaded {
+				continue
+			}
 
+			upath, _ := pathEntity.Path()
 			var linkname = pathEntity.Name()
 			if runtime.GOOS == "windows" {
 				linkname += ".lnk"
 			}
-			err = syncPath(userLink, linkname)
-			if err != nil {
-				color.Error.Tips("[sync worker] failed to sync link %s: %v", u.Title(), err)
+
+			curlink := &database.UserLink{}
+			curlink.Name = linkname
+			curlink.ParentLstEntityId = int32(*listEntityId)
+			curlink.Uid = u.Id
+
+			linkpath, err := curlink.Path(db)
+			if err == nil {
+				if err = utils.CreateLink(upath, linkpath); err == nil {
+					err = database.CreateUserLink(db, curlink)
+				}
 			}
+			if err != nil {
+				color.Error.Tips("[sync worker] failed to create link %s: %v", u.Title(), err)
+			}
+
 		}
 	}
 
