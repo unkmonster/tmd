@@ -1,6 +1,8 @@
 # Twitter Media Downloader
 
-轻松，快速，安全，整洁，批量的下载推特上用户的推文。支持手动指定用户，通过列表、用户关注批量下载。。。开箱即用！
+![GitHub Release](https://img.shields.io/github/v/release/unkmonster/tmd2)[![Go](https://github.com/unkmonster/tmd2/actions/workflows/go.yml/badge.svg)![GitHub License](https://img.shields.io/github/license/unkmonster/tmd2?logo=github)](https://github.com/unkmonster/tmd2/actions/workflows/go.yml)![Static Badge](https://img.shields.io/badge/Windows-0078D6)![Static Badge](https://img.shields.io/badge/Linux-FCC624?logo=Linux&logoColor=black)![Static Badge](https://img.shields.io/badge/X%2FTwitter-black?logo=X)
+
+跨平台的推特媒体下载器。用于轻松，快速，安全，整洁，批量的下载推特上用户的推文。支持手动指定用户或通过列表、用户关注批量下载。。。开箱即用！
 
 ## Feature
 
@@ -14,7 +16,7 @@
 - 记录用户曾用名
 - 避免重复下载
   - 每次工作后记录用户的最新发布时间，下次工作仅从这个时间点开始拉取用户推文
-  - 向列表目录发送指向用户目录的快捷方式，无论多少列表包含同一用户，本地仅保存一份用户存档
+  - 向列表目录发送指向用户目录的快捷方式/符号链接，无论多少列表包含同一用户，本地仅保存一份用户存档
 - 避免重复获取时间线：任意一段时间内的推文仅仅会从 twitter 上拉取一次，即使这些推文下载失败。如果下载失败将它们存储到本地，以待重试或丢弃
 - 避免重复同步用户（更新用户信息，获取时间线，下载推文）
 - 速率限制：避免触发 Twitter API 速率限制
@@ -45,7 +47,7 @@
 tmd2 --conf
 ```
 
-**执行上述命令将导致引导配置程序重新运行，这将重新配置整个配置文件，而不是单独的配置项。单独修改配置项**请至 `%appdata%/tmd2/conf.yaml` 手动修改
+**执行上述命令将导致引导配置程序重新运行，这将重新配置整个配置文件，而不是单独的配置项。单独修改配置项**请至 `%appdata%/.tmd2/conf.yaml` 或 `$HOME/.tmd2/conf.yaml`手动修改
 
 ###  用户下载
 
@@ -63,7 +65,7 @@ tmd2 --user 123456	// 下载 user_id 为 123456 的用户
 
 ### 列表下载
 
-批量下载指定列表中每一个用户
+批量下载指定列表中的每一个用户
 
 `tmd2 --list <list_id>`
 
@@ -80,7 +82,9 @@ tmd2 --list 123456	// 批量下载列表ID为123456的列表中的所有用户
 
 `tmd2 --foll <uid> | <screen_name>`
 
-**选项可多选，例如**：
+### **选项多选**
+
+选项可多选，例如：
 
 ```bash
 tmd2 --user 12345 --user 67890 --list xxx --list xxx 
@@ -90,5 +94,13 @@ tmd2 --user 12345 --user 67890 --list xxx --list xxx
 
 ### 关于速率限制
 
-Twitter API 限制一段时间内过快的请求 （例如每15分钟仅允许请求500次），当某一 API 请求次数将要达到这段时间内允许的上限，程序会打印一条信息后 Sleep 直到可用次数刷新。但这仅会阻塞尝试请求此 API 的 goroutine，所以后续可能有来自其余 goroutine 打印的内容迅速将这条 Sleep 通知覆盖 （程序是流水线式的工作流），让人认为程序莫名没有反应了
+Twitter API 限制一段时间内过快的请求 （例如每15分钟仅允许请求500次），**当某一 API 请求次数将要达到这段时间内允许的上限，程序会打印一条信息后 Sleep 直到可用次数刷新。但这仅会阻塞尝试请求此 API 的 goroutine，所以后续可能有来自其余 goroutine 打印的内容迅速将这条 Sleep 通知覆盖 （程序是流水线式的工作流），让人认为程序莫名没有反应了**
+
+### 版本选择
+
+在 Release 中，后缀为 `.exe` 版本为 `Windows` 平台使用，无 `.exe` 后缀版本为 `Linux` 平台使用
+
+## Contributors
+
+![](https://contrib.rocks/image?repo=unkmonster/tmd2) 
 

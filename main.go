@@ -313,6 +313,7 @@ func main() {
 		todump = downloading.BatchUserDownload(client, db, task.users, pathHelper.users, nil)
 	}
 	for _, list := range task.lists {
+		color.Debug.Println(list.Title())
 		fails, err := downloading.DownloadList(client, db, list, pathHelper.root, pathHelper.users)
 		if err != nil {
 			fmt.Printf("failed to download list [%s]: %v\n", list.Title(), err)
