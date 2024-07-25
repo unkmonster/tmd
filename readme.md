@@ -1,6 +1,6 @@
 # Twitter Media Downloader
 
-![GitHub Release](https://img.shields.io/github/v/release/unkmonster/tmd2)[![Go](https://github.com/unkmonster/tmd2/actions/workflows/go.yml/badge.svg)![GitHub License](https://img.shields.io/github/license/unkmonster/tmd2?logo=github)](https://github.com/unkmonster/tmd2/actions/workflows/go.yml)![Static Badge](https://img.shields.io/badge/Windows-0078D6)![Static Badge](https://img.shields.io/badge/Linux-FCC624?logo=Linux&logoColor=black)![Static Badge](https://img.shields.io/badge/X%2FTwitter-black?logo=X)
+![GitHub Release](https://img.shields.io/github/v/release/unkmonster/tmd2) [![Go](https://github.com/unkmonster/tmd2/actions/workflows/go.yml/badge.svg)](https://github.com/unkmonster/tmd2/actions/workflows/go.yml) ![GitHub License](https://img.shields.io/github/license/unkmonster/tmd2?logo=github) ![Static Badge](https://img.shields.io/badge/Windows-0078D6) ![Static Badge](https://img.shields.io/badge/Linux-FCC624?logo=Linux&logoColor=black) ![Static Badge](https://img.shields.io/badge/X%2FTwitter-black?logo=X)
 
 跨平台的推特媒体下载器。用于轻松，快速，安全，整洁，批量的下载推特上用户的推文。支持手动指定用户或通过列表、用户关注批量下载。。。开箱即用！
 

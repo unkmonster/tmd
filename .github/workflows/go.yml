@@ -13,7 +13,7 @@ on:
 
 jobs:
 
-  build:
+  build-win:
     runs-on: windows-latest
     steps:
     - uses: actions/checkout@v4
@@ -37,3 +37,25 @@ jobs:
       with:
         files: |
           tmd2.exe
+
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version-file: 'go.mod'
+
+    - name: Build
+      run: go build -o tmd2 -v .
+
+    - name: Test
+      run: go test -v ./...
+
+    - name: Release
+      uses: softprops/action-gh-release@v2
+      with:
+        files: |
+          tmd2
