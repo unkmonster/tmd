@@ -22,9 +22,12 @@ jobs:
       uses: actions/setup-go@v5
       with:
         go-version-file: 'go.mod'
-
+    
+    - name: G++
+      run: g++ -v
+    
     - name: Build
-      run: go build -o tmd2.exe -v .
+      run: go build -o tmd2.exe -v -ldflags "-linkmode external -extldflags -static" .
 
     - name: Test
       run: go test -v ./...
