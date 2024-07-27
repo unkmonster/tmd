@@ -3,6 +3,7 @@ package utils
 /*
 #cgo CPPFLAGS: -DUNICODE=1
 #cgo windows LDFLAGS: -luuid -lole32 -loleaut32
+#cgo linux LDFLAGS: -static-libstdc++ -static-libgcc
 #include <stdlib.h>
 int CreateSymLink(const char* path, const char* sympath);
 */
