@@ -123,19 +123,15 @@ type Task struct {
 	lists []twitter.ListBase
 }
 
-func (t Task) String() string {
-	//var buf bytes.Buffer
-	users := make([]string, 0, len(t.users))
-	lists := make([]string, 0, len(t.lists))
-
-	for _, u := range t.users {
-		users = append(users, u.Title())
+func pringTask(task *Task) {
+	fmt.Printf("list task: %d\n", len(task.lists))
+	for _, l := range task.lists {
+		fmt.Printf("    %s\n", l.Title())
 	}
-	for _, l := range t.lists {
-		lists = append(lists, l.Title())
+	fmt.Printf("user task: %d\n", len(task.users))
+	for _, u := range task.users {
+		fmt.Printf("    %s\n", u.Title())
 	}
-
-	return fmt.Sprintf("user task: %v\nlist task: %v", users, lists)
 }
 
 func MakeTask(client *resty.Client, usrArgs userArgs, listArgs ListArgs, follArgs userArgs) (*Task, error) {
@@ -277,7 +273,7 @@ func main() {
 	if err != nil {
 		log.Fatalln("failed to parse args:", err)
 	}
-	fmt.Println(task)
+	pringTask(task)
 
 	// retry for legacy tweet
 	dumper := downloading.NewDumper()
