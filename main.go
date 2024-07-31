@@ -205,10 +205,10 @@ func main() {
 	var listArgs ListArgs
 	var follArgs userArgs
 	var confArg bool
-	flag.BoolVar(&confArg, "conf", false, "to configure")
-	flag.Var(&usrArgs, "user", "uid/screen_name to download tweets of specified user")
-	flag.Var(&listArgs, "list", "list id to download specified list")
-	flag.Var(&follArgs, "foll", "uid/screen_name to download following of specified user")
+	flag.BoolVar(&confArg, "conf", false, "reconfigure")
+	flag.Var(&usrArgs, "user", "download tweets from the user specified by user_id/screen_name since the last download")
+	flag.Var(&listArgs, "list", "batch download each member from list specified by list_id")
+	flag.Var(&follArgs, "foll", "batch download each member followed by the user specified by user_id/screen_name")
 	flag.Parse()
 
 	var homepath string
