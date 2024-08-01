@@ -8,10 +8,12 @@ import (
 	"io"
 	"log"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
+	"syscall"
 
 	"github.com/go-resty/resty/v2"
 	"github.com/gookit/color"
@@ -123,7 +125,7 @@ type Task struct {
 	lists []twitter.ListBase
 }
 
-func pringTask(task *Task) {
+func printTask(task *Task) {
 	fmt.Printf("list task: %d\n", len(task.lists))
 	for _, l := range task.lists {
 		fmt.Printf("    %s\n", l.Title())
@@ -273,7 +275,21 @@ func main() {
 	if err != nil {
 		log.Fatalln("failed to parse args:", err)
 	}
-	pringTask(task)
+	printTask(task)
+
+	// handle signal
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
+	defer signal.Stop(sigChan)
+
+	caught := func() bool {
+		select {
+		case <-sigChan:
+			return true
+		default:
+			return false
+		}
+	}
 
 	// retry for legacy tweet
 	dumper := downloading.NewDumper()
@@ -288,34 +304,31 @@ func main() {
 
 	var todump = make([]*downloading.TweetInEntity, 0)
 	defer func() {
-		//if err := recover(); err != nil {
-		//println("panic:", err)
 		dumper.Dump(pathHelper.errorj)
-		color.Info.Tips("%d tweets have been dumped", dumper.Count())
-		//}
+		color.Info.Tips("%d tweets have been dumped and will be downloaded the next time the program runs", dumper.Count())
 	}()
 
 	defer func() {
 		for _, te := range todump {
 			dumper.Push(te.Entity.Id(), te.Tweet)
 		}
-		retryLegacy(dumper, db, client) // 这应该不会 panic
-		// dumper.Dump(pathHelper.errorj)
-		// fmt.Printf("%d tweets have been dumped\n", dumper.Count())
+		retryLegacy(dumper, db, client)
 	}()
 
 	// do job
-	if len(task.users) != 0 {
+	if len(task.users) != 0 && !caught() {
 		todump = downloading.BatchUserDownload(client, db, task.users, pathHelper.users, nil)
 	}
 	for _, list := range task.lists {
+		if caught() {
+			break
+		}
 		color.Debug.Println(list.Title())
 		fails, err := downloading.DownloadList(client, db, list, pathHelper.root, pathHelper.users)
+		todump = append(todump, fails...)
 		if err != nil {
 			fmt.Printf("failed to download list [%s]: %v\n", list.Title(), err)
-			continue
 		}
-		todump = append(todump, fails...)
 	}
 }
 
