@@ -1,8 +1,11 @@
 package downloading
 
 import (
+	"os"
+	"os/signal"
 	"runtime"
 	"sync"
+	"syscall"
 
 	"github.com/go-resty/resty/v2"
 	"github.com/gookit/color"
@@ -50,6 +53,7 @@ func BatchUserDownload(client *resty.Client, db *sqlx.DB, users []*twitter.User,
 	getterWg := sync.WaitGroup{}
 	downloaderWg := sync.WaitGroup{}
 
+	// 导致 cancelled() 返回真，后续调用无效
 	abort := sync.OnceFunc(func() {
 		close(abortChan)
 	})
@@ -69,6 +73,11 @@ func BatchUserDownload(client *resty.Client, db *sqlx.DB, users []*twitter.User,
 			abort()
 		}
 	}
+
+	// 信号相关
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
+	defer signal.Stop(sigChan)
 
 	userUpdater := func() {
 		defer syncWg.Done()
@@ -152,23 +161,33 @@ func BatchUserDownload(client *resty.Client, db *sqlx.DB, users []*twitter.User,
 
 	tweetGetter := func() {
 		defer getterWg.Done()
-		defer panicHandler("tweet getter")
-		for e := range entityChan {
+		defer panicHandler("getting worker")
+
+		for entity := range entityChan {
 			if cancelled() {
 				break
 			}
-			tweets, err := getTweetAndUpdateLatestReleaseTime(client, uidToUser[e.Uid()], e)
+			user := uidToUser[entity.Uid()]
+			tweets, err := user.GetMeidas(client, &utils.TimeRange{Min: entity.LatestReleaseTime()})
 			if utils.IsStatusCode(err, 429) {
 				color.Error.Tips("[getting worker]: %v", err)
 				abort()
 				continue
 			}
 			if err != nil {
-				color.Error.Tips("[getting worker] %s: %v", e.Name(), err)
+				color.Error.Tips("[getting worker] %s: %v", entity.Name(), err)
 				continue
 			}
+			if len(tweets) == 0 {
+				continue
+			}
+			if err := entity.SetLatestReleaseTime(tweets[0].CreatedAt); err != nil {
+				color.Error.Tips("[getting worker] %s: %v", entity.Name(), err)
+				continue
+			}
+
 			for _, tw := range tweets {
-				pt := TweetInEntity{Tweet: tw, Entity: e}
+				pt := TweetInEntity{Tweet: tw, Entity: entity}
 				tweetChan <- &pt
 			}
 		}
@@ -207,10 +226,19 @@ func BatchUserDownload(client *resty.Client, db *sqlx.DB, users []*twitter.User,
 	}()
 
 	failures := []*TweetInEntity{}
-	for pt := range errch {
-		failures = append(failures, pt.(*TweetInEntity))
+	for {
+		select {
+		case pt, ok := <-errch:
+			if !ok {
+				// errch 已关闭，退出循环
+				return failures
+			}
+			failures = append(failures, pt.(*TweetInEntity))
+		case sig := <-sigChan:
+			abort() // 接收到信号，执行中断操作
+			color.Warn.Tips("caught signal: %v", sig)
+		}
 	}
-	return failures
 }
 
 func downloadList(client *resty.Client, db *sqlx.DB, list twitter.ListBase, dir string, realDir string) ([]*TweetInEntity, error) {

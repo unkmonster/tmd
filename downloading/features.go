@@ -4,9 +4,11 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"runtime"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/go-resty/resty/v2"
@@ -100,11 +102,15 @@ func tweetDownloader(client *resty.Client, wc workerController, errch chan<- Pac
 	defer wc.Wg.Done()
 	defer func() {
 		if p := recover(); p != nil {
-			wc.abort()
+			wc.abort() // 这将导致 getting worker 很快结束并关闭 tweet chan
 			if pt != nil {
 				errch <- pt
-				color.Error.Tips("[downloading worker]: %v", p)
 			}
+			// 确保只有1个协程的情况下，未能下载完毕的推文仍然会全部推送到 errch
+			for pt := range twech {
+				errch <- pt
+			}
+			color.Error.Tips("[downloading worker]: %v", p)
 		}
 	}()
 
@@ -151,6 +157,11 @@ func BatchDownloadTweet(client *resty.Client, pts ...PackgedTweet) []PackgedTwee
 		}
 	}
 
+	// 信号相关
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
+	defer signal.Stop(sigChan)
+
 	wc := workerController{}
 	wc.abort = abort
 	wc.cancelled = cancelled
@@ -167,8 +178,16 @@ func BatchDownloadTweet(client *resty.Client, pts ...PackgedTweet) []PackgedTwee
 	}()
 
 	errors := []PackgedTweet{}
-	for pt := range errChan {
-		errors = append(errors, pt)
+	for {
+		select {
+		case pt, ok := <-errChan:
+			if !ok {
+				return errors
+			}
+			errors = append(errors, pt)
+		case sig := <-sigChan:
+			color.Warn.Tips("caught signal: %v", sig)
+			abort()
+		}
 	}
-	return errors
 }
