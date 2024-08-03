@@ -67,12 +67,16 @@ func parseUserResults(user_results *gjson.Result) (*User, error) {
 	friends_count := legacy.Get("friends_count")
 	name := legacy.Get("name")
 	screen_name := legacy.Get("screen_name")
-	protected := legacy.Get("protected").Exists()
+	protected := legacy.Get("protected").Exists() && legacy.Get("protected").Bool()
 	media_count := legacy.Get("media_count")
 
 	usr := User{}
-	if legacy.Get("following").Exists() {
-		usr.Followstate = FS_FOLLOWING
+	if foll := legacy.Get("following"); foll.Exists() {
+		if foll.Bool() {
+			usr.Followstate = FS_FOLLOWING
+		} else {
+			usr.Followstate = FS_UNFOLLOW
+		}
 	} else if legacy.Get("follow_request_sent").Exists() {
 		usr.Followstate = FS_REQUESTED
 	} else {
