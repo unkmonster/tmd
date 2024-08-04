@@ -9,6 +9,7 @@ int CreateSymLink(const char* path, const char* sympath);
 */
 import "C"
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -20,7 +21,6 @@ import (
 
 var (
 	reUrl           = regexp.MustCompile(`(https?|ftp|file)://[-A-Za-z0-9+&@#/%?=~_|!:,.;]+[-A-Za-z0-9+&@#/%=~_|]`)
-	reEnter         = regexp.MustCompile(`\r?\n`)
 	reWinNonSupport = regexp.MustCompile(`[/\\:*?"<>\|]`)
 )
 
@@ -42,11 +42,31 @@ func PathExists(path string) (bool, error) {
 }
 
 // 将无后缀的文件名更新为有效的 Windows 文件名
-func WinFileName(name []byte) []byte {
-	result := reUrl.ReplaceAll(name, []byte(""))
-	result = reWinNonSupport.ReplaceAll(result, []byte(""))
-	result = reEnter.ReplaceAll(result, []byte(" "))
-	return result
+func WinFileName(name string) string {
+	// 将字节切片转换为字符串
+	// 使用正则表达式进行替换
+	name = reUrl.ReplaceAllString(name, "")
+	name = reWinNonSupport.ReplaceAllString(name, "")
+
+	// 创建一个缓冲区，避免多次分配
+	var buffer bytes.Buffer
+
+	// 遍历字符串，对字符进行处理
+	for _, ch := range name {
+		switch ch {
+		case '\r':
+			// 跳过 \r
+			continue
+		case '\n':
+			// 将 \n 替换为空格
+			buffer.WriteRune(' ')
+		default:
+			// 其他字符直接添加到缓冲区
+			buffer.WriteRune(ch)
+		}
+	}
+
+	return buffer.String()
 }
 
 func UniquePath(path string) (string, error) {
