@@ -39,7 +39,7 @@ var mutex sync.Mutex
 
 // 任何一个 url 下载失败直接返回
 func downloadTweetMedia(client *resty.Client, dir string, tweet *twitter.Tweet) error {
-	text := string(utils.WinFileName([]byte(tweet.Text)))
+	text := utils.WinFileName(tweet.Text)
 
 	for _, u := range tweet.Urls {
 		ext, err := utils.GetExtFromUrl(u)
