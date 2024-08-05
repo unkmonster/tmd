@@ -67,6 +67,7 @@ type xRateLimit struct {
 var Slept time.Duration
 
 func (rl *xRateLimit) Req() {
+	// TODO: Why API is expired after sleep
 	if time.Now().After(rl.ResetTime) {
 		log.Printf("expired %s\n", rl.Url)
 		rl.Ready = false
