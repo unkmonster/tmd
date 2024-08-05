@@ -11,6 +11,10 @@ on:
     tags:
       - "v*"
 
+env:
+  AUTH_TOKEN: ${{secrets.AUTH_TOKEN}}
+  CT0: ${{secrets.CT0}}
+
 jobs:
 
   build-win:
@@ -30,7 +34,7 @@ jobs:
       run: go build -o tmd2.exe -v -ldflags "-linkmode external -extldflags -static" .
 
     - name: Test
-      run: go test -v ./...
+      run: go test ./...
     
     - name: List
       run: ls
@@ -55,7 +59,7 @@ jobs:
       run: go build -o tmd2 -v .
 
     - name: Test
-      run: go test -v ./...
+      run: go test ./...
 
     - name: Release
       uses: softprops/action-gh-release@v2

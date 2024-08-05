@@ -59,20 +59,10 @@ func parseList(list *gjson.Result) (*List, error) {
 	return &result, nil
 }
 
-func getMembersOnePage(client *resty.Client, api timelineApi, instsPath string) ([]*User, string, error) {
-	data, err := getTimeline(client, api)
-	if err != nil {
-		return nil, "", err
-	}
-
-	temp := gjson.Get(data, instsPath)
-	insts := itemInstructions{&temp}
-	entries := insts.GetEntries()
-	itemContents := entries.GetItemContents()
-
+func itemContentsToUsers(itemContents []gjson.Result) []*User {
 	users := make([]*User, 0, len(itemContents))
 	for _, ic := range itemContents {
-		user_results := ic.GetUserResults()
+		user_results := getResults(ic, timelineUser)
 		if user_results.String() == "{}" {
 			continue
 		}
@@ -83,24 +73,16 @@ func getMembersOnePage(client *resty.Client, api timelineApi, instsPath string) 
 		}
 		users = append(users, u)
 	}
-	return users, entries.getBottomCursor(), nil
+	return users
 }
 
 func getMembers(client *resty.Client, api timelineApi, instsPath string) ([]*User, error) {
-	cursor := ""
-	users := []*User{}
-	for {
-		api.SetCursor(cursor)
-		currentUsers, next, err := getMembersOnePage(client, api, instsPath)
-		if err != nil {
-			return nil, err
-		}
-		users = append(users, currentUsers...)
-		if next == "" {
-			return users, nil
-		}
-		cursor = next
+	api.SetCursor("")
+	itemContents, err := getTimelineItemContentsTillEnd(api, client, instsPath)
+	if err != nil {
+		return nil, err
 	}
+	return itemContentsToUsers(itemContents), nil
 }
 
 func (list *List) GetMembers(client *resty.Client) ([]*User, error) {

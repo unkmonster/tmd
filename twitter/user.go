@@ -2,6 +2,7 @@ package twitter
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/go-resty/resty/v2"
 	"github.com/tidwall/gjson"
@@ -103,98 +104,96 @@ func (u *User) IsVisiable() bool {
 	return u.Followstate == FS_FOLLOWING || !u.IsProtected
 }
 
-func (u *User) getMediasOnPage(client *resty.Client, cursor string) ([]*Tweet, string, error) {
+func itemContentsToTweets(itemContents []gjson.Result) []*Tweet {
+	res := make([]*Tweet, 0, len(itemContents))
+	for _, itemContent := range itemContents {
+		tweetResults := getResults(itemContent, timelineTweet)
+		if tw := parseTweetResults(&tweetResults); tw != nil {
+			res = append(res, tw)
+		}
+	}
+	return res
+}
+
+func (u *User) getMediasOnePage(api *userMedia, client *resty.Client) ([]*Tweet, string, error) {
 	if !u.IsVisiable() {
 		return nil, "", nil
 	}
-	api := userMedia{}
-	api.count = 100
-	api.cursor = cursor
-	api.userId = u.Id
 
-	resp, err := getTimeline(client, &api)
-	if err != nil {
-		return nil, "", err
-	}
-
-	j := gjson.Get(resp, "data.user.result.timeline_v2.timeline.instructions")
-	minsts := moduleInstructions{itemInstructions{&j}}
-	entries := minsts.GetEntries()
-	itemContents := entries.GetItemContents()
-	if len(itemContents) == 0 {
-		return nil, "", nil
-	}
-
-	tweets := make([]*Tweet, 0, len(itemContents))
-	for i := 0; i < len(itemContents); i++ {
-		tweet_results := itemContents[i].GetTweetResults()
-		ptweet := parseTweetResults(&tweet_results)
-		if ptweet != nil {
-			tweets = append(tweets, ptweet)
-		}
-	}
-	return tweets, entries.getBottomCursor(), nil
+	itemContents, next, err := getTimelineItemContents(api, client, "data.user.result.timeline_v2.timeline.instructions")
+	return itemContentsToTweets(itemContents), next, err
 }
 
-func (u *User) GetMeidas(client *resty.Client, trange *utils.TimeRange) ([]*Tweet, error) {
+func filterTweetsByTimeRange(tweets []*Tweet, min *time.Time, max *time.Time) (cutMin bool, cutMax bool, res []*Tweet) {
+	n := len(tweets)
+	begin, end := 0, n
+
+	// 假设 tweets 是逆序的 从左到右查找第一个小于 min 的推文，最后一个大于 max 的推文
+	for i := 0; i < n; i++ {
+		if min != nil && !min.IsZero() && end == n && tweets[i].CreatedAt.Before(*min) {
+			end = i
+			cutMin = true
+		}
+		if max != nil && !max.IsZero() && tweets[i].CreatedAt.After(*max) {
+			begin = i + 1
+			cutMax = true
+		}
+	}
+
+	if begin >= n {
+		res = nil
+	}
+	res = tweets[begin:end]
+	return
+}
+
+func (u *User) GetMeidas(client *resty.Client, timeRange *utils.TimeRange) ([]*Tweet, error) {
 	if !u.IsVisiable() {
 		return nil, nil
 	}
-	var cursor string
-	var done bool
-	var firstPage bool = true
-	results := make([]*Tweet, 0, u.MediaCount)
 
-	// temp
-	var tempMin Tweet
-	var tempMax Tweet
-	if trange != nil {
-		tempMin = Tweet{CreatedAt: trange.Min}
-		tempMax = Tweet{CreatedAt: trange.Max}
+	api := userMedia{}
+	api.count = 100
+	api.cursor = ""
+	api.userId = u.Id
+
+	results := make([]*Tweet, 0)
+
+	var minTime *time.Time
+	var maxTime *time.Time
+
+	if timeRange != nil {
+		minTime = &timeRange.Min
+		maxTime = &timeRange.Max
 	}
 
-	for !done {
-		currentTweets, next, err := u.getMediasOnPage(client, cursor)
+	for {
+		currentTweets, next, err := u.getMediasOnePage(&api, client)
 		if err != nil {
 			return nil, err
 		}
-		if next == "" {
-			done = true
-		} else {
-			cursor = next
+
+		if len(currentTweets) == 0 {
+			break // empty page
 		}
 
-		if trange == nil {
+		api.SetCursor(next)
+
+		if timeRange == nil {
 			results = append(results, currentTweets...)
 			continue
 		}
 
-		// ? 这样就行？
-		comparables := make([]utils.Comparable, len(currentTweets))
-		for i := 0; i < len(currentTweets); i++ {
-			comparables[i] = currentTweets[i]
-		}
-
-		// filter
-		// 过滤掉发布日期超出指定范围的推文，仅需在第一页执行
-		if firstPage && !trange.Max.IsZero() && len(currentTweets) != 0 {
-			firstPage = false
-			index := utils.RFirstGreaterEqual(comparables, &tempMax)
-			if index >= 0 {
-				currentTweets = currentTweets[index+1:]
-				comparables = comparables[index+1:]
-			}
-		}
-		// 过滤掉发布日期小于等于指定范围的推文，
-		// 当发现满足条件的推文，返回不再获取下页
-		if !trange.Min.IsZero() && len(currentTweets) != 0 {
-			index := utils.RFirstLessEqual(comparables, &tempMin)
-			if index < len(currentTweets) {
-				done = true
-				currentTweets = currentTweets[:index]
-			}
-		}
+		// 筛选推文，并判断是否获取下页
+		cutMin, cutMax, currentTweets := filterTweetsByTimeRange(currentTweets, minTime, maxTime)
 		results = append(results, currentTweets...)
+
+		if cutMin {
+			break
+		}
+		if cutMax && len(currentTweets) != 0 {
+			maxTime = nil
+		}
 	}
 	return results, nil
 }

@@ -25,8 +25,6 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// TODO 跨平台支持
-
 type Cookie struct {
 	AuthCoken string `yaml:"auth_token"`
 	Ct0       string `yaml:"ct0"`

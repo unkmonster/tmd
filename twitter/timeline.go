@@ -6,99 +6,76 @@ import (
 	"github.com/unkmonster/tmd2/internal/utils"
 )
 
-type itemContent struct {
-	*gjson.Result
+const (
+	timelineTweet = iota
+	timelineUser
+)
+
+func getInstructions(resp string, path string) gjson.Result {
+	return gjson.Get(resp, path)
 }
 
-func (itemcontent itemContent) GetItemType() string {
-	return itemcontent.Get("itemType").String()
-}
-
-func (itemcontent itemContent) GetUserResults() gjson.Result {
-	return itemcontent.Get("user_results")
-}
-
-func (itemcontent itemContent) GetTweetResults() gjson.Result {
-	return itemcontent.Get("tweet_results")
-}
-
-type entriesMethod interface {
-	getBottomCursor() string
-	GetItemContents() []itemContent
-}
-
-type instructionsMethod interface {
-	GetEntries() entriesMethod
-}
-
-type timelineMethod interface {
-	GetInstructions() instructionsMethod
-}
-
-type itemEntries struct {
-	gjson.Result
-}
-
-func (entries *itemEntries) getBottomCursor() string {
-	array := entries.Array()
-	if len(array) == 2 {
-		return ""
+func getEntries(instructions gjson.Result) gjson.Result {
+	for _, inst := range instructions.Array() {
+		if inst.Get("type").String() == "TimelineAddEntries" {
+			return inst.Get("entries")
+		}
 	}
+	return gjson.Result{}
+}
+
+func getModuleItems(instructions gjson.Result) gjson.Result {
+	for _, inst := range instructions.Array() {
+		if inst.Get("type").String() == "TimelineAddToModule" {
+			return inst.Get("moduleItems")
+		}
+	}
+	return gjson.Result{}
+}
+
+func getNextCursor(entries gjson.Result) string {
+	array := entries.Array()
+	// if len(array) == 2 {
+	// 	return "" // no next page
+	// }
+
 	for i := len(array) - 1; i >= 0; i-- {
 		if array[i].Get("content.entryType").String() == "TimelineTimelineCursor" &&
 			array[i].Get("content.cursorType").String() == "Bottom" {
 			return array[i].Get("content.value").String()
 		}
 	}
+
 	panic("invalid entries")
 }
 
-func (entries *itemEntries) GetItemContents() []itemContent {
-	itemContents := entries.Get("#.content.itemContent").Array()
-	results := make([]itemContent, len(itemContents))
-	for i := 0; i < len(itemContents); i++ {
-		results[i] = itemContent{&itemContents[i]}
+func getItemContentFromModuleItem(moduleItem gjson.Result) gjson.Result {
+	return moduleItem.Get("item.itemContent")
+}
+
+func getItemContentsFromEntry(entry gjson.Result) []gjson.Result {
+	content := entry.Get("content")
+	ty := content.Get("entryType").String()
+	if ty == "TimelineTimelineModule" {
+		return content.Get("items.#.item.itemContent").Array()
+	} else if ty == "TimelineTimelineItem" {
+		return []gjson.Result{content.Get("itemContent")}
 	}
-	return results
+
+	panic("invalid entry")
 }
 
-type itemInstructions struct {
-	*gjson.Result
-}
-
-func (insts *itemInstructions) GetEntries() entriesMethod {
-	for _, inst := range insts.Array() {
-		if inst.Get("type").String() == "TimelineAddEntries" {
-			return &itemEntries{inst.Get("entries")}
-		}
+func getResults(itemContent gjson.Result, itemType int) gjson.Result {
+	if itemType == timelineTweet {
+		return itemContent.Get("tweet_results")
+	} else if itemType == timelineUser {
+		return itemContent.Get("user_results")
 	}
-	panic("invalid instructions")
+
+	panic("invalid itemContent")
 }
 
-type moduleEntries struct {
-	itemEntries
-}
-
-func (entries *moduleEntries) GetItemContents() []itemContent {
-	itemContents := entries.Get("0.content.items.#.item.itemContent").Array()
-	results := make([]itemContent, len(itemContents))
-	for i := 0; i < len(itemContents); i++ {
-		results[i] = itemContent{&itemContents[i]}
-	}
-	return results
-}
-
-type moduleInstructions struct {
-	itemInstructions
-}
-
-func (insts *moduleInstructions) GetEntries() entriesMethod {
-	r := insts.itemInstructions.GetEntries()
-	pe := r.(*itemEntries)
-	return &moduleEntries{*pe}
-}
-
-func getTimeline(client *resty.Client, api timelineApi) (string, error) {
+func getTimelineResp(api timelineApi, client *resty.Client) (string, error) {
 	url := makeUrl(api)
 	resp, err := client.R().Get(url)
 	if err != nil {
@@ -107,5 +84,56 @@ func getTimeline(client *resty.Client, api timelineApi) (string, error) {
 	if err = utils.CheckRespStatus(resp); err != nil {
 		return "", err
 	}
+
 	return resp.String(), nil
+}
+
+// 获取时间线 API 并返回所有 itemContent 和 底部 cursor
+func getTimelineItemContents(api timelineApi, client *resty.Client, instPath string) ([]gjson.Result, string, error) {
+	resp, err := getTimelineResp(api, client)
+	if err != nil {
+		return nil, "", err
+	}
+
+	instructions := getInstructions(resp, instPath)
+	entries := getEntries(instructions)
+	moduleItems := getModuleItems(instructions)
+
+	itemContents := make([]gjson.Result, 0)
+
+	if entries.IsArray() {
+		for _, entry := range entries.Array() {
+			if entry.Get("content.entryType").String() != "TimelineTimelineCursor" {
+				itemContents = append(itemContents, getItemContentsFromEntry(entry)...)
+			}
+		}
+	}
+
+	if moduleItems.IsArray() {
+		for _, moduleItem := range moduleItems.Array() {
+			itemContents = append(itemContents, getItemContentFromModuleItem(moduleItem))
+		}
+	}
+
+	return itemContents, getNextCursor(entries), nil
+}
+
+func getTimelineItemContentsTillEnd(api timelineApi, client *resty.Client, instPath string) ([]gjson.Result, error) {
+	res := make([]gjson.Result, 0)
+
+	for {
+		page, next, err := getTimelineItemContents(api, client, instPath)
+		if err != nil {
+			return nil, err
+		}
+
+		if len(page) == 0 {
+			break // empty page
+		}
+
+		res = append(res, page...)
+		api.SetCursor(next)
+	}
+
+	return res, nil
 }
