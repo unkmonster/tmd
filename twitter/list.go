@@ -23,7 +23,7 @@ type List struct {
 }
 
 func GetLst(client *resty.Client, id uint64) (*List, error) {
-	api := ListByRestId{}
+	api := listByRestId{}
 	api.id = id
 	url := makeUrl(&api)
 
@@ -86,7 +86,7 @@ func getMembers(client *resty.Client, api timelineApi, instsPath string) ([]*Use
 }
 
 func (list *List) GetMembers(client *resty.Client) ([]*User, error) {
-	api := ListMembers{}
+	api := listMembers{}
 	api.count = 200
 	api.id = list.Id
 	return getMembers(client, &api, "data.list.members_timeline.timeline.instructions")
@@ -105,7 +105,7 @@ type UserFollowing struct {
 }
 
 func (fo UserFollowing) GetMembers(client *resty.Client) ([]*User, error) {
-	api := Following{}
+	api := following{}
 	api.count = 200
 	api.uid = fo.creator.Id
 	return getMembers(client, &api, "data.user.result.timeline.timeline.instructions")

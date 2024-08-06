@@ -89,15 +89,15 @@ func (a *userMedia) SetCursor(cursor string) {
 	a.cursor = cursor
 }
 
-type ListByRestId struct {
+type listByRestId struct {
 	id uint64
 }
 
-func (*ListByRestId) Path() string {
+func (*listByRestId) Path() string {
 	return "/i/api/graphql/ZMQOSpxDo0cP5Cdt8MgEVA/ListByRestId"
 }
 
-func (a *ListByRestId) QueryParam() url.Values {
+func (a *listByRestId) QueryParam() url.Values {
 	v := url.Values{}
 
 	variables := `{"listId":"%d"}`
@@ -108,17 +108,17 @@ func (a *ListByRestId) QueryParam() url.Values {
 	return v
 }
 
-type ListMembers struct {
+type listMembers struct {
 	id     uint64
 	count  int
 	cursor string
 }
 
-func (*ListMembers) Path() string {
+func (*listMembers) Path() string {
 	return "/i/api/graphql/3dQPyRyAj6Lslp4e0ClXzg/ListMembers"
 }
 
-func (a *ListMembers) QueryParam() url.Values {
+func (a *listMembers) QueryParam() url.Values {
 	v := url.Values{}
 	variables := `{"listId":"%d","count":%d,"withSafetyModeUserFields":true, "cursor":"%s"}`
 	features := `{"rweb_tipjar_consumption_enabled":true,"responsive_web_graphql_exclude_directive_enabled":true,"verified_phone_label_enabled":false,"creator_subscriptions_tweet_preview_api_enabled":true,"responsive_web_graphql_timeline_navigation_enabled":true,"responsive_web_graphql_skip_user_profile_image_extensions_enabled":false,"communities_web_enable_tweet_community_results_fetch":true,"c9s_tweet_anatomy_moderator_badge_enabled":true,"articles_preview_enabled":true,"tweetypie_unmention_optimization_enabled":true,"responsive_web_edit_tweet_api_enabled":true,"graphql_is_translatable_rweb_tweet_is_translatable_enabled":true,"view_counts_everywhere_api_enabled":true,"longform_notetweets_consumption_enabled":true,"responsive_web_twitter_article_tweet_consumption_enabled":true,"tweet_awards_web_tipping_enabled":false,"creator_subscriptions_quote_tweet_preview_enabled":false,"freedom_of_speech_not_reach_fetch_enabled":true,"standardized_nudges_misinfo":true,"tweet_with_visibility_results_prefer_gql_limited_actions_policy_enabled":true,"rweb_video_timestamps_enabled":true,"longform_notetweets_rich_text_read_enabled":true,"longform_notetweets_inline_media_enabled":true,"responsive_web_enhance_cards_enabled":false}`
@@ -128,21 +128,21 @@ func (a *ListMembers) QueryParam() url.Values {
 	return v
 }
 
-func (a *ListMembers) SetCursor(cursor string) {
+func (a *listMembers) SetCursor(cursor string) {
 	a.cursor = cursor
 }
 
-type Following struct {
+type following struct {
 	uid    uint64
 	count  int
 	cursor string
 }
 
-func (*Following) Path() string {
+func (*following) Path() string {
 	return "/i/api/graphql/7FEKOPNAvxWASt6v9gfCXw/Following"
 }
 
-func (a *Following) QueryParam() url.Values {
+func (a *following) QueryParam() url.Values {
 	v := url.Values{}
 	variables := `{"userId":"%d","count":%d,"includePromotedContent":false, "cursor":"%s"}`
 	features := `{"rweb_tipjar_consumption_enabled":true,"responsive_web_graphql_exclude_directive_enabled":true,"verified_phone_label_enabled":false,"creator_subscriptions_tweet_preview_api_enabled":true,"responsive_web_graphql_timeline_navigation_enabled":true,"responsive_web_graphql_skip_user_profile_image_extensions_enabled":false,"communities_web_enable_tweet_community_results_fetch":true,"c9s_tweet_anatomy_moderator_badge_enabled":true,"articles_preview_enabled":true,"tweetypie_unmention_optimization_enabled":true,"responsive_web_edit_tweet_api_enabled":true,"graphql_is_translatable_rweb_tweet_is_translatable_enabled":true,"view_counts_everywhere_api_enabled":true,"longform_notetweets_consumption_enabled":true,"responsive_web_twitter_article_tweet_consumption_enabled":true,"tweet_awards_web_tipping_enabled":false,"creator_subscriptions_quote_tweet_preview_enabled":false,"freedom_of_speech_not_reach_fetch_enabled":true,"standardized_nudges_misinfo":true,"tweet_with_visibility_results_prefer_gql_limited_actions_policy_enabled":true,"rweb_video_timestamps_enabled":true,"longform_notetweets_rich_text_read_enabled":true,"longform_notetweets_inline_media_enabled":true,"responsive_web_enhance_cards_enabled":false}`
@@ -152,21 +152,21 @@ func (a *Following) QueryParam() url.Values {
 	return v
 }
 
-func (a *Following) SetCursor(cursor string) {
+func (a *following) SetCursor(cursor string) {
 	a.cursor = cursor
 }
 
-type Likes struct {
+type likes struct {
 	userId uint64
 	count  int
 	cursor string
 }
 
-func (l *Likes) Path() string {
+func (l *likes) Path() string {
 	return "/i/api/graphql/aeJWz--kknVBOl7wQ7gh7Q/Likes"
 }
 
-func (l *Likes) QueryParam() url.Values {
+func (l *likes) QueryParam() url.Values {
 	v := url.Values{}
 	variables := `{"userId":"%d","count":%d,"includePromotedContent":false,"withClientEventToken":false,"withBirdwatchNotes":false,"withVoice":true,"withV2Timeline":true, "cursor":"%s"}`
 	features := `{"rweb_tipjar_consumption_enabled":true,"responsive_web_graphql_exclude_directive_enabled":true,"verified_phone_label_enabled":false,"creator_subscriptions_tweet_preview_api_enabled":true,"responsive_web_graphql_timeline_navigation_enabled":true,"responsive_web_graphql_skip_user_profile_image_extensions_enabled":false,"communities_web_enable_tweet_community_results_fetch":true,"c9s_tweet_anatomy_moderator_badge_enabled":true,"articles_preview_enabled":true,"responsive_web_edit_tweet_api_enabled":true,"graphql_is_translatable_rweb_tweet_is_translatable_enabled":true,"view_counts_everywhere_api_enabled":true,"longform_notetweets_consumption_enabled":true,"responsive_web_twitter_article_tweet_consumption_enabled":true,"tweet_awards_web_tipping_enabled":false,"creator_subscriptions_quote_tweet_preview_enabled":false,"freedom_of_speech_not_reach_fetch_enabled":true,"standardized_nudges_misinfo":true,"tweet_with_visibility_results_prefer_gql_limited_actions_policy_enabled":true,"rweb_video_timestamps_enabled":true,"longform_notetweets_rich_text_read_enabled":true,"longform_notetweets_inline_media_enabled":true,"responsive_web_enhance_cards_enabled":false}`
@@ -178,6 +178,6 @@ func (l *Likes) QueryParam() url.Values {
 	return v
 }
 
-func (l *Likes) SetCursor(cursor string) {
+func (l *likes) SetCursor(cursor string) {
 	l.cursor = cursor
 }

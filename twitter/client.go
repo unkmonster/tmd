@@ -66,7 +66,7 @@ type xRateLimit struct {
 
 var Slept time.Duration
 
-func (rl *xRateLimit) Req() {
+func (rl *xRateLimit) preRequest() {
 	// TODO: Why API is expired after sleep
 	if time.Now().After(rl.ResetTime) {
 		log.Printf("expired %s\n", rl.Url)
@@ -131,8 +131,8 @@ type rateLimiter struct {
 	conds    sync.Map
 }
 
-func (rateLimiter *rateLimiter) Check(url *url.URL) {
-	if !rateLimiter.ShouldWork(url) {
+func (rateLimiter *rateLimiter) check(url *url.URL) {
+	if !rateLimiter.shouldWork(url) {
 		return
 	}
 
@@ -167,14 +167,14 @@ func (rateLimiter *rateLimiter) Check(url *url.URL) {
 
 	// limiter 为 nil 意味着不对此路径做速率限制
 	if limiter != nil {
-		limiter.Req()
+		limiter.preRequest()
 	}
 	//fmt.Printf("start req: %s\n", path)
 }
 
 // 对过期，未初始化的路径更新速率限制信息
-func (rateLimiter *rateLimiter) Update(resp *resty.Response) {
-	if !rateLimiter.ShouldWork(resp.RawResponse.Request.URL) {
+func (rateLimiter *rateLimiter) update(resp *resty.Response) {
+	if !rateLimiter.shouldWork(resp.RawResponse.Request.URL) {
 		return
 	}
 
@@ -198,8 +198,8 @@ func (rateLimiter *rateLimiter) Update(resp *resty.Response) {
 	//fmt.Printf("updated: %s\n", path)
 }
 
-func (rateLimiter *rateLimiter) Reset(url *url.URL) {
-	if !rateLimiter.ShouldWork(url) {
+func (rateLimiter *rateLimiter) reset(url *url.URL) {
+	if !rateLimiter.shouldWork(url) {
 		return
 	}
 
@@ -228,7 +228,7 @@ func (rateLimiter *rateLimiter) Reset(url *url.URL) {
 	//fmt.Printf("reseted: %s\n", path)
 }
 
-func (*rateLimiter) ShouldWork(url *url.URL) bool {
+func (*rateLimiter) shouldWork(url *url.URL) bool {
 	return !strings.HasSuffix(url.Host, "twimg.com")
 }
 
@@ -243,12 +243,12 @@ func EnableRateLimit(client *resty.Client) {
 		if err != nil {
 			return err
 		}
-		rateLimiter.Check(u)
+		rateLimiter.check(u)
 		return nil
 	})
 
 	client.OnAfterResponse(func(c *resty.Client, resp *resty.Response) error {
-		rateLimiter.Update(resp)
+		rateLimiter.update(resp)
 		return nil
 	})
 
@@ -257,10 +257,10 @@ func EnableRateLimit(client *resty.Client) {
 			// 请求未发起 (Http.Client.Do 未被调用)
 			return
 		}
-		rateLimiter.Reset(resp.Request.RawRequest.URL)
+		rateLimiter.reset(resp.Request.RawRequest.URL)
 	})
 
 	client.OnError(func(req *resty.Request, _ error) {
-		rateLimiter.Reset(req.RawRequest.URL)
+		rateLimiter.reset(req.RawRequest.URL)
 	})
 }
