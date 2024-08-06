@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/tidwall/gjson"
-	"github.com/unkmonster/tmd2/internal/utils"
 )
 
 type Tweet struct {
@@ -59,28 +58,4 @@ func getUrlsFromMedia(media *gjson.Result) []string {
 		}
 	}
 	return results
-}
-
-type Tweets []Tweet
-
-func (tweets Tweets) Len() int {
-	return len(tweets)
-}
-
-func (tweets Tweets) Less(i, j int) bool {
-	return tweets[i].CreatedAt.Before(tweets[j].CreatedAt)
-}
-
-func (tweets Tweets) Swap(i, j int) {
-	tweets[i], tweets[j] = tweets[j], tweets[i]
-}
-
-func (tweet *Tweet) LessThan(rhs utils.Comparable) bool {
-	val := rhs.(*Tweet).CreatedAt
-	return tweet.CreatedAt.Before(val)
-}
-
-func (tweet *Tweet) GreaterThan(rhs utils.Comparable) bool {
-	val := rhs.(*Tweet).CreatedAt
-	return tweet.CreatedAt.After(val)
 }
