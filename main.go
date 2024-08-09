@@ -214,7 +214,7 @@ func main() {
 	var homepath string
 	if runtime.GOOS == "windows" {
 		homepath = os.Getenv("appdata")
-	} else if runtime.GOOS == "linux" {
+	} else {
 		homepath = os.Getenv("HOME")
 	}
 

@@ -16,53 +16,49 @@ env:
   CT0: ${{secrets.CT0}}
 
 jobs:
-
-  build-win:
-    runs-on: windows-latest
+  release:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    
+    runs-on: ${{matrix.os}}
+    
     steps:
-    - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-    - name: Set up Go
-      uses: actions/setup-go@v5
-      with:
-        go-version-file: 'go.mod'
-    
-    - name: G++
-      run: g++ -v
-    
-    - name: Build
-      run: go build -o tmd2.exe -v -ldflags "-linkmode external -extldflags -static" .
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
 
-    - name: Test
-      run: go test ./...
-    
-    - name: List
-      run: ls
+      - name: Build Win
+        if: runner.os == 'Windows'
+        run: |
+            go build -v -o tmd2.exe -ldflags "-linkmode external -extldflags -static" .
+      
+      - name: Build Posix
+        if: runner.os != 'Windows'
+        run: |
+            CGO_ENABLED=0 go build -v -o tmd2 .
+      
+      - name: Package Win
+        if: runner.os == 'Windows'
+        run: |
+          Compress-Archive -Path tmd2.exe -DestinationPath tmd2-${{runner.os}}.zip
 
-    - name: Release
-      uses: softprops/action-gh-release@v2
-      with:
-        files: |
-          tmd2.exe
+      - name: Package Posix
+        if: runner.os != 'Windows'
+        run: |
+          tar -czvf tmd2-${{runner.os}}.tar.gz tmd2 \
 
-  build-linux:
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v4
-
-    - name: Set up Go
-      uses: actions/setup-go@v5
-      with:
-        go-version-file: 'go.mod'
-
-    - name: Build
-      run: go build -o tmd2 -v .
-
-    - name: Test
-      run: go test ./...
-
-    - name: Release
-      uses: softprops/action-gh-release@v2
-      with:
-        files: |
-          tmd2
+      - name: Release Win
+        if: runner.os == 'Windows' 
+        uses: softprops/action-gh-release@v2
+        with:
+          files: tmd2-${{runner.os}}.zip
+            
+      - name: Release Posix
+        if: runner.os != 'Windows' 
+        uses: softprops/action-gh-release@v2
+        with:
+          files: tmd2-${{ runner.os }}.tar.gz

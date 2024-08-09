@@ -12,6 +12,7 @@ on:
 env:
   AUTH_TOKEN: ${{secrets.AUTH_TOKEN}}
   CT0: ${{secrets.CT0}}
+  CGO_ENABLED: 0
 
 jobs:
 
