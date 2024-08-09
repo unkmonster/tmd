@@ -1,13 +1,5 @@
 package utils
 
-/*
-#cgo CPPFLAGS: -DUNICODE=1
-#cgo windows LDFLAGS: -luuid -lole32 -loleaut32
-#cgo linux LDFLAGS: -static-libstdc++ -static-libgcc
-#include <stdlib.h>
-int CreateSymLink(const char* path, const char* sympath);
-*/
-import "C"
 import (
 	"bytes"
 	"fmt"
@@ -16,7 +8,6 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"unsafe"
 )
 
 var (
@@ -101,16 +92,4 @@ func UniquePath(path string) (string, error) {
 
 		path = filepath.Join(dir, stem+"(1)"+ext)
 	}
-}
-
-func CreateLink(path string, lnk string) error {
-	cpath := C.CString(path)
-	clnk := C.CString(lnk)
-	defer C.free(unsafe.Pointer(cpath))
-	defer C.free(unsafe.Pointer(clnk))
-	hr := C.CreateSymLink(cpath, clnk)
-	if hr != 0 {
-		return fmt.Errorf("failed to create link: hresult/errno = %d", hr)
-	}
-	return nil
 }

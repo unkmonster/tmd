@@ -1,7 +1,6 @@
 package downloading
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -258,7 +257,7 @@ func updateUserLink(lnk *database.UserLink, db *sqlx.DB, path string) error {
 		if err != nil && !os.IsExist(err) {
 			return err
 		}
-	} else if runtime.GOOS == "linux" {
+	} else {
 		if err = os.RemoveAll(linkpath); err != nil {
 			return err
 		}
@@ -271,8 +270,6 @@ func updateUserLink(lnk *database.UserLink, db *sqlx.DB, path string) error {
 				return err
 			}
 		}
-	} else {
-		return fmt.Errorf("unsupported system: %s", runtime.GOOS)
 	}
 
 	if err = database.UpdateUserLink(db, lnk.Id.Int32, name); err != nil {
