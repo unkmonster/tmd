@@ -59,3 +59,13 @@ func getUrlsFromMedia(media *gjson.Result) []string {
 	}
 	return results
 }
+
+// ended audio space
+
+/*
+id = ?
+media_key = audio_space_by_id()
+live_video_stream = get https://x.com/i/api/1.1/live_video_stream/status/{media_key}?client=web&use_syndication_guest_id=false&cookie_set_host=x.com
+playlist = live_video_stream.source.location
+handle playlist...
+*/

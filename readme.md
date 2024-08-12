@@ -1,6 +1,10 @@
 # Twitter Media Downloader
 
-![GitHub Release](https://img.shields.io/github/v/release/unkmonster/tmd2) [![Go](https://github.com/unkmonster/tmd2/actions/workflows/go.yml/badge.svg)](https://github.com/unkmonster/tmd2/actions/workflows/go.yml) ![GitHub License](https://img.shields.io/github/license/unkmonster/tmd2?logo=github) ![Static Badge](https://img.shields.io/badge/Windows-0078D6) ![Static Badge](https://img.shields.io/badge/Linux-FCC624?logo=Linux&logoColor=black) ![Static Badge](https://img.shields.io/badge/X%2FTwitter-black?logo=X)
+[![Go Reference](https://pkg.go.dev/badge/github.com/unkmonster/tmd2.svg)](https://pkg.go.dev/github.com/unkmonster/tmd2)
+[![Go Report Card](https://goreportcard.com/badge/github.com/unkmonster/tmd2)](https://goreportcard.com/report/github.com/unkmonster/tmd2)
+![GitHub Release](https://img.shields.io/github/v/release/unkmonster/tmd2) 
+[![Go](https://github.com/unkmonster/tmd2/actions/workflows/go.yml/badge.svg)](https://github.com/unkmonster/tmd2/actions/workflows/go.yml)
+![GitHub License](https://img.shields.io/github/license/unkmonster/tmd2?logo=github)
 
 跨平台的推特媒体下载器。用于轻松，快速，安全，整洁，批量的下载推特上用户的推文。支持手动指定用户或通过列表、用户关注批量下载。。。开箱即用！
 
@@ -16,7 +20,7 @@
 - 记录用户曾用名
 - 避免重复下载
   - 每次工作后记录用户的最新发布时间，下次工作仅从这个时间点开始拉取用户推文
-  - 向列表目录发送指向用户目录的快捷方式/符号链接，无论多少列表包含同一用户，本地仅保存一份用户存档
+  - 向列表目录发送指向用户目录的符号链接，无论多少列表包含同一用户，本地仅保存一份用户存档
 - 避免重复获取时间线：任意一段时间内的推文仅仅会从 twitter 上拉取一次，即使这些推文下载失败。如果下载失败将它们存储到本地，以待重试或丢弃
 - 避免重复同步用户（更新用户信息，获取时间线，下载推文）
 - 速率限制：避免触发 Twitter API 速率限制
@@ -27,7 +31,7 @@
 
 **直接下载**
 
-在 Release 中，后缀为 `.exe` 版本为 `Windows` 平台使用，无 `.exe` 后缀版本为 `Linux` 平台使用
+前往 [Release](https://github.com/unkmonster/tmd2/releases/tag/latest) 自行选择合适的版本并下载
 
 **自行编译**
 
@@ -46,7 +50,7 @@ go build .
 1. `storeage path`：存储路径(可以不存在)
 2. `auth_token`：用于登录，[获取方式](https://github.com/unkmonster/tmd2/blob/master/help.md#获取-cookie)
 3. `ct0`：用于登录，[获取方式](https://github.com/unkmonster/tmd2/blob/master/help.md#获取-cookie)
-4. `max_download_routine`：最大并发下载协程数
+4. `max_download_routine`：最大并发下载协程数（如果为0取默认值）
 
 #### 更新配置
 

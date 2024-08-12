@@ -3,12 +3,10 @@ package downloading
 import (
 	"os"
 	"path/filepath"
-	"runtime"
 	"time"
 
 	"github.com/jmoiron/sqlx"
 	"github.com/unkmonster/tmd2/database"
-	"github.com/unkmonster/tmd2/internal/utils"
 )
 
 // 路径Plus
@@ -226,11 +224,7 @@ func (ue *ListEntity) Id() int {
 }
 
 func updateUserLink(lnk *database.UserLink, db *sqlx.DB, path string) error {
-	var err error
 	name := filepath.Base(path)
-	if runtime.GOOS == "windows" {
-		name += ".lnk"
-	}
 
 	linkpath, err := lnk.Path(db)
 	if err != nil {
@@ -242,34 +236,21 @@ func updateUserLink(lnk *database.UserLink, db *sqlx.DB, path string) error {
 	}
 
 	if lnk.Name == name {
-		// path 是已经同步过的，确保存在的。。。应该吧
-		utils.CreateLink(path, linkpath)
-		return nil
+		// 用户未改名，但仍应确保链接存在
+		err = os.Symlink(path, linkpath)
+		if os.IsExist(err) {
+			err = nil
+		}
+		return err
 	}
 
 	newlinkpath := filepath.Join(filepath.Dir(linkpath), name)
 
-	if runtime.GOOS == "windows" {
-		err = os.Rename(linkpath, newlinkpath)
-		if os.IsNotExist(err) {
-			err = utils.CreateLink(path, newlinkpath)
-		}
-		if err != nil && !os.IsExist(err) {
-			return err
-		}
-	} else {
-		if err = os.RemoveAll(linkpath); err != nil {
-			return err
-		}
-		ex, err := utils.PathExists(newlinkpath)
-		if err != nil {
-			return err
-		}
-		if !ex {
-			if err = utils.CreateLink(path, newlinkpath); err != nil {
-				return err
-			}
-		}
+	if err = os.RemoveAll(linkpath); err != nil {
+		return err
+	}
+	if err = os.Symlink(path, newlinkpath); err != nil && !os.IsExist(err) {
+		return err
 	}
 
 	if err = database.UpdateUserLink(db, lnk.Id.Int32, name); err != nil {

@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 )
 
 var (
@@ -32,6 +33,9 @@ func PathExists(path string) (bool, error) {
 	return false, err
 }
 
+// reserve 5 bytes for suffix
+const maxFileNameLen = 250
+
 // 将无后缀的文件名更新为有效的 Windows 文件名
 func WinFileName(name string) string {
 	// 将字节切片转换为字符串
@@ -50,9 +54,15 @@ func WinFileName(name string) string {
 			continue
 		case '\n':
 			// 将 \n 替换为空格
+			if buffer.Len()+1 > maxFileNameLen {
+				break
+			}
 			buffer.WriteRune(' ')
 		default:
 			// 其他字符直接添加到缓冲区
+			if buffer.Len()+utf8.RuneLen(ch) > maxFileNameLen {
+				break
+			}
 			buffer.WriteRune(ch)
 		}
 	}

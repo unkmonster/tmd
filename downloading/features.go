@@ -84,6 +84,8 @@ func downloadTweetMedia(client *resty.Client, dir string, tweet *twitter.Tweet) 
 var MaxDownloadRoutine int
 
 // TODO 多列表同时下载仍会重复同步用户
+
+// 记录本次程序运行已同步过的用户
 var syncedUsers sync.Map
 
 func init() {
