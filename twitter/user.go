@@ -124,25 +124,38 @@ func (u *User) getMediasOnePage(api *userMedia, client *resty.Client) ([]*Tweet,
 	return itemContentsToTweets(itemContents), next, err
 }
 
+// 在逆序切片中，筛选出在 timerange 范围内的推文
 func filterTweetsByTimeRange(tweets []*Tweet, min *time.Time, max *time.Time) (cutMin bool, cutMax bool, res []*Tweet) {
 	n := len(tweets)
 	begin, end := 0, n
 
-	// 假设 tweets 是逆序的 从左到右查找第一个小于 min 的推文，最后一个大于 max 的推文
-	for i := 0; i < n; i++ {
-		if min != nil && !min.IsZero() && end == n && tweets[i].CreatedAt.Before(*min) {
-			end = i
-			cutMin = true
-		}
-		if max != nil && !max.IsZero() && tweets[i].CreatedAt.After(*max) {
-			begin = i + 1
-			cutMax = true
+	// 从左到右查找第一个小于 min 的推文
+	if min != nil && !min.IsZero() {
+		for i := 0; i < n; i++ {
+			if !tweets[i].CreatedAt.After(*min) {
+				end = i // 找到第一个不大于 min 的推文位置
+				cutMin = true
+				break
+			}
 		}
 	}
 
-	if begin >= n {
-		res = nil
+	// 从右到左查找最后一个大于 max 的推文
+	if max != nil && !max.IsZero() {
+		for i := n - 1; i >= 0; i-- {
+			if !tweets[i].CreatedAt.Before(*max) {
+				begin = i + 1 // 找到第一个不小于 max 的推文位置
+				cutMax = true
+				break
+			}
+		}
 	}
+
+	if begin >= end {
+		// 如果最终的范围无效，返回空结果
+		return cutMin, cutMax, nil
+	}
+
 	res = tweets[begin:end]
 	return
 }
