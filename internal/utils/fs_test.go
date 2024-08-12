@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"sync"
 	"testing"
 )
@@ -48,10 +47,22 @@ func TestUniquePath(t *testing.T) {
 	}
 }
 
-func generateTemp(num int) ([]*os.File, error) {
-	temps := make([]*os.File, 0, num)
+func generateTemp(num int) ([]string, error) {
+	temps := make([]string, 0, num)
 	for i := 0; i < 100; i++ {
 		file, err := os.CreateTemp("", "")
+		if err != nil {
+			return nil, err
+		}
+		temps = append(temps, file.Name())
+	}
+	return temps, nil
+}
+
+func generateTempDir(num int) ([]string, error) {
+	temps := make([]string, 0, num)
+	for i := 0; i < 100; i++ {
+		file, err := os.MkdirTemp("", "")
 		if err != nil {
 			return nil, err
 		}
@@ -66,6 +77,12 @@ func TestLink(t *testing.T) {
 		t.Error(err)
 		return
 	}
+	tempdirs, err := generateTempDir(20)
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	temps = append(temps, tempdirs...)
 
 	wg := sync.WaitGroup{}
 	tempDir, err := os.MkdirTemp("", "")
@@ -81,21 +98,10 @@ func TestLink(t *testing.T) {
 		wg.Add(1)
 		go func(path string) {
 			defer wg.Done()
-			lnk := filepath.Join(tempDir, filepath.Base(path)+".lnk")
-			hr := CreateLink(path, lnk)
+			lnk := filepath.Join(tempDir, filepath.Base(path))
+			hr := os.Symlink(path, lnk)
 			if hr != nil {
 				t.Error(hr)
-				return
-			}
-			ex, err := PathExists(lnk)
-			if err != nil {
-				t.Error(err)
-			}
-			if !ex {
-				t.Errorf("create failed: %s -> %s", lnk, path)
-			}
-
-			if runtime.GOOS == "windows" {
 				return
 			}
 
@@ -107,7 +113,7 @@ func TestLink(t *testing.T) {
 			if filepath.Clean(target) != filepath.Clean(path) {
 				t.Errorf("%s -> %s, want %s", lnk, target, path)
 			}
-		}(temp.Name())
+		}(temp)
 	}
 
 	wg.Wait()

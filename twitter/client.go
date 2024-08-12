@@ -38,8 +38,8 @@ func Login(authToken string, ct0 string) (*resty.Client, string, error) {
 	})
 	client.SetTransport(&http.Transport{
 		MaxIdleConns:          0,
-		MaxIdleConnsPerHost:   500,
-		IdleConnTimeout:       5 * time.Second,
+		MaxIdleConnsPerHost:   500,             // 每个主机最大并发连接数
+		IdleConnTimeout:       5 * time.Second, // 连接空闲 n 秒后断开它
 		TLSHandshakeTimeout:   5 * time.Second,
 		ResponseHeaderTimeout: 5 * time.Second,
 	})

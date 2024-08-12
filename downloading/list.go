@@ -44,12 +44,12 @@ func BatchUserDownload(client *resty.Client, db *sqlx.DB, users []*twitter.User,
 	}
 	close(userChan)
 
-	getterCount := min(len(users), 2*runtime.GOMAXPROCS(0))
+	getterCount := min(len(users), 3*runtime.GOMAXPROCS(0))
 	entityChan := make(chan *UserEntity, len(users))
 	tweetChan := make(chan PackgedTweet, MaxDownloadRoutine) // 尽量不让任何下载例程闲置
 	errch := make(chan PackgedTweet)
 	abortChan := make(chan struct{})
-	syncWg := sync.WaitGroup{}
+	updaterWg := sync.WaitGroup{}
 	getterWg := sync.WaitGroup{}
 	downloaderWg := sync.WaitGroup{}
 
@@ -80,7 +80,7 @@ func BatchUserDownload(client *resty.Client, db *sqlx.DB, users []*twitter.User,
 	defer signal.Stop(sigChan)
 
 	userUpdater := func() {
-		defer syncWg.Done()
+		defer updaterWg.Done()
 		defer panicHandler("sync worker")
 		for u := range userChan {
 			if cancelled() {
@@ -123,7 +123,9 @@ func BatchUserDownload(client *resty.Client, db *sqlx.DB, users []*twitter.User,
 				color.Note.Printf("[sync worker] skiped synced user '%s'\n", u.Title())
 			}
 
-			// 为当前列表的新用户创建符号链接
+			// 即便同步一个用户时也同步了所有指向此用户的链接，
+			// 但此用户仍可能会是一个新的 “列表-用户”，所以判断此用户链接是否同步过，
+			// 如果否，那么创建一个属于此列表的用户链接
 			if listEntityId == nil {
 				continue
 			}
@@ -135,11 +137,9 @@ func BatchUserDownload(client *resty.Client, db *sqlx.DB, users []*twitter.User,
 				continue
 			}
 
+			// 为当前列表的新用户创建符号链接
 			upath, _ := pathEntity.Path()
 			var linkname = pathEntity.Name()
-			if runtime.GOOS == "windows" {
-				linkname += ".lnk"
-			}
 
 			curlink := &database.UserLink{}
 			curlink.Name = linkname
@@ -148,14 +148,13 @@ func BatchUserDownload(client *resty.Client, db *sqlx.DB, users []*twitter.User,
 
 			linkpath, err := curlink.Path(db)
 			if err == nil {
-				if err = utils.CreateLink(upath, linkpath); err == nil {
+				if err = os.Symlink(upath, linkpath); err == nil || os.IsExist(err) {
 					err = database.CreateUserLink(db, curlink)
 				}
 			}
 			if err != nil {
-				color.Error.Tips("[sync worker] failed to create link %s: %v", u.Title(), err)
+				color.Error.Tips("[sync worker] failed to create link to %s: %v", u.Title(), err)
 			}
-
 		}
 	}
 
@@ -194,7 +193,7 @@ func BatchUserDownload(client *resty.Client, db *sqlx.DB, users []*twitter.User,
 	}
 
 	for i := 0; i < getterCount; i++ {
-		syncWg.Add(1)
+		updaterWg.Add(1)
 		go userUpdater()
 		getterWg.Add(1)
 		go tweetGetter()
@@ -212,7 +211,7 @@ func BatchUserDownload(client *resty.Client, db *sqlx.DB, users []*twitter.User,
 
 	//closer
 	go func() {
-		syncWg.Wait()
+		updaterWg.Wait()
 		close(entityChan)
 		//log.Printf("entity chan has closed\n")
 
