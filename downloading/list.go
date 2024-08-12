@@ -94,7 +94,7 @@ func BatchUserDownload(client *resty.Client, db *sqlx.DB, users []*twitter.User,
 			if !loaded {
 				pathEntity, err = syncUserAndEntity(db, u, dir)
 				if err != nil {
-					color.Error.Tips("[sync worker] failed to sync user or entity %s: %v", u.Title(), err)
+					color.Error.Tips("[sync worker] failed to sync user or entity: %v", err)
 					continue
 				}
 				syncedUsers.Store(u.Id, pathEntity)
@@ -109,9 +109,8 @@ func BatchUserDownload(client *resty.Client, db *sqlx.DB, users []*twitter.User,
 				}
 
 				for _, linkd := range linkds {
-					lpath, _ := linkd.Path(db)
 					if err = updateUserLink(linkd, db, upath); err != nil {
-						color.Error.Tips("[sync worker] failed to sync link %s %s: %v", lpath, u.Title(), err)
+						color.Error.Tips("[sync worker] failed to sync link: %v", err)
 					}
 					sl, _ := syncedListUsers.LoadOrStore(int(linkd.ParentLstEntityId), &sync.Map{})
 					syncedList := sl.(*sync.Map)
@@ -153,7 +152,7 @@ func BatchUserDownload(client *resty.Client, db *sqlx.DB, users []*twitter.User,
 				}
 			}
 			if err != nil {
-				color.Error.Tips("[sync worker] failed to create link to %s: %v", u.Title(), err)
+				color.Error.Tips("[sync worker] failed to create link: %v", err)
 			}
 		}
 	}
