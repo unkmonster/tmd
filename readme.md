@@ -2,8 +2,9 @@
 
 [![Go Reference](https://pkg.go.dev/badge/github.com/unkmonster/tmd2.svg)](https://pkg.go.dev/github.com/unkmonster/tmd2)
 [![Go Report Card](https://goreportcard.com/badge/github.com/unkmonster/tmd2)](https://goreportcard.com/report/github.com/unkmonster/tmd2)
-![GitHub Release](https://img.shields.io/github/v/release/unkmonster/tmd2) 
+[![Go Coverage](https://github.com/unkmonster/tmd2/wiki/coverage.svg)](https://raw.githack.com/wiki/unkmonster/tmd2/coverage.html)
 [![Go](https://github.com/unkmonster/tmd2/actions/workflows/go.yml/badge.svg)](https://github.com/unkmonster/tmd2/actions/workflows/go.yml)
+![GitHub Release](https://img.shields.io/github/v/release/unkmonster/tmd2) 
 ![GitHub License](https://img.shields.io/github/license/unkmonster/tmd2?logo=github)
 
 跨平台的推特媒体下载器。用于轻松，快速，安全，整洁，批量的下载推特上用户的推文。支持手动指定用户或通过列表、用户关注批量下载。。。开箱即用！
@@ -31,7 +32,7 @@
 
 **直接下载**
 
-前往 [Release](https://github.com/unkmonster/tmd2/releases/tag/latest) 自行选择合适的版本并下载
+前往 [Release](https://github.com/unkmonster/tmd2/releases/latest) 自行选择合适的版本并下载
 
 **自行编译**
 
@@ -71,6 +72,8 @@ tmd2 --list <list_id>       // 批量下载由 list_id 指定的列表中的每�
 tmd2 --foll <user_id>       // 批量下载由 user_id 指定的用户正关注的每个用户
 tmd2 --foll <screen_name>   // 批量下载由 screen_name 指定的用户正关注的每个用户
 ```
+
+> 为了创建符号链接，在 Windows 上应该以管理员身份运行程序
 
 [不知道啥是 user_id/list_id/screen_name?](https://github.com/unkmonster/tmd2/blob/master/help.md#%E8%8E%B7%E5%8F%96-list_id-user_id-screen_name)
 

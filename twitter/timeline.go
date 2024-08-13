@@ -1,6 +1,8 @@
 package twitter
 
 import (
+	"fmt"
+
 	"github.com/go-resty/resty/v2"
 	"github.com/tidwall/gjson"
 	"github.com/unkmonster/tmd2/internal/utils"
@@ -46,7 +48,7 @@ func getNextCursor(entries gjson.Result) string {
 		}
 	}
 
-	panic("invalid entries")
+	panic(fmt.Sprintf("invalid entries: %s", entries.String()))
 }
 
 func getItemContentFromModuleItem(moduleItem gjson.Result) gjson.Result {
@@ -62,7 +64,7 @@ func getItemContentsFromEntry(entry gjson.Result) []gjson.Result {
 		return []gjson.Result{content.Get("itemContent")}
 	}
 
-	panic("invalid entry")
+	panic(fmt.Sprintf("invalid entry: %s", entry.String()))
 }
 
 func getResults(itemContent gjson.Result, itemType int) gjson.Result {
@@ -72,7 +74,7 @@ func getResults(itemContent gjson.Result, itemType int) gjson.Result {
 		return itemContent.Get("user_results")
 	}
 
-	panic("invalid itemContent")
+	panic(fmt.Sprintf("invalid itemContent: %s", itemContent.String()))
 }
 
 func getTimelineResp(api timelineApi, client *resty.Client) (string, error) {

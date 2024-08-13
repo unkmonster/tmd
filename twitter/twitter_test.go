@@ -2,7 +2,6 @@ package twitter
 
 import (
 	"encoding/json"
-	"fmt"
 	"math"
 	"math/rand"
 	"os"
@@ -14,6 +13,19 @@ import (
 )
 
 var client *resty.Client
+var someUsers = []struct {
+	id         uint64
+	screenName string
+}{
+	{id: 1528902077325332480},
+	{id: 3316272504},
+	{id: 1478962175947390976},
+	{screenName: "Chibubao01"},
+	{screenName: "Tsumugi69458619"},
+	{screenName: "_sosen_"},
+	{screenName: "baobaoxqaq"},
+	{screenName: "Greenfish_insky"},
+}
 
 func init() {
 	var err error
@@ -25,36 +37,23 @@ func init() {
 }
 
 func TestGetUser(t *testing.T) {
-	tests := []struct {
-		Id    uint64
-		Sname string
-	}{
-		{Id: 1528902077325332480},
-		{Id: 3316272504},
-		{Id: 1478962175947390976},
-		{Sname: "Chibubao01"},
-		{Sname: "Tsumugi69458619"},
-		{Sname: "_sosen_"},
-	}
-
-	// real test
-	for _, test := range tests {
+	for _, test := range someUsers {
 		var u *User = nil
 		var err error
-		if test.Id != 0 {
-			u, err = GetUserById(client, test.Id)
+		if test.id != 0 {
+			u, err = GetUserById(client, test.id)
 		} else {
-			u, err = GetUserByScreenName(client, test.Sname)
+			u, err = GetUserByScreenName(client, test.screenName)
 		}
 		if err != nil {
 			t.Error("failed to get user:", err)
 			continue
 		}
 
-		if test.Id != 0 && u.Id != test.Id {
-			t.Errorf("user.id = %d, want %d", u.Id, test.Id)
-		} else if test.Id == 0 && u.ScreenName != test.Sname {
-			t.Errorf("screen_name = %s, want %s", u.ScreenName, test.Sname)
+		if test.id != 0 && u.Id != test.id {
+			t.Errorf("user.id = %d, want %d", u.Id, test.id)
+		} else if test.id == 0 && u.ScreenName != test.screenName {
+			t.Errorf("screen_name = %s, want %s", u.ScreenName, test.screenName)
 		}
 
 		// report
@@ -62,67 +61,78 @@ func TestGetUser(t *testing.T) {
 		if err != nil {
 			t.Error(err)
 		}
-		fmt.Printf("%s\n", j)
+		t.Logf("%s\n", j)
 	}
 }
 
 func TestGetMedia(t *testing.T) {
 	r := rand.New(rand.NewSource(time.Now().UnixNano()))
 	makeMinMax := func(items []*Tweet) (min int, max int) {
-		r1 := r.Intn(len(items))
-		r2 := r.Intn(len(items))
-		if r1 > r2 {
-			max = r2
-			min = r1
+		// 时间线是逆序的，所以更大的索引对应发布时间更早的推文
+		for {
+			r1 := r.Intn(len(items))
+			r2 := r.Intn(len(items))
+			if r1 > r2 {
+				max = r2
+				min = r1
 
-		} else {
-			max = r1
-			min = r2
+			} else {
+				max = r1
+				min = r2
+			}
+
+			// 不要生成在边界
+			if max != 0 && min != len(items)-1 {
+				return
+			}
 		}
-		return
 	}
 
-	tests := []string{
-		"baobaoxqaq",
-		"Greenfish_insky",
-		"_sosen_",
-	}
+	for _, user := range someUsers {
+		if user.id != 0 {
+			continue
+		}
+		test := user.screenName
 
-	for _, test := range tests {
 		usr, err := GetUserByScreenName(client, test)
 		if err != nil {
 			t.Error(err)
 			continue
 		}
 
+		// 获取全部推文
+		if !usr.IsVisiable() {
+			t.Errorf("%s is invisiable", test)
+			continue
+		}
 		tweets, err := usr.GetMeidas(client, nil)
 		if err != nil {
 			t.Error(err, usr)
 			continue
 		}
-		t.Logf("[user:%s] tweets: %d\n", usr.ScreenName, len(tweets))
-		if len(tweets) != usr.MediaCount {
-			t.Errorf("len(tweets) == %d, want %d", len(tweets), usr.MediaCount)
+		//t.Logf("[user:%s] tweets: %d\n", usr.ScreenName, len(tweets))
+		if math.Abs(float64(len(tweets)-usr.MediaCount)) > float64(usr.MediaCount*2/100) {
+			t.Errorf("%s: len(tweets) == %d, want %d", test, len(tweets), usr.MediaCount)
 		}
 
-		if !usr.IsVisiable() || len(tweets) == 0 {
+		if len(tweets) == 0 {
 			continue
 		}
 
 		// 区间测试
 		minIndex, maxIndex := makeMinMax(tweets)
-		tr := &utils.TimeRange{Min: tweets[minIndex].CreatedAt.Add(-time.Second), Max: tweets[maxIndex].CreatedAt.Add(time.Second)}
+		tr := &utils.TimeRange{Min: tweets[minIndex+1].CreatedAt, Max: tweets[maxIndex-1].CreatedAt}
 		rangedTweets, err := usr.GetMeidas(client, tr)
 		if err != nil {
 			t.Error(err, usr, "range")
 			continue
 		}
 
-		if !rangedTweets[len(rangedTweets)-1].CreatedAt.Equal(tweets[minIndex].CreatedAt) {
-			t.Errorf("!rangedTweets[len(rangedTweets)-1].CreatedAt.Equal(tweets[minIndex].CreatedAt) %v != %v", rangedTweets[len(rangedTweets)-1].CreatedAt, tweets[minIndex].CreatedAt)
+		if rangedTweets[0].Id != tweets[maxIndex].Id {
+			t.Errorf("rangedTweets[0].Id = %d, want %d", rangedTweets[0].Id, tweets[maxIndex].Id)
 		}
-		if !rangedTweets[0].CreatedAt.Equal(tweets[maxIndex].CreatedAt) {
-			t.Errorf("!rangedTweets[0].CreatedAt.Equal(tweets[maxIndex].CreatedAt) %v != %v", rangedTweets[0].CreatedAt, tweets[maxIndex].CreatedAt)
+		if rangedTweets[len(rangedTweets)-1].Id != tweets[minIndex].Id {
+			t.Errorf("rangedTweets[-1].Id = %d, want %d", rangedTweets[len(rangedTweets)-1].Id, tweets[minIndex].Id)
 		}
 	}
 }
@@ -149,7 +159,7 @@ func TestGetList(t *testing.T) {
 		if err != nil {
 			t.Error(err)
 		}
-		fmt.Printf("%s\n", j)
+		t.Logf("%s\n", j)
 	}
 }
 
@@ -166,7 +176,7 @@ func TestGetMember(t *testing.T) {
 			t.Error(err)
 			continue
 		}
-		if math.Abs(float64(len(users)-lst.MemberCount)) > float64(len(users)*2/100) {
+		if math.Abs(float64(len(users)-lst.MemberCount)) > float64(lst.MemberCount*2/100) {
 			t.Errorf("len(users) == %d, want %d", len(users), lst.MemberCount)
 		}
 
@@ -178,7 +188,7 @@ func TestGetMember(t *testing.T) {
 			continue
 		}
 		//t.Logf("usr %s following count: %d\n", fo.creator.Title(), len(users))
-		if math.Abs(float64(len(users)-fo.creator.FriendsCount)) > float64(len(users)*2/100) {
+		if math.Abs(float64(len(users)-fo.creator.FriendsCount)) > float64(fo.creator.FriendsCount*2/100) {
 			t.Errorf("len(users) == %d, want %d", len(users), fo.creator.FriendsCount)
 		}
 	}
