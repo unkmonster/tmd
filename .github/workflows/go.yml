@@ -39,19 +39,19 @@ jobs:
         run: |
           $env:GOARCH = "amd64"
           $env:CGO_ENABLED = "1"
-          go build -o bin/tmd2-${{ runner.os }}-amd64.exe -v .
+          go build -o bin/tmd2-${{ runner.os }}-amd64.exe -v -ldflags "-w -s" .
           
       - name: Build for Unix
         if: ${{'windows-latest' != matrix.os}}
         run: |
-          GOARCH=amd64 CGO_ENABLED=1 go build -o bin/tmd2-${{ runner.os }}-amd64 -v .
+          GOARCH=amd64 CGO_ENABLED=1 go build -o bin/tmd2-${{ runner.os }}-amd64 -v -ldflags "-w -s" .
       
       - name: Test
         if: ${{!startsWith(github.ref, 'refs/tags/v')}}
         run: go test ./...
       
       - name: Update coverage badge
-        if: ${{'ubuntu-latest' == matrix.os}}
+        if: ${{'ubuntu-latest' == matrix.os && !startsWith(github.ref, 'refs/tags/v')}}
         uses: ncruces/go-coverage-report@main
         with:
           amend: true

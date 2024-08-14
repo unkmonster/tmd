@@ -2,3 +2,4 @@
 *.exe
 tmd2
 bin
+*.prof
