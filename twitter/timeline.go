@@ -13,8 +13,8 @@ const (
 	timelineUser
 )
 
-func getInstructions(resp string, path string) gjson.Result {
-	return gjson.Get(resp, path)
+func getInstructions(resp []byte, path string) gjson.Result {
+	return gjson.GetBytes(resp, path)
 }
 
 func getEntries(instructions gjson.Result) gjson.Result {
@@ -77,17 +77,17 @@ func getResults(itemContent gjson.Result, itemType int) gjson.Result {
 	panic(fmt.Sprintf("invalid itemContent: %s", itemContent.String()))
 }
 
-func getTimelineResp(api timelineApi, client *resty.Client) (string, error) {
+func getTimelineResp(api timelineApi, client *resty.Client) ([]byte, error) {
 	url := makeUrl(api)
 	resp, err := client.R().Get(url)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	if err = utils.CheckRespStatus(resp); err != nil {
-		return "", err
+		return nil, err
 	}
 
-	return resp.String(), nil
+	return resp.Body(), nil
 }
 
 // 获取时间线 API 并返回所有 itemContent 和 底部 cursor
