@@ -42,7 +42,9 @@ func Login(authToken string, ct0 string) (*resty.Client, string, error) {
 		IdleConnTimeout:       5 * time.Second, // 连接空闲 n 秒后断开它
 		TLSHandshakeTimeout:   5 * time.Second,
 		ResponseHeaderTimeout: 5 * time.Second,
+		Proxy:                 http.ProxyFromEnvironment,
 	})
+
 	//client.SetTimeout(20 * time.Second)
 	// 验证登录是否有效
 	resp, err := client.R().Get("https://api.x.com/1.1/account/settings.json")

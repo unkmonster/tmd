@@ -92,6 +92,22 @@ tmd2 --foll 567890    // 下载 user_id 为 567890 的用户正关注的所有�
 tmd2 --user elonmusk --user 1234567 --list 8901234 --foll 567890
 ```
 
+### 设置代理
+
+运行前通过环境变量指定代理服务器（TUN 模式跳过这一步）
+
+```bash
+set HTTP_PROXY=url
+set HTTPS_PROXY=url
+```
+
+示例：
+```bash
+set HTTP_PROXY=http://127.0.0.1:7890
+set HTTPS_PROXY=http://127.0.0.1:7890
+tmd2 --user elonmusk
+```
+
 ## Detail
 
 ### 关于速率限制
