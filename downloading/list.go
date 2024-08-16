@@ -3,9 +3,10 @@ package downloading
 import (
 	"os"
 	"os/signal"
-	"runtime"
 	"sync"
+	"sync/atomic"
 	"syscall"
+	"time"
 
 	"github.com/go-resty/resty/v2"
 	"github.com/gookit/color"
@@ -32,8 +33,10 @@ func (pt TweetInEntity) GetPath() string {
 	return path
 }
 
+const userTweetApiLimit = 500
+
 // var syncedListUsers = make(map[uint64]map[int64]struct{})
-var syncedListUsers sync.Map //leid -> uid
+var syncedListUsers sync.Map //leid -> uid -> struct{}
 
 func BatchUserDownload(client *resty.Client, db *sqlx.DB, users []*twitter.User, dir string, listEntityId *int) []*TweetInEntity {
 	uidToUser := make(map[uint64]*twitter.User)
@@ -44,11 +47,14 @@ func BatchUserDownload(client *resty.Client, db *sqlx.DB, users []*twitter.User,
 	}
 	close(userChan)
 
-	getterCount := min(len(users), 3*runtime.GOMAXPROCS(0))
+	// num of worker
+	getterCount := min(len(users), MaxDownloadRoutine/3+1)
+	// CHANNEL
 	entityChan := make(chan *UserEntity, len(users))
-	tweetChan := make(chan PackgedTweet, MaxDownloadRoutine) // 尽量不让任何下载例程闲置
+	tweetChan := make(chan PackgedTweet, MaxDownloadRoutine)
 	errch := make(chan PackgedTweet)
 	abortChan := make(chan struct{})
+	// WG
 	updaterWg := sync.WaitGroup{}
 	getterWg := sync.WaitGroup{}
 	downloaderWg := sync.WaitGroup{}
@@ -79,6 +85,7 @@ func BatchUserDownload(client *resty.Client, db *sqlx.DB, users []*twitter.User,
 	signal.Notify(sigChan, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
 	defer signal.Stop(sigChan)
 
+	// cpu 密集型任务
 	userUpdater := func() {
 		defer updaterWg.Done()
 		defer panicHandler("sync worker")
@@ -157,6 +164,10 @@ func BatchUserDownload(client *resty.Client, db *sqlx.DB, users []*twitter.User,
 		}
 	}
 
+	// 首批推文推送至 tweet chan 时调用，意味流水线已启动
+	startedDownload := &atomic.Bool{}
+	triggerStart := sync.OnceFunc(func() { startedDownload.Store(true) })
+
 	tweetGetter := func() {
 		defer getterWg.Done()
 		defer panicHandler("getting worker")
@@ -179,17 +190,23 @@ func BatchUserDownload(client *resty.Client, db *sqlx.DB, users []*twitter.User,
 			if len(tweets) == 0 {
 				continue
 			}
+
+			// 确保该用户所有推文已推送并更新用户的最新发布时间
+			for _, tw := range tweets {
+				pt := TweetInEntity{Tweet: tw, Entity: entity}
+				tweetChan <- &pt
+			}
+
 			if err := entity.SetLatestReleaseTime(tweets[0].CreatedAt); err != nil {
 				color.Error.Tips("[getting worker] %s: %v", entity.Name(), err)
 				continue
 			}
 
-			for _, tw := range tweets {
-				pt := TweetInEntity{Tweet: tw, Entity: entity}
-				tweetChan <- &pt
-			}
+			triggerStart()
 		}
 	}
+
+	start := time.Now()
 
 	for i := 0; i < getterCount; i++ {
 		updaterWg.Add(1)
@@ -203,27 +220,37 @@ func BatchUserDownload(client *resty.Client, db *sqlx.DB, users []*twitter.User,
 	wc.cancelled = cancelled
 	wc.Wg = &downloaderWg
 
+	newUpstream := func() {
+		updaterWg.Add(1)
+		go userUpdater()
+		getterWg.Add(1)
+		tweetGetter()
+	}
+	bl := newBalanceLoader(getterCount, min(userTweetApiLimit, len(users)), newUpstream, func() bool {
+		return !twitter.GetClientBlockState(client) && startedDownload.Load()
+	})
+
 	for i := 0; i < MaxDownloadRoutine; i++ {
 		downloaderWg.Add(1)
-		go tweetDownloader(client, wc, errch, tweetChan)
+		go tweetDownloader(client, wc, errch, tweetChan, bl)
 	}
 
 	//closer
 	go func() {
 		updaterWg.Wait()
 		close(entityChan)
-		//log.Printf("entity chan has closed\n")
+		color.Debug.Tips("[sync worker] shutdown elapsed %v", time.Since(start))
 
 		getterWg.Wait()
 		close(tweetChan)
-		//log.Printf("tweet chan has closed\n")
+		color.Debug.Tips("[getting worker] shutdown elapsed %v", time.Since(start))
 
 		downloaderWg.Wait()
 		close(errch)
-		//log.Printf("failureTw chan has closed\n")
 	}()
 
 	failures := []*TweetInEntity{}
+
 	for {
 		select {
 		case pt, ok := <-errch:
@@ -233,8 +260,11 @@ func BatchUserDownload(client *resty.Client, db *sqlx.DB, users []*twitter.User,
 			}
 			failures = append(failures, pt.(*TweetInEntity))
 		case sig := <-sigChan:
+			// TODO: windows 下，接收到信号并不会中断慢速系统调用，例如IO, Sleep..., unix 暂未测试
 			abort() // 接收到信号，执行中断操作
 			color.Warn.Tips("caught signal: %v", sig)
+		case <-bl.requests:
+			bl.do()
 		}
 	}
 }
@@ -252,6 +282,7 @@ func downloadList(client *resty.Client, db *sqlx.DB, list twitter.ListBase, dir 
 	}
 
 	eid := entity.Id()
+	color.Debug.Println("members:", len(members))
 	return BatchUserDownload(client, db, members, realDir, &eid), nil
 }
 
