@@ -37,7 +37,7 @@ func GetLst(client *resty.Client, id uint64) (*List, error) {
 		return nil, err
 	}
 
-	list := gjson.Get(resp.String(), "data.list")
+	list := gjson.GetBytes(resp.Body(), "data.list")
 	return parseList(&list)
 }
 

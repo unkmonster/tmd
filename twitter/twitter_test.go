@@ -1,10 +1,13 @@
 package twitter
 
 import (
+	"context"
 	"encoding/json"
 	"math"
 	"math/rand"
 	"os"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -191,5 +194,68 @@ func TestGetMember(t *testing.T) {
 		if math.Abs(float64(len(users)-fo.creator.FriendsCount)) > float64(fo.creator.FriendsCount*2/100) {
 			t.Errorf("len(users) == %d, want %d", len(users), fo.creator.FriendsCount)
 		}
+	}
+}
+
+func TestRateLimit(t *testing.T) {
+	oCount := client.RetryCount
+	client.SetRetryCount(20)
+	defer client.SetRetryCount(oCount)
+
+	sn := GetClientScreenName(client)
+	if sn == "" {
+		panic("screen_name is empty")
+	}
+
+	api := userByScreenName{}
+	api.screenName = sn
+	url := makeUrl(&api)
+	resp, err := client.R().Get(url)
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	ratelimit := makeRateLimit(resp)
+	if ratelimit == nil {
+		panic("invalid xRateLimit")
+	}
+
+	success := &atomic.Int32{}
+	success.Store(0)
+
+	wg := sync.WaitGroup{}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+
+	routine := func() {
+		defer wg.Done()
+		_, err := GetUserByScreenName(client, sn)
+		if err != nil {
+			t.Error("[TestRateLimit]", err)
+			cancel()
+		}
+	}
+
+	// 确保休眠一次
+	for i := 0; i < ratelimit.Remaining+1; i++ {
+		wg.Add(1)
+		go routine()
+	}
+
+	go func() {
+		wg.Wait()
+		done <- struct{}{}
+	}()
+
+	select {
+	case <-done:
+	case <-ctx.Done():
+		return
+	}
+
+	// 如果正常完成休眠，这次请求不会出错
+	if _, err := GetUserByScreenName(client, sn); err != nil {
+		t.Error("get after blocking", err)
+		return
 	}
 }
