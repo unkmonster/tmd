@@ -2,7 +2,6 @@ package downloading
 
 import (
 	"fmt"
-	"io"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -38,6 +37,7 @@ func (pt TweetInDir) GetPath() string {
 var mutex sync.Mutex
 
 // 任何一个 url 下载失败直接返回
+// TODO: 要么全做，要么不做
 func downloadTweetMedia(client *resty.Client, dir string, tweet *twitter.Tweet) error {
 	text := utils.WinFileName(tweet.Text)
 
@@ -56,7 +56,6 @@ func downloadTweetMedia(client *resty.Client, dir string, tweet *twitter.Tweet) 
 			return err
 		}
 
-		// 转储
 		mutex.Lock()
 		path, err := utils.UniquePath(filepath.Join(dir, text+ext))
 		if err != nil {
@@ -68,10 +67,11 @@ func downloadTweetMedia(client *resty.Client, dir string, tweet *twitter.Tweet) 
 		if err != nil {
 			return err
 		}
+
 		defer os.Chtimes(path, time.Time{}, tweet.CreatedAt)
 		defer file.Close()
 
-		_, err = io.WriteString(file, resp.String())
+		_, err = file.Write(resp.Body())
 		if err != nil {
 			return err
 		}
@@ -89,8 +89,7 @@ var MaxDownloadRoutine int
 var syncedUsers sync.Map
 
 func init() {
-	MaxDownloadRoutine = runtime.GOMAXPROCS(0) * 5
-	//color.Info.Tips("MAX_DOWNLOAD_ROUTINE: %d\n", maxDownloadRoutine)
+	MaxDownloadRoutine = runtime.GOMAXPROCS(0) * 8
 }
 
 type workerController struct {
@@ -99,14 +98,51 @@ type workerController struct {
 	abort     func()
 }
 
-func tweetDownloader(client *resty.Client, wc workerController, errch chan<- PackgedTweet, twech <-chan PackgedTweet) {
+type balanceLoader struct {
+	activeRoutines int
+	maxRoutines    int
+	routine        func()
+	shouldNotify   func() bool
+	requests       chan struct{}
+}
+
+func newBalanceLoader(activeRoutines int, maxRoutines int, routine func(), shouldNotify func() bool) *balanceLoader {
+	bl := balanceLoader{}
+	bl.activeRoutines = activeRoutines
+	bl.maxRoutines = maxRoutines
+	bl.routine = routine
+	bl.shouldNotify = shouldNotify
+	bl.requests = make(chan struct{})
+	return &bl
+}
+
+func (bl *balanceLoader) do() {
+	if bl.activeRoutines < bl.maxRoutines {
+		//color.Debug.Tips("[Balance Loader] launched a new goroutine %d", bl.activeRoutines+1)
+		go bl.routine()
+		bl.activeRoutines++
+	} else {
+		//color.Debug.Tips("[Balance Loader] reached the max routines limit")
+	}
+}
+
+func (bl *balanceLoader) notify() {
+	select {
+	case bl.requests <- struct{}{}:
+	default:
+	}
+}
+
+// 负责下载推文，重试，转储，不能让收到的推文丢失
+func tweetDownloader(client *resty.Client, wc workerController, errch chan<- PackgedTweet, twech <-chan PackgedTweet, bl *balanceLoader) {
 	var pt PackgedTweet
+	var ok bool
 	defer wc.Wg.Done()
 	defer func() {
 		if p := recover(); p != nil {
 			wc.abort() // 这将导致 getting worker 很快结束并关闭 tweet chan
 			if pt != nil {
-				errch <- pt
+				errch <- pt // push 正下载的推文
 			}
 			// 确保只有1个协程的情况下，未能下载完毕的推文仍然会全部推送到 errch
 			for pt := range twech {
@@ -116,7 +152,18 @@ func tweetDownloader(client *resty.Client, wc workerController, errch chan<- Pac
 		}
 	}()
 
-	for pt = range twech {
+	for {
+		select {
+		case pt, ok = <-twech:
+			if !ok {
+				return
+			}
+		case <-time.After(150 * time.Millisecond):
+			if bl != nil && bl.shouldNotify() {
+				bl.notify()
+			}
+			continue
+		}
 		if wc.cancelled() {
 			errch <- pt
 			continue
@@ -171,7 +218,7 @@ func BatchDownloadTweet(client *resty.Client, pts ...PackgedTweet) []PackgedTwee
 
 	for i := 0; i < numRoutine; i++ {
 		wg.Add(1)
-		go tweetDownloader(client, wc, errChan, tweetChan)
+		go tweetDownloader(client, wc, errChan, tweetChan, nil)
 	}
 
 	go func() {
