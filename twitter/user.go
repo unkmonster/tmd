@@ -54,7 +54,7 @@ func getUser(client *resty.Client, url string) (*User, error) {
 	if err := utils.CheckRespStatus(resp); err != nil {
 		return nil, err
 	}
-	return parseRespJson(resp.String())
+	return parseRespJson(resp.Body())
 }
 
 func parseUserResults(user_results *gjson.Result) (*User, error) {
@@ -92,8 +92,8 @@ func parseUserResults(user_results *gjson.Result) (*User, error) {
 	return &usr, nil
 }
 
-func parseRespJson(resp string) (*User, error) {
-	user := gjson.Get(resp, "data.user")
+func parseRespJson(resp []byte) (*User, error) {
+	user := gjson.GetBytes(resp, "data.user")
 	if !user.Exists() {
 		return nil, fmt.Errorf("user does not exist")
 	}

@@ -1,7 +1,6 @@
 package twitter
 
 import (
-	"fmt"
 	"log"
 	"net/http"
 	"net/url"
@@ -9,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-resty/resty/v2"
@@ -18,6 +18,9 @@ import (
 )
 
 const bearer = "AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA"
+
+var clientScreenNames map[*resty.Client]string = make(map[*resty.Client]string)
+var clientBlockStates map[*resty.Client]*atomic.Bool = make(map[*resty.Client]*atomic.Bool)
 
 func Login(authToken string, ct0 string) (*resty.Client, string, error) {
 	client := resty.New()
@@ -38,7 +41,7 @@ func Login(authToken string, ct0 string) (*resty.Client, string, error) {
 	})
 	client.SetTransport(&http.Transport{
 		MaxIdleConns:          0,
-		MaxIdleConnsPerHost:   500,             // 每个主机最大并发连接数
+		MaxIdleConnsPerHost:   1000,            // 每个主机最大并发连接数
 		IdleConnTimeout:       5 * time.Second, // 连接空闲 n 秒后断开它
 		TLSHandshakeTimeout:   5 * time.Second,
 		ResponseHeaderTimeout: 5 * time.Second,
@@ -55,7 +58,18 @@ func Login(authToken string, ct0 string) (*resty.Client, string, error) {
 		return nil, "", err
 	}
 
-	return client, gjson.Get(resp.String(), "screen_name").String(), nil
+	screenName := gjson.GetBytes(resp.Body(), "screen_name").String()
+	clientBlockStates[client] = &atomic.Bool{}
+	clientScreenNames[client] = screenName
+	return client, screenName, nil
+}
+
+func GetClientScreenName(client *resty.Client) string {
+	return clientScreenNames[client]
+}
+
+func GetClientBlockState(client *resty.Client) bool {
+	return clientBlockStates[client].Load()
 }
 
 type xRateLimit struct {
@@ -66,28 +80,23 @@ type xRateLimit struct {
 	Url       string
 }
 
-var Slept time.Duration
-
 func (rl *xRateLimit) preRequest() {
-	// TODO: Why API is expired after sleep
 	if time.Now().After(rl.ResetTime) {
 		log.Printf("expired %s\n", rl.Url)
 		rl.Ready = false
 		return
 	}
 
-	if rl.Remaining > rl.Limit/100 {
+	if rl.Remaining > rl.Limit/100+1 {
 		rl.Remaining--
-		//log.Printf("requested %s: remaining  %d\n", rl.Url, rl.Remaining)
 	} else {
-		start := time.Now()
 		color.Warn.Printf("[RateLimit] %s Sleep until %s\n", rl.Url, rl.ResetTime)
-		time.Sleep(time.Until(rl.ResetTime) + time.Second*5)
-		rl.Ready = false
-		Slept += time.Since(start)
+		time.Sleep(time.Until(rl.ResetTime) + time.Second)
+		rl.Ready = false // 此时速率限制过期，导致后续请求阻塞直到本次请求结束更新速率限制
 	}
 }
 
+// 必须返回 nil 或就绪的 rateLimit，否则死锁
 func makeRateLimit(resp *resty.Response) *xRateLimit {
 	header := resp.Header()
 	limit := header.Get("X-Rate-Limit-Limit")
@@ -119,8 +128,9 @@ func makeRateLimit(resp *resty.Response) *xRateLimit {
 	u, _ := url.Parse(resp.Request.URL)
 	url := filepath.Join(u.Host, u.Path)
 
+	resetTimeTime := time.Unix(resetTimeNum, 0)
 	return &xRateLimit{
-		ResetTime: time.Unix(resetTimeNum, 0),
+		ResetTime: resetTimeTime,
 		Remaining: remainingNum,
 		Limit:     limitNum,
 		Ready:     true,
@@ -129,8 +139,8 @@ func makeRateLimit(resp *resty.Response) *xRateLimit {
 }
 
 type rateLimiter struct {
-	limiters sync.Map
-	conds    sync.Map
+	limits sync.Map
+	conds  sync.Map
 }
 
 func (rateLimiter *rateLimiter) check(url *url.URL) {
@@ -144,37 +154,40 @@ func (rateLimiter *rateLimiter) check(url *url.URL) {
 	cond.L.Lock()
 	defer cond.L.Unlock()
 
-	// 首次遇见某个路径时初始化它
-	// 但在响应头中如果获取不到速率限制信息将此键赋 nil
-	lim, loaded := rateLimiter.limiters.LoadOrStore(path, &xRateLimit{})
-	limiter := lim.(*xRateLimit)
+	lim, loaded := rateLimiter.limits.LoadOrStore(path, &xRateLimit{})
+	limit := lim.(*xRateLimit)
 	if !loaded {
-		//fmt.Printf("initial req: %s\n", path)
+		// 首次遇见某路径时直接请求初始化它，后续请求等待这次请求使 limit 就绪
+		// 响应中没有速率限制信息：此键赋空，意味不进行速率限制
 		return
 	}
 
-	// 路径过期后的首个请求可以正常发起，其余请求再次等待其就绪
-	// 保证当前路径的速率限制会被另一个请求更新使其就绪，否则这里会无尽等待
-	for limiter != nil && !limiter.Ready {
-		//fmt.Printf("wait for ready: %s\n", path)
+	/*
+		同一时刻仅允许一个未就绪的请求通过检查，其余在这里阻塞，等待前者将速率限制就绪
+		未就绪的情况：
+		1. 首次请求
+		2. 休眠后，速率限制过期
+
+		响应钩子中必须使此键就绪/赋空/删除键并唤醒一个新请求，否则会死锁
+	*/
+	for limit != nil && !limit.Ready {
 		cond.Wait()
-		lim, loaded := rateLimiter.limiters.LoadOrStore(path, &xRateLimit{})
+		lim, loaded := rateLimiter.limits.LoadOrStore(path, &xRateLimit{})
 		if !loaded {
-			// 上个请求失败了，从它身上继承更新速率限制的重任
-			fmt.Printf("inherited initial req: %s\n", path)
+			// 上个请求失败了，从它身上继承初始化速率限制的重任
 			return
 		}
-		limiter = lim.(*xRateLimit)
+		limit = lim.(*xRateLimit)
 	}
 
 	// limiter 为 nil 意味着不对此路径做速率限制
-	if limiter != nil {
-		limiter.preRequest()
+	if limit != nil {
+		limit.preRequest()
 	}
 	//fmt.Printf("start req: %s\n", path)
 }
 
-// 对过期，未初始化的路径更新速率限制信息
+// 使非就绪的速率限制信息就绪
 func (rateLimiter *rateLimiter) update(resp *resty.Response) {
 	if !rateLimiter.shouldWork(resp.RawResponse.Request.URL) {
 		return
@@ -187,19 +200,24 @@ func (rateLimiter *rateLimiter) update(resp *resty.Response) {
 	cond.L.Lock()
 	defer cond.L.Unlock()
 
-	lim, _ := rateLimiter.limiters.Load(path) // 一定能加载到一个值
-	limiter := lim.(*xRateLimit)
-	if limiter == nil || limiter.Ready {
+	lim, _ := rateLimiter.limits.Load(path)
+	if lim == nil {
+		// 保险起见，虽然我觉得不会有这种情况发生
+		color.Debug.Tips("[ratelimiter:update] load limit fail")
+		return
+	}
+	limit := lim.(*xRateLimit)
+	if limit == nil || limit.Ready {
 		return
 	}
 
 	// 重置速率限制
 	newLimiter := makeRateLimit(resp)
-	rateLimiter.limiters.Store(path, newLimiter)
+	rateLimiter.limits.Store(path, newLimiter)
 	cond.Broadcast()
-	//fmt.Printf("updated: %s\n", path)
 }
 
+// 重置非就绪的速率限制，让其重新初始化
 func (rateLimiter *rateLimiter) reset(url *url.URL) {
 	if !rateLimiter.shouldWork(url) {
 		return
@@ -208,15 +226,15 @@ func (rateLimiter *rateLimiter) reset(url *url.URL) {
 	path := url.Path
 	co, ok := rateLimiter.conds.Load(path)
 	if !ok {
-		return
+		return // BeforeRequest 未调用的情况下调用了 OnError
 	}
 	cond := co.(*sync.Cond)
 	cond.L.Lock()
 	defer cond.L.Unlock()
 
-	lim, ok := rateLimiter.limiters.Load(path)
+	lim, ok := rateLimiter.limits.Load(path)
 	if !ok {
-		// OnError 但是已被 OnRetry 重置
+		color.Debug.Println("[ratelimiter:reset] load limit fail")
 		return
 	}
 	limiter := lim.(*xRateLimit)
@@ -225,17 +243,13 @@ func (rateLimiter *rateLimiter) reset(url *url.URL) {
 	}
 
 	// 将此路径设为首次请求前的状态
-	rateLimiter.limiters.Delete(path)
+	rateLimiter.limits.Delete(path)
 	cond.Signal()
-	//fmt.Printf("reseted: %s\n", path)
 }
 
 func (*rateLimiter) shouldWork(url *url.URL) bool {
 	return !strings.HasSuffix(url.Host, "twimg.com")
 }
-
-// 在 client.RetryCount 不为0的情况下
-// 每次请求 retryHook 和 respHook 仅有一个被调用
 
 func EnableRateLimit(client *resty.Client) {
 	rateLimiter := rateLimiter{}
@@ -245,21 +259,15 @@ func EnableRateLimit(client *resty.Client) {
 		if err != nil {
 			return err
 		}
+		// temp
+		clientBlockStates[c].Store(true)
 		rateLimiter.check(u)
+		clientBlockStates[c].Store(false)
 		return nil
 	})
 
-	client.OnAfterResponse(func(c *resty.Client, resp *resty.Response) error {
+	client.OnSuccess(func(c *resty.Client, resp *resty.Response) {
 		rateLimiter.update(resp)
-		return nil
-	})
-
-	client.AddRetryHook(func(resp *resty.Response, _ error) {
-		if resp == nil {
-			// 请求未发起 (Http.Client.Do 未被调用)
-			return
-		}
-		rateLimiter.reset(resp.Request.RawRequest.URL)
 	})
 
 	client.OnError(func(req *resty.Request, _ error) {
