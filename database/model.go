@@ -53,7 +53,7 @@ func (ue *UserEntity) Path() string {
 
 func (ul *UserLink) Path(db *sqlx.DB) (string, error) {
 	le, err := GetLstEntity(db, int(ul.ParentLstEntityId))
-	if err != nil {
+	if err != nil || le == nil {
 		return "", err
 	}
 
