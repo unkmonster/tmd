@@ -2,7 +2,7 @@ package database
 
 // TODO test
 import (
-	"fmt"
+	"database/sql"
 	"path/filepath"
 	"time"
 
@@ -88,18 +88,20 @@ func DelUser(db *sqlx.DB, uid uint64) error {
 
 func GetUserById(db *sqlx.DB, uid uint64) (*User, error) {
 	stmt := `SELECT * FROM users WHERE id=?`
-	result := []User{}
-	if err := db.Select(&result, stmt, uid); err != nil {
+	result := &User{}
+	err := db.Get(result, stmt, uid)
+	if err == sql.ErrNoRows {
+		result = nil
+		err = nil
+	}
+	if err != nil {
 		return nil, err
 	}
-	if len(result) != 0 {
-		return &result[0], nil
-	}
-	return nil, nil
+	return result, nil
 }
 
 func UpdateUser(db *sqlx.DB, usr *User) error {
-	stmt := fmt.Sprintf(`UPDATE users SET screen_name=:screen_name, name=:name, protected=:protected, friends_count=:friends_count WHERE id=%d`, usr.Id)
+	stmt := `UPDATE users SET screen_name=:screen_name, name=:name, protected=:protected, friends_count=:friends_count WHERE id=:id`
 	_, err := db.NamedExec(stmt, usr)
 	return err
 }
@@ -136,24 +138,32 @@ func LocateUserEntity(db *sqlx.DB, uid uint64, parentDIr string) (*UserEntity, e
 	if err != nil {
 		return nil, err
 	}
+
 	stmt := `SELECT * FROM user_entities WHERE user_id=? AND parent_dir=?`
-	result := []UserEntity{}
-	if err := db.Select(&result, stmt, uid, parentDIr); err != nil {
+	result := &UserEntity{}
+	err = db.Get(result, stmt, uid, parentDIr)
+	if err == sql.ErrNoRows {
+		err = nil
+		result = nil
+	}
+	if err != nil {
 		return nil, err
 	}
-	if len(result) != 0 {
-		return &result[0], nil
-	}
-	return nil, nil
+	return result, nil
 }
 
 func GetUserEntity(db *sqlx.DB, id int) (*UserEntity, error) {
-	result := UserEntity{}
+	result := &UserEntity{}
 	stmt := `SELECT * FROM user_entities WHERE id=?`
-	if err := db.Get(&result, stmt, id); err != nil {
+	err := db.Get(result, stmt, id)
+	if err == sql.ErrNoRows {
+		result = nil
+		err = nil
+	}
+	if err != nil {
 		return nil, err
 	}
-	return &result, nil
+	return result, nil
 }
 
 func UpdateUserEntity(db *sqlx.DB, entity *UserEntity) error {
@@ -176,14 +186,16 @@ func DelLst(db *sqlx.DB, lid uint64) error {
 
 func GetLst(db *sqlx.DB, lid uint64) (*Lst, error) {
 	stmt := `SELECT * FROM lsts WHERE id = ?`
-	result := []Lst{}
-	if err := db.Select(&result, stmt, lid); err != nil {
+	result := &Lst{}
+	err := db.Get(result, stmt, lid)
+	if err == sql.ErrNoRows {
+		err = nil
+		result = nil
+	}
+	if err != nil {
 		return nil, err
 	}
-	if len(result) == 0 {
-		return nil, nil
-	}
-	return &result[0], nil
+	return result, nil
 }
 
 func UpdateLst(db *sqlx.DB, lst *Lst) error {
@@ -220,14 +232,16 @@ func DelLstEntity(db *sqlx.DB, id int) error {
 
 func GetLstEntity(db *sqlx.DB, id int) (*LstEntity, error) {
 	stmt := `SELECT * FROM lst_entities WHERE id=?`
-	result := []LstEntity{}
-	if err := db.Select(&result, stmt, id); err != nil {
+	result := &LstEntity{}
+	err := db.Get(result, stmt, id)
+	if err == sql.ErrNoRows {
+		err = nil
+		result = nil
+	}
+	if err != nil {
 		return nil, err
 	}
-	if len(result) == 0 {
-		return nil, nil
-	}
-	return &result[0], nil
+	return result, nil
 }
 
 func LocateLstEntity(db *sqlx.DB, lid int64, parentDir string) (*LstEntity, error) {
@@ -235,15 +249,18 @@ func LocateLstEntity(db *sqlx.DB, lid int64, parentDir string) (*LstEntity, erro
 	if err != nil {
 		return nil, err
 	}
+
 	stmt := `SELECT * FROM lst_entities WHERE lst_id=? AND parent_dir=?`
-	result := []LstEntity{}
-	if err := db.Select(&result, stmt, lid, parentDir); err != nil {
+	result := &LstEntity{}
+	err = db.Get(result, stmt, lid, parentDir)
+	if err == sql.ErrNoRows {
+		err = nil
+		result = nil
+	}
+	if err != nil {
 		return nil, err
 	}
-	if len(result) == 0 {
-		return nil, nil
-	}
-	return &result[0], nil
+	return result, nil
 }
 func UpdateLstEntity(db *sqlx.DB, entity *LstEntity) error {
 	stmt := `UPDATE lst_entities SET name=? WHERE id=?`
@@ -294,15 +311,16 @@ func GetUserLinks(db *sqlx.DB, uid uint64) ([]*UserLink, error) {
 
 func GetUserLink(db *sqlx.DB, uid uint64, parentLstEntityId int32) (*UserLink, error) {
 	stmt := `SELECT * FROM user_links WHERE user_id = ? AND parent_lst_entity_id = ?`
-	res := []UserLink{}
-	err := db.Select(&res, stmt, uid, parentLstEntityId)
+	res := &UserLink{}
+	err := db.Get(res, stmt, uid, parentLstEntityId)
+	if err == sql.ErrNoRows {
+		err = nil
+		res = nil
+	}
 	if err != nil {
 		return nil, err
 	}
-	if len(res) == 0 {
-		return nil, nil
-	}
-	return &res[0], nil
+	return res, nil
 }
 
 func UpdateUserLink(db *sqlx.DB, id int32, name string) error {
