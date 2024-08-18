@@ -48,13 +48,17 @@ jobs:
       
       - name: Test
         if: ${{!startsWith(github.ref, 'refs/tags/v')}}
-        run: go test ./...
+        run: go test -race -covermode atomic -coverprofile=covprofile ./...
       
-      - name: Update coverage badge
-        if: ${{'ubuntu-latest' == matrix.os && !startsWith(github.ref, 'refs/tags/v')}}
-        uses: ncruces/go-coverage-report@main
-        with:
-          amend: true
+      - name: Install goveralls
+        if: ${{!startsWith(github.ref, 'refs/tags/v') && matrix.os == 'ubuntu-latest'}}
+        run: go install github.com/mattn/goveralls@latest
+
+      - name: Update coverage
+        if: ${{!startsWith(github.ref, 'refs/tags/v') && matrix.os == 'ubuntu-latest'}}
+        env:
+          COVERALLS_TOKEN: ${{secrets.COVERALLS_REPO_TOKEN}}
+        run: goveralls -coverprofile=covprofile -service=github
         
       - name: Release
         if: startsWith(github.ref, 'refs/tags/v')

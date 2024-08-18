@@ -2,8 +2,7 @@
 
 [![Go Reference](https://pkg.go.dev/badge/github.com/unkmonster/tmd2.svg)](https://pkg.go.dev/github.com/unkmonster/tmd2)
 [![Go Report Card](https://goreportcard.com/badge/github.com/unkmonster/tmd2)](https://goreportcard.com/report/github.com/unkmonster/tmd2)
-[![Go Coverage](https://github.com/unkmonster/tmd2/wiki/coverage.svg)](https://raw.githack.com/wiki/unkmonster/tmd2/coverage.html)
-[![Go](https://github.com/unkmonster/tmd2/actions/workflows/go.yml/badge.svg)](https://github.com/unkmonster/tmd2/actions/workflows/go.yml)
+[![Coverage Status](https://coveralls.io/repos/github/unkmonster/tmd2/badge.svg?branch=master)](https://coveralls.io/github/unkmonster/tmd2?branch=master)[![Go](https://github.com/unkmonster/tmd2/actions/workflows/go.yml/badge.svg)](https://github.com/unkmonster/tmd2/actions/workflows/go.yml)
 ![GitHub Release](https://img.shields.io/github/v/release/unkmonster/tmd2) 
 ![GitHub License](https://img.shields.io/github/license/unkmonster/tmd2?logo=github)
 
@@ -113,10 +112,6 @@ tmd2 --user elonmusk
 ### 关于速率限制
 
 Twitter API 限制一段时间内过快的请求 （例如某端点每15分钟仅允许请求500次，超出这个次数会以429响应），**所以当某一端点的请求次数将要达到这段时间内允许的上限，程序会打印一条信息后 Sleep 直到可用次数刷新。但这仅会阻塞尝试请求此端点的 goroutine，所以后续可能有来自其余 goroutine 打印的内容迅速将这条 Sleep 通知覆盖 （程序是流水线式的工作流），让人认为程序莫名没有反应了**，等待至可用次数刷新后程序会继续工作，这最多是 `15` 分钟
-
-### 429 Rate Limit Exceed
-
-如果程序提示 429 Rate Limit Exceed, 说明达到了今天的观看推文上限
 
 ## Contributors
 
