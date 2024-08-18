@@ -336,13 +336,13 @@ func connectDatabase(path string) (*sqlx.DB, error) {
 		return nil, err
 	}
 
-	dsn := fmt.Sprintf("file:%s?cache=shared", path)
+	dsn := fmt.Sprintf("file:%s?cache=shared&_journal_mode=WAL", path)
 	db, err := sqlx.Connect("sqlite3", dsn)
 	if err != nil {
 		return nil, err
 	}
 	database.CreateTables(db)
-	db.SetMaxOpenConns(1)
+	//db.SetMaxOpenConns(1)
 	if !ex {
 		color.Primary.Printf("created new db '%s'\n", path)
 	}
