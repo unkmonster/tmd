@@ -2,7 +2,8 @@
 
 [![Go Reference](https://pkg.go.dev/badge/github.com/unkmonster/tmd2.svg)](https://pkg.go.dev/github.com/unkmonster/tmd2)
 [![Go Report Card](https://goreportcard.com/badge/github.com/unkmonster/tmd2)](https://goreportcard.com/report/github.com/unkmonster/tmd2)
-[![Coverage Status](https://coveralls.io/repos/github/unkmonster/tmd2/badge.svg?branch=master)](https://coveralls.io/github/unkmonster/tmd2?branch=master)[![Go](https://github.com/unkmonster/tmd2/actions/workflows/go.yml/badge.svg)](https://github.com/unkmonster/tmd2/actions/workflows/go.yml)
+[![Coverage Status](https://coveralls.io/repos/github/unkmonster/tmd2/badge.svg?branch=master)](https://coveralls.io/github/unkmonster/tmd2?branch=master)
+[![Go](https://github.com/unkmonster/tmd2/actions/workflows/go.yml/badge.svg)](https://github.com/unkmonster/tmd2/actions/workflows/go.yml)
 ![GitHub Release](https://img.shields.io/github/v/release/unkmonster/tmd2) 
 ![GitHub License](https://img.shields.io/github/license/unkmonster/tmd2?logo=github)
 

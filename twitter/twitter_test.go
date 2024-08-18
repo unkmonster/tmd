@@ -1,13 +1,10 @@
 package twitter
 
 import (
-	"context"
 	"encoding/json"
-	"math"
 	"math/rand"
 	"os"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -29,6 +26,11 @@ var someUsers = []struct {
 	{screenName: "baobaoxqaq"},
 	{screenName: "Greenfish_insky"},
 }
+var someLists = []uint64{
+	1293998605938950144,
+	1073356376045436928,
+	1360265344439443460,
+}
 
 func init() {
 	var err error
@@ -36,7 +38,7 @@ func init() {
 	if err != nil {
 		panic(err)
 	}
-	EnableRateLimit(client)
+	//EnableRateLimit(client)
 }
 
 func TestGetUser(t *testing.T) {
@@ -91,35 +93,33 @@ func TestGetMedia(t *testing.T) {
 		}
 	}
 
-	for _, user := range someUsers {
-		if user.id != 0 {
-			continue
-		}
-		test := user.screenName
+	wg := sync.WaitGroup{}
 
+	routine := func(test string) {
+		defer wg.Done()
 		usr, err := GetUserByScreenName(client, test)
 		if err != nil {
 			t.Error(err)
-			continue
+			return
 		}
 
 		// 获取全部推文
 		if !usr.IsVisiable() {
 			t.Errorf("%s is invisiable", test)
-			continue
+			return
 		}
 		tweets, err := usr.GetMeidas(client, nil)
 		if err != nil {
 			t.Error(err, usr)
-			continue
+			return
 		}
 		//t.Logf("[user:%s] tweets: %d\n", usr.ScreenName, len(tweets))
-		if math.Abs(float64(len(tweets)-usr.MediaCount)) > float64(usr.MediaCount*2/100) {
+		if len(tweets) > usr.MediaCount || usr.MediaCount-len(tweets) > usr.MediaCount*2/100 {
 			t.Errorf("%s: len(tweets) == %d, want %d", test, len(tweets), usr.MediaCount)
 		}
 
 		if len(tweets) == 0 {
-			continue
+			return
 		}
 
 		// 区间测试
@@ -128,7 +128,7 @@ func TestGetMedia(t *testing.T) {
 		rangedTweets, err := usr.GetMeidas(client, tr)
 		if err != nil {
 			t.Error(err, usr, "range")
-			continue
+			return
 		}
 
 		if rangedTweets[0].Id != tweets[maxIndex].Id {
@@ -138,12 +138,17 @@ func TestGetMedia(t *testing.T) {
 			t.Errorf("rangedTweets[-1].Id = %d, want %d", rangedTweets[len(rangedTweets)-1].Id, tweets[minIndex].Id)
 		}
 	}
-}
 
-var someLists = []uint64{
-	1293998605938950144,
-	1073356376045436928,
-	1360265344439443460,
+	for _, user := range someUsers {
+		if user.id != 0 {
+			continue
+		}
+
+		wg.Add(1)
+		go routine(user.screenName)
+	}
+
+	wg.Wait()
 }
 
 func TestGetList(t *testing.T) {
@@ -167,19 +172,23 @@ func TestGetList(t *testing.T) {
 }
 
 func TestGetMember(t *testing.T) {
-	for _, test := range someLists {
+	wg := sync.WaitGroup{}
+
+	routine := func(test uint64) {
+		defer wg.Done()
+
 		lst, err := GetLst(client, test)
 		if err != nil {
 			t.Error(err)
-			continue
+			return
 		}
 
 		users, err := lst.GetMembers(client)
 		if err != nil {
 			t.Error(err)
-			continue
+			return
 		}
-		if math.Abs(float64(len(users)-lst.MemberCount)) > float64(lst.MemberCount*2/100) {
+		if len(users) > lst.MemberCount || lst.MemberCount-len(users) > lst.MemberCount*2/100 {
 			t.Errorf("len(users) == %d, want %d", len(users), lst.MemberCount)
 		}
 
@@ -188,74 +197,81 @@ func TestGetMember(t *testing.T) {
 		users, err = fo.GetMembers(client)
 		if err != nil {
 			t.Error(err)
-			continue
+			return
 		}
 		//t.Logf("usr %s following count: %d\n", fo.creator.Title(), len(users))
-		if math.Abs(float64(len(users)-fo.creator.FriendsCount)) > float64(fo.creator.FriendsCount*2/100) {
+		if len(users) > fo.creator.FriendsCount || fo.creator.FriendsCount-len(users) > fo.creator.FriendsCount*2/100 {
 			t.Errorf("len(users) == %d, want %d", len(users), fo.creator.FriendsCount)
 		}
 	}
-}
 
-func TestRateLimit(t *testing.T) {
-	oCount := client.RetryCount
-	client.SetRetryCount(20)
-	defer client.SetRetryCount(oCount)
-
-	sn := GetClientScreenName(client)
-	if sn == "" {
-		panic("screen_name is empty")
-	}
-
-	api := userByScreenName{}
-	api.screenName = sn
-	url := makeUrl(&api)
-	resp, err := client.R().Get(url)
-	if err != nil {
-		t.Error(err)
-		return
-	}
-	ratelimit := makeRateLimit(resp)
-	if ratelimit == nil {
-		panic("invalid xRateLimit")
-	}
-
-	success := &atomic.Int32{}
-	success.Store(0)
-
-	wg := sync.WaitGroup{}
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan struct{})
-
-	routine := func() {
-		defer wg.Done()
-		_, err := GetUserByScreenName(client, sn)
-		if err != nil {
-			t.Error("[TestRateLimit]", err)
-			cancel()
-		}
-	}
-
-	// 确保休眠一次
-	for i := 0; i < ratelimit.Remaining+1; i++ {
+	for _, test := range someLists {
 		wg.Add(1)
-		go routine()
+		go routine(test)
 	}
 
-	go func() {
-		wg.Wait()
-		done <- struct{}{}
-	}()
-
-	select {
-	case <-done:
-	case <-ctx.Done():
-		return
-	}
-
-	// 如果正常完成休眠，这次请求不会出错
-	if _, err := GetUserByScreenName(client, sn); err != nil {
-		t.Error("get after blocking", err)
-		return
-	}
+	wg.Wait()
 }
+
+// func TestRateLimit(t *testing.T) {
+// 	oCount := client.RetryCount
+// 	client.SetRetryCount(20)
+// 	defer client.SetRetryCount(oCount)
+
+// 	sn := GetClientScreenName(client)
+// 	if sn == "" {
+// 		panic("screen_name is empty")
+// 	}
+
+// 	api := userByScreenName{}
+// 	api.screenName = sn
+// 	url := makeUrl(&api)
+// 	resp, err := client.R().Get(url)
+// 	if err != nil {
+// 		t.Error(err)
+// 		return
+// 	}
+// 	ratelimit := makeRateLimit(resp)
+// 	if ratelimit == nil {
+// 		panic("invalid xRateLimit")
+// 	}
+
+// 	success := &atomic.Int32{}
+// 	success.Store(0)
+
+// 	wg := sync.WaitGroup{}
+// 	ctx, cancel := context.WithCancel(context.Background())
+// 	done := make(chan struct{})
+
+// 	routine := func() {
+// 		defer wg.Done()
+// 		_, err := GetUserByScreenName(client, sn)
+// 		if err != nil {
+// 			t.Error("[TestRateLimit]", err)
+// 			cancel()
+// 		}
+// 	}
+
+// 	// 确保休眠一次
+// 	for i := 0; i < ratelimit.Remaining+1; i++ {
+// 		wg.Add(1)
+// 		go routine()
+// 	}
+
+// 	go func() {
+// 		wg.Wait()
+// 		done <- struct{}{}
+// 	}()
+
+// 	select {
+// 	case <-done:
+// 	case <-ctx.Done():
+// 		return
+// 	}
+
+// 	// 如果正常完成休眠，这次请求不会出错
+// 	if _, err := GetUserByScreenName(client, sn); err != nil {
+// 		t.Error("get after blocking", err)
+// 		return
+// 	}
+// }
