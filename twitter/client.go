@@ -88,11 +88,15 @@ func (rl *xRateLimit) preRequest() {
 		return
 	}
 
-	if rl.Remaining > rl.Limit/100+1 {
+	// 到达重置时间后，服务器的响应可能仍未更新
+	threshold := max(rl.Limit/100, 5)
+
+	if rl.Remaining > threshold {
 		rl.Remaining--
 	} else {
-		color.Warn.Printf("[RateLimit] %s Sleep until %s\n", rl.Url, rl.ResetTime)
-		time.Sleep(time.Until(rl.ResetTime) + time.Minute) // 多 sleep 1 分钟，防止服务器仍返回一个速率限制过期的响应
+		insurance := 1 * time.Minute // 到达重置时间后多休眠一个保险时间，防止服务器没有重置速率限制信息
+		color.Warn.Printf("[RateLimit] %s Sleep until %s\n", rl.Url, rl.ResetTime.Add(insurance))
+		time.Sleep(time.Until(rl.ResetTime) + insurance)
 		rl.Ready = false
 	}
 }

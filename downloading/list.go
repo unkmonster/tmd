@@ -39,6 +39,10 @@ const userTweetApiLimit = 500
 var syncedListUsers sync.Map //leid -> uid -> struct{}
 
 func BatchUserDownload(client *resty.Client, db *sqlx.DB, users []*twitter.User, dir string, listEntityId *int) []*TweetInEntity {
+	if len(users) == 0 {
+		return nil
+	}
+
 	uidToUser := make(map[uint64]*twitter.User)
 	userChan := make(chan *twitter.User, len(users))
 	for _, u := range users {
@@ -48,8 +52,9 @@ func BatchUserDownload(client *resty.Client, db *sqlx.DB, users []*twitter.User,
 	close(userChan)
 
 	// num of worker
-	getterCount := min(len(users), MaxDownloadRoutine/3+1)
-	// CHANNEL
+	getterCount := min(len(users), MaxDownloadRoutine/3)
+	getterCount = min(userTweetApiLimit, getterCount)
+	// channels
 	entityChan := make(chan *UserEntity, len(users))
 	tweetChan := make(chan PackgedTweet, MaxDownloadRoutine)
 	errch := make(chan PackgedTweet)
@@ -179,12 +184,19 @@ func BatchUserDownload(client *resty.Client, db *sqlx.DB, users []*twitter.User,
 			user := uidToUser[entity.Uid()]
 			tweets, err := user.GetMeidas(client, &utils.TimeRange{Min: entity.LatestReleaseTime()})
 			if utils.IsStatusCode(err, 429) {
-				color.Error.Tips("[getting worker]: %v", err)
+				// json 版本的响应 {"errors":[{"code":88,"message":"Rate limit exceeded."}]} 代表达到看帖上限
+				// text 版本的响应 Rate limit exceeded. 代表暂时达到速率限制
+				v := err.(*utils.HttpStatusError)
+				if v.Msg[0] == '{' && v.Msg[len(v.Msg)-1] == '}' {
+					color.Error.Tips("[getting worker]: You have reached the limit for seeing posts today.")
 				abort()
+				} else {
+					color.Warn.Tips("[getting worker]: %v", err)
+				}
 				continue
 			}
 			if err != nil {
-				color.Error.Tips("[getting worker] %s: %v", entity.Name(), err)
+				color.Warn.Tips("[getting worker] %s: %v", entity.Name(), err)
 				continue
 			}
 			if len(tweets) == 0 {
@@ -206,11 +218,13 @@ func BatchUserDownload(client *resty.Client, db *sqlx.DB, users []*twitter.User,
 		}
 	}
 
+	// launch all worker
 	start := time.Now()
 
+	updaterWg.Add(1)
+	go userUpdater() // only 1 updating worker required
+
 	for i := 0; i < getterCount; i++ {
-		updaterWg.Add(1)
-		go userUpdater()
 		getterWg.Add(1)
 		go tweetGetter()
 	}
@@ -221,8 +235,6 @@ func BatchUserDownload(client *resty.Client, db *sqlx.DB, users []*twitter.User,
 	wc.Wg = &downloaderWg
 
 	newUpstream := func() {
-		updaterWg.Add(1)
-		go userUpdater()
 		getterWg.Add(1)
 		tweetGetter()
 	}
@@ -249,16 +261,16 @@ func BatchUserDownload(client *resty.Client, db *sqlx.DB, users []*twitter.User,
 		close(errch)
 	}()
 
-	failures := []*TweetInEntity{}
+	fails := []*TweetInEntity{}
 
 	for {
 		select {
 		case pt, ok := <-errch:
 			if !ok {
 				// errch 已关闭，退出循环
-				return failures
+				return fails
 			}
-			failures = append(failures, pt.(*TweetInEntity))
+			fails = append(fails, pt.(*TweetInEntity))
 		case sig := <-sigChan:
 			// TODO: windows 下，接收到信号并不会中断慢速系统调用，例如IO, Sleep..., unix 暂未测试
 			abort() // 接收到信号，执行中断操作
