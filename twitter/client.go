@@ -2,7 +2,6 @@ package twitter
 
 import (
 	"io"
-	"io/ioutil"
 	"log"
 	"net/http"
 	"net/url"
@@ -49,7 +48,7 @@ func Login(authToken string, ct0 string) (*resty.Client, string, error) {
 		ResponseHeaderTimeout: 5 * time.Second,
 		Proxy:                 http.ProxyFromEnvironment,
 	})
-	SetClientLog(client, LevelNull, ioutil.Discard)
+	SetClientLog(client, LevelNull, io.Discard)
 
 	// 验证登录是否有效
 	resp, err := client.R().Get("https://api.x.com/1.1/account/settings.json")
@@ -93,8 +92,8 @@ func (rl *xRateLimit) preRequest() {
 		rl.Remaining--
 	} else {
 		color.Warn.Printf("[RateLimit] %s Sleep until %s\n", rl.Url, rl.ResetTime)
-		time.Sleep(time.Until(rl.ResetTime) + time.Second)
-		rl.Ready = false // 此时速率限制过期，导致后续请求阻塞直到本次请求结束更新速率限制
+		time.Sleep(time.Until(rl.ResetTime) + time.Minute) // 多 sleep 1 分钟，防止服务器仍返回一个速率限制过期的响应
+		rl.Ready = false
 	}
 }
 
@@ -220,7 +219,7 @@ func (rateLimiter *rateLimiter) update(resp *resty.Response) {
 }
 
 // 重置非就绪的速率限制，让其重新初始化
-func (rateLimiter *rateLimiter) reset(url *url.URL) {
+func (rateLimiter *rateLimiter) reset(url *url.URL, resp *resty.Response) {
 	if !rateLimiter.shouldWork(url) {
 		return
 	}
@@ -240,13 +239,20 @@ func (rateLimiter *rateLimiter) reset(url *url.URL) {
 		return
 	}
 	limiter := lim.(*xRateLimit)
-	if limiter == nil || limiter.Ready {
+	if limiter == nil {
+		return
+	}
+	if limiter.Ready && resp == nil {
+		// 这次请求未能成功发起，不消耗余量
+		limiter.Remaining++
 		return
 	}
 
 	// 将此路径设为首次请求前的状态
-	rateLimiter.limits.Delete(path)
-	cond.Signal()
+	if !limiter.Ready {
+		rateLimiter.limits.Delete(path)
+		cond.Signal()
+	}
 }
 
 func (*rateLimiter) shouldWork(url *url.URL) bool {
@@ -272,8 +278,13 @@ func EnableRateLimit(client *resty.Client) {
 		rateLimiter.update(resp)
 	})
 
-	client.OnError(func(req *resty.Request, _ error) {
-		rateLimiter.reset(req.RawRequest.URL)
+	client.OnError(func(req *resty.Request, err error) {
+		var resp *resty.Response = nil
+		if v, ok := err.(*resty.ResponseError); ok {
+			// Do something with v.Response
+			resp = v.Response
+		}
+		rateLimiter.reset(req.RawRequest.URL, resp)
 	})
 }
 
