@@ -1,6 +1,8 @@
 package twitter
 
 import (
+	"io"
+	"io/ioutil"
 	"log"
 	"net/http"
 	"net/url"
@@ -47,8 +49,8 @@ func Login(authToken string, ct0 string) (*resty.Client, string, error) {
 		ResponseHeaderTimeout: 5 * time.Second,
 		Proxy:                 http.ProxyFromEnvironment,
 	})
+	SetClientLog(client, LevelNull, ioutil.Discard)
 
-	//client.SetTimeout(20 * time.Second)
 	// 验证登录是否有效
 	resp, err := client.R().Get("https://api.x.com/1.1/account/settings.json")
 	if err != nil {
@@ -273,4 +275,37 @@ func EnableRateLimit(client *resty.Client) {
 	client.OnError(func(req *resty.Request, _ error) {
 		rateLimiter.reset(req.RawRequest.URL)
 	})
+}
+
+const (
+	LevelDebug = iota
+	LevelWarn
+	LevelError
+	LevelNull
+)
+
+type stdlog struct {
+	level int
+	raw   *log.Logger
+}
+
+func (log stdlog) Errorf(format string, v ...interface{}) {
+	if LevelError >= log.level {
+		log.raw.Printf(format, v...)
+	}
+}
+func (log stdlog) Warnf(format string, v ...interface{}) {
+	if LevelWarn >= log.level {
+		log.raw.Printf(format, v...)
+	}
+}
+func (log stdlog) Debugf(format string, v ...interface{}) {
+	if LevelDebug >= log.level {
+		log.raw.Printf(format, v...)
+	}
+}
+
+func SetClientLog(client *resty.Client, level int, out io.Writer) {
+	logger := log.New(out, "", log.Ldate|log.Lmicroseconds)
+	client.SetLogger(stdlog{level: level, raw: logger})
 }
