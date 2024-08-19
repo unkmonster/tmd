@@ -283,7 +283,10 @@ func BatchUserDownload(client *resty.Client, db *sqlx.DB, users []*twitter.User,
 
 func downloadList(client *resty.Client, db *sqlx.DB, list twitter.ListBase, dir string, realDir string) ([]*TweetInEntity, error) {
 	expectedTitle := utils.WinFileName(list.Title())
-	entity := NewListEntity(db, list.GetId(), dir)
+	entity, err := NewListEntity(db, list.GetId(), dir)
+	if err != nil {
+		return nil, err
+	}
 	if err := syncPath(entity, expectedTitle); err != nil {
 		return nil, err
 	}

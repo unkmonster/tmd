@@ -2,6 +2,7 @@ package downloading
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"os"
 
@@ -92,7 +93,10 @@ func (td *TweetDumper) GetTotal(db *sqlx.DB) ([]*TweetInEntity, error) {
 		if err != nil {
 			return nil, err
 		}
-		ue := UserEntity{db: db, entity: e}
+		if e == nil {
+			return nil, fmt.Errorf("entity %d is not exists", k)
+		}
+		ue := UserEntity{db: db, record: e, created: true}
 
 		for _, tw := range v {
 			results = append(results, &TweetInEntity{Tweet: tw, Entity: &ue})
