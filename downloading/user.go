@@ -89,9 +89,11 @@ func syncUserAndEntity(db *sqlx.DB, user *twitter.User, dir string) (*UserEntity
 	}
 	expectedTitle := utils.WinFileName(user.Title())
 
-	entity := NewUserEntity(db, user.Id, dir)
-	err := syncPath(entity, expectedTitle)
+	entity, err := NewUserEntity(db, user.Id, dir)
 	if err != nil {
+		return nil, err
+	}
+	if err = syncPath(entity, expectedTitle); err != nil {
 		return nil, err
 	}
 	return entity, nil
