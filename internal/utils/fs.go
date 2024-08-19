@@ -3,6 +3,7 @@ package utils
 import (
 	"bytes"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -102,4 +103,12 @@ func UniquePath(path string) (string, error) {
 
 		path = filepath.Join(dir, stem+"(1)"+ext)
 	}
+}
+
+func GetExtFromUrl(u string) (string, error) {
+	pu, err := url.Parse(u)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Ext(pu.Path), nil
 }
