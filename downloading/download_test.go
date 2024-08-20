@@ -323,16 +323,16 @@ func TestDumper(t *testing.T) {
 		return
 	}
 
-	loaded := []*twitter.Tweet{}
-	for _, tweets := range dumper.data {
-		loaded = append(loaded, tweets...)
+	if dumper.count != 30 {
+		t.Errorf("dumper.count: %d want %d", dumper.count, 30)
 	}
 
 	k = 0
 	for i := 0; i < n; i++ {
 		for j := 0; j < 10; j++ {
-			if tweets[k].Id != loaded[k].Id {
-				t.Error("load error")
+			if dumper.Push(i, tweets[k]) != 0 {
+				t.Errorf("repeat push after load")
+				break
 			}
 			k++
 		}
