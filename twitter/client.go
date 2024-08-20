@@ -40,6 +40,11 @@ func Login(authToken string, ct0 string) (*resty.Client, string, error) {
 	client.AddRetryCondition(func(r *resty.Response, err error) bool {
 		return !strings.HasSuffix(r.Request.RawRequest.Host, "twimg.com") && err != nil
 	})
+	client.AddRetryCondition(func(r *resty.Response, err error) bool {
+		// For OverCapacity, Rate Limit Exceed
+		return r.Request.RawRequest.Host == "x.com" && (r.StatusCode() == 400 || r.StatusCode() == 429)
+	})
+
 	client.SetTransport(&http.Transport{
 		MaxIdleConns:          0,
 		MaxIdleConnsPerHost:   1000,            // 每个主机最大并发连接数
@@ -88,13 +93,12 @@ func (rl *xRateLimit) preRequest() {
 		return
 	}
 
-	// 到达重置时间后，服务器的响应可能仍未更新
-	threshold := max(rl.Limit/100, 5)
+	threshold := max(2*rl.Limit/100, 1)
 
 	if rl.Remaining > threshold {
 		rl.Remaining--
 	} else {
-		insurance := 1 * time.Minute // 到达重置时间后多休眠一个保险时间，防止服务器没有重置速率限制信息
+		insurance := 5 * time.Second
 		color.Warn.Printf("[RateLimit] %s Sleep until %s\n", rl.Url, rl.ResetTime.Add(insurance))
 		time.Sleep(time.Until(rl.ResetTime) + insurance)
 		rl.Ready = false
@@ -239,21 +243,20 @@ func (rateLimiter *rateLimiter) reset(url *url.URL, resp *resty.Response) {
 
 	lim, ok := rateLimiter.limits.Load(path)
 	if !ok {
-		color.Debug.Println("[ratelimiter:reset] load limit fail")
-		return
+		return // Before the OnError hook was executed, the last RetryHook removed this key.
 	}
-	limiter := lim.(*xRateLimit)
-	if limiter == nil {
-		return
-	}
-	if limiter.Ready && resp == nil {
-		// 这次请求未能成功发起，不消耗余量
-		limiter.Remaining++
+	limit := lim.(*xRateLimit)
+	if limit == nil {
 		return
 	}
 
+	// 只要 Client.execute 被调用过， resp 就不会是空，所以要用原始响应判断请求是否发起
+	if resp == nil || resp.RawResponse == nil {
+		// 这次请求未能成功发起，不消耗余量
+		limit.Remaining++
+	}
 	// 将此路径设为首次请求前的状态
-	if !limiter.Ready {
+	if !limit.Ready {
 		rateLimiter.limits.Delete(path)
 		cond.Signal()
 	}
@@ -289,6 +292,10 @@ func EnableRateLimit(client *resty.Client) {
 			resp = v.Response
 		}
 		rateLimiter.reset(req.RawRequest.URL, resp)
+	})
+
+	client.AddRetryHook(func(resp *resty.Response, err error) {
+		rateLimiter.reset(resp.Request.RawRequest.URL, resp)
 	})
 }
 

@@ -5,7 +5,7 @@ import (
 	"net/url"
 )
 
-const HOST = "https://twitter.com"
+const HOST = "https://x.com"
 
 type api interface {
 	Path() string
