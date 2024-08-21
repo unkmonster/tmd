@@ -26,6 +26,7 @@ var someUsers = []struct {
 	{screenName: "_sosen_"},
 	{screenName: "baobaoxqaq"},
 	{screenName: "Greenfish_insky"},
+	{screenName: "midorino_o"},
 }
 var someLists = []uint64{
 	1293998605938950144,

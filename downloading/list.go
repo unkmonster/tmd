@@ -46,16 +46,23 @@ func BatchUserDownload(ctx context.Context, client *resty.Client, db *sqlx.DB, u
 	uidToUser := make(map[uint64]*twitter.User)
 	userChan := make(chan *twitter.User, len(users))
 	for _, u := range users {
+		if u.Blocking || u.Muting {
+			continue
+		}
+
 		userChan <- u
 		uidToUser[u.Id] = u
 	}
 	close(userChan)
 
+	numUsers := len(userChan)
+
 	// num of worker
-	getterCount := min(len(users), MaxDownloadRoutine/3)
+	getterCount := min(numUsers, MaxDownloadRoutine/3)
 	getterCount = min(userTweetApiLimit, getterCount)
+	getterCount = max(1, getterCount) // 确保至少有一个 getting worker
 	// channels
-	entityChan := make(chan *UserEntity, len(users))
+	entityChan := make(chan *UserEntity, numUsers)
 	tweetChan := make(chan PackgedTweet, MaxDownloadRoutine)
 	errChan := make(chan PackgedTweet)
 	// WG
@@ -234,7 +241,7 @@ func BatchUserDownload(ctx context.Context, client *resty.Client, db *sqlx.DB, u
 		getterWg.Add(1)
 		tweetGetter()
 	}
-	bl := newBalanceLoader(getterCount, min(userTweetApiLimit, len(users)), newUpstream, func() bool {
+	bl := newBalanceLoader(getterCount, min(userTweetApiLimit, numUsers), newUpstream, func() bool {
 		return !twitter.GetClientBlockState(client) && startedDownload.Load()
 	})
 
