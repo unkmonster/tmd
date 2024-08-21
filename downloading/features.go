@@ -83,9 +83,9 @@ func downloadTweetMedia(ctx context.Context, client *resty.Client, dir string, t
 
 var MaxDownloadRoutine int
 
-// TODO 多列表同时下载仍会重复同步用户
+// TODO 多列表同时下载
 
-// 记录本次程序运行已同步过的用户
+// map[user_id]*UserEntity 记录本次程序运行已同步过的用户
 var syncedUsers sync.Map
 
 func init() {
@@ -125,10 +125,11 @@ func (bl *balanceLoader) notify() {
 	}
 }
 
-// 负责下载推文，重试，转储，不能让收到的推文丢失
+// 负责下载推文，保证 tweet chan 内的推文要么下载成功，要么推送至 error chan
 func tweetDownloader(ctx context.Context, client *resty.Client, wg *sync.WaitGroup, errch chan<- PackgedTweet, twech <-chan PackgedTweet, bl *balanceLoader) {
 	var pt PackgedTweet
 	var ok bool
+
 	defer wg.Done()
 	defer func() {
 		if p := recover(); p != nil {
@@ -173,6 +174,7 @@ func tweetDownloader(ctx context.Context, client *resty.Client, wg *sync.WaitGro
 	}
 }
 
+// 批量下载推文并返回下载失败的推文，可以保证推文被成功下载或被返回
 func BatchDownloadTweet(ctx context.Context, client *resty.Client, pts ...PackgedTweet) []PackgedTweet {
 	if len(pts) == 0 {
 		return nil

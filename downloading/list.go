@@ -57,7 +57,7 @@ func BatchUserDownload(ctx context.Context, client *resty.Client, db *sqlx.DB, u
 	// channels
 	entityChan := make(chan *UserEntity, len(users))
 	tweetChan := make(chan PackgedTweet, MaxDownloadRoutine)
-	errch := make(chan PackgedTweet)
+	errChan := make(chan PackgedTweet)
 	// WG
 	updaterWg := sync.WaitGroup{}
 	getterWg := sync.WaitGroup{}
@@ -69,15 +69,15 @@ func BatchUserDownload(ctx context.Context, client *resty.Client, db *sqlx.DB, u
 	updaterLogger := log.WithField("worker", "sync")
 	getterLogger := log.WithField("worker", "getting")
 
-	panicHandler := func(name string) {
+	panicHandler := func() {
 		if p := recover(); p != nil {
-			cancel(fmt.Errorf("[%s] panic: %v", name, p))
+			cancel(fmt.Errorf("%v", p))
 		}
 	}
 
 	userUpdater := func() {
 		defer updaterWg.Done()
-		defer panicHandler("sync worker")
+		defer panicHandler()
 
 		var user *twitter.User
 		var ok bool
@@ -159,7 +159,6 @@ func BatchUserDownload(ctx context.Context, client *resty.Client, db *sqlx.DB, u
 				updaterLogger.WithField("user", user.Title()).Errorln("failed to create link for user:", err)
 			}
 		}
-
 	}
 
 	// 首批推文推送至 tweet chan 时调用，意味流水线已启动
@@ -168,7 +167,7 @@ func BatchUserDownload(ctx context.Context, client *resty.Client, db *sqlx.DB, u
 
 	tweetGetter := func() {
 		defer getterWg.Done()
-		defer panicHandler("getting worker")
+		defer panicHandler()
 
 		var entity *UserEntity
 		var ok bool
@@ -212,8 +211,8 @@ func BatchUserDownload(ctx context.Context, client *resty.Client, db *sqlx.DB, u
 			}
 
 			if err := entity.SetLatestReleaseTime(tweets[0].CreatedAt); err != nil {
-				getterLogger.WithField("user", entity.Name()).Errorln("failed to set latest release time for user:", err)
-				continue
+				// 影响程序的正确性，必须 Panic
+				getterLogger.WithField("user", entity.Name()).Panicln("failed to set latest release time for user:", err)
 			}
 
 			triggerStart()
@@ -241,7 +240,7 @@ func BatchUserDownload(ctx context.Context, client *resty.Client, db *sqlx.DB, u
 
 	for i := 0; i < MaxDownloadRoutine; i++ {
 		downloaderWg.Add(1)
-		go tweetDownloader(ctx, client, &downloaderWg, errch, tweetChan, bl)
+		go tweetDownloader(ctx, client, &downloaderWg, errChan, tweetChan, bl)
 	}
 
 	//closer
@@ -255,14 +254,14 @@ func BatchUserDownload(ctx context.Context, client *resty.Client, db *sqlx.DB, u
 		getterLogger.WithField("elapsed", time.Since(start)).Debugln("shutdown")
 
 		downloaderWg.Wait()
-		close(errch)
+		close(errChan)
 	}()
 
 	fails := []*TweetInEntity{}
 
 	for {
 		select {
-		case pt, ok := <-errch:
+		case pt, ok := <-errChan:
 			if !ok {
 				// errch 已关闭，退出循环
 				return fails, context.Cause(ctx)
