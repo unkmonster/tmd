@@ -4,8 +4,8 @@ import (
 	"context"
 
 	"github.com/go-resty/resty/v2"
-	"github.com/gookit/color"
 	"github.com/jmoiron/sqlx"
+	log "github.com/sirupsen/logrus"
 	"github.com/unkmonster/tmd2/database"
 	"github.com/unkmonster/tmd2/internal/utils"
 	"github.com/unkmonster/tmd2/twitter"
@@ -61,7 +61,7 @@ func getTweetAndUpdateLatestReleaseTime(ctx context.Context, client *resty.Clien
 func DownloadUser(ctx context.Context, db *sqlx.DB, client *resty.Client, user *twitter.User, dir string) ([]PackgedTweet, error) {
 	_, loaded := syncedUsers.Load(user.Id)
 	if loaded {
-		color.Note.Printf("Skiped user '%s'\n", user.Title())
+		log.WithField("user", user.Title()).Debugln("skiped downloaded user")
 		return nil, nil
 	}
 	entity, err := syncUserAndEntity(db, user, dir)

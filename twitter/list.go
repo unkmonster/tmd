@@ -3,9 +3,9 @@ package twitter
 import (
 	"context"
 	"fmt"
-	"log"
 
 	"github.com/go-resty/resty/v2"
+	log "github.com/sirupsen/logrus"
 	"github.com/tidwall/gjson"
 	"github.com/unkmonster/tmd2/internal/utils"
 )
@@ -69,7 +69,10 @@ func itemContentsToUsers(itemContents []gjson.Result) []*User {
 		}
 		u, err := parseUserResults(&user_results)
 		if err != nil {
-			log.Printf("%v\n%v", err, user_results)
+			log.WithFields(log.Fields{
+				"user_results": user_results.String(),
+				"reason":       err,
+			}).Debugf("failed to parse user_results")
 			continue
 		}
 		users = append(users, u)

@@ -35,7 +35,8 @@ var someLists = []uint64{
 
 func init() {
 	var err error
-	client, _, err = Login(os.Getenv("AUTH_TOKEN"), os.Getenv("CT0"))
+	ctx := context.Background()
+	client, _, err = Login(ctx, os.Getenv("AUTH_TOKEN"), os.Getenv("CT0"))
 	if err != nil {
 		panic(err)
 	}

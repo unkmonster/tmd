@@ -11,6 +11,7 @@ import (
 
 	"github.com/go-resty/resty/v2"
 	"github.com/gookit/color"
+	log "github.com/sirupsen/logrus"
 	"github.com/unkmonster/tmd2/internal/utils"
 	"github.com/unkmonster/tmd2/twitter"
 )
@@ -138,7 +139,7 @@ func tweetDownloader(ctx context.Context, client *resty.Client, wg *sync.WaitGro
 			for pt := range twech {
 				errch <- pt
 			}
-			color.Error.Tips("[downloading worker]: %v", p)
+			log.WithField("worker", "downloading").Errorln("panic:", p)
 		}
 	}()
 

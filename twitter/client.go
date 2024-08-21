@@ -3,7 +3,6 @@ package twitter
 import (
 	"context"
 	"io"
-	"log"
 	"net/http"
 	"net/url"
 	"path/filepath"
@@ -14,7 +13,7 @@ import (
 	"time"
 
 	"github.com/go-resty/resty/v2"
-	"github.com/gookit/color"
+	log "github.com/sirupsen/logrus"
 	"github.com/tidwall/gjson"
 	"github.com/unkmonster/tmd2/internal/utils"
 )
@@ -24,8 +23,15 @@ const bearer = "AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Z
 var clientScreenNames map[*resty.Client]string = make(map[*resty.Client]string)
 var clientBlockStates map[*resty.Client]*atomic.Bool = make(map[*resty.Client]*atomic.Bool)
 
-func Login(authToken string, ct0 string) (*resty.Client, string, error) {
+func Login(ctx context.Context, authToken string, ct0 string) (*resty.Client, string, error) {
 	client := resty.New()
+
+	// 禁用 logger
+	nullLogger := log.New()
+	nullLogger.SetOutput(io.Discard)
+	client.SetLogger(nullLogger)
+
+	// 鉴权
 	client.SetAuthToken(bearer)
 	client.SetCookie(&http.Cookie{
 		Name:  "auth_token",
@@ -37,6 +43,7 @@ func Login(authToken string, ct0 string) (*resty.Client, string, error) {
 	})
 	client.SetHeader("X-Csrf-Token", ct0)
 
+	// 重试
 	client.SetRetryCount(5)
 	client.AddRetryCondition(func(r *resty.Response, err error) bool {
 		return !strings.HasSuffix(r.Request.RawRequest.Host, "twimg.com") && err != nil && err != context.Canceled
@@ -54,10 +61,9 @@ func Login(authToken string, ct0 string) (*resty.Client, string, error) {
 		ResponseHeaderTimeout: 5 * time.Second,
 		Proxy:                 http.ProxyFromEnvironment,
 	})
-	SetClientLog(client, LevelNull, io.Discard)
 
 	// 验证登录是否有效
-	resp, err := client.R().Get("https://api.x.com/1.1/account/settings.json")
+	resp, err := client.R().SetContext(ctx).Get("https://api.x.com/1.1/account/settings.json")
 	if err != nil {
 		return nil, "", err
 	}
@@ -65,9 +71,11 @@ func Login(authToken string, ct0 string) (*resty.Client, string, error) {
 		return nil, "", err
 	}
 
+	// 客户端状态
 	screenName := gjson.GetBytes(resp.Body(), "screen_name").String()
 	clientBlockStates[client] = &atomic.Bool{}
 	clientScreenNames[client] = screenName
+
 	return client, screenName, nil
 }
 
@@ -107,7 +115,10 @@ func (rl *xRateLimit) preRequest(ctx context.Context) error {
 		insurance := 5 * time.Second
 		timer := time.NewTimer(time.Until(rl.ResetTime) + insurance)
 		defer timer.Stop()
-		color.Warn.Printf("[RateLimit] %s Sleep until %s\n", rl.Url, rl.ResetTime.Add(insurance))
+		log.WithFields(log.Fields{
+			"path":  rl.Url,
+			"until": rl.ResetTime.Add(insurance),
+		}).Warnln("[RateLimiter] start sleeping")
 
 		select {
 		case <-timer.C:
@@ -227,7 +238,6 @@ func (rateLimiter *rateLimiter) update(resp *resty.Response) {
 	lim, _ := rateLimiter.limits.Load(path)
 	if lim == nil {
 		// TODO: 出现了
-		color.Debug.Tips("[ratelimiter:update] load limit fail")
 		return
 	}
 	limit := lim.(*xRateLimit)
@@ -312,37 +322,4 @@ func EnableRateLimit(client *resty.Client) {
 	client.AddRetryHook(func(resp *resty.Response, err error) {
 		rateLimiter.reset(resp.Request.RawRequest.URL, resp)
 	})
-}
-
-const (
-	LevelDebug = iota
-	LevelWarn
-	LevelError
-	LevelNull
-)
-
-type stdlog struct {
-	level int
-	raw   *log.Logger
-}
-
-func (log stdlog) Errorf(format string, v ...interface{}) {
-	if LevelError >= log.level {
-		log.raw.Printf(format, v...)
-	}
-}
-func (log stdlog) Warnf(format string, v ...interface{}) {
-	if LevelWarn >= log.level {
-		log.raw.Printf(format, v...)
-	}
-}
-func (log stdlog) Debugf(format string, v ...interface{}) {
-	if LevelDebug >= log.level {
-		log.raw.Printf(format, v...)
-	}
-}
-
-func SetClientLog(client *resty.Client, level int, out io.Writer) {
-	logger := log.New(out, "", log.Ldate|log.Lmicroseconds)
-	client.SetLogger(stdlog{level: level, raw: logger})
 }

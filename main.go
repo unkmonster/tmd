@@ -7,7 +7,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"log"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -19,6 +18,7 @@ import (
 	"github.com/go-resty/resty/v2"
 	"github.com/gookit/color"
 	"github.com/jmoiron/sqlx"
+	log "github.com/sirupsen/logrus"
 	"github.com/unkmonster/tmd2/database"
 	"github.com/unkmonster/tmd2/downloading"
 	"github.com/unkmonster/tmd2/internal/utils"
@@ -200,19 +200,39 @@ func newStorePath(root string) (*storePath, error) {
 	return &ph, nil
 }
 
+func initLogger(dbg bool) {
+	log.SetFormatter(&log.TextFormatter{
+		ForceColors:   true,
+		FullTimestamp: true,
+	})
+
+	if dbg {
+		log.SetLevel(log.DebugLevel)
+	} else {
+		log.SetLevel(log.InfoLevel)
+	}
+}
+
 func main() {
 	//flag.
 	var usrArgs userArgs
 	var listArgs ListArgs
 	var follArgs userArgs
 	var confArg bool
+	var dbg bool
 	flag.BoolVar(&confArg, "conf", false, "reconfigure")
 	flag.Var(&usrArgs, "user", "download tweets from the user specified by user_id/screen_name since the last download")
 	flag.Var(&listArgs, "list", "batch download each member from list specified by list_id")
 	flag.Var(&follArgs, "foll", "batch download each member followed by the user specified by user_id/screen_name")
+	flag.BoolVar(&dbg, "dbg", false, "display debug message")
 	flag.Parse()
 
 	var err error
+
+	initLogger(dbg)
+
+	// context
+	ctx, cancel := context.WithCancel(context.Background())
 
 	var homepath string
 	if runtime.GOOS == "windows" {
@@ -242,7 +262,7 @@ func main() {
 		log.Fatalln("failed to load config:", err)
 	}
 	if confArg {
-		color.Info.Println("config done")
+		log.Println("config done")
 		return
 	}
 
@@ -257,12 +277,15 @@ func main() {
 	}
 
 	// sign in
-	client, screenName, err := twitter.Login(conf.Cookie.AuthCoken, conf.Cookie.Ct0)
+	client, screenName, err := twitter.Login(ctx, conf.Cookie.AuthCoken, conf.Cookie.Ct0)
 	if err != nil {
 		log.Fatalln("failed to login:", err)
 	}
 	twitter.EnableRateLimit(client)
-	color.Info.Tips("signed in as: %s", color.FgLightBlue.Render(screenName))
+	log.Infoln("signed in as:", color.FgLightBlue.Render(screenName))
+	if dbg {
+		client.SetLogger(log.WithField("client", "resty"))
+	}
 
 	// load previous tweets
 	dumper := downloading.NewDumper()
@@ -277,10 +300,7 @@ func main() {
 		log.Fatalln("failed to connect to database:", err)
 	}
 	defer db.Close()
-	color.Info.Tips("database is connected")
-
-	// context
-	ctx, cancel := context.WithCancel(context.Background())
+	log.Infoln("database is connected")
 
 	// listen signal
 	sigChan := make(chan os.Signal, 1)
@@ -290,7 +310,7 @@ func main() {
 	go func() {
 		sig, ok := <-sigChan
 		if ok {
-			color.Warn.Tips("[listener] caught signal: %v", sig)
+			log.Warnln("[listener] caught signal:", sig)
 			cancel()
 		}
 	}()
@@ -304,7 +324,7 @@ func main() {
 
 	// retry for failed tweet last run
 	if err = retryFailedTweets(ctx, dumper, db, client); err != nil {
-		color.Error.Tips("failed to retry previous tweets %v", err)
+		log.Error("failed to retry previous tweets:", err)
 		return
 	}
 
@@ -312,7 +332,7 @@ func main() {
 	var todump = make([]*downloading.TweetInEntity, 0)
 	defer func() {
 		dumper.Dump(pathHelper.errorj)
-		color.Info.Tips("%d tweets have been dumped and will be downloaded the next time the program runs", dumper.Count())
+		log.Infof("%d tweets have been dumped and will be downloaded the next time the program runs", dumper.Count())
 	}()
 
 	defer func() {
@@ -328,17 +348,17 @@ func main() {
 	if len(task.users) != 0 {
 		todump, err = downloading.BatchUserDownload(ctx, client, db, task.users, pathHelper.users, nil)
 		if err != nil {
-			color.Warn.Tips("failed to download users: %v", err)
+			log.Errorln("failed to download users:", err)
 			return
 		}
 	}
 
 	for _, list := range task.lists {
-		color.Debug.Println(list.Title())
+		log.Debugln(list.Title())
 		fails, err := downloading.DownloadList(ctx, client, db, list, pathHelper.root, pathHelper.users)
 		todump = append(todump, fails...)
 		if err != nil {
-			color.Warn.Tips("failed to download list [%s]: %v", list.Title(), err)
+			log.WithField("list", list.Title()).Errorln("failed to download list:", err)
 			return
 		}
 	}
@@ -358,7 +378,7 @@ func connectDatabase(path string) (*sqlx.DB, error) {
 	database.CreateTables(db)
 	//db.SetMaxOpenConns(1)
 	if !ex {
-		color.Primary.Printf("created new db '%s'\n", path)
+		log.Debugln("created new db file", path)
 	}
 	return db, nil
 }
@@ -440,6 +460,7 @@ func retryFailedTweets(ctx context.Context, dumper *downloading.TweetDumper, db 
 		return nil
 	}
 
+	log.Infoln("starting to retry failed tweets")
 	legacy, err := dumper.GetTotal(db)
 	if err != nil {
 		return err
