@@ -26,6 +26,8 @@ type User struct {
 	FriendsCount int
 	Followstate  FollowState
 	MediaCount   int
+	Muting       bool
+	Blocking     bool
 }
 
 func GetUserById(ctx context.Context, client *resty.Client, id uint64) (*User, error) {
@@ -71,6 +73,8 @@ func parseUserResults(user_results *gjson.Result) (*User, error) {
 	screen_name := legacy.Get("screen_name")
 	protected := legacy.Get("protected").Exists() && legacy.Get("protected").Bool()
 	media_count := legacy.Get("media_count")
+	muting := legacy.Get("muting")
+	blocking := legacy.Get("blocking")
 
 	usr := User{}
 	if foll := legacy.Get("following"); foll.Exists() {
@@ -84,12 +88,15 @@ func parseUserResults(user_results *gjson.Result) (*User, error) {
 	} else {
 		usr.Followstate = FS_UNFOLLOW
 	}
+
 	usr.FriendsCount = int(friends_count.Int())
 	usr.Id = restId.Uint()
 	usr.IsProtected = protected
 	usr.Name = name.String()
 	usr.ScreenName = screen_name.String()
 	usr.MediaCount = int(media_count.Int())
+	usr.Muting = muting.Exists() && muting.Bool()
+	usr.Blocking = blocking.Exists() && blocking.Bool()
 	return &usr, nil
 }
 

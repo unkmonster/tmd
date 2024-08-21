@@ -59,6 +59,10 @@ func getTweetAndUpdateLatestReleaseTime(ctx context.Context, client *resty.Clien
 }
 
 func DownloadUser(ctx context.Context, db *sqlx.DB, client *resty.Client, user *twitter.User, dir string) ([]PackgedTweet, error) {
+	if user.Blocking || user.Muting {
+		return nil, nil
+	}
+
 	_, loaded := syncedUsers.Load(user.Id)
 	if loaded {
 		log.WithField("user", user.Title()).Debugln("skiped downloaded user")

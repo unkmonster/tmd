@@ -45,12 +45,13 @@ func Login(ctx context.Context, authToken string, ct0 string) (*resty.Client, st
 
 	// 重试
 	client.SetRetryCount(5)
+	client.AddRetryAfterErrorCondition()
 	client.AddRetryCondition(func(r *resty.Response, err error) bool {
 		return !strings.HasSuffix(r.Request.RawRequest.Host, "twimg.com") && err != nil && err != context.Canceled
 	})
 	client.AddRetryCondition(func(r *resty.Response, err error) bool {
-		// For OverCapacity
-		return r.Request.RawRequest.Host == "x.com" && r.StatusCode() == 400
+		// For OverCapacity, {rate limit exceed}
+		return r.Request.RawRequest.Host == "x.com" && (r.StatusCode() == 400 || r.StatusCode() == 429)
 	})
 
 	client.SetTransport(&http.Transport{
