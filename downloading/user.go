@@ -81,8 +81,7 @@ func DownloadUser(ctx context.Context, db *sqlx.DB, client *resty.Client, user *
 		pts = append(pts, TweetInEntity{Tweet: tw, Entity: entity})
 	}
 
-	failures := BatchDownloadTweet(ctx, client, pts...)
-	return failures, nil
+	return BatchDownloadTweet(ctx, client, pts...), nil
 }
 
 func syncUserAndEntity(db *sqlx.DB, user *twitter.User, dir string) (*UserEntity, error) {
