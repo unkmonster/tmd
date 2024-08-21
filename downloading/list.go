@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/go-resty/resty/v2"
-	"github.com/gookit/color"
 	"github.com/jmoiron/sqlx"
+	log "github.com/sirupsen/logrus"
 	"github.com/unkmonster/tmd2/database"
 	"github.com/unkmonster/tmd2/internal/utils"
 	"github.com/unkmonster/tmd2/twitter"
@@ -65,6 +65,9 @@ func BatchUserDownload(ctx context.Context, client *resty.Client, db *sqlx.DB, u
 	// ctx
 	ctx, cancel := context.WithCancelCause(ctx)
 	defer cancel(nil)
+	// logger
+	updaterLogger := log.WithField("worker", "sync")
+	getterLogger := log.WithField("worker", "getting")
 
 	panicHandler := func(name string) {
 		if p := recover(); p != nil {
@@ -76,12 +79,12 @@ func BatchUserDownload(ctx context.Context, client *resty.Client, db *sqlx.DB, u
 		defer updaterWg.Done()
 		defer panicHandler("sync worker")
 
-		var u *twitter.User
+		var user *twitter.User
 		var ok bool
 
 		for {
 			select {
-			case u, ok = <-userChan:
+			case user, ok = <-userChan:
 				if !ok {
 					return
 				}
@@ -92,36 +95,36 @@ func BatchUserDownload(ctx context.Context, client *resty.Client, db *sqlx.DB, u
 			var pathEntity *UserEntity
 			var err error
 
-			pe, loaded := syncedUsers.Load(u.Id)
+			pe, loaded := syncedUsers.Load(user.Id)
 			if !loaded {
-				pathEntity, err = syncUserAndEntity(db, u, dir)
+				pathEntity, err = syncUserAndEntity(db, user, dir)
 				if err != nil {
-					color.Error.Tips("[sync worker] failed to sync user or entity: %v", err)
+					log.WithField("worker", "sync").Errorln("failed to sync user or entity", err)
 					continue
 				}
-				syncedUsers.Store(u.Id, pathEntity)
+				syncedUsers.Store(user.Id, pathEntity)
 				entityChan <- pathEntity
 
 				// 同步所有现存的指向此用户的符号链接
 				upath, _ := pathEntity.Path()
-				linkds, err := database.GetUserLinks(db, u.Id)
+				linkds, err := database.GetUserLinks(db, user.Id)
 				if err != nil {
-					color.Error.Tips("[sync worker] failed to get links to %s: %v", u.Title(), err)
+					updaterLogger.WithField("user", user.Title()).Errorln("failed to get links to user:", err)
 					continue
 				}
 
 				for _, linkd := range linkds {
 					if err = updateUserLink(linkd, db, upath); err != nil {
-						color.Error.Tips("[sync worker] failed to sync link: %v", err)
+						updaterLogger.WithField("user", user.Title()).Errorln("failed to sync link:", err)
 					}
 					sl, _ := syncedListUsers.LoadOrStore(int(linkd.ParentLstEntityId), &sync.Map{})
 					syncedList := sl.(*sync.Map)
-					syncedList.Store(u.Id, struct{}{})
+					syncedList.Store(user.Id, struct{}{})
 				}
 
 			} else {
 				pathEntity = pe.(*UserEntity)
-				color.Note.Printf("[sync worker] skiped synced user '%s'\n", u.Title())
+				log.WithField("user", user.Title()).Debugln("skiped synced user")
 			}
 
 			// 即便同步一个用户时也同步了所有指向此用户的链接，
@@ -132,9 +135,8 @@ func BatchUserDownload(ctx context.Context, client *resty.Client, db *sqlx.DB, u
 			}
 			sl, _ := syncedListUsers.LoadOrStore(*listEntityId, &sync.Map{})
 			syncedList := sl.(*sync.Map)
-			_, loaded = syncedList.LoadOrStore(u.Id, struct{}{})
+			_, loaded = syncedList.LoadOrStore(user.Id, struct{}{})
 			if loaded {
-				//color.Note.Printf("[sync worker] skiped synced list user %d/%s\n", *listEntityId, u.Title())
 				continue
 			}
 
@@ -145,7 +147,7 @@ func BatchUserDownload(ctx context.Context, client *resty.Client, db *sqlx.DB, u
 			curlink := &database.UserLink{}
 			curlink.Name = linkname
 			curlink.ParentLstEntityId = int32(*listEntityId)
-			curlink.Uid = u.Id
+			curlink.Uid = user.Id
 
 			linkpath, err := curlink.Path(db)
 			if err == nil {
@@ -154,7 +156,7 @@ func BatchUserDownload(ctx context.Context, client *resty.Client, db *sqlx.DB, u
 				}
 			}
 			if err != nil {
-				color.Error.Tips("[sync worker] failed to create link: %v", err)
+				updaterLogger.WithField("user", user.Title()).Errorln("failed to create link for user:", err)
 			}
 		}
 
@@ -192,8 +194,11 @@ func BatchUserDownload(ctx context.Context, client *resty.Client, db *sqlx.DB, u
 					continue
 				}
 			}
+			if ctx.Err() != nil {
+				continue
+			}
 			if err != nil {
-				color.Warn.Tips("[getting worker] %s: %v", entity.Name(), err)
+				getterLogger.WithField("user", entity.Name()).Warnln("failed to get user medias:", err)
 				continue
 			}
 			if len(tweets) == 0 {
@@ -207,7 +212,7 @@ func BatchUserDownload(ctx context.Context, client *resty.Client, db *sqlx.DB, u
 			}
 
 			if err := entity.SetLatestReleaseTime(tweets[0].CreatedAt); err != nil {
-				color.Error.Tips("[getting worker] %s: %v", entity.Name(), err)
+				getterLogger.WithField("user", entity.Name()).Errorln("failed to set latest release time for user:", err)
 				continue
 			}
 
@@ -243,11 +248,11 @@ func BatchUserDownload(ctx context.Context, client *resty.Client, db *sqlx.DB, u
 	go func() {
 		updaterWg.Wait()
 		close(entityChan)
-		color.Debug.Tips("[sync worker] shutdown elapsed %v", time.Since(start))
+		updaterLogger.WithField("elapsed", time.Since(start)).Debugln("shutdown")
 
 		getterWg.Wait()
 		close(tweetChan)
-		color.Debug.Tips("[getting worker] shutdown elapsed %v", time.Since(start))
+		getterLogger.WithField("elapsed", time.Since(start)).Debugln("shutdown")
 
 		downloaderWg.Wait()
 		close(errch)
@@ -285,7 +290,7 @@ func downloadList(ctx context.Context, client *resty.Client, db *sqlx.DB, list t
 	}
 
 	eid := entity.Id()
-	color.Debug.Println("members:", len(members))
+	log.Debugln("members:", len(members))
 	return BatchUserDownload(ctx, client, db, members, realDir, &eid)
 }
 
