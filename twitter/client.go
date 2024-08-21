@@ -1,6 +1,7 @@
 package twitter
 
 import (
+	"context"
 	"io"
 	"log"
 	"net/http"
@@ -38,7 +39,7 @@ func Login(authToken string, ct0 string) (*resty.Client, string, error) {
 
 	client.SetRetryCount(5)
 	client.AddRetryCondition(func(r *resty.Response, err error) bool {
-		return !strings.HasSuffix(r.Request.RawRequest.Host, "twimg.com") && err != nil
+		return !strings.HasSuffix(r.Request.RawRequest.Host, "twimg.com") && err != nil && err != context.Canceled
 	})
 	client.AddRetryCondition(func(r *resty.Response, err error) bool {
 		// For OverCapacity, Rate Limit Exceed
@@ -86,22 +87,35 @@ type xRateLimit struct {
 	Url       string
 }
 
-func (rl *xRateLimit) preRequest() {
+func (rl *xRateLimit) preRequest(ctx context.Context) error {
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+
 	if time.Now().After(rl.ResetTime) {
 		log.Printf("expired %s\n", rl.Url)
 		rl.Ready = false
-		return
+		return nil
 	}
 
 	threshold := max(2*rl.Limit/100, 1)
 
 	if rl.Remaining > threshold {
 		rl.Remaining--
+		return nil
 	} else {
 		insurance := 5 * time.Second
+		timer := time.NewTimer(time.Until(rl.ResetTime) + insurance)
+		defer timer.Stop()
 		color.Warn.Printf("[RateLimit] %s Sleep until %s\n", rl.Url, rl.ResetTime.Add(insurance))
-		time.Sleep(time.Until(rl.ResetTime) + insurance)
-		rl.Ready = false
+
+		select {
+		case <-timer.C:
+			rl.Ready = false
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		}
 	}
 }
 
@@ -152,9 +166,9 @@ type rateLimiter struct {
 	conds  sync.Map
 }
 
-func (rateLimiter *rateLimiter) check(url *url.URL) {
+func (rateLimiter *rateLimiter) check(ctx context.Context, url *url.URL) error {
 	if !rateLimiter.shouldWork(url) {
-		return
+		return nil
 	}
 
 	path := url.Path
@@ -168,7 +182,7 @@ func (rateLimiter *rateLimiter) check(url *url.URL) {
 	if !loaded {
 		// 首次遇见某路径时直接请求初始化它，后续请求等待这次请求使 limit 就绪
 		// 响应中没有速率限制信息：此键赋空，意味不进行速率限制
-		return
+		return nil
 	}
 
 	/*
@@ -184,15 +198,16 @@ func (rateLimiter *rateLimiter) check(url *url.URL) {
 		lim, loaded := rateLimiter.limits.LoadOrStore(path, &xRateLimit{})
 		if !loaded {
 			// 上个请求失败了，从它身上继承初始化速率限制的重任
-			return
+			return nil
 		}
 		limit = lim.(*xRateLimit)
 	}
 
 	// limiter 为 nil 意味着不对此路径做速率限制
 	if limit != nil {
-		limit.preRequest()
+		return limit.preRequest(ctx)
 	}
+	return nil
 	//fmt.Printf("start req: %s\n", path)
 }
 
@@ -211,7 +226,7 @@ func (rateLimiter *rateLimiter) update(resp *resty.Response) {
 
 	lim, _ := rateLimiter.limits.Load(path)
 	if lim == nil {
-		// 保险起见，虽然我觉得不会有这种情况发生
+		// TODO: 出现了
 		color.Debug.Tips("[ratelimiter:update] load limit fail")
 		return
 	}
@@ -275,10 +290,10 @@ func EnableRateLimit(client *resty.Client) {
 			return err
 		}
 		// temp
+
 		clientBlockStates[c].Store(true)
-		rateLimiter.check(u)
-		clientBlockStates[c].Store(false)
-		return nil
+		defer clientBlockStates[c].Store(false)
+		return rateLimiter.check(req.Context(), u)
 	})
 
 	client.OnSuccess(func(c *resty.Client, resp *resty.Response) {

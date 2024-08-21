@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"flag"
 	"fmt"
 	"io"
@@ -41,10 +42,10 @@ type userArgs struct {
 	screenName []string
 }
 
-func (u *userArgs) GetUser(client *resty.Client) ([]*twitter.User, error) {
+func (u *userArgs) GetUser(ctx context.Context, client *resty.Client) ([]*twitter.User, error) {
 	users := []*twitter.User{}
 	for _, id := range u.id {
-		usr, err := twitter.GetUserById(client, id)
+		usr, err := twitter.GetUserById(ctx, client, id)
 		if err != nil {
 			return nil, err
 		}
@@ -52,7 +53,7 @@ func (u *userArgs) GetUser(client *resty.Client) ([]*twitter.User, error) {
 	}
 
 	for _, screenName := range u.screenName {
-		usr, err := twitter.GetUserByScreenName(client, screenName)
+		usr, err := twitter.GetUserByScreenName(ctx, client, screenName)
 		if err != nil {
 			return nil, err
 		}
@@ -106,10 +107,10 @@ type ListArgs struct {
 	intArgs
 }
 
-func (l ListArgs) GetList(client *resty.Client) ([]*twitter.List, error) {
+func (l ListArgs) GetList(ctx context.Context, client *resty.Client) ([]*twitter.List, error) {
 	lists := []*twitter.List{}
 	for _, id := range l.id {
-		list, err := twitter.GetLst(client, id)
+		list, err := twitter.GetLst(ctx, client, id)
 		if err != nil {
 			return nil, err
 		}
@@ -134,18 +135,18 @@ func printTask(task *Task) {
 	}
 }
 
-func MakeTask(client *resty.Client, usrArgs userArgs, listArgs ListArgs, follArgs userArgs) (*Task, error) {
+func MakeTask(ctx context.Context, client *resty.Client, usrArgs userArgs, listArgs ListArgs, follArgs userArgs) (*Task, error) {
 	task := Task{}
 	task.users = make([]*twitter.User, 0)
 	task.lists = make([]twitter.ListBase, 0)
 
-	users, err := usrArgs.GetUser(client)
+	users, err := usrArgs.GetUser(ctx, client)
 	if err != nil {
 		return nil, err
 	}
 	task.users = append(task.users, users...)
 
-	lists, err := listArgs.GetList(client)
+	lists, err := listArgs.GetList(ctx, client)
 	if err != nil {
 		return nil, err
 	}
@@ -154,7 +155,7 @@ func MakeTask(client *resty.Client, usrArgs userArgs, listArgs ListArgs, follArg
 	}
 
 	// fo
-	users, err = follArgs.GetUser(client)
+	users, err = follArgs.GetUser(ctx, client)
 	if err != nil {
 		return nil, err
 	}
@@ -211,23 +212,25 @@ func main() {
 	flag.Var(&follArgs, "foll", "batch download each member followed by the user specified by user_id/screen_name")
 	flag.Parse()
 
+	var err error
+
 	var homepath string
 	if runtime.GOOS == "windows" {
 		homepath = os.Getenv("appdata")
 	} else {
 		homepath = os.Getenv("HOME")
 	}
-
 	if homepath == "" {
 		panic("failed to get home path from env")
 	}
+
 	appRootPath := filepath.Join(homepath, ".tmd2")
 	confPath := filepath.Join(appRootPath, "conf.yaml")
-	err := os.Mkdir(appRootPath, 0755)
-	if err != nil && !os.IsExist(err) {
-		log.Fatalln("failed to make app dir:", err)
+	if err = os.MkdirAll(appRootPath, 0755); err != nil {
+		log.Fatalln("failed to make app dir", err)
 	}
 
+	// read/write config
 	conf, err := readConf(confPath)
 	if os.IsNotExist(err) || confArg {
 		conf, err = config(confPath)
@@ -259,7 +262,14 @@ func main() {
 		log.Fatalln("failed to login:", err)
 	}
 	twitter.EnableRateLimit(client)
-	color.Info.Tips("signed in as %s", color.FgLightBlue.Render(screenName))
+	color.Info.Tips("signed in as: %s", color.FgLightBlue.Render(screenName))
+
+	// load previous tweets
+	dumper := downloading.NewDumper()
+	err = dumper.Load(pathHelper.errorj)
+	if err != nil {
+		log.Fatalln("failed to load previous tweets", err)
+	}
 
 	// connect db
 	db, err := connectDatabase(pathHelper.db)
@@ -269,37 +279,36 @@ func main() {
 	defer db.Close()
 	color.Info.Tips("database is connected")
 
-	task, err := MakeTask(client, usrArgs, listArgs, follArgs)
+	// context
+	ctx, cancel := context.WithCancel(context.Background())
+
+	// listen signal
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
+	defer close(sigChan)
+	defer signal.Stop(sigChan)
+	go func() {
+		sig, ok := <-sigChan
+		if ok {
+			color.Warn.Tips("[listener] caught signal: %v", sig)
+			cancel()
+		}
+	}()
+
+	// collect tasks
+	task, err := MakeTask(ctx, client, usrArgs, listArgs, follArgs)
 	if err != nil {
-		log.Fatalln("failed to parse args:", err)
+		log.Fatalln("failed to parse cmd args:", err)
 	}
 	printTask(task)
 
-	// handle signal
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
-	defer signal.Stop(sigChan)
-
-	caught := func() bool {
-		select {
-		case <-sigChan:
-			return true
-		default:
-			return false
-		}
+	// retry for failed tweet last run
+	if err = retryFailedTweets(ctx, dumper, db, client); err != nil {
+		color.Error.Tips("failed to retry previous tweets %v", err)
+		return
 	}
 
-	// retry for legacy tweet
-	dumper := downloading.NewDumper()
-	err = dumper.Load(pathHelper.errorj)
-	if err != nil {
-		log.Fatalln("failed to load dumped tweets:", err)
-	}
-
-	if err = retryLegacy(dumper, db, client); err != nil {
-		log.Fatalln(err)
-	}
-
+	// dump failed tweets at exit
 	var todump = make([]*downloading.TweetInEntity, 0)
 	defer func() {
 		dumper.Dump(pathHelper.errorj)
@@ -310,22 +319,27 @@ func main() {
 		for _, te := range todump {
 			dumper.Push(te.Entity.Id(), te.Tweet)
 		}
-		retryLegacy(dumper, db, client)
+		if ctx.Err() == nil {
+			retryFailedTweets(ctx, dumper, db, client)
+		}
 	}()
 
 	// do job
-	if len(task.users) != 0 && !caught() {
-		todump = downloading.BatchUserDownload(client, db, task.users, pathHelper.users, nil)
-	}
-	for _, list := range task.lists {
-		if caught() {
-			break
+	if len(task.users) != 0 {
+		todump, err = downloading.BatchUserDownload(ctx, client, db, task.users, pathHelper.users, nil)
+		if err != nil {
+			color.Warn.Tips("failed to download users: %v", err)
+			return
 		}
+	}
+
+	for _, list := range task.lists {
 		color.Debug.Println(list.Title())
-		fails, err := downloading.DownloadList(client, db, list, pathHelper.root, pathHelper.users)
+		fails, err := downloading.DownloadList(ctx, client, db, list, pathHelper.root, pathHelper.users)
 		todump = append(todump, fails...)
 		if err != nil {
-			fmt.Printf("failed to download list [%s]: %v\n", list.Title(), err)
+			color.Warn.Tips("failed to download list [%s]: %v", list.Title(), err)
+			return
 		}
 	}
 }
@@ -421,7 +435,7 @@ func config(saveto string) (*Config, error) {
 	return &conf, writeConf(saveto, &conf)
 }
 
-func retryLegacy(dumper *downloading.TweetDumper, db *sqlx.DB, client *resty.Client) error {
+func retryFailedTweets(ctx context.Context, dumper *downloading.TweetDumper, db *sqlx.DB, client *resty.Client) error {
 	if dumper.Count() == 0 {
 		return nil
 	}
@@ -436,7 +450,7 @@ func retryLegacy(dumper *downloading.TweetDumper, db *sqlx.DB, client *resty.Cli
 		toretry = append(toretry, leg)
 	}
 
-	newFails := downloading.BatchDownloadTweet(client, toretry...)
+	newFails := downloading.BatchDownloadTweet(ctx, client, toretry...)
 	dumper.Clear()
 	for _, pt := range newFails {
 		te := pt.(*downloading.TweetInEntity)

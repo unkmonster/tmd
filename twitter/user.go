@@ -1,6 +1,7 @@
 package twitter
 
 import (
+	"context"
 	"fmt"
 	"time"
 
@@ -27,27 +28,27 @@ type User struct {
 	MediaCount   int
 }
 
-func GetUserById(client *resty.Client, id uint64) (*User, error) {
+func GetUserById(ctx context.Context, client *resty.Client, id uint64) (*User, error) {
 	api := userByRestId{id}
 	getUrl := makeUrl(&api)
-	r, err := getUser(client, getUrl)
+	r, err := getUser(ctx, client, getUrl)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get user [%d]: %v", id, err)
 	}
 	return r, err
 }
 
-func GetUserByScreenName(client *resty.Client, screenName string) (*User, error) {
+func GetUserByScreenName(ctx context.Context, client *resty.Client, screenName string) (*User, error) {
 	u := makeUrl(&userByScreenName{screenName: screenName})
-	r, err := getUser(client, u)
+	r, err := getUser(ctx, client, u)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get user [%s]: %v", screenName, err)
 	}
 	return r, err
 }
 
-func getUser(client *resty.Client, url string) (*User, error) {
-	resp, err := client.R().Get(url)
+func getUser(ctx context.Context, client *resty.Client, url string) (*User, error) {
+	resp, err := client.R().SetContext(ctx).Get(url)
 	if err != nil {
 		return nil, err
 	}
@@ -115,12 +116,12 @@ func itemContentsToTweets(itemContents []gjson.Result) []*Tweet {
 	return res
 }
 
-func (u *User) getMediasOnePage(api *userMedia, client *resty.Client) ([]*Tweet, string, error) {
+func (u *User) getMediasOnePage(ctx context.Context, api *userMedia, client *resty.Client) ([]*Tweet, string, error) {
 	if !u.IsVisiable() {
 		return nil, "", nil
 	}
 
-	itemContents, next, err := getTimelineItemContents(api, client, "data.user.result.timeline_v2.timeline.instructions")
+	itemContents, next, err := getTimelineItemContents(ctx, api, client, "data.user.result.timeline_v2.timeline.instructions")
 	return itemContentsToTweets(itemContents), next, err
 }
 
@@ -160,7 +161,7 @@ func filterTweetsByTimeRange(tweets []*Tweet, min *time.Time, max *time.Time) (c
 	return
 }
 
-func (u *User) GetMeidas(client *resty.Client, timeRange *utils.TimeRange) ([]*Tweet, error) {
+func (u *User) GetMeidas(ctx context.Context, client *resty.Client, timeRange *utils.TimeRange) ([]*Tweet, error) {
 	if !u.IsVisiable() {
 		return nil, nil
 	}
@@ -181,7 +182,7 @@ func (u *User) GetMeidas(client *resty.Client, timeRange *utils.TimeRange) ([]*T
 	}
 
 	for {
-		currentTweets, next, err := u.getMediasOnePage(&api, client)
+		currentTweets, next, err := u.getMediasOnePage(ctx, &api, client)
 		if err != nil {
 			return nil, err
 		}

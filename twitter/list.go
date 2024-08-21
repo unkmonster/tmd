@@ -1,6 +1,7 @@
 package twitter
 
 import (
+	"context"
 	"fmt"
 	"log"
 
@@ -10,7 +11,7 @@ import (
 )
 
 type ListBase interface {
-	GetMembers(*resty.Client) ([]*User, error)
+	GetMembers(context.Context, *resty.Client) ([]*User, error)
 	GetId() int64
 	Title() string
 }
@@ -22,12 +23,12 @@ type List struct {
 	Creator     *User
 }
 
-func GetLst(client *resty.Client, id uint64) (*List, error) {
+func GetLst(ctx context.Context, client *resty.Client, id uint64) (*List, error) {
 	api := listByRestId{}
 	api.id = id
 	url := makeUrl(&api)
 
-	resp, err := client.R().Get(url)
+	resp, err := client.R().SetContext(ctx).Get(url)
 	if err != nil {
 		return nil, err
 	}
@@ -76,20 +77,20 @@ func itemContentsToUsers(itemContents []gjson.Result) []*User {
 	return users
 }
 
-func getMembers(client *resty.Client, api timelineApi, instsPath string) ([]*User, error) {
+func getMembers(ctx context.Context, client *resty.Client, api timelineApi, instsPath string) ([]*User, error) {
 	api.SetCursor("")
-	itemContents, err := getTimelineItemContentsTillEnd(api, client, instsPath)
+	itemContents, err := getTimelineItemContentsTillEnd(ctx, api, client, instsPath)
 	if err != nil {
 		return nil, err
 	}
 	return itemContentsToUsers(itemContents), nil
 }
 
-func (list *List) GetMembers(client *resty.Client) ([]*User, error) {
+func (list *List) GetMembers(ctx context.Context, client *resty.Client) ([]*User, error) {
 	api := listMembers{}
 	api.count = 200
 	api.id = list.Id
-	return getMembers(client, &api, "data.list.members_timeline.timeline.instructions")
+	return getMembers(ctx, client, &api, "data.list.members_timeline.timeline.instructions")
 }
 
 func (list *List) GetId() int64 {
@@ -104,11 +105,11 @@ type UserFollowing struct {
 	creator *User
 }
 
-func (fo UserFollowing) GetMembers(client *resty.Client) ([]*User, error) {
+func (fo UserFollowing) GetMembers(ctx context.Context, client *resty.Client) ([]*User, error) {
 	api := following{}
 	api.count = 200
 	api.uid = fo.creator.Id
-	return getMembers(client, &api, "data.user.result.timeline.timeline.instructions")
+	return getMembers(ctx, client, &api, "data.user.result.timeline.timeline.instructions")
 }
 
 func (fo UserFollowing) GetId() int64 {
