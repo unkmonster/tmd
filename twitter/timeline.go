@@ -1,6 +1,7 @@
 package twitter
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/go-resty/resty/v2"
@@ -77,9 +78,9 @@ func getResults(itemContent gjson.Result, itemType int) gjson.Result {
 	panic(fmt.Sprintf("invalid itemContent: %s", itemContent.String()))
 }
 
-func getTimelineResp(api timelineApi, client *resty.Client) ([]byte, error) {
+func getTimelineResp(ctx context.Context, api timelineApi, client *resty.Client) ([]byte, error) {
 	url := makeUrl(api)
-	resp, err := client.R().Get(url)
+	resp, err := client.R().SetContext(ctx).Get(url)
 	if err != nil {
 		return nil, err
 	}
@@ -91,8 +92,8 @@ func getTimelineResp(api timelineApi, client *resty.Client) ([]byte, error) {
 }
 
 // 获取时间线 API 并返回所有 itemContent 和 底部 cursor
-func getTimelineItemContents(api timelineApi, client *resty.Client, instPath string) ([]gjson.Result, string, error) {
-	resp, err := getTimelineResp(api, client)
+func getTimelineItemContents(ctx context.Context, api timelineApi, client *resty.Client, instPath string) ([]gjson.Result, string, error) {
+	resp, err := getTimelineResp(ctx, api, client)
 	if err != nil {
 		return nil, "", err
 	}
@@ -120,11 +121,11 @@ func getTimelineItemContents(api timelineApi, client *resty.Client, instPath str
 	return itemContents, getNextCursor(entries), nil
 }
 
-func getTimelineItemContentsTillEnd(api timelineApi, client *resty.Client, instPath string) ([]gjson.Result, error) {
+func getTimelineItemContentsTillEnd(ctx context.Context, api timelineApi, client *resty.Client, instPath string) ([]gjson.Result, error) {
 	res := make([]gjson.Result, 0)
 
 	for {
-		page, next, err := getTimelineItemContents(api, client, instPath)
+		page, next, err := getTimelineItemContents(ctx, api, client, instPath)
 		if err != nil {
 			return nil, err
 		}

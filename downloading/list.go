@@ -1,11 +1,11 @@
 package downloading
 
 import (
+	"context"
+	"fmt"
 	"os"
-	"os/signal"
 	"sync"
 	"sync/atomic"
-	"syscall"
 	"time"
 
 	"github.com/go-resty/resty/v2"
@@ -38,9 +38,9 @@ const userTweetApiLimit = 500
 // var syncedListUsers = make(map[uint64]map[int64]struct{})
 var syncedListUsers sync.Map //leid -> uid -> struct{}
 
-func BatchUserDownload(client *resty.Client, db *sqlx.DB, users []*twitter.User, dir string, listEntityId *int) []*TweetInEntity {
+func BatchUserDownload(ctx context.Context, client *resty.Client, db *sqlx.DB, users []*twitter.User, dir string, listEntityId *int) ([]*TweetInEntity, error) {
 	if len(users) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	uidToUser := make(map[uint64]*twitter.User)
@@ -58,45 +58,35 @@ func BatchUserDownload(client *resty.Client, db *sqlx.DB, users []*twitter.User,
 	entityChan := make(chan *UserEntity, len(users))
 	tweetChan := make(chan PackgedTweet, MaxDownloadRoutine)
 	errch := make(chan PackgedTweet)
-	abortChan := make(chan struct{})
 	// WG
 	updaterWg := sync.WaitGroup{}
 	getterWg := sync.WaitGroup{}
 	downloaderWg := sync.WaitGroup{}
-
-	// 导致 cancelled() 返回真，后续调用无效
-	abort := sync.OnceFunc(func() {
-		close(abortChan)
-	})
-
-	cancelled := func() bool {
-		select {
-		case <-abortChan:
-			return true
-		default:
-			return false
-		}
-	}
+	// ctx
+	ctx, cancel := context.WithCancelCause(ctx)
+	defer cancel(nil)
 
 	panicHandler := func(name string) {
 		if p := recover(); p != nil {
-			color.Danger.Printf("[%s] panic: %v\n", name, p)
-			abort()
+			cancel(fmt.Errorf("[%s] panic: %v", name, p))
 		}
 	}
 
-	// 信号相关
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
-	defer signal.Stop(sigChan)
-
-	// cpu 密集型任务
 	userUpdater := func() {
 		defer updaterWg.Done()
 		defer panicHandler("sync worker")
-		for u := range userChan {
-			if cancelled() {
-				break
+
+		var u *twitter.User
+		var ok bool
+
+		for {
+			select {
+			case u, ok = <-userChan:
+				if !ok {
+					return
+				}
+			case <-ctx.Done():
+				return
 			}
 
 			var pathEntity *UserEntity
@@ -167,6 +157,7 @@ func BatchUserDownload(client *resty.Client, db *sqlx.DB, users []*twitter.User,
 				color.Error.Tips("[sync worker] failed to create link: %v", err)
 			}
 		}
+
 	}
 
 	// 首批推文推送至 tweet chan 时调用，意味流水线已启动
@@ -177,23 +168,29 @@ func BatchUserDownload(client *resty.Client, db *sqlx.DB, users []*twitter.User,
 		defer getterWg.Done()
 		defer panicHandler("getting worker")
 
-		for entity := range entityChan {
-			if cancelled() {
-				break
+		var entity *UserEntity
+		var ok bool
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case entity, ok = <-entityChan:
+				if !ok {
+					return
+				}
 			}
+
 			user := uidToUser[entity.Uid()]
-			tweets, err := user.GetMeidas(client, &utils.TimeRange{Min: entity.LatestReleaseTime()})
+			tweets, err := user.GetMeidas(ctx, client, &utils.TimeRange{Min: entity.LatestReleaseTime()})
 			if utils.IsStatusCode(err, 429) {
 				// json 版本的响应 {"errors":[{"code":88,"message":"Rate limit exceeded."}]} 代表达到看帖上限
 				// text 版本的响应 Rate limit exceeded. 代表暂时达到速率限制
 				v := err.(*utils.HttpStatusError)
 				if v.Msg[0] == '{' && v.Msg[len(v.Msg)-1] == '}' {
-					color.Error.Tips("[getting worker]: You have reached the limit for seeing posts today.")
-				abort()
-				} else {
-					color.Warn.Tips("[getting worker]: %v", err)
+					cancel(fmt.Errorf("reached the limit for seeing posts today"))
+					continue
 				}
-				continue
 			}
 			if err != nil {
 				color.Warn.Tips("[getting worker] %s: %v", entity.Name(), err)
@@ -229,11 +226,6 @@ func BatchUserDownload(client *resty.Client, db *sqlx.DB, users []*twitter.User,
 		go tweetGetter()
 	}
 
-	wc := workerController{}
-	wc.abort = abort
-	wc.cancelled = cancelled
-	wc.Wg = &downloaderWg
-
 	newUpstream := func() {
 		getterWg.Add(1)
 		tweetGetter()
@@ -244,7 +236,7 @@ func BatchUserDownload(client *resty.Client, db *sqlx.DB, users []*twitter.User,
 
 	for i := 0; i < MaxDownloadRoutine; i++ {
 		downloaderWg.Add(1)
-		go tweetDownloader(client, wc, errch, tweetChan, bl)
+		go tweetDownloader(ctx, client, &downloaderWg, errch, tweetChan, bl)
 	}
 
 	//closer
@@ -268,20 +260,16 @@ func BatchUserDownload(client *resty.Client, db *sqlx.DB, users []*twitter.User,
 		case pt, ok := <-errch:
 			if !ok {
 				// errch 已关闭，退出循环
-				return fails
+				return fails, context.Cause(ctx)
 			}
 			fails = append(fails, pt.(*TweetInEntity))
-		case sig := <-sigChan:
-			// TODO: windows 下，接收到信号并不会中断慢速系统调用，例如IO, Sleep..., unix 暂未测试
-			abort() // 接收到信号，执行中断操作
-			color.Warn.Tips("caught signal: %v", sig)
 		case <-bl.requests:
 			bl.do()
 		}
 	}
 }
 
-func downloadList(client *resty.Client, db *sqlx.DB, list twitter.ListBase, dir string, realDir string) ([]*TweetInEntity, error) {
+func downloadList(ctx context.Context, client *resty.Client, db *sqlx.DB, list twitter.ListBase, dir string, realDir string) ([]*TweetInEntity, error) {
 	expectedTitle := utils.WinFileName(list.Title())
 	entity, err := NewListEntity(db, list.GetId(), dir)
 	if err != nil {
@@ -291,14 +279,14 @@ func downloadList(client *resty.Client, db *sqlx.DB, list twitter.ListBase, dir 
 		return nil, err
 	}
 
-	members, err := list.GetMembers(client)
+	members, err := list.GetMembers(ctx, client)
 	if err != nil || len(members) == 0 {
 		return nil, err
 	}
 
 	eid := entity.Id()
 	color.Debug.Println("members:", len(members))
-	return BatchUserDownload(client, db, members, realDir, &eid), nil
+	return BatchUserDownload(ctx, client, db, members, realDir, &eid)
 }
 
 func syncList(db *sqlx.DB, list *twitter.List) error {
@@ -312,12 +300,12 @@ func syncList(db *sqlx.DB, list *twitter.List) error {
 	return database.UpdateLst(db, &database.Lst{Id: list.Id, Name: list.Name, OwnerId: list.Creator.Id})
 }
 
-func DownloadList(client *resty.Client, db *sqlx.DB, list twitter.ListBase, dir string, realDir string) ([]*TweetInEntity, error) {
+func DownloadList(ctx context.Context, client *resty.Client, db *sqlx.DB, list twitter.ListBase, dir string, realDir string) ([]*TweetInEntity, error) {
 	tlist, ok := list.(*twitter.List)
 	if ok {
 		if err := syncList(db, tlist); err != nil {
 			return nil, err
 		}
 	}
-	return downloadList(client, db, list, dir, realDir)
+	return downloadList(ctx, client, db, list, dir, realDir)
 }

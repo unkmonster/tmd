@@ -1,6 +1,8 @@
 package downloading
 
 import (
+	"context"
+
 	"github.com/go-resty/resty/v2"
 	"github.com/gookit/color"
 	"github.com/jmoiron/sqlx"
@@ -45,8 +47,8 @@ func syncUser(db *sqlx.DB, user *twitter.User) error {
 	return err
 }
 
-func getTweetAndUpdateLatestReleaseTime(client *resty.Client, user *twitter.User, entity *UserEntity) ([]*twitter.Tweet, error) {
-	tweets, err := user.GetMeidas(client, &utils.TimeRange{Min: entity.LatestReleaseTime()})
+func getTweetAndUpdateLatestReleaseTime(ctx context.Context, client *resty.Client, user *twitter.User, entity *UserEntity) ([]*twitter.Tweet, error) {
+	tweets, err := user.GetMeidas(ctx, client, &utils.TimeRange{Min: entity.LatestReleaseTime()})
 	if err != nil || len(tweets) == 0 {
 		return nil, err
 	}
@@ -56,7 +58,7 @@ func getTweetAndUpdateLatestReleaseTime(client *resty.Client, user *twitter.User
 	return tweets, nil
 }
 
-func DownloadUser(db *sqlx.DB, client *resty.Client, user *twitter.User, dir string) ([]PackgedTweet, error) {
+func DownloadUser(ctx context.Context, db *sqlx.DB, client *resty.Client, user *twitter.User, dir string) ([]PackgedTweet, error) {
 	_, loaded := syncedUsers.Load(user.Id)
 	if loaded {
 		color.Note.Printf("Skiped user '%s'\n", user.Title())
@@ -68,7 +70,7 @@ func DownloadUser(db *sqlx.DB, client *resty.Client, user *twitter.User, dir str
 	}
 
 	syncedUsers.Store(user.Id, entity)
-	tweets, err := getTweetAndUpdateLatestReleaseTime(client, user, entity)
+	tweets, err := getTweetAndUpdateLatestReleaseTime(ctx, client, user, entity)
 	if err != nil || len(tweets) == 0 {
 		return nil, err
 	}
@@ -79,7 +81,7 @@ func DownloadUser(db *sqlx.DB, client *resty.Client, user *twitter.User, dir str
 		pts = append(pts, TweetInEntity{Tweet: tw, Entity: entity})
 	}
 
-	failures := BatchDownloadTweet(client, pts...)
+	failures := BatchDownloadTweet(ctx, client, pts...)
 	return failures, nil
 }
 

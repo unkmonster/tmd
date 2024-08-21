@@ -1,13 +1,12 @@
 package downloading
 
 import (
+	"context"
 	"fmt"
 	"os"
-	"os/signal"
 	"path/filepath"
 	"runtime"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/go-resty/resty/v2"
@@ -38,7 +37,7 @@ var mutex sync.Mutex
 
 // 任何一个 url 下载失败直接返回
 // TODO: 要么全做，要么不做
-func downloadTweetMedia(client *resty.Client, dir string, tweet *twitter.Tweet) error {
+func downloadTweetMedia(ctx context.Context, client *resty.Client, dir string, tweet *twitter.Tweet) error {
 	text := utils.WinFileName(tweet.Text)
 
 	for _, u := range tweet.Urls {
@@ -48,7 +47,7 @@ func downloadTweetMedia(client *resty.Client, dir string, tweet *twitter.Tweet) 
 		}
 
 		// 请求
-		resp, err := client.R().Get(u)
+		resp, err := client.R().SetContext(ctx).Get(u)
 		if err != nil {
 			return err
 		}
@@ -92,12 +91,6 @@ func init() {
 	MaxDownloadRoutine = runtime.GOMAXPROCS(0) * 8
 }
 
-type workerController struct {
-	Wg        *sync.WaitGroup
-	cancelled func() bool
-	abort     func()
-}
-
 type balanceLoader struct {
 	activeRoutines int
 	maxRoutines    int
@@ -121,8 +114,6 @@ func (bl *balanceLoader) do() {
 		//color.Debug.Tips("[Balance Loader] launched a new goroutine %d", bl.activeRoutines+1)
 		go bl.routine()
 		bl.activeRoutines++
-	} else {
-		//color.Debug.Tips("[Balance Loader] reached the max routines limit")
 	}
 }
 
@@ -134,13 +125,12 @@ func (bl *balanceLoader) notify() {
 }
 
 // 负责下载推文，重试，转储，不能让收到的推文丢失
-func tweetDownloader(client *resty.Client, wc workerController, errch chan<- PackgedTweet, twech <-chan PackgedTweet, bl *balanceLoader) {
+func tweetDownloader(ctx context.Context, client *resty.Client, wg *sync.WaitGroup, errch chan<- PackgedTweet, twech <-chan PackgedTweet, bl *balanceLoader) {
 	var pt PackgedTweet
 	var ok bool
-	defer wc.Wg.Done()
+	defer wg.Done()
 	defer func() {
 		if p := recover(); p != nil {
-			wc.abort() // 这将导致 getting worker 很快结束并关闭 tweet chan
 			if pt != nil {
 				errch <- pt // push 正下载的推文
 			}
@@ -163,10 +153,11 @@ func tweetDownloader(client *resty.Client, wc workerController, errch chan<- Pac
 				bl.notify()
 			}
 			continue
-		}
-		if wc.cancelled() {
-			errch <- pt
-			continue
+		case <-ctx.Done():
+			for pt := range twech {
+				errch <- pt
+			}
+			return
 		}
 
 		path := pt.GetPath()
@@ -174,17 +165,20 @@ func tweetDownloader(client *resty.Client, wc workerController, errch chan<- Pac
 			errch <- pt
 			continue
 		}
-		err := downloadTweetMedia(client, path, pt.GetTweet())
+		err := downloadTweetMedia(ctx, client, path, pt.GetTweet())
 		if err != nil && !utils.IsStatusCode(err, 404) {
 			errch <- pt
 		}
 	}
 }
 
-func BatchDownloadTweet(client *resty.Client, pts ...PackgedTweet) []PackgedTweet {
+func BatchDownloadTweet(ctx context.Context, client *resty.Client, pts ...PackgedTweet) []PackgedTweet {
+	if len(pts) == 0 {
+		return nil
+	}
+
 	var errChan = make(chan PackgedTweet)
 	var tweetChan = make(chan PackgedTweet, len(pts))
-	var abortChan = make(chan struct{})
 	var wg sync.WaitGroup // number of working goroutines
 	var numRoutine = min(len(pts), MaxDownloadRoutine)
 
@@ -193,32 +187,9 @@ func BatchDownloadTweet(client *resty.Client, pts ...PackgedTweet) []PackgedTwee
 	}
 	close(tweetChan)
 
-	abort := sync.OnceFunc(func() {
-		close(abortChan)
-	})
-
-	cancelled := func() bool {
-		select {
-		case <-abortChan:
-			return true
-		default:
-			return false
-		}
-	}
-
-	// 信号相关
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
-	defer signal.Stop(sigChan)
-
-	wc := workerController{}
-	wc.abort = abort
-	wc.cancelled = cancelled
-	wc.Wg = &wg
-
 	for i := 0; i < numRoutine; i++ {
 		wg.Add(1)
-		go tweetDownloader(client, wc, errChan, tweetChan, nil)
+		go tweetDownloader(ctx, client, &wg, errChan, tweetChan, nil)
 	}
 
 	go func() {
@@ -227,16 +198,8 @@ func BatchDownloadTweet(client *resty.Client, pts ...PackgedTweet) []PackgedTwee
 	}()
 
 	errors := []PackgedTweet{}
-	for {
-		select {
-		case pt, ok := <-errChan:
-			if !ok {
-				return errors
-			}
-			errors = append(errors, pt)
-		case sig := <-sigChan:
-			color.Warn.Tips("caught signal: %v", sig)
-			abort()
-		}
+	for pt := range errChan {
+		errors = append(errors, pt)
 	}
+	return errors
 }
