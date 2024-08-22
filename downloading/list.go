@@ -111,7 +111,12 @@ func BatchUserDownload(ctx context.Context, client *resty.Client, db *sqlx.DB, u
 					continue
 				}
 				syncedUsers.Store(user.Id, pathEntity)
-				entityChan <- pathEntity
+
+				select {
+				case entityChan <- pathEntity:
+				case <-ctx.Done():
+					return
+				}
 
 				// 同步所有现存的指向此用户的符号链接
 				upath, _ := pathEntity.Path()
@@ -215,7 +220,11 @@ func BatchUserDownload(ctx context.Context, client *resty.Client, db *sqlx.DB, u
 			// 确保该用户所有推文已推送并更新用户的最新发布时间
 			for _, tw := range tweets {
 				pt := TweetInEntity{Tweet: tw, Entity: entity}
-				tweetChan <- &pt
+				select {
+				case tweetChan <- &pt:
+				case <-ctx.Done():
+					return // 防止无消费者导致死锁
+				}
 			}
 
 			if err := entity.SetLatestReleaseTime(tweets[0].CreatedAt); err != nil {
@@ -238,6 +247,7 @@ func BatchUserDownload(ctx context.Context, client *resty.Client, db *sqlx.DB, u
 		go tweetGetter()
 	}
 
+	// downloader config
 	newUpstream := func() {
 		getterWg.Add(1)
 		tweetGetter()
@@ -245,10 +255,15 @@ func BatchUserDownload(ctx context.Context, client *resty.Client, db *sqlx.DB, u
 	bl := newBalanceLoader(getterCount, min(userTweetApiLimit, numUsers), newUpstream, func() bool {
 		return !twitter.GetClientBlockState(client) && startedDownload.Load()
 	})
-
+	config := workerConfig{
+		ctx:    ctx,
+		bl:     bl,
+		wg:     &downloaderWg,
+		cancel: cancel,
+	}
 	for i := 0; i < MaxDownloadRoutine; i++ {
 		downloaderWg.Add(1)
-		go tweetDownloader(ctx, client, &downloaderWg, errChan, tweetChan, bl)
+		go tweetDownloader(client, &config, errChan, tweetChan)
 	}
 
 	//closer
