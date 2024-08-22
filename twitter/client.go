@@ -47,10 +47,10 @@ func Login(ctx context.Context, authToken string, ct0 string) (*resty.Client, st
 	client.SetRetryCount(5)
 	client.AddRetryAfterErrorCondition()
 	client.AddRetryCondition(func(r *resty.Response, err error) bool {
-		return !strings.HasSuffix(r.Request.RawRequest.Host, "twimg.com") && err != nil && err != context.Canceled
+		return !strings.HasSuffix(r.Request.RawRequest.Host, "twimg.com") && err != nil
 	})
 	client.AddRetryCondition(func(r *resty.Response, err error) bool {
-		// For OverCapacity, {rate limit exceed}
+		// For OverCapacity, Rate Limit Exceed
 		return r.Request.RawRequest.Host == "x.com" && (r.StatusCode() == 400 || r.StatusCode() == 429)
 	})
 
@@ -116,15 +116,13 @@ func (rl *xRateLimit) preRequest(ctx context.Context) error {
 		return nil
 	} else {
 		insurance := 5 * time.Second
-		timer := time.NewTimer(time.Until(rl.ResetTime) + insurance)
-		defer timer.Stop()
 		log.WithFields(log.Fields{
 			"path":  rl.Url,
 			"until": rl.ResetTime.Add(insurance),
 		}).Warnln("[RateLimiter] start sleeping")
 
 		select {
-		case <-timer.C:
+		case <-time.After(time.Until(rl.ResetTime) + insurance):
 			rl.Ready = false
 			return nil
 		case <-ctx.Done():
@@ -222,40 +220,10 @@ func (rateLimiter *rateLimiter) check(ctx context.Context, url *url.URL) error {
 		return limit.preRequest(ctx)
 	}
 	return nil
-	//fmt.Printf("start req: %s\n", path)
 }
 
-// 使非就绪的速率限制信息就绪
-func (rateLimiter *rateLimiter) update(resp *resty.Response) {
-	if !rateLimiter.shouldWork(resp.RawResponse.Request.URL) {
-		return
-	}
-
-	path := resp.RawResponse.Request.URL.Path
-
-	co, _ := rateLimiter.conds.Load(path)
-	cond := co.(*sync.Cond)
-	cond.L.Lock()
-	defer cond.L.Unlock()
-
-	lim, _ := rateLimiter.limits.Load(path)
-	if lim == nil {
-		// TODO: 出现了
-		return
-	}
-	limit := lim.(*xRateLimit)
-	if limit == nil || limit.Ready {
-		return
-	}
-
-	// 重置速率限制
-	newLimiter := makeRateLimit(resp)
-	rateLimiter.limits.Store(path, newLimiter)
-	cond.Broadcast()
-}
-
-// 重置非就绪的速率限制，让其重新初始化
-func (rateLimiter *rateLimiter) reset(url *url.URL) {
+// 重置非就绪的速率限制，使其可检查，否则死锁
+func (rateLimiter *rateLimiter) reset(url *url.URL, resp *resty.Response) {
 	if !rateLimiter.shouldWork(url) {
 		return
 	}
@@ -263,7 +231,7 @@ func (rateLimiter *rateLimiter) reset(url *url.URL) {
 	path := url.Path
 	co, ok := rateLimiter.conds.Load(path)
 	if !ok {
-		return // BeforeRequest 未调用的情况下调用了 OnError
+		return // BeforeRequest 从未调用的情况下调用了 OnError/OnRetry
 	}
 	cond := co.(*sync.Cond)
 	cond.L.Lock()
@@ -271,17 +239,20 @@ func (rateLimiter *rateLimiter) reset(url *url.URL) {
 
 	lim, ok := rateLimiter.limits.Load(path)
 	if !ok {
-		return // Before the OnError hook was executed, the last RetryHook removed this key.
+		return
 	}
 	limit := lim.(*xRateLimit)
-	if limit == nil {
+	if limit == nil || limit.Ready {
 		return
 	}
 
-	// 即使没有读到响应，也不能证明服务器未收到请求，所以不能用是否受到响应判断请求是否发起
-
-	// 将此路径设为首次请求前的状态
-	if !limit.Ready {
+	if resp != nil && resp.RawResponse != nil {
+		// 请求成功，或发生了错误/触发了重试条件但有能力更新速率限制
+		rateLimit := makeRateLimit(resp)
+		rateLimiter.limits.Store(path, rateLimit)
+		cond.Broadcast()
+	} else {
+		// 将此路径设为首次请求前的状态
 		rateLimiter.limits.Delete(path)
 		cond.Signal()
 	}
@@ -307,14 +278,20 @@ func EnableRateLimit(client *resty.Client) {
 	})
 
 	client.OnSuccess(func(c *resty.Client, resp *resty.Response) {
-		rateLimiter.update(resp)
+		rateLimiter.reset(resp.Request.RawRequest.URL, resp)
 	})
 
 	client.OnError(func(req *resty.Request, err error) {
-		rateLimiter.reset(req.RawRequest.URL)
+		var resp *resty.Response
+		if v, ok := err.(*resty.ResponseError); ok {
+			// Do something with v.Response
+			resp = v.Response
+		}
+		// Log the error, increment a metric, etc...
+		rateLimiter.reset(req.RawRequest.URL, resp)
 	})
 
 	client.AddRetryHook(func(resp *resty.Response, err error) {
-		rateLimiter.reset(resp.Request.RawRequest.URL)
+		rateLimiter.reset(resp.Request.RawRequest.URL, resp)
 	})
 }
