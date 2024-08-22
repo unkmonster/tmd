@@ -102,8 +102,10 @@ func (rl *xRateLimit) preRequest(ctx context.Context) error {
 	}
 
 	if time.Now().After(rl.ResetTime) {
-		log.Printf("expired %s\n", rl.Url)
-		rl.Ready = false
+		log.WithFields(log.Fields{
+			"path": rl.Url,
+		}).Debugf("[RateLimiter] rate limit is expired")
+		rl.Ready = false // 后续的请求等待本次请求完成更新速率限制
 		return nil
 	}
 
@@ -253,7 +255,7 @@ func (rateLimiter *rateLimiter) update(resp *resty.Response) {
 }
 
 // 重置非就绪的速率限制，让其重新初始化
-func (rateLimiter *rateLimiter) reset(url *url.URL, resp *resty.Response) {
+func (rateLimiter *rateLimiter) reset(url *url.URL) {
 	if !rateLimiter.shouldWork(url) {
 		return
 	}
@@ -276,11 +278,8 @@ func (rateLimiter *rateLimiter) reset(url *url.URL, resp *resty.Response) {
 		return
 	}
 
-	// 只要 Client.execute 被调用过， resp 就不会是空，所以要用原始响应判断请求是否发起
-	if resp == nil || resp.RawResponse == nil {
-		// 这次请求未能成功发起，不消耗余量
-		limit.Remaining++
-	}
+	// 即使没有读到响应，也不能证明服务器未收到请求，所以不能用是否受到响应判断请求是否发起
+
 	// 将此路径设为首次请求前的状态
 	if !limit.Ready {
 		rateLimiter.limits.Delete(path)
@@ -312,15 +311,10 @@ func EnableRateLimit(client *resty.Client) {
 	})
 
 	client.OnError(func(req *resty.Request, err error) {
-		var resp *resty.Response = nil
-		if v, ok := err.(*resty.ResponseError); ok {
-			// Do something with v.Response
-			resp = v.Response
-		}
-		rateLimiter.reset(req.RawRequest.URL, resp)
+		rateLimiter.reset(req.RawRequest.URL)
 	})
 
 	client.AddRetryHook(func(resp *resty.Response, err error) {
-		rateLimiter.reset(resp.Request.RawRequest.URL, resp)
+		rateLimiter.reset(resp.Request.RawRequest.URL)
 	})
 }
