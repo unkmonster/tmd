@@ -15,7 +15,11 @@ const (
 )
 
 func getInstructions(resp []byte, path string) gjson.Result {
-	return gjson.GetBytes(resp, path)
+	inst := gjson.GetBytes(resp, path)
+	if !inst.Exists() {
+		panic(fmt.Sprintf("unable to get instructions: %s path: '%s'", resp, path))
+	}
+	return inst
 }
 
 func getEntries(instructions gjson.Result) gjson.Result {

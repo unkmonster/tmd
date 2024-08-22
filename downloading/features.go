@@ -125,14 +125,24 @@ func (bl *balanceLoader) notify() {
 	}
 }
 
+type workerConfig struct {
+	ctx    context.Context
+	wg     *sync.WaitGroup
+	bl     *balanceLoader
+	cancel context.CancelCauseFunc
+}
+
 // 负责下载推文，保证 tweet chan 内的推文要么下载成功，要么推送至 error chan
-func tweetDownloader(ctx context.Context, client *resty.Client, wg *sync.WaitGroup, errch chan<- PackgedTweet, twech <-chan PackgedTweet, bl *balanceLoader) {
+func tweetDownloader(client *resty.Client, config *workerConfig, errch chan<- PackgedTweet, twech <-chan PackgedTweet) {
 	var pt PackgedTweet
 	var ok bool
 
-	defer wg.Done()
+	defer config.wg.Done()
 	defer func() {
 		if p := recover(); p != nil {
+			config.cancel(fmt.Errorf("%v", p)) // panic 取消上下文，防止生产者死锁
+			log.WithField("worker", "downloading").Errorln("panic:", p)
+
 			if pt != nil {
 				errch <- pt // push 正下载的推文
 			}
@@ -140,7 +150,6 @@ func tweetDownloader(ctx context.Context, client *resty.Client, wg *sync.WaitGro
 			for pt := range twech {
 				errch <- pt
 			}
-			log.WithField("worker", "downloading").Errorln("panic:", p)
 		}
 	}()
 
@@ -151,11 +160,11 @@ func tweetDownloader(ctx context.Context, client *resty.Client, wg *sync.WaitGro
 				return
 			}
 		case <-time.After(150 * time.Millisecond):
-			if bl != nil && bl.shouldNotify() {
-				bl.notify()
+			if config.bl != nil && config.bl.shouldNotify() {
+				config.bl.notify()
 			}
 			continue
-		case <-ctx.Done():
+		case <-config.ctx.Done():
 			for pt := range twech {
 				errch <- pt
 			}
@@ -167,7 +176,7 @@ func tweetDownloader(ctx context.Context, client *resty.Client, wg *sync.WaitGro
 			errch <- pt
 			continue
 		}
-		err := downloadTweetMedia(ctx, client, path, pt.GetTweet())
+		err := downloadTweetMedia(config.ctx, client, path, pt.GetTweet())
 		if err != nil && !utils.IsStatusCode(err, 404) {
 			errch <- pt
 		}
@@ -180,6 +189,8 @@ func BatchDownloadTweet(ctx context.Context, client *resty.Client, pts ...Packge
 		return nil
 	}
 
+	ctx, cancel := context.WithCancelCause(ctx)
+
 	var errChan = make(chan PackgedTweet)
 	var tweetChan = make(chan PackgedTweet, len(pts))
 	var wg sync.WaitGroup // number of working goroutines
@@ -190,9 +201,15 @@ func BatchDownloadTweet(ctx context.Context, client *resty.Client, pts ...Packge
 	}
 	close(tweetChan)
 
+	config := workerConfig{
+		ctx:    ctx,
+		bl:     nil,
+		cancel: cancel,
+		wg:     &wg,
+	}
 	for i := 0; i < numRoutine; i++ {
 		wg.Add(1)
-		go tweetDownloader(ctx, client, &wg, errChan, tweetChan, nil)
+		go tweetDownloader(client, &config, errChan, tweetChan)
 	}
 
 	go func() {
