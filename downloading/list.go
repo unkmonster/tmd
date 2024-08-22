@@ -43,6 +43,7 @@ func BatchUserDownload(ctx context.Context, client *resty.Client, db *sqlx.DB, u
 		return nil, nil
 	}
 
+	utils.Shuffle(users)
 	uidToUser := make(map[uint64]*twitter.User)
 	userChan := make(chan *twitter.User, len(users))
 	for _, u := range users {
@@ -106,7 +107,7 @@ func BatchUserDownload(ctx context.Context, client *resty.Client, db *sqlx.DB, u
 			if !loaded {
 				pathEntity, err = syncUserAndEntity(db, user, dir)
 				if err != nil {
-					log.WithField("worker", "sync").Errorln("failed to sync user or entity", err)
+					log.WithField("worker", "sync").Warnln("failed to sync user or entity", err)
 					continue
 				}
 				syncedUsers.Store(user.Id, pathEntity)
@@ -116,13 +117,13 @@ func BatchUserDownload(ctx context.Context, client *resty.Client, db *sqlx.DB, u
 				upath, _ := pathEntity.Path()
 				linkds, err := database.GetUserLinks(db, user.Id)
 				if err != nil {
-					updaterLogger.WithField("user", user.Title()).Errorln("failed to get links to user:", err)
+					updaterLogger.WithField("user", user.Title()).Warnln("failed to get links to user:", err)
 					continue
 				}
 
 				for _, linkd := range linkds {
 					if err = updateUserLink(linkd, db, upath); err != nil {
-						updaterLogger.WithField("user", user.Title()).Errorln("failed to sync link:", err)
+						updaterLogger.WithField("user", user.Title()).Warnln("failed to sync link:", err)
 					}
 					sl, _ := syncedListUsers.LoadOrStore(int(linkd.ParentLstEntityId), &sync.Map{})
 					syncedList := sl.(*sync.Map)
