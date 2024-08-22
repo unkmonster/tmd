@@ -14,16 +14,14 @@ import (
 )
 
 var db *sqlx.DB
-var dbname = "test.db"
 
-func opendb() *sqlx.DB {
+func opentmpdb() *sqlx.DB {
 	var err error
-	tempdir := os.TempDir()
-	path := filepath.Join(tempdir, dbname)
-	err = os.RemoveAll(path)
+	tmpFile, err := os.CreateTemp("", "")
 	if err != nil {
 		panic(err)
 	}
+	path := tmpFile.Name()
 
 	db, err = sqlx.Connect("sqlite3", fmt.Sprintf("file:%s?_journal_mode=WAL&cache=shared", path))
 
@@ -44,7 +42,7 @@ func generateUser(n int) *User {
 	return usr
 }
 func TestUserOperation(t *testing.T) {
-	db = opendb()
+	db = opentmpdb()
 	defer db.Close()
 
 	n := 100
@@ -127,7 +125,7 @@ func generateList(id int) *Lst {
 }
 
 func TestList(t *testing.T) {
-	db = opendb()
+	db = opentmpdb()
 	defer db.Close()
 	n := 100
 	lsts := make([]*Lst, n)
@@ -192,7 +190,7 @@ func isSameLstRecord(lst *Lst) (bool, error) {
 }
 
 func TestUserEntity(t *testing.T) {
-	db = opendb()
+	db = opentmpdb()
 	defer db.Close()
 	n := 100
 	entities := make([]*UserEntity, n)
@@ -306,7 +304,7 @@ func hasSameUserEntityRecord(entity *UserEntity) (bool, error) {
 }
 
 func TestLstEntity(t *testing.T) {
-	db = opendb()
+	db = opentmpdb()
 	defer db.Close()
 	tempdir := os.TempDir()
 	n := 100
@@ -400,7 +398,7 @@ func hasSameLstEntityRecord(entity *LstEntity) (bool, error) {
 }
 
 func TestLink(t *testing.T) {
-	db = opendb()
+	db = opentmpdb()
 	defer db.Close()
 	n := 100
 	links := make([]*UserLink, n)
@@ -506,7 +504,7 @@ func hasSameUserLinkRecord(link *UserLink) (bool, error) {
 }
 
 func benchmarkUpdateUser(b *testing.B, routines int) {
-	db = opendb()
+	db = opentmpdb()
 	defer db.Close()
 
 	n := 500
