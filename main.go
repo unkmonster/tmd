@@ -125,13 +125,13 @@ type Task struct {
 }
 
 func printTask(task *Task) {
-	fmt.Printf("list task: %d\n", len(task.lists))
-	for _, l := range task.lists {
-		fmt.Printf("    %s\n", l.Title())
-	}
-	fmt.Printf("user task: %d\n", len(task.users))
+	fmt.Printf("users: %d\n", len(task.users))
 	for _, u := range task.users {
-		fmt.Printf("    %s\n", u.Title())
+		fmt.Printf("    - %s\n", u.Title())
+	}
+	fmt.Printf("lists: %d\n", len(task.lists))
+	for _, l := range task.lists {
+		fmt.Printf("    - %s\n", l.Title())
 	}
 }
 
@@ -265,7 +265,7 @@ func main() {
 		log.Println("config done")
 		return
 	}
-
+	log.Infoln("config is loaded")
 	if conf.MaxDownloadRoutine > 0 {
 		downloading.MaxDownloadRoutine = conf.MaxDownloadRoutine
 	}
@@ -293,6 +293,13 @@ func main() {
 	if err != nil {
 		log.Fatalln("failed to load previous tweets", err)
 	}
+	log.Infoln("loaded previous failed tweets:", dumper.Count())
+
+	// collect tasks
+	task, err := MakeTask(ctx, client, usrArgs, listArgs, follArgs)
+	if err != nil {
+		log.Fatalln("failed to parse cmd args:", err)
+	}
 
 	// connect db
 	db, err := connectDatabase(pathHelper.db)
@@ -314,13 +321,6 @@ func main() {
 			cancel()
 		}
 	}()
-
-	// collect tasks
-	task, err := MakeTask(ctx, client, usrArgs, listArgs, follArgs)
-	if err != nil {
-		log.Fatalln("failed to parse cmd args:", err)
-	}
-	printTask(task)
 
 	// retry for failed tweet last run
 	if err = retryFailedTweets(ctx, dumper, db, client); err != nil {
@@ -345,6 +345,9 @@ func main() {
 	}()
 
 	// do job
+	log.Infoln("start working for...")
+	printTask(task)
+
 	if len(task.users) != 0 {
 		todump, err = downloading.BatchUserDownload(ctx, client, db, task.users, pathHelper.users, nil)
 		if err != nil {

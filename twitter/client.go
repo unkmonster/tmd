@@ -23,15 +23,7 @@ const bearer = "AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Z
 var clientScreenNames map[*resty.Client]string = make(map[*resty.Client]string)
 var clientBlockStates map[*resty.Client]*atomic.Bool = make(map[*resty.Client]*atomic.Bool)
 
-func Login(ctx context.Context, authToken string, ct0 string) (*resty.Client, string, error) {
-	client := resty.New()
-
-	// 禁用 logger
-	nullLogger := log.New()
-	nullLogger.SetOutput(io.Discard)
-	client.SetLogger(nullLogger)
-
-	// 鉴权
+func SetClientAuth(client *resty.Client, authToken string, ct0 string) {
 	client.SetAuthToken(bearer)
 	client.SetCookie(&http.Cookie{
 		Name:  "auth_token",
@@ -42,6 +34,18 @@ func Login(ctx context.Context, authToken string, ct0 string) (*resty.Client, st
 		Value: ct0,
 	})
 	client.SetHeader("X-Csrf-Token", ct0)
+}
+
+func Login(ctx context.Context, authToken string, ct0 string) (*resty.Client, string, error) {
+	client := resty.New()
+
+	// 禁用 logger
+	nullLogger := log.New()
+	nullLogger.SetOutput(io.Discard)
+	client.SetLogger(nullLogger)
+
+	// 鉴权
+	SetClientAuth(client, authToken, ct0)
 
 	// 重试
 	client.SetRetryCount(5)
@@ -63,20 +67,13 @@ func Login(ctx context.Context, authToken string, ct0 string) (*resty.Client, st
 		Proxy:                 http.ProxyFromEnvironment,
 	})
 
-	// 验证登录是否有效
-	resp, err := client.R().SetContext(ctx).Get("https://api.x.com/1.1/account/settings.json")
+	screenName, err := GetSelfScreenName(ctx, client)
 	if err != nil {
 		return nil, "", err
 	}
-	if err = utils.CheckRespStatus(resp); err != nil {
-		return nil, "", err
-	}
 
-	// 客户端状态
-	screenName := gjson.GetBytes(resp.Body(), "screen_name").String()
 	clientBlockStates[client] = &atomic.Bool{}
 	clientScreenNames[client] = screenName
-
 	return client, screenName, nil
 }
 
@@ -294,4 +291,15 @@ func EnableRateLimit(client *resty.Client) {
 	client.AddRetryHook(func(resp *resty.Response, err error) {
 		rateLimiter.reset(resp.Request.RawRequest.URL, resp)
 	})
+}
+
+func GetSelfScreenName(ctx context.Context, client *resty.Client) (string, error) {
+	resp, err := client.R().SetContext(ctx).Get("https://api.x.com/1.1/account/settings.json")
+	if err != nil {
+		return "", err
+	}
+	if err := utils.CheckRespStatus(resp); err != nil {
+		return "", err
+	}
+	return gjson.GetBytes(resp.Body(), "screen_name").String(), nil
 }

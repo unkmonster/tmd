@@ -105,9 +105,11 @@ func getTimelineItemContents(ctx context.Context, api timelineApi, client *resty
 	instructions := getInstructions(resp, instPath)
 	entries := getEntries(instructions)
 	moduleItems := getModuleItems(instructions)
+	if !entries.Exists() && !moduleItems.Exists() {
+		panic(fmt.Sprintf("invalid instructions: %s", instructions.String()))
+	}
 
 	itemContents := make([]gjson.Result, 0)
-
 	if entries.IsArray() {
 		for _, entry := range entries.Array() {
 			if entry.Get("content.entryType").String() != "TimelineTimelineCursor" {
@@ -115,13 +117,11 @@ func getTimelineItemContents(ctx context.Context, api timelineApi, client *resty
 			}
 		}
 	}
-
 	if moduleItems.IsArray() {
 		for _, moduleItem := range moduleItems.Array() {
 			itemContents = append(itemContents, getItemContentFromModuleItem(moduleItem))
 		}
 	}
-
 	return itemContents, getNextCursor(entries), nil
 }
 
