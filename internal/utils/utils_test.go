@@ -301,3 +301,19 @@ func compareMaps(a, b map[string]string) bool {
 	}
 	return true
 }
+
+func TestHeap(t *testing.T) {
+	heap := NewHeap[int](func(a, b int) bool { return a < b })
+	nums := []int{1, 3, 0, 9, 2, 0, 1}
+	wants := []int{0, 0, 1, 1, 2, 3, 9}
+	for _, v := range nums {
+		heap.Push(v)
+	}
+
+	for _, want := range wants {
+		if heap.Peek() != want {
+			t.Errorf("heap.peek: %d, want %d", heap.Peek(), want)
+		}
+		heap.Pop()
+	}
+}
