@@ -6,7 +6,6 @@ import (
 
 	"github.com/go-resty/resty/v2"
 	"github.com/tidwall/gjson"
-	"github.com/unkmonster/tmd2/internal/utils"
 )
 
 const (
@@ -90,12 +89,6 @@ func getTimelineResp(ctx context.Context, api timelineApi, client *resty.Client)
 	url := makeUrl(api)
 	resp, err := client.R().SetContext(ctx).Get(url)
 	if err != nil {
-		return nil, err
-	}
-	if err = utils.CheckRespStatus(resp); err != nil {
-		return nil, err
-	}
-	if err = CheckApiResp(resp); err != nil {
 		return nil, err
 	}
 	return resp.Body(), nil

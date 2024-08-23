@@ -284,3 +284,57 @@ func TestGetMember(t *testing.T) {
 // 		return
 // 	}
 // }
+
+func TestApiError(t *testing.T) {
+	resp := `{
+  "errors": [
+    {
+      "message": "Dependency: Unspecified",
+      "locations": [
+        {
+          "line": 12,
+          "column": 11
+        }
+      ],
+      "path": [
+        "user",
+        "result",
+        "timeline_v2",
+        "timeline"
+      ],
+      "extensions": {
+        "name": "DependencyError",
+        "source": "Server",
+        "retry_after": 0,
+        "code": 0,
+        "kind": "Operational",
+        "tracing": {
+          "trace_id": "8110de4fb50877e1"
+        }
+      },
+      "code": 0,
+      "kind": "Operational",
+      "name": "DependencyError",
+      "source": "Server",
+      "retry_after": 0,
+      "tracing": {
+        "trace_id": "8110de4fb50877e1"
+      }
+    }
+  ],
+  "data": {
+    "user": {
+      "result": {
+        "__typename": "User",
+        "timeline_v2": {}
+      }
+    }
+  }
+}`
+
+	err := CheckApiResp([]byte(resp))
+	if err == nil {
+		t.Errorf("err = nil, want TwitterApiError")
+		return
+	}
+}

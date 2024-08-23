@@ -8,7 +8,7 @@ import (
 )
 
 func CheckRespStatus(resp *resty.Response) error {
-	if resp.StatusCode() != 200 {
+	if resp.StatusCode() >= 400 {
 		return &HttpStatusError{Code: resp.StatusCode(), Msg: resp.String()}
 	}
 	return nil
@@ -37,7 +37,7 @@ type HttpStatusError struct {
 }
 
 func (err *HttpStatusError) Error() string {
-	return fmt.Sprintf("%d %s", err.Code, err.Msg)
+	return fmt.Sprintf("HTTP Error: %d %s", err.Code, err.Msg)
 }
 
 func IsStatusCode(err error, code int) bool {
