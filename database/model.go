@@ -2,6 +2,7 @@ package database
 
 import (
 	"database/sql"
+	"fmt"
 	"path/filepath"
 
 	"github.com/jmoiron/sqlx"
@@ -44,17 +45,26 @@ type LstEntity struct {
 }
 
 func (le *LstEntity) Path() string {
+	if le.ParentDir == "" || le.Name == "" {
+		panic("no enough info to get path")
+	}
 	return filepath.Join(le.ParentDir, le.Name)
 }
 
 func (ue *UserEntity) Path() string {
+	if ue.ParentDir == "" || ue.Name == "" {
+		panic("no enough info to get path")
+	}
 	return filepath.Join(ue.ParentDir, ue.Name)
 }
 
 func (ul *UserLink) Path(db *sqlx.DB) (string, error) {
 	le, err := GetLstEntity(db, int(ul.ParentLstEntityId))
-	if err != nil || le == nil {
+	if err != nil {
 		return "", err
+	}
+	if le == nil {
+		return "", fmt.Errorf("parent lst was not exists")
 	}
 
 	return filepath.Join(le.Path(), ul.Name), nil
