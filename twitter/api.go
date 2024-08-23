@@ -3,9 +3,6 @@ package twitter
 import (
 	"fmt"
 	"net/url"
-
-	"github.com/go-resty/resty/v2"
-	"github.com/tidwall/gjson"
 )
 
 const HOST = "https://x.com"
@@ -183,12 +180,4 @@ func (l *likes) QueryParam() url.Values {
 
 func (l *likes) SetCursor(cursor string) {
 	l.cursor = cursor
-}
-
-func CheckApiResp(resp *resty.Response) error {
-	errors := gjson.GetBytes(resp.Body(), "errors")
-	if errors.Exists() {
-		return fmt.Errorf(errors.String())
-	}
-	return nil
 }

@@ -47,19 +47,34 @@ func Login(ctx context.Context, authToken string, ct0 string) (*resty.Client, st
 	// 鉴权
 	SetClientAuth(client, authToken, ct0)
 
+	// 错误检查
+	client.OnAfterResponse(func(c *resty.Client, r *resty.Response) error {
+		if err := CheckApiResp(r.Body()); err != nil {
+			return err
+		}
+		if err := utils.CheckRespStatus(r); err != nil {
+			return err
+		}
+		return nil
+	})
+
 	// 重试
 	client.SetRetryCount(5)
-	client.AddRetryAfterErrorCondition()
 	client.AddRetryCondition(func(r *resty.Response, err error) bool {
-		return !strings.HasSuffix(r.Request.RawRequest.Host, "twimg.com") && err != nil
+		// For TCP Error
+		_, ok := err.(*TwitterApiError)
+		_, ok2 := err.(*utils.HttpStatusError)
+		return !ok && !ok2 && err != nil && !strings.HasSuffix(r.Request.RawRequest.Host, "twimg.com")
 	})
 	client.AddRetryCondition(func(r *resty.Response, err error) bool {
-		// For OverCapacity
-		return r.Request.RawRequest.Host == "x.com" && r.StatusCode() == 400
+		// For Twitter API Error
+		v, ok := err.(*TwitterApiError)
+		return ok && r.Request.RawRequest.Host == "x.com" && (v.Code == ErrTimeout || v.Code == ErrOverCapacity)
 	})
 	client.AddRetryCondition(func(r *resty.Response, err error) bool {
-		// 仅重试 429 Rate Limit Exceed
-		return r.Request.RawRequest.Host == "x.com" && r.StatusCode() == 429 && CheckApiResp(r) == nil
+		// For Http 429
+		v, ok := err.(*utils.HttpStatusError)
+		return ok && r.Request.RawRequest.Host == "x.com" && v.Code == 429
 	})
 
 	client.SetTransport(&http.Transport{

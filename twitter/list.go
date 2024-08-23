@@ -7,7 +7,6 @@ import (
 	"github.com/go-resty/resty/v2"
 	log "github.com/sirupsen/logrus"
 	"github.com/tidwall/gjson"
-	"github.com/unkmonster/tmd2/internal/utils"
 )
 
 type ListBase interface {
@@ -29,11 +28,6 @@ func GetLst(ctx context.Context, client *resty.Client, id uint64) (*List, error)
 	url := makeUrl(&api)
 
 	resp, err := client.R().SetContext(ctx).Get(url)
-	if err != nil {
-		return nil, err
-	}
-
-	err = utils.CheckRespStatus(resp)
 	if err != nil {
 		return nil, err
 	}

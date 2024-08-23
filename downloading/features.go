@@ -55,9 +55,6 @@ func downloadTweetMedia(ctx context.Context, client *resty.Client, dir string, t
 		if err != nil {
 			return err
 		}
-		if err := utils.CheckRespStatus(resp); err != nil {
-			return err
-		}
 
 		mutex.Lock()
 		path, err := utils.UniquePath(filepath.Join(dir, text+ext))
@@ -501,11 +498,11 @@ func BatchUserDownload(ctx context.Context, client *resty.Client, db *sqlx.DB, u
 
 			user := uidToUser[entity.Uid()]
 			tweets, err := user.GetMeidas(ctx, client, &utils.TimeRange{Min: entity.LatestReleaseTime()})
-			if utils.IsStatusCode(err, 429) {
-				// json 版本的响应 {"errors":[{"code":88,"message":"Rate limit exceeded."}]} 代表达到看帖上限
-				// text 版本的响应 Rate limit exceeded. 代表暂时达到速率限制
-				v := err.(*utils.HttpStatusError)
-				if v.Msg[0] == '{' && v.Msg[len(v.Msg)-1] == '}' {
+			if v, ok := err.(*twitter.TwitterApiError); ok {
+				if v.Code == twitter.ErrDependency {
+					cancel(fmt.Errorf("maybe account is locked"))
+					continue
+				} else if v.Code == twitter.ErrExceedPostLimit {
 					cancel(fmt.Errorf("reached the limit for seeing posts today"))
 					continue
 				}

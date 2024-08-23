@@ -373,7 +373,7 @@ func connectDatabase(path string) (*sqlx.DB, error) {
 		return nil, err
 	}
 
-	dsn := fmt.Sprintf("file:%s?cache=shared&_journal_mode=WAL&busy_timeout=10000", path)
+	dsn := fmt.Sprintf("file:%s?cache=shared&_journal_mode=WAL&busy_timeout=100000", path)
 	db, err := sqlx.Connect("sqlite3", dsn)
 	if err != nil {
 		return nil, err

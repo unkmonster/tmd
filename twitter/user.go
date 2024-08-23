@@ -54,9 +54,6 @@ func getUser(ctx context.Context, client *resty.Client, url string) (*User, erro
 	if err != nil {
 		return nil, err
 	}
-	if err := utils.CheckRespStatus(resp); err != nil {
-		return nil, err
-	}
 	return parseRespJson(resp.Body())
 }
 
