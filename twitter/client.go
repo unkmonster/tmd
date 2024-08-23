@@ -54,8 +54,12 @@ func Login(ctx context.Context, authToken string, ct0 string) (*resty.Client, st
 		return !strings.HasSuffix(r.Request.RawRequest.Host, "twimg.com") && err != nil
 	})
 	client.AddRetryCondition(func(r *resty.Response, err error) bool {
-		// For OverCapacity, Rate Limit Exceed
-		return r.Request.RawRequest.Host == "x.com" && (r.StatusCode() == 400 || r.StatusCode() == 429)
+		// For OverCapacity
+		return r.Request.RawRequest.Host == "x.com" && r.StatusCode() == 400
+	})
+	client.AddRetryCondition(func(r *resty.Response, err error) bool {
+		// 仅重试 429 Rate Limit Exceed
+		return r.Request.RawRequest.Host == "x.com" && r.StatusCode() == 429 && CheckApiResp(r) == nil
 	})
 
 	client.SetTransport(&http.Transport{
