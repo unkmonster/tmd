@@ -57,7 +57,11 @@ func getNextCursor(entries gjson.Result) string {
 }
 
 func getItemContentFromModuleItem(moduleItem gjson.Result) gjson.Result {
-	return moduleItem.Get("item.itemContent")
+	res := moduleItem.Get("item.itemContent")
+	if !res.Exists() {
+		panic(fmt.Errorf("invalid ModuleItem: %s", moduleItem.String()))
+	}
+	return res
 }
 
 func getItemContentsFromEntry(entry gjson.Result) []gjson.Result {

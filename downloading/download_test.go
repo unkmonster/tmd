@@ -80,6 +80,8 @@ func TestUserEntity(t *testing.T) {
 		t.Errorf("recorded time: %v, want %v", record.LatestReleaseTime.Time, now)
 	}
 
+	// remove
+	eid := ue.Id()
 	if err := ue.Remove(); err != nil {
 		t.Error(err)
 		return
@@ -94,7 +96,7 @@ func TestUserEntity(t *testing.T) {
 		t.Errorf("dir is exist after remove")
 	}
 
-	record, err = database.GetUserEntity(db, ue.Id())
+	record, err = database.GetUserEntity(db, eid)
 	if err != nil {
 		t.Error(err)
 		return
@@ -124,6 +126,8 @@ func TestListEntity(t *testing.T) {
 	os.RemoveAll(filepath.Join(tempdir, name))
 	le := testSyncList(t, name, uid, tempdir, true)
 
+	// remove
+	eid := le.Id()
 	if err := le.Remove(); err != nil {
 		t.Error(err)
 		return
@@ -138,7 +142,7 @@ func TestListEntity(t *testing.T) {
 		t.Errorf("dir is exist after remove")
 	}
 
-	record, err := database.GetLstEntity(db, le.Id())
+	record, err := database.GetLstEntity(db, eid)
 	if err != nil {
 		t.Error(err)
 		return

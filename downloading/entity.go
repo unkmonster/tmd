@@ -1,6 +1,7 @@
 package downloading
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"time"
@@ -12,19 +13,17 @@ import (
 // 路径Plus
 type SmartPath interface {
 	Path() (string, error)
-	Create() error
+	Create(name string) error
 	Rename(string) error
 	Remove() error
 	Name() string
-	SetName(name string)
 	Id() int
 	Recorded() bool
 }
 
 func syncPath(path SmartPath, expectedName string) error {
 	if !path.Recorded() {
-		path.SetName(expectedName)
-		return path.Create()
+		return path.Create(expectedName)
 	}
 
 	if path.Name() != expectedName {
@@ -60,7 +59,8 @@ func NewUserEntity(db *sqlx.DB, uid uint64, parentDir string) (*UserEntity, erro
 	return &UserEntity{record: record, db: db, created: created}, nil
 }
 
-func (ue *UserEntity) Create() error {
+func (ue *UserEntity) Create(name string) error {
+	ue.record.Name = name
 	path, _ := ue.Path()
 	if err := os.MkdirAll(path, 0755); err != nil {
 		return err
@@ -87,6 +87,10 @@ func (ue *UserEntity) Remove() error {
 }
 
 func (ue *UserEntity) Rename(title string) error {
+	if !ue.created {
+		return fmt.Errorf("user entity [%s:%d] was not created", ue.record.ParentDir, ue.record.Uid)
+	}
+
 	old, _ := ue.Path()
 	newPath := filepath.Join(filepath.Dir(old), title)
 
@@ -107,22 +111,30 @@ func (ue *UserEntity) Path() (string, error) {
 }
 
 func (ue *UserEntity) Name() string {
+	if ue.record.Name == "" {
+		panic(fmt.Errorf("the name of user entity [%s:%d] was unset", ue.record.ParentDir, ue.record.Uid))
+	}
 	return ue.record.Name
 }
 
-func (ue *UserEntity) SetName(name string) {
-	ue.record.Name = name
-}
-
 func (ue *UserEntity) Id() int {
+	if !ue.created {
+		panic(fmt.Sprintf("user entity [%s:%d] was not created", ue.record.ParentDir, ue.record.Uid))
+	}
 	return int(ue.record.Id.Int32)
 }
 
 func (ue *UserEntity) LatestReleaseTime() time.Time {
+	if !ue.created {
+		panic(fmt.Sprintf("user entity [%s:%d] was not created", ue.record.ParentDir, ue.record.Uid))
+	}
 	return ue.record.LatestReleaseTime.Time
 }
 
 func (ue *UserEntity) SetLatestReleaseTime(t time.Time) error {
+	if !ue.created {
+		return fmt.Errorf("user entity [%s:%d] was not created", ue.record.ParentDir, ue.record.Uid)
+	}
 	err := database.SetUserEntityLatestReleaseTime(ue.db, int(ue.record.Id.Int32), t)
 	if err == nil {
 		ue.record.LatestReleaseTime.Scan(t)
@@ -159,11 +171,13 @@ func NewListEntity(db *sqlx.DB, lid int64, parentDir string) (*ListEntity, error
 	return &ListEntity{record: record, db: db, created: created}, nil
 }
 
-func (le *ListEntity) Create() error {
+func (le *ListEntity) Create(name string) error {
+	le.record.Name = name
 	path, _ := le.Path()
 	if err := os.MkdirAll(path, 0755); err != nil {
 		return nil
 	}
+
 	if err := database.CreateLstEntity(le.db, le.record); err != nil {
 		return err
 	}
@@ -172,6 +186,10 @@ func (le *ListEntity) Create() error {
 }
 
 func (le *ListEntity) Remove() error {
+	if !le.created {
+		return fmt.Errorf("list entity [%s:%d] was not created", le.record.ParentDir, le.record.LstId)
+	}
+
 	path, _ := le.Path()
 	if err := os.RemoveAll(path); err != nil {
 		return err
@@ -183,8 +201,12 @@ func (le *ListEntity) Remove() error {
 	return nil
 }
 
-func (ue *ListEntity) Rename(title string) error {
-	path, _ := ue.Path()
+func (le *ListEntity) Rename(title string) error {
+	if !le.created {
+		return fmt.Errorf("list entity [%s:%d] was not created", le.record.ParentDir, le.record.LstId)
+	}
+
+	path, _ := le.Path()
 	newPath := filepath.Join(filepath.Dir(path), title)
 	err := os.Rename(path, newPath)
 	if os.IsNotExist(err) {
@@ -194,23 +216,27 @@ func (ue *ListEntity) Rename(title string) error {
 		return err
 	}
 
-	ue.record.Name = title
-	return database.UpdateLstEntity(ue.db, ue.record)
+	le.record.Name = title
+	return database.UpdateLstEntity(le.db, le.record)
 }
 
-func (ue *ListEntity) Path() (string, error) {
-	return ue.record.Path(), nil
+func (le *ListEntity) Path() (string, error) {
+	return le.record.Path(), nil
 }
 
-func (ue ListEntity) Name() string {
-	return ue.record.Name
-}
+func (le ListEntity) Name() string {
+	if le.record.Name == "" {
+		panic(fmt.Sprintf("the name of list entity [%s:%d] was unset", le.record.ParentDir, le.record.LstId))
+	}
 
-func (ue *ListEntity) SetName(name string) {
-	ue.record.Name = name
+	return le.record.Name
 }
 
 func (le *ListEntity) Id() int {
+	if !le.created {
+		panic(fmt.Sprintf("list entity [%s:%d] was not created", le.record.ParentDir, le.record.LstId))
+	}
+
 	return int(le.record.Id.Int32)
 }
 
