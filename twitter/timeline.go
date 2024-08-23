@@ -95,7 +95,9 @@ func getTimelineResp(ctx context.Context, api timelineApi, client *resty.Client)
 	if err = utils.CheckRespStatus(resp); err != nil {
 		return nil, err
 	}
-
+	if err = CheckApiResp(resp); err != nil {
+		return nil, err
+	}
 	return resp.Body(), nil
 }
 
