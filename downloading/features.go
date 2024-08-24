@@ -499,11 +499,11 @@ func BatchUserDownload(ctx context.Context, client *resty.Client, db *sqlx.DB, u
 			user := uidToUser[entity.Uid()]
 			tweets, err := user.GetMeidas(ctx, client, &utils.TimeRange{Min: entity.LatestReleaseTime()})
 			if v, ok := err.(*twitter.TwitterApiError); ok {
-				if v.Code == twitter.ErrDependency {
-					cancel(fmt.Errorf("maybe account is locked"))
-					continue
-				} else if v.Code == twitter.ErrExceedPostLimit {
+				if v.Code == twitter.ErrExceedPostLimit {
 					cancel(fmt.Errorf("reached the limit for seeing posts today"))
+					continue
+				} else if v.Code == twitter.ErrAccountLocked {
+					cancel(fmt.Errorf("account is locked"))
 					continue
 				}
 			}
