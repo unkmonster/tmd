@@ -69,7 +69,7 @@ func Login(ctx context.Context, authToken string, ct0 string) (*resty.Client, st
 	client.AddRetryCondition(func(r *resty.Response, err error) bool {
 		// For Twitter API Error
 		v, ok := err.(*TwitterApiError)
-		return ok && r.Request.RawRequest.Host == "x.com" && (v.Code == ErrTimeout || v.Code == ErrOverCapacity)
+		return ok && r.Request.RawRequest.Host == "x.com" && (v.Code == ErrTimeout || v.Code == ErrOverCapacity || v.Code == ErrDependency)
 	})
 	client.AddRetryCondition(func(r *resty.Response, err error) bool {
 		// For Http 429

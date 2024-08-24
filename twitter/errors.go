@@ -9,6 +9,7 @@ const (
 	ErrDependency      = 0
 	ErrExceedPostLimit = 88
 	ErrOverCapacity    = 130
+	ErrAccountLocked   = 326
 )
 
 func CheckApiResp(body []byte) error {
