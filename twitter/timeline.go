@@ -101,6 +101,10 @@ func getTimelineItemContents(ctx context.Context, api timelineApi, client *resty
 		return nil, "", err
 	}
 
+	// Protected User's following: Permission denied
+	if string(resp) == "{\"data\":{\"user\":{}}}" {
+		return nil, "", nil
+	}
 	instructions := getInstructions(resp, instPath)
 	entries := getEntries(instructions)
 	moduleItems := getModuleItems(instructions)

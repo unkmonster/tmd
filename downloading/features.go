@@ -7,12 +7,12 @@ import (
 	"path/filepath"
 	"runtime"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/go-resty/resty/v2"
 	"github.com/gookit/color"
 	"github.com/jmoiron/sqlx"
+	"github.com/panjf2000/ants/v2"
 	log "github.com/sirupsen/logrus"
 	"github.com/unkmonster/tmd2/database"
 	"github.com/unkmonster/tmd2/internal/utils"
@@ -92,43 +92,9 @@ func init() {
 	MaxDownloadRoutine = runtime.GOMAXPROCS(0) * 8
 }
 
-type balanceLoader struct {
-	activeRoutines int
-	maxRoutines    int
-	routine        func()
-	shouldNotify   func() bool
-	requests       chan struct{}
-}
-
-func newBalanceLoader(activeRoutines int, maxRoutines int, routine func(), shouldNotify func() bool) *balanceLoader {
-	bl := balanceLoader{}
-	bl.activeRoutines = activeRoutines
-	bl.maxRoutines = maxRoutines
-	bl.routine = routine
-	bl.shouldNotify = shouldNotify
-	bl.requests = make(chan struct{})
-	return &bl
-}
-
-func (bl *balanceLoader) do() {
-	if bl.activeRoutines < bl.maxRoutines {
-		//color.Debug.Tips("[Balance Loader] launched a new goroutine %d", bl.activeRoutines+1)
-		go bl.routine()
-		bl.activeRoutines++
-	}
-}
-
-func (bl *balanceLoader) notify() {
-	select {
-	case bl.requests <- struct{}{}:
-	default:
-	}
-}
-
 type workerConfig struct {
 	ctx    context.Context
 	wg     *sync.WaitGroup
-	bl     *balanceLoader
 	cancel context.CancelCauseFunc
 }
 
@@ -159,11 +125,6 @@ func tweetDownloader(client *resty.Client, config *workerConfig, errch chan<- Pa
 			if !ok {
 				return
 			}
-		case <-time.After(150 * time.Millisecond):
-			if config.bl != nil && config.bl.shouldNotify() {
-				config.bl.notify()
-			}
-			continue
 		case <-config.ctx.Done():
 			for pt := range twech {
 				errch <- pt
@@ -203,7 +164,6 @@ func BatchDownloadTweet(ctx context.Context, client *resty.Client, pts ...Packge
 
 	config := workerConfig{
 		ctx:    ctx,
-		bl:     nil,
 		cancel: cancel,
 		wg:     &wg,
 	}
@@ -334,48 +294,56 @@ func (pt TweetInEntity) GetPath() string {
 	return path
 }
 
-const userTweetApiLimit = 500
+const userTweetRateLimit = 500
 
 // var syncedListUsers = make(map[uint64]map[int64]struct{})
 var syncedListUsers sync.Map //leid -> uid -> struct{}
+
+// 需要请求多少次时间线才能获取完毕用户的推文？
+func calcUserDepth(exist int, total int) int {
+	if exist >= total {
+		return 1
+	}
+
+	miss := total - exist
+	depth := miss / twitter.AvgTweetsPerPage
+	if miss%twitter.AvgTweetsPerPage != 0 {
+		depth++
+	}
+	if exist == 0 {
+		depth++ //对于新用户，需要多获取一个空页
+	}
+	return depth
+}
 
 func BatchUserDownload(ctx context.Context, client *resty.Client, db *sqlx.DB, users []*twitter.User, dir string, listEntityId *int) ([]*TweetInEntity, error) {
 	if len(users) == 0 {
 		return nil, nil
 	}
 
-	utils.Shuffle(users)
 	uidToUser := make(map[uint64]*twitter.User)
-	userChan := make(chan *twitter.User, len(users))
 	for _, u := range users {
+		// 忽略阻塞/静音用户
 		if u.Blocking || u.Muting {
 			continue
 		}
-
-		userChan <- u
 		uidToUser[u.Id] = u
 	}
-	close(userChan)
+	if len(uidToUser) == 0 {
+		return nil, nil
+	}
 
-	numUsers := len(userChan)
-
-	// num of worker
-	getterCount := min(numUsers, MaxDownloadRoutine/3)
-	getterCount = min(userTweetApiLimit, getterCount)
-	getterCount = max(1, getterCount) // 确保至少有一个 getting worker
 	// channels
-	entityChan := make(chan *UserEntity, numUsers)
 	tweetChan := make(chan PackgedTweet, MaxDownloadRoutine)
 	errChan := make(chan PackgedTweet)
 	// WG
-	updaterWg := sync.WaitGroup{}
-	getterWg := sync.WaitGroup{}
-	downloaderWg := sync.WaitGroup{}
+	prodwg := sync.WaitGroup{}
+	conswg := sync.WaitGroup{}
 	// ctx
 	ctx, cancel := context.WithCancelCause(ctx)
 	defer cancel(nil)
 	// logger
-	updaterLogger := log.WithField("worker", "sync")
+	updaterLogger := log.WithField("worker", "updating")
 	getterLogger := log.WithField("worker", "getting")
 
 	panicHandler := func() {
@@ -384,23 +352,18 @@ func BatchUserDownload(ctx context.Context, client *resty.Client, db *sqlx.DB, u
 		}
 	}
 
-	userUpdater := func() {
-		defer updaterWg.Done()
+	missingTweets := 0
+	DepthByEntity := make(map[*UserEntity]int)
+	// 大顶堆，以用户深度
+	userEntityHeap := utils.NewHeap(func(lhs, rhs *UserEntity) bool {
+		return DepthByEntity[lhs] > DepthByEntity[rhs]
+	})
+
+	// pre-process
+	func() {
 		defer panicHandler()
 
-		var user *twitter.User
-		var ok bool
-
-		for {
-			select {
-			case user, ok = <-userChan:
-				if !ok {
-					return
-				}
-			case <-ctx.Done():
-				return
-			}
-
+		for _, user := range uidToUser {
 			var pathEntity *UserEntity
 			var err error
 
@@ -408,16 +371,10 @@ func BatchUserDownload(ctx context.Context, client *resty.Client, db *sqlx.DB, u
 			if !loaded {
 				pathEntity, err = syncUserAndEntity(db, user, dir)
 				if err != nil {
-					log.WithField("worker", "sync").Warnln("failed to sync user or entity", err)
+					updaterLogger.WithField("user", user.Title()).Warnln("failed to update user or entity", err)
 					continue
 				}
 				syncedUsers.Store(user.Id, pathEntity)
-
-				select {
-				case entityChan <- pathEntity:
-				case <-ctx.Done():
-					return
-				}
 
 				// 同步所有现存的指向此用户的符号链接
 				upath, _ := pathEntity.Path()
@@ -429,16 +386,24 @@ func BatchUserDownload(ctx context.Context, client *resty.Client, db *sqlx.DB, u
 
 				for _, linkd := range linkds {
 					if err = updateUserLink(linkd, db, upath); err != nil {
-						updaterLogger.WithField("user", user.Title()).Warnln("failed to sync link:", err)
+						updaterLogger.WithField("user", user.Title()).Warnln("failed to update link:", err)
 					}
 					sl, _ := syncedListUsers.LoadOrStore(int(linkd.ParentLstEntityId), &sync.Map{})
 					syncedList := sl.(*sync.Map)
 					syncedList.Store(user.Id, struct{}{})
 				}
 
+				if user.MediaCount == 0 || !user.IsVisiable() {
+					continue //到这一步结束，无需获取时间线
+				}
+				// 计算深度
+				missingTweets += max(0, user.MediaCount-int(pathEntity.record.MediaCount.Int32))
+				DepthByEntity[pathEntity] = calcUserDepth(int(pathEntity.record.MediaCount.Int32), user.MediaCount)
+
+				userEntityHeap.Push(pathEntity)
 			} else {
 				pathEntity = pe.(*UserEntity)
-				log.WithField("user", user.Title()).Debugln("skiped synced user")
+				log.WithField("user", user.Title()).Debugln("skiped updated user")
 			}
 
 			// 即便同步一个用户时也同步了所有指向此用户的链接，
@@ -473,128 +438,109 @@ func BatchUserDownload(ctx context.Context, client *resty.Client, db *sqlx.DB, u
 				updaterLogger.WithField("user", user.Title()).Warnln("failed to create link for user:", err)
 			}
 		}
+	}()
+
+	if userEntityHeap.Empty() {
+		return nil, nil
 	}
+	log.Debugln("real members:", userEntityHeap.Size())
+	log.Debugln("missing tweets:", missingTweets)
 
-	// 首批推文推送至 tweet chan 时调用，意味流水线已启动
-	startedDownload := &atomic.Bool{}
-	triggerStart := sync.OnceFunc(func() { startedDownload.Store(true) })
-
-	tweetGetter := func() {
-		defer getterWg.Done()
+	producer := func(entity *UserEntity) {
+		defer prodwg.Done()
 		defer panicHandler()
 
-		var entity *UserEntity
-		var ok bool
-
-		for {
-			select {
-			case <-ctx.Done():
+		user := uidToUser[entity.Uid()]
+		tweets, err := user.GetMeidas(ctx, client, &utils.TimeRange{Min: entity.LatestReleaseTime()})
+		if v, ok := err.(*twitter.TwitterApiError); ok {
+			// 致命错误：取消上下文
+			if v.Code == twitter.ErrExceedPostLimit {
+				cancel(fmt.Errorf("reached the limit for seeing posts today"))
 				return
-			case entity, ok = <-entityChan:
-				if !ok {
-					return
-				}
+			} else if v.Code == twitter.ErrAccountLocked {
+				cancel(fmt.Errorf("account is locked"))
+				return
 			}
+		}
+		if ctx.Err() != nil {
+			return
+		}
+		if err != nil {
+			getterLogger.WithField("user", entity.Name()).Warnln("failed to get user medias:", err)
+			return
+		}
+		if len(tweets) == 0 {
+			return
+		}
 
-			user := uidToUser[entity.Uid()]
-			tweets, err := user.GetMeidas(ctx, client, &utils.TimeRange{Min: entity.LatestReleaseTime()})
-			if v, ok := err.(*twitter.TwitterApiError); ok {
-				if v.Code == twitter.ErrExceedPostLimit {
-					cancel(fmt.Errorf("reached the limit for seeing posts today"))
-					continue
-				} else if v.Code == twitter.ErrAccountLocked {
-					cancel(fmt.Errorf("account is locked"))
-					continue
-				}
+		// 确保该用户所有推文已推送并更新用户推文状态
+		for _, tw := range tweets {
+			pt := TweetInEntity{Tweet: tw, Entity: entity}
+			select {
+			case tweetChan <- &pt:
+			case <-ctx.Done():
+				return // 防止无消费者导致死锁
 			}
-			if ctx.Err() != nil {
-				continue
-			}
-			if err != nil {
-				getterLogger.WithField("user", entity.Name()).Warnln("failed to get user medias:", err)
-				continue
-			}
-			if len(tweets) == 0 {
-				continue
-			}
+		}
 
-			// 确保该用户所有推文已推送并更新用户的最新发布时间
-			for _, tw := range tweets {
-				pt := TweetInEntity{Tweet: tw, Entity: entity}
-				select {
-				case tweetChan <- &pt:
-				case <-ctx.Done():
-					return // 防止无消费者导致死锁
-				}
-			}
-
-			if err := entity.SetLatestReleaseTime(tweets[0].CreatedAt); err != nil {
-				// 影响程序的正确性，必须 Panic
-				getterLogger.WithField("user", entity.Name()).Panicln("failed to set latest release time for user:", err)
-			}
-
-			triggerStart()
+		if err := database.UpdateUserEntityTweetStat(db, entity.Id(), tweets[0].CreatedAt, uidToUser[entity.Uid()].MediaCount); err != nil {
+			// 影响程序的正确性，必须 Panic
+			getterLogger.WithField("user", entity.Name()).Panicln("failed to update user tweets stat:", err)
 		}
 	}
 
-	// launch all worker
-	start := time.Now()
-
-	updaterWg.Add(1)
-	go userUpdater() // only 1 updating worker required
-
-	for i := 0; i < getterCount; i++ {
-		getterWg.Add(1)
-		go tweetGetter()
-	}
-
-	// downloader config
-	newUpstream := func() {
-		getterWg.Add(1)
-		tweetGetter()
-	}
-	bl := newBalanceLoader(getterCount, min(userTweetApiLimit, numUsers), newUpstream, func() bool {
-		return !twitter.GetClientBlockState(client) && startedDownload.Load()
-	})
+	// launch worker
 	config := workerConfig{
 		ctx:    ctx,
-		bl:     bl,
-		wg:     &downloaderWg,
+		wg:     &conswg,
 		cancel: cancel,
 	}
 	for i := 0; i < MaxDownloadRoutine; i++ {
-		downloaderWg.Add(1)
+		conswg.Add(1)
 		go tweetDownloader(client, &config, errChan, tweetChan)
+	}
+
+	producerPool, err := ants.NewPool(min(userTweetRateLimit, userEntityHeap.Size()))
+	if err != nil {
+		return nil, err
 	}
 
 	//closer
 	go func() {
-		updaterWg.Wait()
-		close(entityChan)
-		updaterLogger.WithField("elapsed", time.Since(start)).Debugln("shutdown")
+		// 按批次调用生产者
+		for !userEntityHeap.Empty() && ctx.Err() == nil {
+			for count := 0; count < userTweetRateLimit && ctx.Err() == nil; {
+				if userEntityHeap.Empty() {
+					break
+				}
 
-		getterWg.Wait()
+				entity := userEntityHeap.Peek()
+				depth := DepthByEntity[entity]
+				if depth+count > userTweetRateLimit {
+					break
+				}
+
+				prodwg.Add(1)
+				producerPool.Submit(func() {
+					producer(entity)
+				})
+				count += depth
+				delete(DepthByEntity, entity)
+				userEntityHeap.Pop()
+			}
+			prodwg.Wait()
+		}
 		close(tweetChan)
-		getterLogger.WithField("elapsed", time.Since(start)).Debugln("shutdown")
 
-		downloaderWg.Wait()
+		conswg.Wait()
 		close(errChan)
 	}()
 
 	fails := []*TweetInEntity{}
-
-	for {
-		select {
-		case pt, ok := <-errChan:
-			if !ok {
-				// errch 已关闭，退出循环
-				return fails, context.Cause(ctx)
-			}
-			fails = append(fails, pt.(*TweetInEntity))
-		case <-bl.requests:
-			bl.do()
-		}
+	for pt := range errChan {
+		fails = append(fails, pt.(*TweetInEntity))
 	}
+	return fails, context.Cause(ctx)
 }
 
 func downloadList(ctx context.Context, client *resty.Client, db *sqlx.DB, list twitter.ListBase, dir string, realDir string) ([]*TweetInEntity, error) {

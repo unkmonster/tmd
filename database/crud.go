@@ -53,6 +53,7 @@ CREATE TABLE IF NOT EXISTS user_entities (
 	name VARCHAR NOT NULL, 
 	latest_release_time DATETIME, 
 	parent_dir VARCHAR COLLATE NOCASE NOT NULL, 
+	media_count INTEGER,
 	PRIMARY KEY (id), 
 	UNIQUE (user_id, parent_dir), 
 	FOREIGN KEY(user_id) REFERENCES users (id)
@@ -167,8 +168,14 @@ func GetUserEntity(db *sqlx.DB, id int) (*UserEntity, error) {
 }
 
 func UpdateUserEntity(db *sqlx.DB, entity *UserEntity) error {
-	stmt := `UPDATE user_entities SET name=?, latest_release_time=? WHERE id=?`
-	_, err := db.Exec(stmt, entity.Name, entity.LatestReleaseTime, entity.Id)
+	stmt := `UPDATE user_entities SET name=?, latest_release_time=?, media_count=? WHERE id=?`
+	_, err := db.Exec(stmt, entity.Name, entity.LatestReleaseTime, entity.MediaCount, entity.Id)
+	return err
+}
+
+func UpdateUserEntityTweetStat(db *sqlx.DB, eid int, baseline time.Time, count int) error {
+	stmt := `UPDATE user_entities SET latest_release_time=?, media_count=? WHERE id=?`
+	_, err := db.Exec(stmt, baseline, count, eid)
 	return err
 }
 

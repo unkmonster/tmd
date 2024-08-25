@@ -242,10 +242,11 @@ func TestUserEntity(t *testing.T) {
 
 		// latest release time
 		now := time.Now()
-		if err = SetUserEntityLatestReleaseTime(db, int(entity.Id.Int32), now); err != nil {
+		if err = UpdateUserEntityTweetStat(db, int(entity.Id.Int32), now, 25); err != nil {
 			t.Error(err)
 			return
 		}
+		entity.MediaCount.Scan(25)
 
 		// locate
 		record, err := LocateUserEntity(db, entity.Uid, tempDir)

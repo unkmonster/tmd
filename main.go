@@ -283,9 +283,9 @@ func main() {
 	}
 	twitter.EnableRateLimit(client)
 	log.Infoln("signed in as:", color.FgLightBlue.Render(screenName))
-	if dbg {
-		client.SetLogger(log.WithField("client", "resty"))
-	}
+	// if dbg {
+	// 	client.SetLogger(log.WithField("client", "resty"))
+	// }
 
 	// load previous tweets
 	dumper := downloading.NewDumper()

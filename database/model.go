@@ -22,6 +22,7 @@ type UserEntity struct {
 	Name              string        `db:"name"`
 	LatestReleaseTime sql.NullTime  `db:"latest_release_time"`
 	ParentDir         string        `db:"parent_dir"`
+	MediaCount        sql.NullInt32 `db:"media_count"`
 }
 
 type UserLink struct {

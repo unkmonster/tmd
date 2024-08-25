@@ -31,14 +31,14 @@ func (hp *Heap[T]) Push(val T) {
 	defer hp.mtx.Unlock()
 
 	hp.data = append(hp.data, val)
-	hp.siftUp(hp.Size() - 1)
+	hp.siftUp(len(hp.data) - 1)
 }
 
 func (hp *Heap[T]) Pop() {
 	hp.mtx.Lock()
 	defer hp.mtx.Unlock()
 
-	n := hp.Size()
+	n := len(hp.data)
 	if n == 0 {
 		panic("heap is empty")
 	}
@@ -52,7 +52,7 @@ func (hp *Heap[T]) Peek() T {
 	hp.mtx.Lock()
 	defer hp.mtx.Unlock()
 
-	if hp.Size() == 0 {
+	if len(hp.data) == 0 {
 		panic("heap is empty")
 	}
 	return hp.data[0]
@@ -104,10 +104,10 @@ func (hp *Heap[T]) siftDown(i int) {
 	for {
 		min := i
 		left, right := hp.left(i), hp.right(i)
-		if left < hp.Size() && hp.less(hp.data[left], hp.data[min]) {
+		if left < len(hp.data) && hp.less(hp.data[left], hp.data[min]) {
 			min = left
 		}
-		if right < hp.Size() && hp.less(hp.data[right], hp.data[min]) {
+		if right < len(hp.data) && hp.less(hp.data[right], hp.data[min]) {
 			min = right
 		}
 

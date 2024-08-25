@@ -37,6 +37,9 @@ func GetLst(ctx context.Context, client *resty.Client, id uint64) (*List, error)
 }
 
 func parseList(list *gjson.Result) (*List, error) {
+	if !list.Exists() {
+		return nil, fmt.Errorf("the list doesn't exist")
+	}
 	user_results := list.Get("user_results")
 	creator, err := parseUserResults(&user_results)
 	if err != nil {

@@ -6,6 +6,7 @@ import (
 )
 
 const HOST = "https://x.com"
+const AvgTweetsPerPage = 70
 
 type api interface {
 	Path() string
