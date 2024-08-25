@@ -367,6 +367,7 @@ func BatchUserDownload(ctx context.Context, client *resty.Client, db *sqlx.DB, u
 	// pre-process
 	func() {
 		defer panicHandler()
+		log.Debugln("start pre processing users")
 
 		for _, userInLST := range uidToUser {
 			var pathEntity *UserEntity
@@ -557,6 +558,7 @@ func BatchUserDownload(ctx context.Context, client *resty.Client, db *sqlx.DB, u
 	for pt := range errChan {
 		fails = append(fails, pt.(*TweetInEntity))
 	}
+	log.Debugf("%d users unable to start", userEntityHeap.Size())
 	return fails, context.Cause(ctx)
 }
 
@@ -606,6 +608,7 @@ func DownloadList(ctx context.Context, client *resty.Client, db *sqlx.DB, list t
 }
 
 func BatchDownloadAny(ctx context.Context, client *resty.Client, db *sqlx.DB, lists []twitter.ListBase, users []*twitter.User, dir string, realDir string) ([]*TweetInEntity, error) {
+	log.Debugln("start collecting users")
 	packgedUsers := make([]userInLstEntity, 0)
 
 	for _, lst := range lists {
@@ -644,5 +647,6 @@ func BatchDownloadAny(ctx context.Context, client *resty.Client, db *sqlx.DB, li
 	for _, usr := range users {
 		packgedUsers = append(packgedUsers, userInLstEntity{user: usr, leid: nil})
 	}
+	log.Debugln("collected users:", len(packgedUsers))
 	return BatchUserDownload(ctx, client, db, packgedUsers, realDir)
 }

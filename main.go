@@ -333,7 +333,8 @@ func main() {
 		for _, te := range todump {
 			dumper.Push(te.Entity.Id(), te.Tweet)
 		}
-		if ctx.Err() == nil {
+		// 如果手动取消，不尝试重试，快速终止进程
+		if ctx.Err() != context.Canceled {
 			retryFailedTweets(ctx, dumper, db, client)
 		}
 	}()
@@ -347,7 +348,7 @@ func main() {
 
 	todump, err = downloading.BatchDownloadAny(ctx, client, db, task.lists, task.users, pathHelper.root, pathHelper.users)
 	if err != nil {
-		log.Errorln("failed to download lists:", err)
+		log.Errorln("failed to download:", err)
 	}
 }
 
