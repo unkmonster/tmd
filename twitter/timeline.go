@@ -101,6 +101,7 @@ func getTimelineItemContents(ctx context.Context, api timelineApi, client *resty
 		return nil, "", err
 	}
 
+	// is temporarily unavailable because it violates the Twitter Media Policy.
 	// Protected User's following: Permission denied
 	if string(resp) == "{\"data\":{\"user\":{}}}" {
 		return nil, "", nil

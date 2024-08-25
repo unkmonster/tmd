@@ -339,25 +339,15 @@ func main() {
 	}()
 
 	// do job
+	if len(task.users) == 0 && len(task.lists) == 0 {
+		return
+	}
 	log.Infoln("start working for...")
 	printTask(task)
 
-	if len(task.users) != 0 {
-		todump, err = downloading.BatchUserDownload(ctx, client, db, task.users, pathHelper.users, nil)
-		if err != nil {
-			log.Errorln("failed to download users:", err)
-			return
-		}
-	}
-
-	for _, list := range task.lists {
-		log.Debugln(list.Title())
-		fails, err := downloading.DownloadList(ctx, client, db, list, pathHelper.root, pathHelper.users)
-		todump = append(todump, fails...)
-		if err != nil {
-			log.WithField("list", list.Title()).Errorln("failed to download list:", err)
-			return
-		}
+	todump, err = downloading.BatchDownloadAny(ctx, client, db, task.lists, task.users, pathHelper.root, pathHelper.users)
+	if err != nil {
+		log.Errorln("failed to download lists:", err)
 	}
 }
 
@@ -367,7 +357,7 @@ func connectDatabase(path string) (*sqlx.DB, error) {
 		return nil, err
 	}
 
-	dsn := fmt.Sprintf("file:%s?_journal_mode=WAL&busy_timeout=120000", path)
+	dsn := fmt.Sprintf("file:%s?_journal_mode=WAL&busy_timeout=2147483647", path)
 	db, err := sqlx.Connect("sqlite3", dsn)
 	if err != nil {
 		return nil, err
