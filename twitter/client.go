@@ -64,7 +64,7 @@ func Login(ctx context.Context, authToken string, ct0 string) (*resty.Client, st
 		// For TCP Error
 		_, ok := err.(*TwitterApiError)
 		_, ok2 := err.(*utils.HttpStatusError)
-		return !ok && !ok2 && err != nil && !strings.HasSuffix(r.Request.RawRequest.Host, "twimg.com")
+		return !ok && !ok2 && err != nil
 	})
 	client.AddRetryCondition(func(r *resty.Response, err error) bool {
 		// For Twitter API Error
