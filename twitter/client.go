@@ -2,6 +2,7 @@ package twitter
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -136,6 +137,14 @@ func (rl *xRateLimit) preRequest(ctx context.Context) error {
 			"path":  rl.Url,
 			"until": rl.ResetTime.Add(insurance),
 		}).Warnln("[RateLimiter] start sleeping")
+
+		origin, err := utils.GetConsoleTitle()
+		if err == nil {
+			utils.SetConsoleTitle(fmt.Sprintf("idle - sleeping until %v", rl.ResetTime.Add(insurance).Format(time.TimeOnly)))
+			defer utils.SetConsoleTitle(origin)
+		} else {
+			log.Warnln("failed to set console title:", err)
+		}
 
 		select {
 		case <-time.After(time.Until(rl.ResetTime) + insurance):

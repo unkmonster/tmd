@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"testing"
 )
@@ -315,5 +316,25 @@ func TestHeap(t *testing.T) {
 			t.Errorf("heap.peek: %d, want %d", heap.Peek(), want)
 		}
 		heap.Pop()
+	}
+}
+
+func TestSetConsoleTitle(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		return
+	}
+
+	if err := SetConsoleTitle("hello"); err != nil {
+		t.Error(err)
+		return
+	}
+
+	title, err := GetConsoleTitle()
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	if title != "hello" {
+		t.Errorf("title = %s, want hello", title)
 	}
 }
