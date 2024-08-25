@@ -1,6 +1,5 @@
 package database
 
-// TODO test
 import (
 	"database/sql"
 	"path/filepath"
@@ -170,6 +169,12 @@ func GetUserEntity(db *sqlx.DB, id int) (*UserEntity, error) {
 func UpdateUserEntity(db *sqlx.DB, entity *UserEntity) error {
 	stmt := `UPDATE user_entities SET name=?, latest_release_time=?, media_count=? WHERE id=?`
 	_, err := db.Exec(stmt, entity.Name, entity.LatestReleaseTime, entity.MediaCount, entity.Id)
+	return err
+}
+
+func UpdateUserEntityMediCount(db *sqlx.DB, eid int, count int) error {
+	stmt := `UPDATE user_entities SET media_count=? WHERE id=?`
+	_, err := db.Exec(stmt, count, eid)
 	return err
 }
 
