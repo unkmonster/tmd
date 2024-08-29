@@ -294,6 +294,7 @@ func (pt TweetInEntity) GetPath() string {
 }
 
 const userTweetRateLimit = 500
+const userTweetMaxConcurrent = 100 // avoid DownstreamOverCapacityError
 
 // var syncedListUsers = make(map[uint64]map[int64]struct{})
 var syncedListUsers sync.Map //leid -> uid -> struct{}
@@ -515,10 +516,11 @@ func BatchUserDownload(ctx context.Context, client *resty.Client, db *sqlx.DB, u
 		go tweetDownloader(client, &config, errChan, tweetChan)
 	}
 
-	producerPool, err := ants.NewPool(min(userTweetRateLimit, userEntityHeap.Size()))
+	producerPool, err := ants.NewPool(min(userTweetMaxConcurrent, userEntityHeap.Size()))
 	if err != nil {
 		return nil, err
 	}
+	defer ants.Release()
 
 	//closer
 	go func() {
