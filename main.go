@@ -18,6 +18,7 @@ import (
 	"github.com/go-resty/resty/v2"
 	"github.com/gookit/color"
 	"github.com/jmoiron/sqlx"
+	"github.com/rifflock/lfshook"
 	log "github.com/sirupsen/logrus"
 	"github.com/unkmonster/tmd2/database"
 	"github.com/unkmonster/tmd2/downloading"
@@ -200,7 +201,7 @@ func newStorePath(root string) (*storePath, error) {
 	return &ph, nil
 }
 
-func initLogger(dbg bool) {
+func initLogger(dbg bool, logFile io.Writer) {
 	log.SetFormatter(&log.TextFormatter{
 		ForceColors:   true,
 		FullTimestamp: true,
@@ -211,6 +212,8 @@ func initLogger(dbg bool) {
 	} else {
 		log.SetLevel(log.InfoLevel)
 	}
+
+	log.AddHook(lfshook.NewHook(logFile, nil))
 }
 
 func main() {
@@ -229,8 +232,6 @@ func main() {
 
 	var err error
 
-	initLogger(dbg)
-
 	// context
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -247,9 +248,25 @@ func main() {
 	appRootPath := filepath.Join(homepath, ".tmd2")
 	confPath := filepath.Join(appRootPath, "conf.yaml")
 	cliLogPath := filepath.Join(appRootPath, "client.log")
+	logPath := filepath.Join(appRootPath, "tmd2.log")
 	if err = os.MkdirAll(appRootPath, 0755); err != nil {
 		log.Fatalln("failed to make app dir", err)
 	}
+
+	// init logger
+	logFile, err := os.OpenFile(logPath, os.O_TRUNC|os.O_WRONLY|os.O_CREATE, 0644)
+	if err != nil {
+		log.Fatalln("failed to create log file:", err)
+	}
+	defer logFile.Close()
+	initLogger(dbg, logFile)
+
+	// report at exit
+	defer func() {
+		if dbg {
+			twitter.ReportRequestCount()
+		}
+	}()
 
 	// read/write config
 	conf, err := readConf(confPath)
@@ -283,10 +300,13 @@ func main() {
 		log.Fatalln("failed to login:", err)
 	}
 	twitter.EnableRateLimit(client)
+	if dbg {
+		twitter.EnableRequestCounting(client)
+	}
 	log.Infoln("signed in as:", color.FgLightBlue.Render(screenName))
 
 	// set client logger
-	cliLogFile, err := os.OpenFile(cliLogPath, os.O_TRUNC|os.O_WRONLY, 0644)
+	cliLogFile, err := os.OpenFile(cliLogPath, os.O_TRUNC|os.O_WRONLY|os.O_CREATE, 0644)
 	if err != nil {
 		log.Fatalln("failed to create log file:", err)
 	}

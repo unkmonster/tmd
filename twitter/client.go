@@ -22,6 +22,7 @@ const bearer = "AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Z
 
 var clientScreenNames map[*resty.Client]string = make(map[*resty.Client]string)
 var clientBlockStates map[*resty.Client]*atomic.Bool = make(map[*resty.Client]*atomic.Bool)
+var apiCounts sync.Map
 
 func SetClientAuth(client *resty.Client, authToken string, ct0 string) {
 	client.SetAuthToken(bearer)
@@ -312,6 +313,30 @@ func EnableRateLimit(client *resty.Client) {
 
 	client.AddRetryHook(func(resp *resty.Response, err error) {
 		rateLimiter.reset(resp.Request.RawRequest.URL, resp)
+	})
+}
+
+func EnableRequestCounting(client *resty.Client) {
+	client.OnBeforeRequest(func(c *resty.Client, req *resty.Request) error {
+		url, err := url.Parse(req.URL)
+		if err != nil {
+			return err
+		}
+
+		if strings.HasSuffix(url.Host, "twimg.com") {
+			return nil
+		}
+
+		v, _ := apiCounts.LoadOrStore(url.Path, &atomic.Int32{})
+		v.(*atomic.Int32).Add(1)
+		return nil
+	})
+}
+
+func ReportRequestCount() {
+	apiCounts.Range(func(key, value any) bool {
+		log.Debugf("* %s request count: %d", key, value.(*atomic.Int32).Load())
+		return true
 	})
 }
 
