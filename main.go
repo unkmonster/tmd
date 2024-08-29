@@ -246,6 +246,7 @@ func main() {
 
 	appRootPath := filepath.Join(homepath, ".tmd2")
 	confPath := filepath.Join(appRootPath, "conf.yaml")
+	cliLogPath := filepath.Join(appRootPath, "client.log")
 	if err = os.MkdirAll(appRootPath, 0755); err != nil {
 		log.Fatalln("failed to make app dir", err)
 	}
@@ -283,9 +284,14 @@ func main() {
 	}
 	twitter.EnableRateLimit(client)
 	log.Infoln("signed in as:", color.FgLightBlue.Render(screenName))
-	// if dbg {
-	// 	client.SetLogger(log.WithField("client", "resty"))
-	// }
+
+	// set client logger
+	cliLogFile, err := os.OpenFile(cliLogPath, os.O_TRUNC|os.O_WRONLY, 0644)
+	if err != nil {
+		log.Fatalln("failed to create log file:", err)
+	}
+	defer cliLogFile.Close()
+	setClientLogger(client, cliLogFile)
 
 	// load previous tweets
 	dumper := downloading.NewDumper()
@@ -350,6 +356,17 @@ func main() {
 	if err != nil {
 		log.Errorln("failed to download:", err)
 	}
+}
+
+func setClientLogger(client *resty.Client, out io.Writer) {
+	logger := log.New()
+	logger.SetLevel(log.InfoLevel)
+	logger.SetOutput(out)
+	logger.SetFormatter(&log.TextFormatter{
+		FullTimestamp: true,
+		DisableQuote:  true,
+	})
+	client.SetLogger(logger)
 }
 
 func connectDatabase(path string) (*sqlx.DB, error) {
