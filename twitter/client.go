@@ -3,7 +3,6 @@ package twitter
 import (
 	"context"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"path/filepath"
@@ -39,11 +38,6 @@ func SetClientAuth(client *resty.Client, authToken string, ct0 string) {
 
 func Login(ctx context.Context, authToken string, ct0 string) (*resty.Client, string, error) {
 	client := resty.New()
-
-	// 禁用 logger
-	nullLogger := log.New()
-	nullLogger.SetOutput(io.Discard)
-	client.SetLogger(nullLogger)
 
 	// 鉴权
 	SetClientAuth(client, authToken, ct0)

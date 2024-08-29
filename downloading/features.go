@@ -136,7 +136,8 @@ func tweetDownloader(client *resty.Client, config *workerConfig, errch chan<- Pa
 			continue
 		}
 		err := downloadTweetMedia(config.ctx, client, path, pt.GetTweet())
-		if err != nil && !utils.IsStatusCode(err, 404) {
+		// 403: Dmcaed
+		if err != nil && !utils.IsStatusCode(err, 404) && !utils.IsStatusCode(err, 403) {
 			errch <- pt
 		}
 	}
