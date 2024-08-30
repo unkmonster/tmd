@@ -321,21 +321,18 @@ type userInLstEntity struct {
 	leid *int
 }
 
+func shouldIngoreUser(user *twitter.User) bool {
+	return user.Blocking || user.Muting
+}
+
 func BatchUserDownload(ctx context.Context, client *resty.Client, db *sqlx.DB, users []userInLstEntity, dir string) ([]*TweetInEntity, error) {
 	if len(users) == 0 {
 		return nil, nil
 	}
 
-	uidToUser := make(map[uint64]userInLstEntity)
+	uidToUser := make(map[uint64]*twitter.User)
 	for _, u := range users {
-		// 忽略阻塞/静音用户
-		if u.user.Blocking || u.user.Muting {
-			continue
-		}
-		uidToUser[u.user.Id] = u
-	}
-	if len(uidToUser) == 0 {
-		return nil, nil
+		uidToUser[u.user.Id] = u.user
 	}
 
 	// channels
@@ -371,11 +368,15 @@ func BatchUserDownload(ctx context.Context, client *resty.Client, db *sqlx.DB, u
 		defer panicHandler()
 		log.Debugln("start pre processing users")
 
-		for _, userInLST := range uidToUser {
+		for _, userInLST := range users {
 			var pathEntity *UserEntity
 			var err error
 			user := userInLST.user
-			eid := userInLST.leid
+			leid := userInLST.leid
+
+			if shouldIngoreUser(user) {
+				continue
+			}
 
 			pe, loaded := syncedUsers.Load(user.Id)
 			if !loaded {
@@ -391,7 +392,6 @@ func BatchUserDownload(ctx context.Context, client *resty.Client, db *sqlx.DB, u
 				linkds, err := database.GetUserLinks(db, user.Id)
 				if err != nil {
 					updaterLogger.WithField("user", user.Title()).Warnln("failed to get links to user:", err)
-					continue
 				}
 
 				for _, linkd := range linkds {
@@ -403,26 +403,23 @@ func BatchUserDownload(ctx context.Context, client *resty.Client, db *sqlx.DB, u
 					syncedList.Store(user.Id, struct{}{})
 				}
 
-				if user.MediaCount == 0 || !user.IsVisiable() {
-					continue //到这一步结束，无需获取时间线
+				if user.MediaCount != 0 && user.IsVisiable() {
+					// 计算深度
+					missingTweets += max(0, user.MediaCount-int(pathEntity.record.MediaCount.Int32))
+					DepthByEntity[pathEntity] = calcUserDepth(int(pathEntity.record.MediaCount.Int32), user.MediaCount)
+					userEntityHeap.Push(pathEntity)
 				}
-				// 计算深度
-				missingTweets += max(0, user.MediaCount-int(pathEntity.record.MediaCount.Int32))
-				DepthByEntity[pathEntity] = calcUserDepth(int(pathEntity.record.MediaCount.Int32), user.MediaCount)
-
-				userEntityHeap.Push(pathEntity)
 			} else {
 				pathEntity = pe.(*UserEntity)
-				log.WithField("user", user.Title()).Debugln("skiped updated user")
 			}
 
 			// 即便同步一个用户时也同步了所有指向此用户的链接，
 			// 但此用户仍可能会是一个新的 “列表-用户”，所以判断此用户链接是否同步过，
 			// 如果否，那么创建一个属于此列表的用户链接
-			if eid == nil {
+			if leid == nil {
 				continue
 			}
-			sl, _ := syncedListUsers.LoadOrStore(*eid, &sync.Map{})
+			sl, _ := syncedListUsers.LoadOrStore(*leid, &sync.Map{})
 			syncedList := sl.(*sync.Map)
 			_, loaded = syncedList.LoadOrStore(user.Id, struct{}{})
 			if loaded {
@@ -435,7 +432,7 @@ func BatchUserDownload(ctx context.Context, client *resty.Client, db *sqlx.DB, u
 
 			curlink := &database.UserLink{}
 			curlink.Name = linkname
-			curlink.ParentLstEntityId = int32(*eid)
+			curlink.ParentLstEntityId = int32(*leid)
 			curlink.Uid = user.Id
 
 			linkpath, err := curlink.Path(db)
@@ -462,7 +459,7 @@ func BatchUserDownload(ctx context.Context, client *resty.Client, db *sqlx.DB, u
 		defer prodwg.Done()
 		defer panicHandler()
 
-		user := uidToUser[entity.Uid()].user
+		user := uidToUser[entity.Uid()]
 		tweets, err := user.GetMeidas(ctx, client, &utils.TimeRange{Min: entity.LatestReleaseTime()})
 		if v, ok := err.(*twitter.TwitterApiError); ok {
 			// 致命错误：取消上下文
@@ -610,46 +607,69 @@ func DownloadList(ctx context.Context, client *resty.Client, db *sqlx.DB, list t
 	return downloadList(ctx, client, db, list, dir, realDir)
 }
 
+func syncLstAndGetMembers(ctx context.Context, client *resty.Client, db *sqlx.DB, lst twitter.ListBase, dir string) ([]userInLstEntity, error) {
+	if v, ok := lst.(*twitter.List); ok {
+		if err := syncList(db, v); err != nil {
+			return nil, err
+		}
+	}
+
+	// update lst path and record
+	expectedTitle := utils.WinFileName(lst.Title())
+	entity, err := NewListEntity(db, lst.GetId(), dir)
+	if err != nil {
+		return nil, err
+	}
+	if err := syncPath(entity, expectedTitle); err != nil {
+		return nil, err
+	}
+
+	// get all members
+	members, err := lst.GetMembers(ctx, client)
+	if err != nil || len(members) == 0 {
+		return nil, err
+	}
+
+	// bind lst entity to users for creating symlink
+	packgedUsers := make([]userInLstEntity, 0, len(members))
+	eid := entity.Id()
+	for _, user := range members {
+		packgedUsers = append(packgedUsers, userInLstEntity{user: user, leid: &eid})
+	}
+	return packgedUsers, nil
+}
+
 func BatchDownloadAny(ctx context.Context, client *resty.Client, db *sqlx.DB, lists []twitter.ListBase, users []*twitter.User, dir string, realDir string) ([]*TweetInEntity, error) {
 	log.Debugln("start collecting users")
 	packgedUsers := make([]userInLstEntity, 0)
+	wg := sync.WaitGroup{}
+	mtx := sync.Mutex{}
+	ctx, cancel := context.WithCancelCause(ctx)
+	defer cancel(nil)
 
 	for _, lst := range lists {
-		if v, ok := lst.(*twitter.List); ok {
-			if err := syncList(db, v); err != nil {
-				return nil, err
+		wg.Add(1)
+		go func(lst twitter.ListBase) {
+			defer wg.Done()
+			res, err := syncLstAndGetMembers(ctx, client, db, lst, dir)
+			if err != nil {
+				cancel(err)
 			}
-		}
-
-		// update lst path and record
-		expectedTitle := utils.WinFileName(lst.Title())
-		entity, err := NewListEntity(db, lst.GetId(), dir)
-		if err != nil {
-			return nil, err
-		}
-		if err := syncPath(entity, expectedTitle); err != nil {
-			return nil, err
-		}
-
-		// get all members
-		members, err := lst.GetMembers(ctx, client)
-		if err != nil {
-			return nil, err
-		}
-		if len(members) == 0 {
-			continue
-		}
-
-		// bind lst entity to users for creating symlink
-		eid := entity.Id()
-		for _, user := range members {
-			packgedUsers = append(packgedUsers, userInLstEntity{user: user, leid: &eid})
-		}
+			log.Debugf("members of %s: %d", lst.Title(), len(res))
+			mtx.Lock()
+			defer mtx.Unlock()
+			packgedUsers = append(packgedUsers, res...)
+		}(lst)
+	}
+	wg.Wait()
+	if err := context.Cause(ctx); err != nil {
+		return nil, err
 	}
 
 	for _, usr := range users {
 		packgedUsers = append(packgedUsers, userInLstEntity{user: usr, leid: nil})
 	}
+
 	log.Debugln("collected users:", len(packgedUsers))
 	return BatchUserDownload(ctx, client, db, packgedUsers, realDir)
 }
