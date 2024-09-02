@@ -1,11 +1,11 @@
 # Twitter Media Downloader
 
-[![Go Reference](https://pkg.go.dev/badge/github.com/unkmonster/tmd2.svg)](https://pkg.go.dev/github.com/unkmonster/tmd2)
-[![Go Report Card](https://goreportcard.com/badge/github.com/unkmonster/tmd2)](https://goreportcard.com/report/github.com/unkmonster/tmd2)
-[![Coverage Status](https://coveralls.io/repos/github/unkmonster/tmd2/badge.svg?branch=master)](https://coveralls.io/github/unkmonster/tmd2?branch=master)
-[![Go](https://github.com/unkmonster/tmd2/actions/workflows/go.yml/badge.svg)](https://github.com/unkmonster/tmd2/actions/workflows/go.yml)
-![GitHub Release](https://img.shields.io/github/v/release/unkmonster/tmd2) 
-![GitHub License](https://img.shields.io/github/license/unkmonster/tmd2?logo=github)
+[![Go Reference](https://pkg.go.dev/badge/github.com/unkmonster/tmd.svg)](https://pkg.go.dev/github.com/unkmonster/tmd)
+[![Go Report Card](https://goreportcard.com/badge/github.com/unkmonster/tmd)](https://goreportcard.com/report/github.com/unkmonster/tmd)
+[![Coverage Status](https://coveralls.io/repos/github/unkmonster/tmd/badge.svg?branch=master)](https://coveralls.io/github/unkmonster/tmd?branch=master)
+[![Go](https://github.com/unkmonster/tmd/actions/workflows/go.yml/badge.svg)](https://github.com/unkmonster/tmd/actions/workflows/go.yml)
+![GitHub Release](https://img.shields.io/github/v/release/unkmonster/tmd) 
+![GitHub License](https://img.shields.io/github/license/unkmonster/tmd?logo=github)
 
 跨平台的推特媒体下载器。用于轻松，快速，安全，整洁，批量的下载推特上用户的推文。支持手动指定用户或通过列表、用户关注批量下载。。。开箱即用！
 
@@ -32,13 +32,13 @@
 
 **直接下载**
 
-前往 [Release](https://github.com/unkmonster/tmd2/releases/latest) 自行选择合适的版本并下载
+前往 [Release](https://github.com/unkmonster/tmd/releases/latest) 自行选择合适的版本并下载
 
 **自行编译**
 
 ```bash
-git clone https://github.com/unkmonster/tmd2
-cd tmd2
+git clone https://github.com/unkmonster/tmd
+cd tmd
 go build .
 ```
 
@@ -49,47 +49,47 @@ go build .
 #### 配置项介绍
 
 1. `storeage path`：存储路径(可以不存在)
-2. `auth_token`：用于登录，[获取方式](https://github.com/unkmonster/tmd2/blob/master/help.md#获取-cookie)
-3. `ct0`：用于登录，[获取方式](https://github.com/unkmonster/tmd2/blob/master/help.md#获取-cookie)
+2. `auth_token`：用于登录，[获取方式](https://github.com/unkmonster/tmd/blob/master/help.md#获取-cookie)
+3. `ct0`：用于登录，[获取方式](https://github.com/unkmonster/tmd/blob/master/help.md#获取-cookie)
 4. `max_download_routine`：最大并发下载协程数（如果为0取默认值）
 
 #### 更新配置
 
 ```shell
-tmd2 --conf
+tmd --conf
 ```
 
-> **执行上述命令将导致引导配置程序重新运行，这将重新配置整个配置文件，而不是单独的配置项。单独修改配置项**请至 `%appdata%/.tmd2/conf.yaml` 或 `$HOME/.tmd2/conf.yaml`手动修改
+> **执行上述命令将导致引导配置程序重新运行，这将重新配置整个配置文件，而不是单独的配置项。单独修改配置项**请至 `%appdata%/.tmd/conf.yaml` 或 `$HOME/.tmd/conf.yaml`手动修改
 
 ### 命令说明
 
 ```
-tmd2 --help                 // 显示帮助
-tmd2 --conf                 // 重新运行配置程序
-tmd2 --user <user_id>       // 下载由 user_id 指定的用户的推文
-tmd2 --user <screen_name>   // 下载由 screen_name 指定的用户的推文
-tmd2 --list <list_id>       // 批量下载由 list_id 指定的列表中的每个用户
-tmd2 --foll <user_id>       // 批量下载由 user_id 指定的用户正关注的每个用户
-tmd2 --foll <screen_name>   // 批量下载由 screen_name 指定的用户正关注的每个用户
+tmd --help                 // 显示帮助
+tmd --conf                 // 重新运行配置程序
+tmd --user <user_id>       // 下载由 user_id 指定的用户的推文
+tmd --user <screen_name>   // 下载由 screen_name 指定的用户的推文
+tmd --list <list_id>       // 批量下载由 list_id 指定的列表中的每个用户
+tmd --foll <user_id>       // 批量下载由 user_id 指定的用户正关注的每个用户
+tmd --foll <screen_name>   // 批量下载由 screen_name 指定的用户正关注的每个用户
 ```
 
 > 为了创建符号链接，在 Windows 上应该以管理员身份运行程序
 
-[不知道啥是 user_id/list_id/screen_name?](https://github.com/unkmonster/tmd2/blob/master/help.md#%E8%8E%B7%E5%8F%96-list_id-user_id-screen_name)
+[不知道啥是 user_id/list_id/screen_name?](https://github.com/unkmonster/tmd/blob/master/help.md#%E8%8E%B7%E5%8F%96-list_id-user_id-screen_name)
 
 ### 示例
 
 ```
-tmd2 --user elonmusk  // 下载 screen_name 为 ‘eronmusk’ 的用户
-tmd2 --user 1234567   // 下载 user_id 为 1234567 的用户
-tmd2 --list 8901234   // 下载 list_id 为 8901234 的列表
-tmd2 --foll 567890    // 下载 user_id 为 567890 的用户正关注的所有用户
+tmd --user elonmusk  // 下载 screen_name 为 ‘eronmusk’ 的用户
+tmd --user 1234567   // 下载 user_id 为 1234567 的用户
+tmd --list 8901234   // 下载 list_id 为 8901234 的列表
+tmd --foll 567890    // 下载 user_id 为 567890 的用户正关注的所有用户
 ```
 
 更推荐的做法：一次运行
 
 ```shell
-tmd2 --user elonmusk --user 1234567 --list 8901234 --foll 567890
+tmd --user elonmusk --user 1234567 --list 8901234 --foll 567890
 ```
 
 ### 设置代理
@@ -105,7 +105,7 @@ set HTTPS_PROXY=url
 ```bash
 set HTTP_PROXY=http://127.0.0.1:7890
 set HTTPS_PROXY=http://127.0.0.1:7890
-tmd2 --user elonmusk
+tmd --user elonmusk
 ```
 
 ### 忽略用户
@@ -120,5 +120,5 @@ Twitter API 限制一段时间内过快的请求 （例如某端点每15分钟�
 
 ## Contributors
 
-![](https://contrib.rocks/image?repo=unkmonster/tmd2) 
+![](https://contrib.rocks/image?repo=unkmonster/tmd) 
 

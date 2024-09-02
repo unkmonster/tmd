@@ -1,4 +1,4 @@
-NAME = tmd2
+NAME = tmd
 BINDIR = bin
 GOBUILD=CGO_ENABLED=0 go build -trimpath -ldflags '-w -s'
 

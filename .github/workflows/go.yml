@@ -39,12 +39,12 @@ jobs:
         run: |
           $env:GOARCH = "amd64"
           $env:CGO_ENABLED = "1"
-          go build -o bin/tmd2-${{ runner.os }}-amd64.exe -v -ldflags "-w -s" .
+          go build -o bin/tmd-${{ runner.os }}-amd64.exe -v -ldflags "-w -s" .
           
       - name: Build for Unix
         if: ${{'windows-latest' != matrix.os}}
         run: |
-          GOARCH=amd64 CGO_ENABLED=1 go build -o bin/tmd2-${{ runner.os }}-amd64 -v -ldflags "-w -s" .
+          GOARCH=amd64 CGO_ENABLED=1 go build -o bin/tmd-${{ runner.os }}-amd64 -v -ldflags "-w -s" .
       
       - name: Test
         if: ${{!startsWith(github.ref, 'refs/tags/v')}}
