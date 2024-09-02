@@ -1,6 +1,5 @@
 .vscode
 *.exe
-tmd2
 bin
 *.prof
 todo.md

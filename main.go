@@ -20,10 +20,10 @@ import (
 	"github.com/jmoiron/sqlx"
 	"github.com/rifflock/lfshook"
 	log "github.com/sirupsen/logrus"
-	"github.com/unkmonster/tmd2/database"
-	"github.com/unkmonster/tmd2/downloading"
-	"github.com/unkmonster/tmd2/internal/utils"
-	"github.com/unkmonster/tmd2/twitter"
+	"github.com/unkmonster/tmd/database"
+	"github.com/unkmonster/tmd/downloading"
+	"github.com/unkmonster/tmd/internal/utils"
+	"github.com/unkmonster/tmd/twitter"
 	"gopkg.in/yaml.v3"
 )
 

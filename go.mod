@@ -1,4 +1,4 @@
-module github.com/unkmonster/tmd2
+module github.com/unkmonster/tmd
 
 go 1.22.3
 
