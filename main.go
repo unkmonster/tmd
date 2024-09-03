@@ -223,11 +223,13 @@ func main() {
 	var follArgs userArgs
 	var confArg bool
 	var dbg bool
+	var autoFollow bool
 	flag.BoolVar(&confArg, "conf", false, "reconfigure")
 	flag.Var(&usrArgs, "user", "download tweets from the user specified by user_id/screen_name since the last download")
 	flag.Var(&listArgs, "list", "batch download each member from list specified by list_id")
 	flag.Var(&follArgs, "foll", "batch download each member followed by the user specified by user_id/screen_name")
 	flag.BoolVar(&dbg, "dbg", false, "display debug message")
+	flag.BoolVar(&autoFollow, "auto-follow", false, "send follow request automatically to protected users")
 	flag.Parse()
 
 	var err error
@@ -372,7 +374,7 @@ func main() {
 	log.Infoln("start working for...")
 	printTask(task)
 
-	todump, err = downloading.BatchDownloadAny(ctx, client, db, task.lists, task.users, pathHelper.root, pathHelper.users)
+	todump, err = downloading.BatchDownloadAny(ctx, client, db, task.lists, task.users, pathHelper.root, pathHelper.users, autoFollow)
 	if err != nil {
 		log.Errorln("failed to download:", err)
 	}

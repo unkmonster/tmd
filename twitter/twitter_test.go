@@ -341,3 +341,24 @@ func TestApiError(t *testing.T) {
 		return
 	}
 }
+
+func TestFollowUser(t *testing.T) {
+	user, err := GetUserByScreenName(context.Background(), client, "su1__cos")
+	//user, err := GetUserByScreenName(context.Background(), client, "neco__nemu")
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	if err := FollowUser(context.Background(), client, user); err != nil {
+		t.Error(err)
+	}
+
+	user, err = GetUserByScreenName(context.Background(), client, "su1__cos")
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	if user.Followstate == FS_UNFOLLOW {
+		t.Errorf("user.Followstate == FS_UNFOLLOW, want following or requested")
+	}
+}
