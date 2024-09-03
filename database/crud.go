@@ -68,6 +68,8 @@ CREATE TABLE IF NOT EXISTS user_links (
 	FOREIGN KEY(user_id) REFERENCES users (id), 
 	FOREIGN KEY(parent_lst_entity_id) REFERENCES lst_entities (id)
 );
+
+CREATE INDEX IF NOT EXISTS idx_user_links_user_id ON user_links (user_id);
 `
 
 func CreateTables(db *sqlx.DB) {

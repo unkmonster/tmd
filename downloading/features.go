@@ -325,7 +325,7 @@ func shouldIngoreUser(user *twitter.User) bool {
 	return user.Blocking || user.Muting
 }
 
-func BatchUserDownload(ctx context.Context, client *resty.Client, db *sqlx.DB, users []userInLstEntity, dir string) ([]*TweetInEntity, error) {
+func BatchUserDownload(ctx context.Context, client *resty.Client, db *sqlx.DB, users []userInLstEntity, dir string, autoFollow bool) ([]*TweetInEntity, error) {
 	if len(users) == 0 {
 		return nil, nil
 	}
@@ -403,11 +403,20 @@ func BatchUserDownload(ctx context.Context, client *resty.Client, db *sqlx.DB, u
 					syncedList.Store(user.Id, struct{}{})
 				}
 
+				// 计算深度
 				if user.MediaCount != 0 && user.IsVisiable() {
-					// 计算深度
 					missingTweets += max(0, user.MediaCount-int(pathEntity.record.MediaCount.Int32))
 					DepthByEntity[pathEntity] = calcUserDepth(int(pathEntity.record.MediaCount.Int32), user.MediaCount)
 					userEntityHeap.Push(pathEntity)
+				}
+
+				// 自动关注
+				if user.IsProtected && user.Followstate == twitter.FS_UNFOLLOW && autoFollow {
+					if err := twitter.FollowUser(ctx, client, user); err != nil {
+						log.WithField("user", user.Title()).Warnln("failed to follow user:", err)
+					} else {
+						log.WithField("user", user.Title()).Debugln("follow request has been sent")
+					}
 				}
 			} else {
 				pathEntity = pe.(*UserEntity)
@@ -562,7 +571,7 @@ func BatchUserDownload(ctx context.Context, client *resty.Client, db *sqlx.DB, u
 	return fails, context.Cause(ctx)
 }
 
-func downloadList(ctx context.Context, client *resty.Client, db *sqlx.DB, list twitter.ListBase, dir string, realDir string) ([]*TweetInEntity, error) {
+func downloadList(ctx context.Context, client *resty.Client, db *sqlx.DB, list twitter.ListBase, dir string, realDir string, autoFollow bool) ([]*TweetInEntity, error) {
 	expectedTitle := utils.WinFileName(list.Title())
 	entity, err := NewListEntity(db, list.GetId(), dir)
 	if err != nil {
@@ -583,7 +592,7 @@ func downloadList(ctx context.Context, client *resty.Client, db *sqlx.DB, list t
 	for i, user := range members {
 		packgedUsers[i] = userInLstEntity{user: user, leid: &eid}
 	}
-	return BatchUserDownload(ctx, client, db, packgedUsers, realDir)
+	return BatchUserDownload(ctx, client, db, packgedUsers, realDir, autoFollow)
 }
 
 func syncList(db *sqlx.DB, list *twitter.List) error {
@@ -597,14 +606,14 @@ func syncList(db *sqlx.DB, list *twitter.List) error {
 	return database.UpdateLst(db, &database.Lst{Id: list.Id, Name: list.Name, OwnerId: list.Creator.Id})
 }
 
-func DownloadList(ctx context.Context, client *resty.Client, db *sqlx.DB, list twitter.ListBase, dir string, realDir string) ([]*TweetInEntity, error) {
+func DownloadList(ctx context.Context, client *resty.Client, db *sqlx.DB, list twitter.ListBase, dir string, realDir string, autoFollow bool) ([]*TweetInEntity, error) {
 	tlist, ok := list.(*twitter.List)
 	if ok {
 		if err := syncList(db, tlist); err != nil {
 			return nil, err
 		}
 	}
-	return downloadList(ctx, client, db, list, dir, realDir)
+	return downloadList(ctx, client, db, list, dir, realDir, autoFollow)
 }
 
 func syncLstAndGetMembers(ctx context.Context, client *resty.Client, db *sqlx.DB, lst twitter.ListBase, dir string) ([]userInLstEntity, error) {
@@ -639,7 +648,7 @@ func syncLstAndGetMembers(ctx context.Context, client *resty.Client, db *sqlx.DB
 	return packgedUsers, nil
 }
 
-func BatchDownloadAny(ctx context.Context, client *resty.Client, db *sqlx.DB, lists []twitter.ListBase, users []*twitter.User, dir string, realDir string) ([]*TweetInEntity, error) {
+func BatchDownloadAny(ctx context.Context, client *resty.Client, db *sqlx.DB, lists []twitter.ListBase, users []*twitter.User, dir string, realDir string, autoFollow bool) ([]*TweetInEntity, error) {
 	log.Debugln("start collecting users")
 	packgedUsers := make([]userInLstEntity, 0)
 	wg := sync.WaitGroup{}
@@ -671,5 +680,5 @@ func BatchDownloadAny(ctx context.Context, client *resty.Client, db *sqlx.DB, li
 	}
 
 	log.Debugln("collected users:", len(packgedUsers))
-	return BatchUserDownload(ctx, client, db, packgedUsers, realDir)
+	return BatchUserDownload(ctx, client, db, packgedUsers, realDir, autoFollow)
 }
