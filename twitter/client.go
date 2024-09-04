@@ -20,8 +20,9 @@ import (
 
 const bearer = "AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA"
 
-var clientScreenNames map[*resty.Client]string = make(map[*resty.Client]string)
-var clientBlockStates map[*resty.Client]*atomic.Bool = make(map[*resty.Client]*atomic.Bool)
+var clientScreenNames sync.Map
+var clientErrors sync.Map
+var clientRateLimiters sync.Map
 var apiCounts sync.Map
 
 func SetClientAuth(client *resty.Client, authToken string, ct0 string) {
@@ -57,6 +58,9 @@ func Login(ctx context.Context, authToken string, ct0 string) (*resty.Client, st
 	// 重试
 	client.SetRetryCount(5)
 	client.AddRetryCondition(func(r *resty.Response, err error) bool {
+		if err == ErrWouldBlock {
+			return false
+		}
 		// For TCP Error
 		_, ok := err.(*TwitterApiError)
 		_, ok2 := err.(*utils.HttpStatusError)
@@ -87,18 +91,18 @@ func Login(ctx context.Context, authToken string, ct0 string) (*resty.Client, st
 		return nil, "", err
 	}
 
-	clientBlockStates[client] = &atomic.Bool{}
-	clientScreenNames[client] = screenName
+	clientScreenNames.Store(client, screenName)
 	return client, screenName, nil
 }
 
 func GetClientScreenName(client *resty.Client) string {
-	return clientScreenNames[client]
+	if v, ok := clientScreenNames.Load(client); ok {
+		return v.(string)
+	}
+	return ""
 }
 
-func GetClientBlockState(client *resty.Client) bool {
-	return clientBlockStates[client].Load()
-}
+var ErrWouldBlock = fmt.Errorf("EWOULDBLOCK")
 
 type xRateLimit struct {
 	ResetTime time.Time
@@ -106,9 +110,24 @@ type xRateLimit struct {
 	Limit     int
 	Ready     bool
 	Url       string
+	Mtx       sync.Mutex
 }
 
-func (rl *xRateLimit) preRequest(ctx context.Context) error {
+func (rl *xRateLimit) _wouldBlock() bool {
+	threshold := max(2*rl.Limit/100, 1)
+	return rl.Remaining <= threshold && time.Now().Before(rl.ResetTime)
+}
+
+func (rl *xRateLimit) wouldBlock() bool {
+	rl.Mtx.Lock()
+	defer rl.Mtx.Unlock()
+	return rl._wouldBlock()
+}
+
+func (rl *xRateLimit) preRequest(ctx context.Context, nonBlocking bool) error {
+	rl.Mtx.Lock()
+	defer rl.Mtx.Unlock()
+
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
@@ -121,12 +140,14 @@ func (rl *xRateLimit) preRequest(ctx context.Context) error {
 		return nil
 	}
 
-	threshold := max(2*rl.Limit/100, 1)
-
-	if rl.Remaining > threshold {
+	if !rl._wouldBlock() {
 		rl.Remaining--
 		return nil
 	} else {
+		if nonBlocking {
+			return ErrWouldBlock
+		}
+
 		insurance := 5 * time.Second
 		log.WithFields(log.Fields{
 			"path":  rl.Url,
@@ -144,10 +165,9 @@ func (rl *xRateLimit) preRequest(ctx context.Context) error {
 		select {
 		case <-time.After(time.Until(rl.ResetTime) + insurance):
 			rl.Ready = false
-			return nil
 		case <-ctx.Done():
-			return ctx.Err()
 		}
+		return nil
 	}
 }
 
@@ -194,8 +214,13 @@ func makeRateLimit(resp *resty.Response) *xRateLimit {
 }
 
 type rateLimiter struct {
-	limits sync.Map
-	conds  sync.Map
+	limits      sync.Map
+	conds       sync.Map
+	nonBlocking bool
+}
+
+func newRateLimiter(nonBlocking bool) rateLimiter {
+	return rateLimiter{nonBlocking: nonBlocking}
 }
 
 func (rateLimiter *rateLimiter) check(ctx context.Context, url *url.URL) error {
@@ -237,7 +262,7 @@ func (rateLimiter *rateLimiter) check(ctx context.Context, url *url.URL) error {
 
 	// limiter 为 nil 意味着不对此路径做速率限制
 	if limit != nil {
-		return limit.preRequest(ctx)
+		return limit.preRequest(ctx, rateLimiter.nonBlocking)
 	}
 	return nil
 }
@@ -282,18 +307,22 @@ func (*rateLimiter) shouldWork(url *url.URL) bool {
 	return !strings.HasSuffix(url.Host, "twimg.com")
 }
 
+func (rl *rateLimiter) wouldBlock(path string) bool {
+	if v, ok := rl.limits.Load(path); ok {
+		return v.(*xRateLimit) != nil && v.(*xRateLimit).wouldBlock()
+	}
+	return false
+}
+
 func EnableRateLimit(client *resty.Client) {
-	rateLimiter := rateLimiter{}
+	rateLimiter := newRateLimiter(true)
+	clientRateLimiters.Store(client, &rateLimiter)
 
 	client.OnBeforeRequest(func(c *resty.Client, req *resty.Request) error {
 		u, err := url.Parse(req.URL)
 		if err != nil {
 			return err
 		}
-		// temp
-
-		clientBlockStates[c].Store(true)
-		defer clientBlockStates[c].Store(false)
 		return rateLimiter.check(req.Context(), u)
 	})
 
@@ -302,6 +331,11 @@ func EnableRateLimit(client *resty.Client) {
 	})
 
 	client.OnError(func(req *resty.Request, err error) {
+		// onbeforerequest 返回假会导致 rawRequest 为空
+		if req == nil || req.RawRequest == nil {
+			return
+		}
+
 		var resp *resty.Response
 		if v, ok := err.(*resty.ResponseError); ok {
 			// Do something with v.Response
@@ -312,6 +346,10 @@ func EnableRateLimit(client *resty.Client) {
 	})
 
 	client.AddRetryHook(func(resp *resty.Response, err error) {
+		// 请求发起前的错误
+		if resp == nil || resp.Request == nil || resp.Request.RawRequest == nil {
+			return
+		}
 		rateLimiter.reset(resp.Request.RawRequest.URL, resp)
 	})
 }
@@ -349,4 +387,73 @@ func GetSelfScreenName(ctx context.Context, client *resty.Client) (string, error
 		return "", err
 	}
 	return gjson.GetBytes(resp.Body(), "screen_name").String(), nil
+}
+
+func GetClientError(cli *resty.Client) error {
+	if v, ok := clientErrors.Load(cli); ok {
+		return v.(error)
+	}
+	return nil
+}
+
+func SetClientError(cli *resty.Client, err error) {
+	clientErrors.Store(cli, err)
+	if err != nil {
+		log.WithField("client", GetClientScreenName(cli)).Debugln("client is no longer available:", err)
+	}
+}
+
+func GetClientRateLimiter(cli *resty.Client) *rateLimiter {
+	if v, ok := clientRateLimiters.Load(cli); ok {
+		return v.(*rateLimiter)
+	}
+	return nil
+}
+
+var showStateToken = make(chan struct{}, 1)
+
+// 选择一个请求指定端点不会阻塞的客户端
+func SelectClient(ctx context.Context, clients []*resty.Client, path string) *resty.Client {
+	for ctx.Err() == nil {
+		errs := 0
+		for _, client := range clients {
+			if GetClientError(client) != nil {
+				errs++
+				continue
+			}
+
+			rl := GetClientRateLimiter(client)
+			if rl == nil || !rl.wouldBlock(path) {
+				return client
+			}
+		}
+
+		if errs == len(clients) {
+			return nil // no client available
+		}
+
+		select {
+		default:
+		case showStateToken <- struct{}{}:
+			defer func() { <-showStateToken }()
+			log.Warnln("waiting for any client to wake up")
+			origin, err := utils.GetConsoleTitle()
+			if err == nil {
+				defer utils.SetConsoleTitle(origin)
+				utils.SetConsoleTitle("waiting for any client to wake up")
+			} else {
+				log.Debugln("failed to get console title:", err)
+			}
+		}
+
+		select {
+		case <-ctx.Done():
+		case <-time.After(3 * time.Second):
+		}
+	}
+	return nil
+}
+
+func SelectUserMediaClient(ctx context.Context, clients []*resty.Client) *resty.Client {
+	return SelectClient(ctx, clients, (&userMedia{}).Path())
 }
