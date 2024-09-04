@@ -7,7 +7,7 @@
 ![GitHub Release](https://img.shields.io/github/v/release/unkmonster/tmd) 
 ![GitHub License](https://img.shields.io/github/license/unkmonster/tmd?logo=github)
 
-跨平台的推特媒体下载器。用于轻松，快速，安全，整洁，批量的下载推特上用户的推文。支持手动指定用户或通过列表、用户关注批量下载。。。开箱即用！
+跨平台的推特媒体下载器。用于轻松，快速，安全，整洁，批量的下载推特上用户的推文。支持手动指定用户或通过列表、用户关注批量下载。开箱即用！
 
 ## Feature
 
@@ -26,6 +26,7 @@
 - 避免重复同步用户（更新用户信息，获取时间线，下载推文）
 - 速率限制：避免触发 Twitter API 速率限制
 - 自动关注受保护的用户
+- 添加备用 cookie：提高推文获取速度和总数量
 
 ## How to use
 
@@ -60,7 +61,7 @@ go build .
 tmd --conf
 ```
 
-> **执行上述命令将导致引导配置程序重新运行，这将重新配置整个配置文件，而不是单独的配置项。单独修改配置项**请至 `%appdata%/.tmd/conf.yaml` 或 `$HOME/.tmd/conf.yaml`手动修改
+> **执行上述命令将导致引导配置程序重新运行，这将重新配置整个配置文件，而不是单独的配置项。单独修改配置项**请至 `%appdata%/.tmd2/conf.yaml` 或 `$HOME/.tmd2/conf.yaml`手动修改
 
 ### 命令说明
 
@@ -113,6 +114,22 @@ tmd --user elonmusk
 ### 忽略用户
 
 程序默认会忽略被静音或被屏蔽的用户，所以当你想要下载的列表中包含你不想包含的用户，可以在推特将他们屏蔽或静音
+
+### 添加额外 cookie
+
+程序动态从所有可用 cookie 中选择一个不会被速率限制的 cookie 请求用户推文，以避免因单一 cookie 的速率限制导致程序被阻塞。
+
+按如下格式创建 `$HOME/.tmd2/additional_cookies.yaml` 或 `$HOME/.tmd2/additional_cookies.yaml`
+
+```yaml
+- auth_token: xxxxxxxxx1
+  ct0: xxxxxxxxxxxxxxxxxxxxxxx
+- auth_token: xxxxxxxxx2
+  ct0: xxxxxxxxxxxxxxxx2
+- auth_token: xxxxxxxxxxxxxxxx3
+  ct0: xxxxxxxxxxxxxxxxxxxxx3
+```
+> 这些添加的备用 cookie，仅用来提升获取推文的速率和总量。判断是否忽略用户和自动关注受保护的用户依然使用主账号
 
 ## Detail
 

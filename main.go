@@ -126,11 +126,15 @@ type Task struct {
 }
 
 func printTask(task *Task) {
-	fmt.Printf("users: %d\n", len(task.users))
+	if len(task.users) != 0 {
+		fmt.Printf("users: %d\n", len(task.users))
+	}
 	for _, u := range task.users {
 		fmt.Printf("    - %s\n", u.Title())
 	}
-	fmt.Printf("lists: %d\n", len(task.lists))
+	if len(task.lists) != 0 {
+		fmt.Printf("lists: %d\n", len(task.lists))
+	}
 	for _, l := range task.lists {
 		fmt.Printf("    - %s\n", l.Title())
 	}
@@ -251,6 +255,7 @@ func main() {
 	confPath := filepath.Join(appRootPath, "conf.yaml")
 	cliLogPath := filepath.Join(appRootPath, "client.log")
 	logPath := filepath.Join(appRootPath, "tmd2.log")
+	additionalCookiesPath := filepath.Join(appRootPath, "additional_cookies.yaml")
 	if err = os.MkdirAll(appRootPath, 0755); err != nil {
 		log.Fatalln("failed to make app dir", err)
 	}
@@ -273,7 +278,7 @@ func main() {
 	// read/write config
 	conf, err := readConf(confPath)
 	if os.IsNotExist(err) || confArg {
-		conf, err = config(confPath)
+		conf, err = promptConfig(confPath)
 		if err != nil {
 			log.Fatalln("config failure with", err)
 		}
@@ -307,13 +312,24 @@ func main() {
 	}
 	log.Infoln("signed in as:", color.FgLightBlue.Render(screenName))
 
-	// set client logger
+	// load additional cookies
+	cookies, err := readAdditionalCookies(additionalCookiesPath)
+	if err != nil {
+		log.Warnln("failed to load additional cookies:", err)
+	}
+	log.Debugln("loaded additional cookies:", len(cookies))
+	addtional := batchLogin(ctx, dbg, cookies, screenName)
+
+	// set clients logger
 	cliLogFile, err := os.OpenFile(cliLogPath, os.O_TRUNC|os.O_WRONLY|os.O_CREATE, 0644)
 	if err != nil {
 		log.Fatalln("failed to create log file:", err)
 	}
 	defer cliLogFile.Close()
 	setClientLogger(client, cliLogFile)
+	for _, cli := range addtional {
+		setClientLogger(cli, cliLogFile)
+	}
 
 	// load previous tweets
 	dumper := downloading.NewDumper()
@@ -374,7 +390,7 @@ func main() {
 	log.Infoln("start working for...")
 	printTask(task)
 
-	todump, err = downloading.BatchDownloadAny(ctx, client, db, task.lists, task.users, pathHelper.root, pathHelper.users, autoFollow)
+	todump, err = downloading.BatchDownloadAny(ctx, client, db, task.lists, task.users, pathHelper.root, pathHelper.users, autoFollow, addtional)
 	if err != nil {
 		log.Errorln("failed to download:", err)
 	}
@@ -445,7 +461,7 @@ func writeConf(path string, conf *Config) error {
 	return err
 }
 
-func config(saveto string) (*Config, error) {
+func promptConfig(saveto string) (*Config, error) {
 	conf := Config{}
 	scan := bufio.NewScanner(os.Stdin)
 
@@ -506,4 +522,58 @@ func retryFailedTweets(ctx context.Context, dumper *downloading.TweetDumper, db 
 	}
 
 	return nil
+}
+
+func readAdditionalCookies(path string) ([]*Cookie, error) {
+	res := []*Cookie{}
+	file, err := os.OpenFile(path, os.O_RDONLY, 0)
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	data, err := io.ReadAll(file)
+	if err != nil {
+		return nil, err
+	}
+
+	return res, yaml.Unmarshal(data, &res)
+}
+
+func batchLogin(ctx context.Context, dbg bool, cookies []*Cookie, master string) []*resty.Client {
+	if len(cookies) == 0 {
+		return nil
+	}
+
+	added := make(map[string]struct{})
+	added[master] = struct{}{}
+	msgs := []string{}
+
+	clients := []*resty.Client{}
+	for _, cookie := range cookies {
+		cli, sn, err := twitter.Login(ctx, cookie.AuthCoken, cookie.Ct0)
+		if _, ok := added[sn]; ok {
+			continue
+		}
+
+		if err != nil {
+			msgs = append(msgs, fmt.Sprintf("    - ? %v\n", err))
+			continue
+		}
+		twitter.EnableRateLimit(cli)
+		if dbg {
+			twitter.EnableRequestCounting(cli)
+		}
+		clients = append(clients, cli)
+		msgs = append(msgs, fmt.Sprintf("    - %s\n", sn))
+	}
+
+	log.Infoln("loaded additional accounts:", len(clients))
+	for _, msg := range msgs {
+		fmt.Print(msg)
+	}
+	return clients
 }
