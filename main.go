@@ -13,6 +13,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 
 	"github.com/go-resty/resty/v2"
@@ -548,29 +549,39 @@ func batchLogin(ctx context.Context, dbg bool, cookies []*Cookie, master string)
 		return nil
 	}
 
-	added := make(map[string]struct{})
-	added[master] = struct{}{}
-	msgs := []string{}
-
+	added := sync.Map{}
+	msgs := make([]string, len(cookies))
 	clients := []*resty.Client{}
-	for _, cookie := range cookies {
-		cli, sn, err := twitter.Login(ctx, cookie.AuthCoken, cookie.Ct0)
-		if _, ok := added[sn]; ok {
-			continue
-		}
+	wg := sync.WaitGroup{}
+	mtx := sync.Mutex{}
+	added.Store(master, struct{}{})
 
-		if err != nil {
-			msgs = append(msgs, fmt.Sprintf("    - ? %v\n", err))
-			continue
-		}
-		twitter.EnableRateLimit(cli)
-		if dbg {
-			twitter.EnableRequestCounting(cli)
-		}
-		clients = append(clients, cli)
-		msgs = append(msgs, fmt.Sprintf("    - %s\n", sn))
+	for i, cookie := range cookies {
+		wg.Add(1)
+		go func(index int) {
+			defer wg.Done()
+			cli, sn, err := twitter.Login(ctx, cookie.AuthCoken, cookie.Ct0)
+			if _, loaded := added.LoadOrStore(sn, struct{}{}); loaded {
+				msgs[index] = "    - ? repeated\n"
+				return
+			}
+
+			if err != nil {
+				msgs[index] = fmt.Sprintf("    - ? %v\n", err)
+				return
+			}
+			twitter.EnableRateLimit(cli)
+			if dbg {
+				twitter.EnableRequestCounting(cli)
+			}
+			mtx.Lock()
+			defer mtx.Unlock()
+			clients = append(clients, cli)
+			msgs[index] = fmt.Sprintf("    - %s\n", sn)
+		}(i)
 	}
 
+	wg.Wait()
 	log.Infoln("loaded additional accounts:", len(clients))
 	for _, msg := range msgs {
 		fmt.Print(msg)
