@@ -119,7 +119,7 @@ tmd --user elonmusk
 
 程序动态从所有可用 cookie 中选择一个不会被速率限制的 cookie 请求用户推文，以避免因单一 cookie 的速率限制导致程序被阻塞。
 
-按如下格式创建 `$HOME/.tmd2/additional_cookies.yaml` 或 `$HOME/.tmd2/additional_cookies.yaml`
+按如下格式创建 `$HOME/.tmd2/additional_cookies.yaml` 或 `%appdata%/.tmd2/additional_cookies.yaml`
 
 ```yaml
 - auth_token: xxxxxxxxx1
@@ -141,3 +141,6 @@ Twitter API 限制一段时间内过快的请求 （例如某端点每15分钟�
 
 ![](https://contrib.rocks/image?repo=unkmonster/tmd) 
 
+## Buy me a coffee
+
+<img src="https://s2.loli.net/2024/10/09/8UXRGiybLrhN6mt.jpg" alt="description" width="300" />
