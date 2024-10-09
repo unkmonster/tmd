@@ -570,6 +570,15 @@ func BatchUserDownload(ctx context.Context, client *resty.Client, db *sqlx.DB, u
 
 				entity := userEntityHeap.Peek()
 				depth := depthByEntity[entity]
+				if depth > userTweetRateLimit {
+					log.WithFields(log.Fields{
+						"user":  entity.Name(),
+						"depth": depth,
+					}).Warnln("user depth greater than the max limit of window")
+					userEntityHeap.Pop()
+					continue
+				}
+
 				if depth+count > userTweetRateLimit {
 					break
 				}

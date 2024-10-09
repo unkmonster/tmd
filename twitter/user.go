@@ -240,6 +240,6 @@ func FollowUser(ctx context.Context, client *resty.Client, user *User) error {
 		// "include_ext_is_blue_verified":      1,
 		// "include_ext_verified_type":         1,
 		// "include_ext_profile_image_shape":   1,
-	}).Post(url)
+	}).SetContext(ctx).Post(url)
 	return err
 }
