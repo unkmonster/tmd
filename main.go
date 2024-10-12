@@ -222,19 +222,22 @@ func initLogger(dbg bool, logFile io.Writer) {
 }
 
 func main() {
-	//flag.
+	//flags
 	var usrArgs userArgs
 	var listArgs ListArgs
 	var follArgs userArgs
 	var confArg bool
 	var dbg bool
 	var autoFollow bool
+	var noRetry bool
+
 	flag.BoolVar(&confArg, "conf", false, "reconfigure")
 	flag.Var(&usrArgs, "user", "download tweets from the user specified by user_id/screen_name since the last download")
 	flag.Var(&listArgs, "list", "batch download each member from list specified by list_id")
 	flag.Var(&follArgs, "foll", "batch download each member followed by the user specified by user_id/screen_name")
 	flag.BoolVar(&dbg, "dbg", false, "display debug message")
 	flag.BoolVar(&autoFollow, "auto-follow", false, "send follow request automatically to protected users")
+	flag.BoolVar(&noRetry, "no-retry", false, "quickly exit without retrying failed tweets")
 	flag.Parse()
 
 	var err error
@@ -374,12 +377,13 @@ func main() {
 		log.Infof("%d tweets have been dumped and will be downloaded the next time the program runs", dumper.Count())
 	}()
 
+	// retry failed tweets at exit
 	defer func() {
 		for _, te := range todump {
 			dumper.Push(te.Entity.Id(), te.Tweet)
 		}
 		// 如果手动取消，不尝试重试，快速终止进程
-		if ctx.Err() != context.Canceled {
+		if ctx.Err() != context.Canceled && !noRetry {
 			retryFailedTweets(ctx, dumper, db, client)
 		}
 	}()
