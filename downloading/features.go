@@ -364,18 +364,20 @@ func BatchUserDownload(ctx context.Context, client *resty.Client, db *sqlx.DB, u
 		luser, ruser := uidToUser[lhs.Uid()], uidToUser[rhs.Uid()]
 		lOnlyMater := luser.IsProtected && luser.Followstate == twitter.FS_FOLLOWING
 		rOnlyMaster := ruser.IsProtected && ruser.Followstate == twitter.FS_FOLLOWING
-		if lOnlyMater && !rOnlyMaster {
-			return true // 优先让 master 获取只有他能看到的
+
+		if lOnlyMater == rOnlyMaster {
+			return depthByEntity[lhs] > depthByEntity[rhs]
 		}
-		return depthByEntity[lhs] > depthByEntity[rhs]
+		return lOnlyMater // 优先让 master 获取只有他能看到的
 	})
 
 	start := time.Now()
+	deepest := 0
 
 	// pre-process
 	func() {
 		defer panicHandler()
-		log.Debugln("start pre processing users")
+		log.Infoln("start pre processing users")
 
 		for _, userInLST := range users {
 			var pathEntity *UserEntity
@@ -416,6 +418,7 @@ func BatchUserDownload(ctx context.Context, client *resty.Client, db *sqlx.DB, u
 					missingTweets += max(0, user.MediaCount-int(pathEntity.record.MediaCount.Int32))
 					depthByEntity[pathEntity] = calcUserDepth(int(pathEntity.record.MediaCount.Int32), user.MediaCount)
 					userEntityHeap.Push(pathEntity)
+					deepest = max(deepest, depthByEntity[pathEntity])
 				}
 
 				// 自动关注
@@ -470,7 +473,7 @@ func BatchUserDownload(ctx context.Context, client *resty.Client, db *sqlx.DB, u
 	log.Debugln("preprocessing finish, elapsed:", time.Since(start))
 	log.Debugln("real members:", userEntityHeap.Size())
 	log.Debugln("missing tweets:", missingTweets)
-	log.Debugln("deepest:", depthByEntity[userEntityHeap.Peek()])
+	log.Debugln("deepest:", deepest)
 
 	clients := make([]*resty.Client, 0)
 	clients = append(clients, client)
