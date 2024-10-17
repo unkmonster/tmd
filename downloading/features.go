@@ -87,7 +87,7 @@ var MaxDownloadRoutine int
 var syncedUsers sync.Map
 
 func init() {
-	MaxDownloadRoutine = runtime.GOMAXPROCS(0) * 10
+	MaxDownloadRoutine = min(100, runtime.GOMAXPROCS(0)*10)
 }
 
 type workerConfig struct {

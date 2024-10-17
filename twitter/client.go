@@ -79,7 +79,7 @@ func Login(ctx context.Context, authToken string, ct0 string) (*resty.Client, st
 
 	client.SetTransport(&http.Transport{
 		MaxIdleConns:          0,
-		MaxIdleConnsPerHost:   1000,            // 每个主机最大并发连接数
+		MaxIdleConnsPerHost:   100,             // 每个主机最大并发连接数
 		IdleConnTimeout:       5 * time.Second, // 连接空闲 n 秒后断开它
 		TLSHandshakeTimeout:   5 * time.Second,
 		ResponseHeaderTimeout: 5 * time.Second,
