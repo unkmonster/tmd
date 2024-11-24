@@ -8,9 +8,9 @@ import (
 	"time"
 
 	"github.com/jmoiron/sqlx"
-	"github.com/unkmonster/tmd/database"
+	"github.com/unkmonster/tmd/internal/database"
+	"github.com/unkmonster/tmd/internal/twitter"
 	"github.com/unkmonster/tmd/internal/utils"
-	"github.com/unkmonster/tmd/twitter"
 )
 
 var db *sqlx.DB

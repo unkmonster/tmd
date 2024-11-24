@@ -2,11 +2,13 @@ package downloading
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/go-resty/resty/v2"
@@ -14,9 +16,9 @@ import (
 	"github.com/jmoiron/sqlx"
 	"github.com/panjf2000/ants/v2"
 	log "github.com/sirupsen/logrus"
-	"github.com/unkmonster/tmd/database"
+	"github.com/unkmonster/tmd/internal/database"
+	"github.com/unkmonster/tmd/internal/twitter"
 	"github.com/unkmonster/tmd/internal/utils"
-	"github.com/unkmonster/tmd/twitter"
 )
 
 type PackgedTweet interface {
@@ -139,6 +141,11 @@ func tweetDownloader(client *resty.Client, config *workerConfig, errch chan<- Pa
 		// 403: Dmcaed
 		if err != nil && !utils.IsStatusCode(err, 404) && !utils.IsStatusCode(err, 403) {
 			errch <- pt
+		}
+
+		// cancel context and exit if no disk space
+		if errors.Is(err, syscall.ENOSPC) {
+			config.cancel(err)
 		}
 	}
 }

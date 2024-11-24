@@ -7,8 +7,8 @@ import (
 	"os"
 
 	"github.com/jmoiron/sqlx"
-	"github.com/unkmonster/tmd/database"
-	"github.com/unkmonster/tmd/twitter"
+	"github.com/unkmonster/tmd/internal/database"
+	"github.com/unkmonster/tmd/internal/twitter"
 )
 
 type TweetDumper struct {
