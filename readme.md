@@ -51,8 +51,8 @@ go build .
 #### 配置项介绍
 
 1. `storeage path`：存储路径(可以不存在)
-2. `auth_token`：用于登录，[获取方式](https://github.com/unkmonster/tmd/blob/master/help.md#获取-cookie)
-3. `ct0`：用于登录，[获取方式](https://github.com/unkmonster/tmd/blob/master/help.md#获取-cookie)
+2. `auth_token`：用于登录，[获取方式](https://github.com/unkmonster/tmd/blob/master/doc/help.md#获取-cookie)
+3. `ct0`：用于登录，[获取方式](https://github.com/unkmonster/tmd/blob/master/doc/help.md#获取-cookie)
 4. `max_download_routine`：最大并发下载协程数（如果为0取默认值）
 
 #### 更新配置
@@ -79,7 +79,7 @@ tmd --no-retry             // 仅转储，不在程序退出前自动重试下�
 
 > 为了创建符号链接，在 Windows 上应该以管理员身份运行程序
 
-[不知道啥是 user_id/list_id/screen_name?](https://github.com/unkmonster/tmd/blob/master/help.md#%E8%8E%B7%E5%8F%96-list_id-user_id-screen_name)
+[不知道啥是 user_id/list_id/screen_name?](https://github.com/unkmonster/tmd/blob/master/doc/help.md#%E8%8E%B7%E5%8F%96-list_id-user_id-screen_name)
 
 ### 示例
 
