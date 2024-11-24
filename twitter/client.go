@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/url"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -14,7 +15,6 @@ import (
 
 	"github.com/go-resty/resty/v2"
 	log "github.com/sirupsen/logrus"
-	"github.com/tidwall/gjson"
 	"github.com/unkmonster/tmd/internal/utils"
 )
 
@@ -378,15 +378,35 @@ func ReportRequestCount() {
 	})
 }
 
+var screenNamePattern = regexp.MustCompile(`"screen_name":"(\S+?)"`)
+
+func extractScreenNameFromHome(home []byte) string {
+	subs := screenNamePattern.FindStringSubmatch(string(home))
+	if len(subs) == 0 {
+		return ""
+	}
+	return subs[1]
+}
+
 func GetSelfScreenName(ctx context.Context, client *resty.Client) (string, error) {
-	resp, err := client.R().SetContext(ctx).Get("https://api.x.com/1.1/account/settings.json")
+	// 移除 Authorization 头，否则 401
+	client = client.Clone()
+	client.SetAuthToken("")
+
+	// U-A 是必须的，否则 400
+	req := client.R().SetContext(ctx).SetHeaders(map[string]string{
+		"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+	})
+	resp, err := req.Get("https://x.com/home")
+
 	if err != nil {
 		return "", err
 	}
 	if err := utils.CheckRespStatus(resp); err != nil {
 		return "", err
 	}
-	return gjson.GetBytes(resp.Body(), "screen_name").String(), nil
+	sname := extractScreenNameFromHome(resp.Body())
+	return sname, nil
 }
 
 func GetClientError(cli *resty.Client) error {
