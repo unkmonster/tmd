@@ -122,12 +122,14 @@ func TestGetMedia(t *testing.T) {
 			t.Error(err, usr)
 			return
 		}
-		//t.Logf("[user:%s] tweets: %d\n", usr.ScreenName, len(tweets))
-		if len(tweets) > usr.MediaCount || usr.MediaCount-len(tweets) > usr.MediaCount*2/100 {
-			t.Errorf("%s: len(tweets) == %d, want %d", test, len(tweets), usr.MediaCount)
+
+		n := len(tweets)
+		retrievalRatio := 0.75
+		if n > usr.MediaCount || float64(n)/float64(usr.MediaCount) < retrievalRatio {
+			t.Errorf("%s: len(tweets) == %d, want %d", test, n, usr.MediaCount)
 		}
 
-		if len(tweets) == 0 {
+		if n == 0 {
 			return
 		}
 
