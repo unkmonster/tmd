@@ -142,6 +142,6 @@ Twitter API 限制一段时间内过快的请求 （例如某端点每15分钟�
 
 ![](https://contrib.rocks/image?repo=unkmonster/tmd) 
 
-## Buy me a coffee
+## 交流群
 
-<img src="https://s2.loli.net/2024/10/09/8UXRGiybLrhN6mt.jpg" alt="description" width="300" />
+tg: https://t.me/+I4yyM81HaJpkNTll
