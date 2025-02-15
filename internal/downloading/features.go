@@ -53,7 +53,7 @@ func downloadTweetMedia(ctx context.Context, client *resty.Client, dir string, t
 		}
 
 		// 请求
-		resp, err := client.R().SetContext(ctx).Get(u)
+		resp, err := client.R().SetContext(ctx).SetQueryParam("name", "4096x4096").Get(u)
 		if err != nil {
 			return err
 		}
