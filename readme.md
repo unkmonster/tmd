@@ -112,6 +112,12 @@ set HTTPS_PROXY=http://127.0.0.1:7890
 tmd --user elonmusk
 ```
 
+如果你使用windows系统，在powershell中使用以下指令设置代理：
+```powershell
+$Env:HTTP_PROXY="http://127.0.0.1:7890"
+$Env:HTTPS_PROXY="http://127.0.0.1:7890"
+```
+
 ### 忽略用户
 
 程序默认会忽略被静音或被屏蔽的用户，所以当你想要下载的列表中包含你不想包含的用户，可以在推特将他们屏蔽或静音
