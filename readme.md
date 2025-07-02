@@ -151,3 +151,11 @@ Twitter API 限制一段时间内过快的请求 （例如某端点每15分钟�
 ## 交流群
 
 tg: https://t.me/+I4yyM81HaJpkNTll
+
+## 感谢
+
+本项目 CDN 加速及安全防护由 Tencent EdgeOne 赞助
+
+<img src="https://edgeone.ai/media/34fe3a45-492d-4ea4-ae5d-ea1087ca7b4b.png" alt="图片alt" title="图片title">
+
+官网链接：<a href="https://edgeone.ai/zh?from=github">亚洲最佳CDN、边缘和安全解决方案 - Tencent EdgeOne</a>
