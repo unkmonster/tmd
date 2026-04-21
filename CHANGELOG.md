@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.12.1] - 2026-04-15
+
+### Added
+
+#### 新增部分配置更新功能
+
+新增 `PromptPartialConfig()` 函数，支持更新现有配置而不重新创建：
+
+| 文件 | 变更 |
+|------|------|
+| `internal/config/partial_update.go` | 新增部分配置更新功能 |
+| `internal/config/config.go` | 新增 `MaxFileNameLen` 配置项 |
+| `main.go` | 使用 `-c` 参数时调用部分更新 |
+
+**功能：**
+- 使用 `-c` 参数可以更新现有配置（保留已有值作为默认值）
+- 支持更新的字段：root_path, auth_token, ct0, max_download_routine, max_file_name_len
+- 空输入表示保持原值不变
+
+### Changed
+
+#### 默认文件名长度调整
+
+| 文件 | 变更 |
+|------|------|
+| `internal/utils/fs.go` | `DefaultMaxFileNameLen` 155 → 158 |
+| `internal/naming/base.go` | 同步更新 |
+
+**说明：** 为后缀预留更多空间（5 → 8 字节）
+
+#### .gitignore 更新
+
+- 添加 `tmd-2.4.4/` 目录忽略
+
+---
+
 ## [2.12.0] - 2026-04-15
 
 ### Added

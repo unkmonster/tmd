@@ -119,6 +119,21 @@ func PromptConfig(saveto string) (*Config, error) {
 		conf.MaxDownloadRoutine = routine
 	}
 
+	fileNameLenStr := getInputOrDefault("enter max file name length (50-250)", strconv.Itoa(conf.MaxFileNameLen))
+	if strings.TrimSpace(fileNameLenStr) != "" {
+		length, err := strconv.Atoi(fileNameLenStr)
+		if err != nil {
+			return nil, fmt.Errorf("invalid max file name length: %v", err)
+		}
+		if length < 50 {
+			length = 50
+		}
+		if length > 250 {
+			length = 250
+		}
+		conf.MaxFileNameLen = length
+	}
+
 	return conf, WriteConf(saveto, conf)
 }
 

@@ -34,9 +34,9 @@ func PathExists(path string) (bool, error) {
 	return false, err
 }
 
-// reserve 5 bytes for suffix
+// reserve 8 bytes for suffix
 // NTFS 单个文件名硬限制为 255 字符（与长路径设置无关）
-const DefaultMaxFileNameLen = 155
+const DefaultMaxFileNameLen = 158
 
 // WinFileNameWithMaxLen 将无后缀的文件名更新为有效的 Windows 文件名
 // maxLen 指定最大文件名长度

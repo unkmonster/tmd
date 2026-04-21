@@ -305,7 +305,11 @@ func main() {
 
 	conf, err := config.ReadConf(confPath)
 	if os.IsNotExist(err) || confArg {
-		conf, err = config.PromptConfig(confPath)
+		if confArg {
+			conf, err = config.PromptPartialConfig(confPath)
+		} else {
+			conf, err = config.PromptConfig(confPath)
+		}
 		if err != nil {
 			log.Fatalln("config failure with", err)
 		}

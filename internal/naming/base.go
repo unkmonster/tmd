@@ -4,7 +4,7 @@ import (
 	"github.com/unkmonster/tmd/internal/utils"
 )
 
-const ExtReserveLen = 5
+const ExtReserveLen = 8
 
 var MaxFileNameLen = utils.DefaultMaxFileNameLen
 
