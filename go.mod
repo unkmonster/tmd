@@ -4,12 +4,14 @@ go 1.25.0
 
 require (
 	github.com/go-resty/resty/v2 v2.14.0
+	github.com/google/uuid v1.6.0
 	github.com/gookit/color v1.5.4
 	github.com/jmoiron/sqlx v1.4.0
 	github.com/mattn/go-sqlite3 v1.14.22
 	github.com/natefinch/lumberjack v2.0.0+incompatible
 	github.com/panjf2000/ants/v2 v2.10.0
 	github.com/rifflock/lfshook v0.0.0-20180920164130-b9218ef580f5
+	github.com/rs/cors v1.11.1
 	github.com/sirupsen/logrus v1.9.3
 	github.com/stretchr/testify v1.8.4
 	github.com/tidwall/gjson v1.17.3

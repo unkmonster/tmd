@@ -7,6 +7,74 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ***
 
+## [2.14.0] - 2026-04-15
+
+### Added
+
+#### 新增 CLI 模块 (`internal/cli/`)
+
+将 main.go 中的命令行处理逻辑抽离为独立模块：
+
+| 文件 | 功能 |
+|------|------|
+| `args.go` | 命令行参数定义和解析（UserArgs, ListArgs, ProfileUserArgs, ProfileListArgs） |
+| `executor.go` | CLI 命令执行器（Dependencies, ExecuteCLI） |
+| `helpers.go` | 辅助函数（createClients, getUserByScreenName） |
+| `paths.go` | 路径处理函数 |
+
+**核心改进：**
+- 解耦 main.go 中的业务逻辑
+- 清晰的依赖注入结构（Dependencies）
+- 支持可重复参数解析
+
+#### 新增 API 异步执行器 (`internal/api/async_executor.go`)
+
+| 文件 | 功能 |
+|------|------|
+| `async_executor.go` | 异步下载任务执行器 |
+
+### Changed
+
+#### main.go 重构
+
+**精简 462 行代码**，职责更清晰：
+
+| 变化 | 说明 |
+|------|------|
+| 移除 CLI 逻辑 | 迁移到 `internal/cli/` 包 |
+| 简化 main 函数 | 只保留模式选择和启动逻辑 |
+| 统一错误处理 | 使用 `log.Fatal` 替代多处错误判断 |
+
+**新的 main.go 结构：**
+```go
+func main() {
+    // 1. 解析命令行参数
+    // 2. 初始化日志
+    // 3. 检查工作目录
+    // 4. 选择模式：API Server / CLI
+    // 5. 启动对应模式
+}
+```
+
+#### 依赖更新
+
+| 文件 | 变更 |
+|------|------|
+| `go.mod` / `go.sum` | 新增依赖 |
+| `internal/database/connect.go` | 添加 `InitDB` 函数 |
+| `internal/downloader/downloader.go` | 修复流式下载 |
+| `internal/downloading/tweet_download.go` | 优化错误处理 |
+| `doc/API_DOCUMENTATION.md` | 更新文档 |
+
+### Stats
+
+- **9 个文件变更**
+- **+120 行 / -462 行**
+- **净减少：342 行代码**
+- **新增模块：** 2 个（`internal/cli/`, `internal/api/async_executor.go`）
+
+***
+
 ## [2.12.3] - 2026-04-15
 
 ### Added

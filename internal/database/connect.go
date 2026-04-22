@@ -2,6 +2,7 @@ package database
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/jmoiron/sqlx"
 	"github.com/unkmonster/tmd/internal/utils"
@@ -19,6 +20,12 @@ func Connect(path string) (*sqlx.DB, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to database at %q: %w", path, err)
 	}
+
+	// 配置连接池：SQLite 为文件型数据库，限制连接数以避免并发问题
+	db.SetMaxOpenConns(1)                  // 最多 1 个打开的连接（SQLite 并发写入限制）
+	db.SetMaxIdleConns(1)                  // 保持 1 个空闲连接
+	db.SetConnMaxLifetime(30 * time.Minute) // 连接最大生命周期
+	db.SetConnMaxIdleTime(10 * time.Minute) // 空闲连接最大保持时间
 
 	CreateTables(db)
 	if err := MigrateDatabase(db); err != nil {

@@ -9,7 +9,7 @@ import (
 )
 
 const streamThreshold = 10 * 1024 * 1024 // 10MB
-const maxDownloadRetries = 3             // 最大重试次数
+const maxDownloadRetries = 2             // 最大重试次数
 const retryDelay = 2 * time.Second       // 重试间隔
 
 // DefaultDownloader 默认下载器实现

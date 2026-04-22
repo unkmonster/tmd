@@ -97,6 +97,9 @@ Content-Type: application/json
       "screen_name": "elonmusk",
       "name": "Elon Musk"
     },
+    "auto_follow": false,
+    "skip_profile": false,
+    "no_retry": false,
     "message": "Download task queued successfully"
   }
 }
@@ -140,6 +143,7 @@ POST /api/v1/users/{screen_name}/profile
   "data": {
     "task_id": "task_def456",
     "status": "queued",
+    "screen_name": "elonmusk",
     "message": "Profile download task queued"
   }
 }
@@ -188,6 +192,8 @@ Content-Type: application/json
   "data": {
     "task_id": "task_ghi789",
     "status": "queued",
+    "screen_name": "elonmusk",
+    "timestamp": "2024-01-15T10:30:00Z",
     "message": "Mark downloaded task queued"
   }
 }
@@ -251,6 +257,9 @@ Content-Type: application/json
       "screen_name": "elonmusk",
       "name": "Elon Musk"
     },
+    "auto_follow": false,
+    "skip_profile": false,
+    "no_retry": false,
     "message": "Following download task queued successfully"
   }
 }
@@ -309,6 +318,9 @@ Content-Type: application/json
     "task_id": "task_mno345",
     "status": "queued",
     "list_id": 123456789,
+    "skip_profile": false,
+    "auto_follow": false,
+    "no_retry": false,
     "message": "List download task queued"
   }
 }
@@ -349,6 +361,7 @@ POST /api/v1/lists/{list_id}/profile
     "task_id": "task_pqr678",
     "status": "queued",
     "list_id": 123456789,
+    "user_count": 50,
     "message": "List profile download task queued"
   }
 }
@@ -393,6 +406,8 @@ Content-Type: application/json
   "data": {
     "task_id": "task_stu901",
     "status": "queued",
+    "paths": ["/path/to/tweets1.json", "/path/to/tweets2.json"],
+    "no_retry": false,
     "message": "JSON download task queued"
   }
 }
@@ -447,8 +462,13 @@ Content-Type: application/json
   "data": {
     "task_id": "task_vwx234",
     "status": "queued",
+    "users": ["elonmusk", "twitter", "github"],
+    "lists": [123456789, 987654321],
     "user_count": 3,
     "list_count": 2,
+    "auto_follow": false,
+    "skip_profile": false,
+    "no_retry": false,
     "message": "Batch download task queued"
   }
 }

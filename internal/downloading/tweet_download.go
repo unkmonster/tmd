@@ -283,11 +283,14 @@ func downloadTweetMedia(cfg *workerConfig, dir string, tweet *twitter.Tweet, ski
 	// 更新 tweet.Urls：只保留失败的URL
 	tweet.Urls = failedUrls
 
-	fmt.Printf("%s", color.FgLightMagenta.Render(tweetNaming.LogFormat()))
-	if len(successUrls) > 0 && len(failedUrls) > 0 {
-		fmt.Printf(" [%d/%d succeeded]", len(successUrls), len(successUrls)+len(failedUrls))
+	// 只在至少一个媒体下载成功时才打印推文标题
+	if len(successUrls) > 0 {
+		fmt.Printf("%s", color.FgLightMagenta.Render(tweetNaming.LogFormat()))
+		if len(failedUrls) > 0 {
+			fmt.Printf(" [%d/%d succeeded]", len(successUrls), len(successUrls)+len(failedUrls))
+		}
+		fmt.Println()
 	}
-	fmt.Println()
 
 	// 只要有失败的URL，就返回错误，让推文进入重试队列
 	if len(failedUrls) > 0 {
