@@ -3,6 +3,8 @@ package downloader
 import (
 	"crypto/md5"
 	"encoding/hex"
+	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sync"
@@ -45,6 +47,11 @@ func NewFileWriter(versionManager VersionManager) *DefaultFileWriter {
 
 // Write 写入文件
 func (fw *DefaultFileWriter) Write(req WriteRequest) (WriteResult, error) {
+	// 如果提供了 Reader，使用流式模式
+	if req.IsStream() {
+		return fw.WriteStream(req.Path, req.Reader, req.Size, req.Options)
+	}
+
 	result := WriteResult{NewSize: int64(len(req.Data))}
 
 	lock := fw.getLock(req.Path)
@@ -99,6 +106,94 @@ func (fw *DefaultFileWriter) Write(req WriteRequest) (WriteResult, error) {
 
 	result.Success = true
 	return result, nil
+}
+
+// WriteStream 流式写入文件
+func (fw *DefaultFileWriter) WriteStream(path string, reader io.Reader, size int64, options WriteOptions) (WriteResult, error) {
+	result := WriteResult{NewSize: size}
+
+	lock := fw.getLock(path)
+	lock.Lock()
+	defer lock.Unlock()
+
+	// 流式模式不支持 SkipUnchanged（无法预先计算 hash）
+	// 但可以通过文件大小快速判断
+	if options.SkipUnchanged && size > 0 {
+		exists, fileInfo, err := fw.fileExists(path)
+		if err != nil {
+			return result, err
+		}
+		if exists && fileInfo.Size() == size {
+			// 大小相同，假设内容相同（跳过重下载）
+			result.OldSize = fileInfo.Size()
+			result.Skipped = true
+			result.Success = true
+			return result, nil
+		}
+	}
+
+	// 创建版本备份（如果需要）
+	if options.CreateVersion && fw.versionManager != nil {
+		if _, err := os.Stat(path); err == nil {
+			_, err := fw.versionManager.CreateVersion(path)
+			if err != nil {
+				return result, err
+			}
+		}
+	}
+
+	// 原子流式写入
+	written, err := fw.atomicWriteStream(path, reader)
+	if err != nil {
+		return result, err
+	}
+
+	// 更新实际写入的字节数
+	result.NewSize = written
+
+	// 设置修改时间
+	if options.ModTime != nil {
+		if err := os.Chtimes(path, time.Time{}, *options.ModTime); err != nil {
+			log.Warnf("failed to set modification time for %s: %v", path, err)
+		}
+	}
+
+	result.Success = true
+	return result, nil
+}
+
+// atomicWriteStream 流式原子写入
+func (fw *DefaultFileWriter) atomicWriteStream(path string, reader io.Reader) (int64, error) {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return 0, fmt.Errorf("failed to create directory %s: %w", dir, err)
+	}
+	tempFile, err := os.CreateTemp(dir, ".tmp_*")
+	if err != nil {
+		return 0, fmt.Errorf("failed to create temp file: %w", err)
+	}
+	tempPath := tempFile.Name()
+
+	defer os.Remove(tempPath)
+
+	// 使用缓冲区复制
+	buf := make([]byte, 32*1024) // 32KB 缓冲区
+	written, err := io.CopyBuffer(tempFile, reader, buf)
+	if err != nil {
+		tempFile.Close()
+		return 0, fmt.Errorf("failed to write to temp file: %w", err)
+	}
+	if err := tempFile.Close(); err != nil {
+		return 0, fmt.Errorf("failed to close temp file: %w", err)
+	}
+
+	log.Debugf("atomicWriteStream: written %d bytes to %s", written, path)
+
+	if err := os.Rename(tempPath, path); err != nil {
+		return 0, fmt.Errorf("failed to rename temp file: %w", err)
+	}
+
+	return written, nil
 }
 
 // fileExists 检查文件是否存在

@@ -45,7 +45,9 @@ var syncedUsers sync.Map
 var syncedListUsers sync.Map
 
 func init() {
-	MaxDownloadRoutine = min(100, runtime.GOMAXPROCS(0)*10)
+	// 降低默认并发数，减少内存占用
+	// 流式下载后，内存不再是瓶颈，但过多并发会增加网络和磁盘压力
+	MaxDownloadRoutine = min(10, runtime.GOMAXPROCS(0)*2)
 }
 
 type workerConfig struct {

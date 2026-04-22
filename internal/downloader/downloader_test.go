@@ -736,3 +736,330 @@ func TestExtractImageExtFromURL(t *testing.T) {
 		})
 	}
 }
+
+// =============================================================================
+// Phase 4: 流式下载测试
+// =============================================================================
+
+func TestFileWriter_WriteStream_Normal(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "filewriter_stream_test")
+	if err != nil {
+		t.Fatalf("创建临时目录失败: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	fw := NewFileWriter(nil)
+
+	// 准备测试数据（模拟大文件内容）
+	testData := []byte("this is stream test content for large file simulation")
+	testPath := filepath.Join(tempDir, "stream_test.txt")
+	expectedSize := int64(len(testData))
+
+	// 使用 io.Reader 创建写入请求
+	reader := strings.NewReader(string(testData))
+	req := WriteRequest{
+		Path:   testPath,
+		Reader: reader,
+		Size:   expectedSize,
+		Options: WriteOptions{
+			CreateVersion: false,
+			SkipUnchanged: false,
+		},
+	}
+
+	result, err := fw.Write(req)
+	if err != nil {
+		t.Fatalf("流式写入失败: %v", err)
+	}
+
+	// 验证结果
+	if !result.Success {
+		t.Error("期望 Success=true, 实际 false")
+	}
+	if result.Skipped {
+		t.Error("期望 Skipped=false, 实际 true")
+	}
+	if result.NewSize != expectedSize {
+		t.Errorf("期望 NewSize=%d, 实际 %d", expectedSize, result.NewSize)
+	}
+
+	// 验证文件内容
+	content, err := os.ReadFile(testPath)
+	if err != nil {
+		t.Fatalf("读取文件失败: %v", err)
+	}
+	if string(content) != string(testData) {
+		t.Errorf("期望内容 %q, 实际 %q", string(testData), string(content))
+	}
+}
+
+func TestFileWriter_WriteStream_SkipUnchanged(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "filewriter_stream_skip_test")
+	if err != nil {
+		t.Fatalf("创建临时目录失败: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	fw := NewFileWriter(nil)
+
+	testData := []byte("stream skip unchanged test content")
+	testPath := filepath.Join(tempDir, "stream_skip.txt")
+	expectedSize := int64(len(testData))
+
+	// 第一次写入
+	reader1 := strings.NewReader(string(testData))
+	req1 := WriteRequest{
+		Path:   testPath,
+		Reader: reader1,
+		Size:   expectedSize,
+		Options: WriteOptions{
+			SkipUnchanged: true,
+		},
+	}
+	result1, err := fw.Write(req1)
+	if err != nil {
+		t.Fatalf("第一次流式写入失败: %v", err)
+	}
+	if result1.Skipped {
+		t.Error("第一次写入不应该被跳过")
+	}
+
+	// 第二次写入相同大小内容（应该跳过）
+	reader2 := strings.NewReader(string(testData))
+	req2 := WriteRequest{
+		Path:   testPath,
+		Reader: reader2,
+		Size:   expectedSize,
+		Options: WriteOptions{
+			SkipUnchanged: true,
+		},
+	}
+	result2, err := fw.Write(req2)
+	if err != nil {
+		t.Fatalf("第二次流式写入失败: %v", err)
+	}
+	if !result2.Skipped {
+		t.Error("期望第二次写入被跳过（大小相同）")
+	}
+	if !result2.Success {
+		t.Error("跳过的写入仍应标记为成功")
+	}
+}
+
+func TestDownloader_Download_StreamMode(t *testing.T) {
+	// 创建模拟 HTTP 服务器，返回大于 10MB 的内容（触发流式模式）
+	largeContent := make([]byte, 11*1024*1024) // 11MB
+	for i := range largeContent {
+		largeContent[i] = byte(i % 256)
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "HEAD" {
+			w.Header().Set("Content-Length", fmt.Sprintf("%d", len(largeContent)))
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		w.Write(largeContent)
+	}))
+	defer server.Close()
+
+	tempDir, err := os.MkdirTemp("", "downloader_stream_test")
+	if err != nil {
+		t.Fatalf("创建临时目录失败: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	fw := NewFileWriter(nil)
+	dl := NewDownloader(fw)
+
+	destPath := filepath.Join(tempDir, "large_file.bin")
+	req := DownloadRequest{
+		Context:     context.Background(),
+		Client:      resty.New(),
+		URL:         server.URL + "/large.bin",
+		Destination: destPath,
+		Options:     DownloadOptions{},
+	}
+
+	result, err := dl.Download(req)
+	if err != nil {
+		t.Fatalf("流式下载失败: %v", err)
+	}
+
+	if !result.Success {
+		t.Error("期望 Success=true")
+	}
+	if result.FileSize != int64(len(largeContent)) {
+		t.Errorf("期望 FileSize=%d, 实际 %d", len(largeContent), result.FileSize)
+	}
+
+	// 验证文件内容
+	content, err := os.ReadFile(destPath)
+	if err != nil {
+		t.Fatalf("读取文件失败: %v", err)
+	}
+	if string(content) != string(largeContent) {
+		t.Error("文件内容不匹配")
+	}
+}
+
+func TestDownloader_Download_BufferMode(t *testing.T) {
+	// 创建模拟 HTTP 服务器，返回小于 10MB 的内容（触发 Buffer 模式）
+	smallContent := []byte("small file content for buffer mode test")
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "HEAD" {
+			w.Header().Set("Content-Length", fmt.Sprintf("%d", len(smallContent)))
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		w.Write(smallContent)
+	}))
+	defer server.Close()
+
+	tempDir, err := os.MkdirTemp("", "downloader_buffer_test")
+	if err != nil {
+		t.Fatalf("创建临时目录失败: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	fw := NewFileWriter(nil)
+	dl := NewDownloader(fw)
+
+	destPath := filepath.Join(tempDir, "small_file.txt")
+	req := DownloadRequest{
+		Context:     context.Background(),
+		Client:      resty.New(),
+		URL:         server.URL + "/small.txt",
+		Destination: destPath,
+		Options:     DownloadOptions{},
+	}
+
+	result, err := dl.Download(req)
+	if err != nil {
+		t.Fatalf("Buffer 模式下载失败: %v", err)
+	}
+
+	if !result.Success {
+		t.Error("期望 Success=true")
+	}
+	if result.FileSize != int64(len(smallContent)) {
+		t.Errorf("期望 FileSize=%d, 实际 %d", len(smallContent), result.FileSize)
+	}
+
+	// 验证文件内容
+	content, err := os.ReadFile(destPath)
+	if err != nil {
+		t.Fatalf("读取文件失败: %v", err)
+	}
+	if string(content) != string(smallContent) {
+		t.Errorf("期望内容 %q, 实际 %q", string(smallContent), string(content))
+	}
+}
+
+func TestDownloader_Download_HeadRequestFail(t *testing.T) {
+	// 创建模拟 HTTP 服务器，HEAD 请求失败但 GET 成功
+	testContent := []byte("content when head fails")
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "HEAD" {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		w.Write(testContent)
+	}))
+	defer server.Close()
+
+	tempDir, err := os.MkdirTemp("", "downloader_head_fail_test")
+	if err != nil {
+		t.Fatalf("创建临时目录失败: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	fw := NewFileWriter(nil)
+	dl := NewDownloader(fw)
+
+	destPath := filepath.Join(tempDir, "head_fail.txt")
+	req := DownloadRequest{
+		Context:     context.Background(),
+		Client:      resty.New(),
+		URL:         server.URL + "/test.txt",
+		Destination: destPath,
+		Options:     DownloadOptions{},
+	}
+
+	result, err := dl.Download(req)
+	if err != nil {
+		t.Fatalf("HEAD 失败后下载失败: %v", err)
+	}
+
+	if !result.Success {
+		t.Error("期望 Success=true")
+	}
+
+	// 验证文件内容
+	content, err := os.ReadFile(destPath)
+	if err != nil {
+		t.Fatalf("读取文件失败: %v", err)
+	}
+	if string(content) != string(testContent) {
+		t.Errorf("期望内容 %q, 实际 %q", string(testContent), string(content))
+	}
+}
+
+func TestDownloader_Download_StreamSizeMismatch(t *testing.T) {
+	// 创建模拟 HTTP 服务器，返回的内容大小与 Content-Length 不符
+	// 使用大于 10MB 的大小触发流式模式
+	declaredSize := 11 * 1024 * 1024 // 11MB
+	actualContent := []byte("short content from buffer mode fallback") // 实际内容
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "HEAD" {
+			w.Header().Set("Content-Length", fmt.Sprintf("%d", declaredSize))
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		w.Write(actualContent)
+	}))
+	defer server.Close()
+
+	tempDir, err := os.MkdirTemp("", "downloader_size_mismatch_test")
+	if err != nil {
+		t.Fatalf("创建临时目录失败: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	fw := NewFileWriter(nil)
+	dl := NewDownloader(fw)
+
+	destPath := filepath.Join(tempDir, "mismatch.txt")
+	req := DownloadRequest{
+		Context:     context.Background(),
+		Client:      resty.New(),
+		URL:         server.URL + "/mismatch.txt",
+		Destination: destPath,
+		Options:     DownloadOptions{},
+	}
+
+	result, err := dl.Download(req)
+	// 流式下载失败后回退到 Buffer 模式，应该成功
+	if err != nil {
+		t.Errorf("期望回退到 Buffer 模式后成功，但返回错误: %v", err)
+	}
+	if !result.Success {
+		t.Error("期望 Success=true")
+	}
+
+	// 验证文件内容（应该是 Buffer 模式下载的内容）
+	content, err := os.ReadFile(destPath)
+	if err != nil {
+		t.Fatalf("读取文件失败: %v", err)
+	}
+	if string(content) != string(actualContent) {
+		t.Errorf("期望内容 %q, 实际 %q", string(actualContent), string(content))
+	}
+}

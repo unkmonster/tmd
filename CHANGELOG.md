@@ -7,6 +7,60 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ***
 
+## [2.12.3] - 2026-04-15
+
+### Added
+
+#### 新增流式下载功能（大文件支持）
+
+优化下载器以支持大文件下载，自动根据文件大小选择下载策略：
+
+| 文件 | 变更 |
+|------|------|
+| `internal/downloader/downloader.go` | 新增流式下载逻辑 |
+| `internal/downloader/types.go` | 新增 `Reader` 和 `Size` 字段，支持流式模式 |
+| `internal/downloader/file_writer.go` | 新增流式写入支持 |
+| `internal/downloader/downloader_test.go` | 新增流式下载测试（+327 行） |
+
+**核心功能：**
+
+1. **智能下载策略**
+   - 小文件（< 10MB）：Buffer 模式（支持 SkipUnchanged）
+   - 大文件（≥ 10MB）：流式模式（节省内存）
+
+2. **流式下载特性**
+   - HEAD 请求预获取文件大小
+   - 带重试机制（最多 3 次，间隔 2 秒递增）
+   - 文件大小验证（下载完成后校验）
+   - 自动清理不完整文件
+   - 失败后回退到 Buffer 模式
+
+3. **文件写入增强**
+   - 支持 `io.Reader` 流式写入
+   - 实时进度跟踪
+   - 大文件分块处理
+
+**配置常量：**
+```go
+streamThreshold    = 10MB    // 流式下载阈值
+maxDownloadRetries = 3       // 最大重试次数
+retryDelay         = 2秒     // 重试间隔
+```
+
+### Changed
+
+#### 依赖更新
+
+- `internal/downloading/types.go` - 适配新的下载器接口
+
+### Stats
+
+- **5 个文件变更**
+- **+637 行 / -4 行**
+- **新增测试：** 327 行
+
+***
+
 ## [2.12.2] - 2026-04-15
 
 ### Changed

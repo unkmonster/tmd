@@ -2,6 +2,7 @@ package downloader
 
 import (
 	"context"
+	"io"
 	"time"
 
 	"github.com/go-resty/resty/v2"
@@ -33,8 +34,15 @@ type DownloadResult struct {
 
 type WriteRequest struct {
 	Path    string
-	Data    []byte
+	Data    []byte    // 用于小文件（Buffer 模式）
+	Reader  io.Reader // 用于大文件（Stream 模式）
+	Size    int64     // 文件大小（Stream 模式需要）
 	Options WriteOptions
+}
+
+// IsStream 判断是否使用流式模式
+func (w WriteRequest) IsStream() bool {
+	return w.Reader != nil
 }
 
 type WriteOptions struct {
