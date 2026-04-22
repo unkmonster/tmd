@@ -60,7 +60,7 @@ func GetFieldUpdaters() []FieldUpdater {
 			Prompt: "enter max download routine",
 			Getter: func(c *Config) string {
 				if c.MaxDownloadRoutine == 0 {
-					return "3"
+					return "35"
 				}
 				return strconv.Itoa(c.MaxDownloadRoutine)
 			},
@@ -78,10 +78,10 @@ func GetFieldUpdaters() []FieldUpdater {
 		},
 		{
 			Name:   "max_file_name_len",
-			Prompt: "enter max file name length (50-250, default 155)",
+			Prompt: "enter max file name length (50-250, default 158)",
 			Getter: func(c *Config) string {
 				if c.MaxFileNameLen == 0 {
-					return "155"
+					return "158"
 				}
 				return strconv.Itoa(c.MaxFileNameLen)
 			},

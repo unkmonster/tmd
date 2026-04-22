@@ -289,9 +289,9 @@ func main() {
 
 	logWriter := &lumberjack.Logger{
 		Filename:   logPath,
-		MaxSize:    5,
+		MaxSize:    2,
 		MaxBackups: 2,
-		MaxAge:     7,
+		MaxAge:     14,
 		Compress:   false,
 	}
 	defer logWriter.Close()
