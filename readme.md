@@ -18,128 +18,6 @@
 
 ***
 
-## 项目架构
-
-本项目采用分层架构设计，职责清晰：
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│  main.go (应用层)                                            │
-│  - 命令行解析、依赖注入、流程编排                              │
-│  - Server 模式启动 / CLI 模式执行                            │
-└──────────┬──────────────────────────────────────────────────┘
-           │
-┌──────────▼──────────────────────────────────────────────────┐
-│  internal/config (配置层)                                    │
-│  - config.go: 配置结构、读写、Cookie 管理、附加 Cookie 加载   │
-│  - partial_update.go: 配置部分更新                          │
-└──────────┬──────────────────────────────────────────────────┘
-           │
-┌──────────▼──────────────────┐  ┌────────────────────────────▼┐
-│  internal/twitter           │  │  internal/database          │
-│  (API 客户端层)              │  │  (数据持久化层)               │
-│                             │  │                             │
-│  - api.go: REST API 封装     │  │  - connect.go: 数据库连接    │
-│  - client.go: 客户端管理     │  │  - schema.go: 建表与迁移     │
-│  - user.go: 用户接口         │  │  - model.go: 数据模型        │
-│  - tweet.go: 推文接口        │  │  - helpers.go: 通用查询封装  │
-│  - timeline.go: 时间线接口   │  │  - query.go: 分页查询封装    │
-│  - list.go: 列表接口         │  │  - user.go: 用户 CRUD        │
-│  - batch_login.go: 多账号   │  │  - lst.go: 列表 CRUD         │
-│    批量登录                  │  │  - user_entity.go: 用户实体  │
-│  - errors.go: 错误类型       │  │  - lst_entity.go: 列表实体   │
-│                             │  │  - user_sync.go: 用户同步    │
-│                             │  │  - user_link.go: 用户链接    │
-└──────────┬──────────────────┘  └─────────────┬───────────────┘
-           │                                    │
-┌──────────▼────────────────────────────────────┴─────────────┐
-│  internal/api (API Server 层 - Web 管理界面)                │
-│                                                             │
-│  - server.go: HTTP 服务器、路由注册、中间件                  │
-│  - handlers.go: REST API 端点实现                           │
-│  - db_handlers.go: 数据库管理 API (CRUD)                   │
-│  - types.go: API 请求/响应类型定义                          │
-│  - pagination.go: 分页工具                                  │
-│  - task_manager.go: 异步任务管理                            │
-│  - async_executor.go: 异步任务执行器                        │
-│  - sse.go: Server-Sent Events 实时推送                      │
-│  - middleware.go: HTTP 中间件 (日志、恢复)                  │
-├─────────────────────────────────────────────────────────────┤
-│  internal/cli (CLI 命令层)                                  │
-│  - executor.go: CLI 命令执行器                              │
-│  - args.go: 命令行参数解析                                  │
-│  - paths.go: 路径处理                                       │
-│  - helpers.go: CLI 辅助函数                                 │
-├─────────────────────────────────────────────────────────────┤
-│  internal/downloading (业务层 - 推文下载)                    │
-│                                                             │
-│  - types.go: PackagedTweet 接口与全局状态                    │
-│  - tweet_download.go: 单推文下载与 JSON/TXT 保存             │
-│  - user_sync.go: 用户信息同步与时间线下载                    │
-│  - list_sync.go: 列表成员获取与同步                          │
-│  - batch_download.go: 批量用户下载（优先级队列+并发池）       │
-│  - batch_any.go: 统一入口 (BatchDownloadAny)                │
-│  - json_download.go: JSON 文件批量下载                       │
-│  - mark_downloaded.go: 标记已下载                            │
-│  - retry.go: 失败重试                                       │
-│  - dumper.go: 失败推文持久化                                 │
-│  - entity.go: TweetInEntity 封装                            │
-│  - list_download.go: 列表下载                               │
-└──────────┬──────────────────────────────────────────────────┘
-           │
-┌──────────▼──────────────────────────────────────────────────┐
-│  internal/profile (业务层 - 用户资料)                        │
-│  - fetcher.go: Twitter API 获取（复用 twitter 包）           │
-│  - downloader.go: Profile 下载调度                           │
-│  - storage.go: 文件存储与版本管理                            │
-│  - types.go: ProfileInfo / DownloadRequest 等类型定义        │
-└──────────┬──────────────────────────────────────────────────┘
-           │
-┌──────────▼──────────────────────────────────────────────────┐
-│  internal/entity (数据实体层)                                │
-│  - interface.go: Entity 接口定义 (Create/Remove/Rename/...)  │
-│  - user.go: UserEntity 实现                                 │
-│  - list.go: ListEntity 实现                                 │
-│  - sync.go: Sync 通用同步逻辑                               │
-├─────────────────────────────────────────────────────────────┤
-│  internal/downloader (基础设施层 - 通用下载)                 │
-│  - downloader.go: HTTP 下载、批量下载、回调机制              │
-│  - file_writer.go: 原子写入、MD5 去重、并发锁管理            │
-│  - version_manager.go: 版本备份管理                          │
-│  - helpers.go: 辅助函数                                     │
-│  - types.go: Downloader/FileWriter/VersionManager 接口       │
-├─────────────────────────────────────────────────────────────┤
-│  internal/naming (命名服务)                                  │
-│  - base.go: 基础命名结构                                    │
-│  - tweet_naming.go: TweetNaming (推文文件命名)               │
-│  - user_naming.go: UserNaming (用户目录命名)                 │
-│  - list_naming.go: ListNaming (列表目录命名)                 │
-├─────────────────────────────────────────────────────────────┤
-│  internal/utils (工具层)                                     │
-│  - fs.go: 文件路径工具 (去重、唯一路径、扩展名)              │
-│  - http.go: URL 处理、头像后缀清理                           │
-│  - algo.go: 泛型堆、切片洗牌                                │
-│  - time_range.go: 时间范围类型                               │
-│  - user.go: 泛型 ID 提取                                    │
-│  - recovery.go: panic 恢复                                  │
-│  - win32.go / stub.go: 控制台标题 (跨平台)                  │
-└─────────────────────────────────────────────────────────────┘
-```
-
-### 核心设计原则
-
-| 原则       | 实现                                                                    |
-| -------- | --------------------------------------------------------------------- |
-| **分层解耦** | 应用层 → 配置层 → API/CLI/数据层 → 业务层 → 基础设施层                                    |
-| **依赖注入** | `downloader.Downloader` 接口注入到业务层，构造函数支持多客户端                           |
-| **单一职责** | 每个包职责明确，配置/下载/命名/存储/数据分离                                              |
-| **接口隔离** | 小接口设计（Entity, Downloader, FileWriter, VersionManager, PackagedTweet）  |
-| **逻辑复用** | `database.SyncUser()` 统一用户同步，`database.MarkUserInaccessible()` 统一标记逻辑 |
-| **并发安全** | `sync.Mutex`/`sync.Map`/`atomic`/`context.Context`，协程池 (`ants`) 控制并发  |
-| **增量下载** | 基于 `latest_release_time` 的增量拉取，避免重复下载                                 |
-
-***
-
 ## 功能特性
 
 ### 推文下载
@@ -679,6 +557,127 @@ Twitter API 限制一段时间内过快的请求（例如某端点每15分钟仅
 | `-server` + `-port`                   |  ✅  | 指定 API Server 端口        |
 | `-server` + 下载参数                      |  ⚠️ | Server 模式下忽略下载参数        |
 | `-server` + `-conf`                   |  ⚠️ | 配置后启动 Server           |
+
+***
+## 项目架构
+
+本项目采用分层架构设计，职责清晰：
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  main.go (应用层)                                            │
+│  - 命令行解析、依赖注入、流程编排                              │
+│  - Server 模式启动 / CLI 模式执行                            │
+└──────────┬──────────────────────────────────────────────────┘
+           │
+┌──────────▼──────────────────────────────────────────────────┐
+│  internal/config (配置层)                                    │
+│  - config.go: 配置结构、读写、Cookie 管理、附加 Cookie 加载   │
+│  - partial_update.go: 配置部分更新                          │
+└──────────┬──────────────────────────────────────────────────┘
+           │
+┌──────────▼──────────────────┐  ┌────────────────────────────▼┐
+│  internal/twitter           │  │  internal/database          │
+│  (API 客户端层)              │  │  (数据持久化层)               │
+│                             │  │                             │
+│  - api.go: REST API 封装     │  │  - connect.go: 数据库连接    │
+│  - client.go: 客户端管理     │  │  - schema.go: 建表与迁移     │
+│  - user.go: 用户接口         │  │  - model.go: 数据模型        │
+│  - tweet.go: 推文接口        │  │  - helpers.go: 通用查询封装  │
+│  - timeline.go: 时间线接口   │  │  - query.go: 分页查询封装    │
+│  - list.go: 列表接口         │  │  - user.go: 用户 CRUD        │
+│  - batch_login.go: 多账号   │  │  - lst.go: 列表 CRUD         │
+│    批量登录                  │  │  - user_entity.go: 用户实体  │
+│  - errors.go: 错误类型       │  │  - lst_entity.go: 列表实体   │
+│                             │  │  - user_sync.go: 用户同步    │
+│                             │  │  - user_link.go: 用户链接    │
+└──────────┬──────────────────┘  └─────────────┬───────────────┘
+           │                                    │
+┌──────────▼────────────────────────────────────┴─────────────┐
+│  internal/api (API Server 层 - Web 管理界面)                │
+│                                                             │
+│  - server.go: HTTP 服务器、路由注册、中间件                  │
+│  - handlers.go: REST API 端点实现                           │
+│  - db_handlers.go: 数据库管理 API (CRUD)                   │
+│  - types.go: API 请求/响应类型定义                          │
+│  - pagination.go: 分页工具                                  │
+│  - task_manager.go: 异步任务管理                            │
+│  - async_executor.go: 异步任务执行器                        │
+│  - sse.go: Server-Sent Events 实时推送                      │
+│  - middleware.go: HTTP 中间件 (日志、恢复)                  │
+├─────────────────────────────────────────────────────────────┤
+│  internal/cli (CLI 命令层)                                  │
+│  - executor.go: CLI 命令执行器                              │
+│  - args.go: 命令行参数解析                                  │
+│  - paths.go: 路径处理                                       │
+│  - helpers.go: CLI 辅助函数                                 │
+├─────────────────────────────────────────────────────────────┤
+│  internal/downloading (业务层 - 推文下载)                    │
+│                                                             │
+│  - types.go: PackagedTweet 接口与全局状态                    │
+│  - tweet_download.go: 单推文下载与 JSON/TXT 保存             │
+│  - user_sync.go: 用户信息同步与时间线下载                    │
+│  - list_sync.go: 列表成员获取与同步                          │
+│  - batch_download.go: 批量用户下载（优先级队列+并发池）       │
+│  - batch_any.go: 统一入口 (BatchDownloadAny)                │
+│  - json_download.go: JSON 文件批量下载                       │
+│  - mark_downloaded.go: 标记已下载                            │
+│  - retry.go: 失败重试                                       │
+│  - dumper.go: 失败推文持久化                                 │
+│  - entity.go: TweetInEntity 封装                            │
+│  - list_download.go: 列表下载                               │
+└──────────┬──────────────────────────────────────────────────┘
+           │
+┌──────────▼──────────────────────────────────────────────────┐
+│  internal/profile (业务层 - 用户资料)                        │
+│  - fetcher.go: Twitter API 获取（复用 twitter 包）           │
+│  - downloader.go: Profile 下载调度                           │
+│  - storage.go: 文件存储与版本管理                            │
+│  - types.go: ProfileInfo / DownloadRequest 等类型定义        │
+└──────────┬──────────────────────────────────────────────────┘
+           │
+┌──────────▼──────────────────────────────────────────────────┐
+│  internal/entity (数据实体层)                                │
+│  - interface.go: Entity 接口定义 (Create/Remove/Rename/...)  │
+│  - user.go: UserEntity 实现                                 │
+│  - list.go: ListEntity 实现                                 │
+│  - sync.go: Sync 通用同步逻辑                               │
+├─────────────────────────────────────────────────────────────┤
+│  internal/downloader (基础设施层 - 通用下载)                 │
+│  - downloader.go: HTTP 下载、批量下载、回调机制              │
+│  - file_writer.go: 原子写入、MD5 去重、并发锁管理            │
+│  - version_manager.go: 版本备份管理                          │
+│  - helpers.go: 辅助函数                                     │
+│  - types.go: Downloader/FileWriter/VersionManager 接口       │
+├─────────────────────────────────────────────────────────────┤
+│  internal/naming (命名服务)                                  │
+│  - base.go: 基础命名结构                                    │
+│  - tweet_naming.go: TweetNaming (推文文件命名)               │
+│  - user_naming.go: UserNaming (用户目录命名)                 │
+│  - list_naming.go: ListNaming (列表目录命名)                 │
+├─────────────────────────────────────────────────────────────┤
+│  internal/utils (工具层)                                     │
+│  - fs.go: 文件路径工具 (去重、唯一路径、扩展名)              │
+│  - http.go: URL 处理、头像后缀清理                           │
+│  - algo.go: 泛型堆、切片洗牌                                │
+│  - time_range.go: 时间范围类型                               │
+│  - user.go: 泛型 ID 提取                                    │
+│  - recovery.go: panic 恢复                                  │
+│  - win32.go / stub.go: 控制台标题 (跨平台)                  │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### 核心设计原则
+
+| 原则       | 实现                                                                    |
+| -------- | --------------------------------------------------------------------- |
+| **分层解耦** | 应用层 → 配置层 → API/CLI/数据层 → 业务层 → 基础设施层                                    |
+| **依赖注入** | `downloader.Downloader` 接口注入到业务层，构造函数支持多客户端                           |
+| **单一职责** | 每个包职责明确，配置/下载/命名/存储/数据分离                                              |
+| **接口隔离** | 小接口设计（Entity, Downloader, FileWriter, VersionManager, PackagedTweet）  |
+| **逻辑复用** | `database.SyncUser()` 统一用户同步，`database.MarkUserInaccessible()` 统一标记逻辑 |
+| **并发安全** | `sync.Mutex`/`sync.Map`/`atomic`/`context.Context`，协程池 (`ants`) 控制并发  |
+| **增量下载** | 基于 `latest_release_time` 的增量拉取，避免重复下载                                 |
 
 ***
 
