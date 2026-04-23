@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ***
 
-## [2.14.2] - 2026-07-14
+## [2.14.2] - 2026-04-23
 
 ### Added
 
@@ -87,7 +87,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ***
 
-## [2.14.1] - 2026-04-15
+## [2.14.1] - 2026-04-23
 
 ### Added
 
@@ -160,7 +160,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ***
 
-## [2.14.0] - 2026-04-15
+## [2.14.0] - 2026-04-23
 
 ### Added
 
@@ -228,7 +228,7 @@ func main() {
 
 ***
 
-## [2.12.3] - 2026-04-15
+## [2.12.3] - 2026-04-22
 
 ### Added
 
@@ -282,7 +282,7 @@ retryDelay         = 2秒     // 重试间隔
 
 ***
 
-## [2.12.2] - 2026-04-15
+## [2.12.2] - 2026-04-22
 
 ### Changed
 
@@ -301,7 +301,7 @@ retryDelay         = 2秒     // 重试间隔
 
 ***
 
-## [2.12.1] - 2026-04-15
+## [2.12.1] - 2026-04-21
 
 ### Added
 
