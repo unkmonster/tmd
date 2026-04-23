@@ -130,7 +130,7 @@
 
 | 原则       | 实现                                                                    |
 | -------- | --------------------------------------------------------------------- |
-| **分层解耦** | 应用层 → 配置层 → API层/数据层 → 业务层 → 基础设施层                                    |
+| **分层解耦** | 应用层 → 配置层 → API/CLI/数据层 → 业务层 → 基础设施层                                    |
 | **依赖注入** | `downloader.Downloader` 接口注入到业务层，构造函数支持多客户端                           |
 | **单一职责** | 每个包职责明确，配置/下载/命名/存储/数据分离                                              |
 | **接口隔离** | 小接口设计（Entity, Downloader, FileWriter, VersionManager, PackagedTweet）  |
@@ -203,7 +203,7 @@ tmd -conf
 | auth\_token          | Twitter Cookie 中的 auth\_token | `a1b2c3d4e5f6...`      |
 | ct0                  | Twitter Cookie 中的 ct0         | `x1y2z3...`            |
 | max download routine | 最大并发下载数（0为默认值）                | `20`                   |
-| max file name len    | 最大文件名长度（50-250，默认155）         | `155`                  |
+| max file name len    | 最大文件名长度（50-250，默认158）         | `158`                  |
 
 ### 配置文件位置
 
@@ -466,6 +466,13 @@ media:2
 │       └── ...
 └── .data/                          # 数据目录
     ├── foo.db                      # SQLite 数据库
+    │                                 # 包含以下数据表：
+    │                                 # - users: 用户信息
+    │                                 # - lsts: 列表信息
+    │                                 # - user_entities: 用户下载实体
+    │                                 # - lst_entities: 列表下载实体
+    │                                 # - user_links: 用户链接关联
+    │                                 # - user_previous_names: 用户历史名称
     └── errors.json                 # 失败推文记录
 ```
 
@@ -671,6 +678,7 @@ Twitter API 限制一段时间内过快的请求（例如某端点每15分钟仅
 | `-noprofile` + 推文下载参数                 |  ✅  | 下载推文但跳过 Profile         |
 | `-server` + `-port`                   |  ✅  | 指定 API Server 端口        |
 | `-server` + 下载参数                      |  ⚠️ | Server 模式下忽略下载参数        |
+| `-server` + `-conf`                   |  ⚠️ | 配置后启动 Server           |
 
 ***
 
