@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>TMD Pro - Twitter Media Downloader</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' stop-color='%232f81f7'/%3E%3Cstop offset='100%25' stop-color='%231f6feb'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect x='8' y='8' width='84' height='84' rx='20' ry='20' fill='url(%23g)'/%3E%3Cpath d='M32 35 L68 35 L68 42 L52 42 L52 70 L45 70 L45 42 L32 42 Z' fill='white'/%3E%3Cpath d='M38 50 L62 50' stroke='white' stroke-width='4' stroke-linecap='round' opacity='0.6'/%3E%3Ccircle cx='72' cy='28' r='8' fill='%233fb950'/%3E%3C/svg%3E">
 <style>
 /* ============================================
    CSS Variables - Design System
@@ -168,14 +169,15 @@ ul, ol {
 .logo {
   width: 32px;
   height: 32px;
-  background: linear-gradient(135deg, var(--accent-primary), var(--success));
-  border-radius: var(--radius-md);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-weight: var(--font-bold);
-  font-size: var(--text-sm);
-  color: white;
+}
+
+.logo svg {
+  width: 100%;
+  height: 100%;
+  filter: drop-shadow(0 2px 4px rgba(47, 129, 247, 0.3));
 }
 
 .logo-text {
@@ -689,8 +691,8 @@ ul, ol {
 /* Toast Notifications */
 .toast-container {
   position: fixed;
-  top: var(--space-4);
-  right: var(--space-4);
+  bottom: var(--space-4);
+  left: var(--space-4);
   z-index: 1000;
   display: flex;
   flex-direction: column;
@@ -708,7 +710,7 @@ ul, ol {
   display: flex;
   align-items: flex-start;
   gap: var(--space-3);
-  animation: slideInRight 0.3s var(--ease-out);
+  animation: slideInLeft 0.3s var(--ease-out);
 }
 
 .toast-success {
@@ -1081,6 +1083,17 @@ ul, ol {
   }
 }
 
+@keyframes slideInLeft {
+  from {
+    opacity: 0;
+    transform: translateX(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
 @keyframes fadeIn {
   from { opacity: 0; }
   to { opacity: 1; }
@@ -1270,7 +1283,9 @@ ul, ol {
   <!-- Sidebar -->
   <aside class="sidebar" id="sidebar">
     <div class="sidebar-header">
-      <div class="logo">T</div>
+      <div class="logo">
+        <svg viewBox="0 0 100 100"><defs><linearGradient id="logoGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#2f81f7"/><stop offset="100%" stop-color="#1f6feb"/></linearGradient></defs><rect x="8" y="8" width="84" height="84" rx="20" ry="20" fill="url(#logoGrad)"/><path d="M32 35 L68 35 L68 42 L52 42 L52 70 L45 70 L45 42 L32 42 Z" fill="white"/><path d="M38 50 L62 50" stroke="white" stroke-width="4" stroke-linecap="round" opacity="0.6"/><circle cx="72" cy="28" r="8" fill="#3fb950"/></svg>
+      </div>
       <span class="logo-text">TMD Pro</span>
     </div>
     <nav class="sidebar-nav">
@@ -1375,15 +1390,44 @@ const store = {
     sidebarOpen: false,
     isMobile: window.innerWidth < 768,
     sseConnected: false,
-    dataSubPage: 'users'
+    dataSubPage: 'users',
+    // Database pagination state
+    dbData: {
+      users: { data: [], total: 0, page: 1, pageSize: 20 },
+      lists: { data: [], total: 0, page: 1, pageSize: 20 },
+      entities: { data: [], total: 0, page: 1, pageSize: 20 },
+      listEntities: { data: [], total: 0, page: 1, pageSize: 20 },
+      userLinks: { data: [], total: 0, page: 1, pageSize: 20 }
+    },
+    dbPagination: {
+      users: { page: 1, pageSize: 20, totalPages: 1 },
+      lists: { page: 1, pageSize: 20, totalPages: 1 },
+      entities: { page: 1, pageSize: 20, totalPages: 1 },
+      listEntities: { page: 1, pageSize: 20, totalPages: 1 },
+      userLinks: { page: 1, pageSize: 20, totalPages: 1 }
+    },
+    dbSort: {
+      users: { sortBy: 'id', sortOrder: 'desc' },
+      lists: { sortBy: 'id', sortOrder: 'desc' },
+      entities: { sortBy: 'id', sortOrder: 'desc' },
+      listEntities: { sortBy: 'id', sortOrder: 'desc' },
+      userLinks: { sortBy: 'id', sortOrder: 'desc' }
+    },
+    dbSearch: {
+      users: '',
+      lists: '',
+      entities: '',
+      listEntities: '',
+      userLinks: ''
+    }
   },
-  
+
   listeners: [],
-  
+
   subscribe(fn) {
     this.listeners.push(fn);
   },
-  
+
   setState(newState) {
     this.state = { ...this.state, ...newState };
     this.listeners.forEach(fn => fn(this.state));
@@ -1440,11 +1484,32 @@ const api = {
     return this.post('/api/v1/json/download', data); 
   },
   
-  // Data
-  getUsers() { return this.get('/api/v1/db/users'); },
-  getLists() { return this.get('/api/v1/db/lists'); },
-  getEntities() { return this.get('/api/v1/db/user-entities'); },
-  getConfig() { return this.get('/api/v1/config'); }
+  // Config
+  getConfig() { return this.get('/api/v1/config'); },
+
+  // Database CRUD with pagination
+  getDBUsers(params = '') { return this.get(`/api/v1/db/users${params ? '?' + params : ''}`); },
+  getDBUser(id) { return this.get(`/api/v1/db/users/${id}`); },
+  updateDBUser(id, data) { return this.request('PUT', `/api/v1/db/users/${id}`, data); },
+  deleteDBUser(id) { return this.request('DELETE', `/api/v1/db/users/${id}`); },
+  getDBUserPreviousNames(id, params = '') { return this.get(`/api/v1/db/users/${id}/previous-names${params ? '?' + params : ''}`); },
+  
+  getDBLists(params = '') { return this.get(`/api/v1/db/lists${params ? '?' + params : ''}`); },
+  getDBList(id) { return this.get(`/api/v1/db/lists/${id}`); },
+  updateDBList(id, data) { return this.request('PUT', `/api/v1/db/lists/${id}`, data); },
+  deleteDBList(id) { return this.request('DELETE', `/api/v1/db/lists/${id}`); },
+  
+  getDBUserEntities(params = '') { return this.get(`/api/v1/db/user-entities${params ? '?' + params : ''}`); },
+  getDBUserEntity(id) { return this.get(`/api/v1/db/user-entities/${id}`); },
+  updateDBUserEntity(id, data) { return this.request('PUT', `/api/v1/db/user-entities/${id}`, data); },
+  deleteDBUserEntity(id) { return this.request('DELETE', `/api/v1/db/user-entities/${id}`); },
+  
+  getDBListEntities(params = '') { return this.get(`/api/v1/db/list-entities${params ? '?' + params : ''}`); },
+  getDBListEntity(id) { return this.get(`/api/v1/db/list-entities/${id}`); },
+  updateDBListEntity(id, data) { return this.request('PUT', `/api/v1/db/list-entities/${id}`, data); },
+  deleteDBListEntity(id) { return this.request('DELETE', `/api/v1/db/list-entities/${id}`); },
+  
+  getDBUserLinks(params = '') { return this.get(`/api/v1/db/user-links${params ? '?' + params : ''}`); }
 };
 
 // ============================================
@@ -1493,8 +1558,16 @@ const sseManager = {
 // ============================================
 const toast = {
   container: document.getElementById('toastContainer'),
+  maxToasts: 3,
   
   show(message, type = 'success', title = '') {
+    // 限制最多显示3条消息
+    const existingToasts = this.container.querySelectorAll('.toast');
+    if (existingToasts.length >= this.maxToasts) {
+      // 移除最旧的消息（第一个）
+      existingToasts[0].remove();
+    }
+    
     const el = document.createElement('div');
     el.className = `toast toast-${type}`;
     
@@ -1611,13 +1684,13 @@ const pages = {
         </div>
         <div class="card-body" style="padding: 0;">
           ${recentTasks.length === 0 ? `
-            <div class="empty-state">
+            <div class="empty-state overview-tasks-list">
               <div class="empty-icon">📋</div>
               <div class="empty-title">暂无任务</div>
               <div class="empty-desc">创建一个新任务开始下载 Twitter 媒体文件</div>
             </div>
           ` : `
-            <div class="task-list">
+            <div class="task-list overview-tasks-list">
               ${recentTasks.map(t => renderTaskItem(t)).join('')}
             </div>
           `}
@@ -1696,15 +1769,20 @@ const pages = {
   
   // Data Page
   data() {
-    const { dataSubPage, users, lists, entities } = store.state;
+    const { dataSubPage, dbData, dbPagination, dbSort, dbSearch } = store.state;
     
     const dataMap = {
-      users: { title: 'Users', data: users, count: users.length },
-      lists: { title: 'Lists', data: lists, count: lists.length },
-      entities: { title: 'User Entities', data: entities, count: entities.length }
+      users: { title: 'Users', data: dbData.users?.data || [], count: dbData.users?.total || 0 },
+      lists: { title: 'Lists', data: dbData.lists?.data || [], count: dbData.lists?.total || 0 },
+      entities: { title: 'User Entities', data: dbData.entities?.data || [], count: dbData.entities?.total || 0 },
+      listEntities: { title: 'List Entities', data: dbData.listEntities?.data || [], count: dbData.listEntities?.total || 0 },
+      userLinks: { title: 'User Links', data: dbData.userLinks?.data || [], count: dbData.userLinks?.total || 0 }
     };
     
     const current = dataMap[dataSubPage];
+    const pagination = dbPagination[dataSubPage] || { page: 1, pageSize: 20, totalPages: 1 };
+    const sort = dbSort[dataSubPage] || { sortBy: 'id', sortOrder: 'desc' };
+    const search = dbSearch[dataSubPage] || '';
     
     return `
       <div class="card">
@@ -1713,25 +1791,32 @@ const pages = {
             <div class="tabs" style="margin: 0; border: none;">
               <div class="tab ${dataSubPage === 'users' ? 'active' : ''}" onclick="setDataSubPage('users')">Users</div>
               <div class="tab ${dataSubPage === 'lists' ? 'active' : ''}" onclick="setDataSubPage('lists')">Lists</div>
-              <div class="tab ${dataSubPage === 'entities' ? 'active' : ''}" onclick="setDataSubPage('entities')">Entities</div>
+              <div class="tab ${dataSubPage === 'entities' ? 'active' : ''}" onclick="setDataSubPage('entities')">User Entities</div>
+              <div class="tab ${dataSubPage === 'listEntities' ? 'active' : ''}" onclick="setDataSubPage('listEntities')">List Entities</div>
+              <div class="tab ${dataSubPage === 'userLinks' ? 'active' : ''}" onclick="setDataSubPage('userLinks')">User Links</div>
             </div>
           </div>
           <div class="flex gap-2 items-center">
-            <input type="text" class="form-input search-input" placeholder="搜索...">
-            <button class="btn btn-ghost btn-icon" onclick="refreshData()">🔄</button>
+            <input type="text" class="form-input search-input" id="dbSearchInput" 
+              placeholder="搜索..." value="${search}" onkeypress="if(event.key==='Enter')searchDB()">
+            <button class="btn btn-ghost btn-icon" onclick="searchDB()">🔍</button>
+            <button class="btn btn-ghost btn-icon" onclick="refreshDBData()">🔄</button>
           </div>
         </div>
         
         <div class="card-body" style="padding: 0;">
-          ${renderDataTable(dataSubPage, current.data)}
+          ${renderDBTable(dataSubPage, current.data, sort)}
         </div>
         
         <div class="pagination">
-          <div class="pagination-info">显示 ${current.data.length} 条记录</div>
+          <div class="pagination-info">
+            显示 ${current.data.length} / ${current.count} 条记录 
+            (第 ${pagination.page} / ${pagination.totalPages} 页)
+          </div>
           <div class="pagination-controls">
-            <button class="page-btn" disabled>←</button>
-            <button class="page-btn active">1</button>
-            <button class="page-btn" disabled>→</button>
+            <button class="page-btn" onclick="changeDBPage(-1)" ${pagination.page <= 1 ? 'disabled' : ''}>←</button>
+            ${renderPageNumbers(pagination.page, pagination.totalPages)}
+            <button class="page-btn" onclick="changeDBPage(1)" ${pagination.page >= pagination.totalPages ? 'disabled' : ''}>→</button>
           </div>
         </div>
       </div>
@@ -1879,11 +1964,11 @@ function renderTaskForm(type) {
     batch: `
       <div class="form-group">
         <label class="form-label">用户列表（每行一个）</label>
-        <textarea class="form-textarea" id="batchUsers" placeholder="user1\nuser2\nuser3"></textarea>
+        <textarea class="form-textarea" id="batchUsers" placeholder="user1\nuser2\nuser3" rows="4"></textarea>
       </div>
       <div class="form-group">
-        <label class="form-label">List IDs（逗号分隔）</label>
-        <input type="text" class="form-input" id="batchLists" placeholder="123, 456, 789">
+        <label class="form-label">List IDs（每行一个）</label>
+        <textarea class="form-textarea" id="batchLists" placeholder="123\n456\n789" rows="3"></textarea>
       </div>
       <div class="form-group">
         <label class="form-checkbox">
@@ -1901,7 +1986,7 @@ function renderTaskForm(type) {
     json: `
       <div class="form-group">
         <label class="form-label">JSON 文件路径（每行一个）</label>
-        <textarea class="form-textarea" id="jsonPaths" placeholder="/path/to/tweets.json\n/path/to/another.json"></textarea>
+        <textarea class="form-textarea" id="jsonPaths" placeholder="/path/to/tweets.json\n/path/to/another.json" rows="4"></textarea>
       </div>
       <div class="form-group">
         <label class="form-checkbox">
@@ -1914,8 +1999,9 @@ function renderTaskForm(type) {
   return forms[type] || forms.user;
 }
 
-function renderDataTable(type, data) {
-  if (data.length === 0) {
+// Database Table Renderer with sorting, actions and mobile support
+function renderDBTable(type, data, sort) {
+  if (!data || data.length === 0) {
     return `
       <div class="empty-state">
         <div class="empty-icon">📊</div>
@@ -1924,81 +2010,189 @@ function renderDataTable(type, data) {
       </div>
     `;
   }
-  
-  const columns = {
-    users: ['ID', 'Screen Name', 'Name', 'Protected', 'Accessible'],
-    lists: ['ID', 'Name', 'Owner ID'],
-    entities: ['ID', 'User ID', 'Name', 'Latest Release', 'Media Count']
+
+  const sortIcon = (field) => {
+    if (sort.sortBy !== field) return '↕️';
+    return sort.sortOrder === 'asc' ? '↑' : '↓';
   };
-  
-  // Desktop table rows
+
+  const sortableHeader = (field, label) => `
+    <th onclick="sortDB('${field}')" style="cursor: pointer; user-select: none;">
+      ${label} ${sortIcon(field)}
+    </th>
+  `;
+
+  const columns = {
+    users: ['ID', 'Screen Name', 'Name', 'Protected', 'Accessible', 'Friends', 'Actions'],
+    lists: ['ID', 'Name', 'Owner ID', 'Actions'],
+    entities: ['ID', 'User ID', 'Name', 'Latest Release', 'Media Count', 'Actions'],
+    listEntities: ['ID', 'List ID', 'Name', 'Parent Dir', 'Actions'],
+    userLinks: ['ID', 'User ID', 'Name', 'Parent Entity', 'Actions']
+  };
+
+  const renderActionButtons = (type, item) => {
+    // userLinks 是关联表，不支持手动编辑/删除
+    if (type === 'userLinks') {
+      return '<span style="color: var(--text-tertiary);">-</span>';
+    }
+    // 将 ID 作为字符串传递，避免 JavaScript 大整数精度丢失
+    const idStr = String(item.id);
+    return `
+      <div class="flex gap-2">
+        <button class="btn btn-ghost btn-sm" onclick="editDBItem('${type}', '${idStr}')">✏️</button>
+        <button class="btn btn-danger btn-sm" onclick="deleteDBItem('${type}', '${idStr}')">🗑️</button>
+      </div>
+    `;
+  };
+
   const rows = data.map(item => {
     if (type === 'users') {
       return `<tr>
         <td>${item.id}</td>
         <td>@${item.screen_name}</td>
         <td>${item.name}</td>
-        <td>${item.protected ? 'Yes' : 'No'}</td>
-        <td>${item.is_accessible ? 'Yes' : 'No'}</td>
+        <td>${item.protected ? '🔒' : '🔓'}</td>
+        <td>${item.is_accessible ? '✅' : '❌'}</td>
+        <td>${item.friends_count}</td>
+        <td>${renderActionButtons(type, item)}</td>
       </tr>`;
     } else if (type === 'lists') {
       return `<tr>
         <td>${item.id}</td>
         <td>${item.name}</td>
         <td>${item.owner_uid}</td>
+        <td>${renderActionButtons(type, item)}</td>
       </tr>`;
-    } else {
+    } else if (type === 'entities') {
       return `<tr>
         <td>${item.id}</td>
         <td>${item.user_id}</td>
         <td>${item.name}</td>
         <td>${item.latest_release_time || '-'}</td>
         <td>${item.media_count || '-'}</td>
+        <td>${renderActionButtons(type, item)}</td>
+      </tr>`;
+    } else if (type === 'listEntities') {
+      return `<tr>
+        <td>${item.id}</td>
+        <td>${item.lst_id}</td>
+        <td>${item.name}</td>
+        <td>${item.parent_dir}</td>
+        <td>${renderActionButtons(type, item)}</td>
+      </tr>`;
+    } else {
+      return `<tr>
+        <td>${item.id}</td>
+        <td>${item.user_id}</td>
+        <td>${item.name}</td>
+        <td>${item.parent_lst_entity_id}</td>
+        <td>${renderActionButtons(type, item)}</td>
       </tr>`;
     }
   }).join('');
-  
-  // Mobile card items
+
+  // Mobile card view
   const mobileCards = data.map(item => {
     if (type === 'users') {
       return `
         <div class="mobile-card">
           <div style="font-weight: var(--font-semibold); margin-bottom: var(--space-2);">@${item.screen_name}</div>
           <div style="color: var(--text-secondary); font-size: var(--text-sm); margin-bottom: var(--space-2);">${item.name}</div>
-          <div style="display: flex; gap: var(--space-4); font-size: var(--text-sm);">
-            <span>ID: ${item.id}</span>
+          <div style="display: flex; gap: var(--space-4); font-size: var(--text-sm); margin-bottom: var(--space-2);">
             <span>${item.protected ? '🔒 Protected' : '🔓 Public'}</span>
+            <span>${item.is_accessible ? '✅ Accessible' : '❌ Not Accessible'}</span>
           </div>
+          <div style="font-size: var(--text-sm); margin-bottom: var(--space-2);">Friends: ${item.friends_count}</div>
+          <div>${renderActionButtons(type, item)}</div>
         </div>
       `;
     } else if (type === 'lists') {
       return `
         <div class="mobile-card">
           <div style="font-weight: var(--font-semibold); margin-bottom: var(--space-2);">${item.name}</div>
-          <div style="color: var(--text-secondary); font-size: var(--text-sm);">
+          <div style="color: var(--text-secondary); font-size: var(--text-sm); margin-bottom: var(--space-2);">
             <div>ID: ${item.id}</div>
             <div>Owner: ${item.owner_uid}</div>
           </div>
+          <div>${renderActionButtons(type, item)}</div>
+        </div>
+      `;
+    } else if (type === 'entities') {
+      return `
+        <div class="mobile-card">
+          <div style="font-weight: var(--font-semibold); margin-bottom: var(--space-2);">${item.name}</div>
+          <div style="color: var(--text-secondary); font-size: var(--text-sm); margin-bottom: var(--space-2);">
+            <div>ID: ${item.id}</div>
+            <div>User ID: ${item.user_id}</div>
+            <div>Media: ${item.media_count || 0}</div>
+          </div>
+          <div>${renderActionButtons(type, item)}</div>
+        </div>
+      `;
+    } else if (type === 'listEntities') {
+      return `
+        <div class="mobile-card">
+          <div style="font-weight: var(--font-semibold); margin-bottom: var(--space-2);">${item.name}</div>
+          <div style="color: var(--text-secondary); font-size: var(--text-sm); margin-bottom: var(--space-2);">
+            <div>ID: ${item.id}</div>
+            <div>List ID: ${item.lst_id}</div>
+            <div>Dir: ${item.parent_dir}</div>
+          </div>
+          <div>${renderActionButtons(type, item)}</div>
         </div>
       `;
     } else {
       return `
         <div class="mobile-card">
           <div style="font-weight: var(--font-semibold); margin-bottom: var(--space-2);">${item.name}</div>
-          <div style="color: var(--text-secondary); font-size: var(--text-sm);">
+          <div style="color: var(--text-secondary); font-size: var(--text-sm); margin-bottom: var(--space-2);">
             <div>ID: ${item.id}</div>
             <div>User ID: ${item.user_id}</div>
-            <div>Media: ${item.media_count || 0}</div>
+            <div>Entity: ${item.parent_lst_entity_id}</div>
           </div>
         </div>
       `;
     }
   }).join('');
-  
+
   return `
     <table class="data-table">
       <thead>
-        <tr>${columns[type].map(c => `<th>${c}</th>`).join('')}</tr>
+        <tr>
+          ${type === 'users' ? `
+            ${sortableHeader('id', 'ID')}
+            ${sortableHeader('screen_name', 'Screen Name')}
+            ${sortableHeader('name', 'Name')}
+            <th>Protected</th>
+            <th>Accessible</th>
+            ${sortableHeader('friends_count', 'Friends')}
+            <th>Actions</th>
+          ` : type === 'lists' ? `
+            ${sortableHeader('id', 'ID')}
+            ${sortableHeader('name', 'Name')}
+            ${sortableHeader('owner_id', 'Owner ID')}
+            <th>Actions</th>
+          ` : type === 'entities' ? `
+            ${sortableHeader('id', 'ID')}
+            ${sortableHeader('user_id', 'User ID')}
+            ${sortableHeader('name', 'Name')}
+            ${sortableHeader('latest_release_time', 'Latest Release')}
+            ${sortableHeader('media_count', 'Media Count')}
+            <th>Actions</th>
+          ` : type === 'listEntities' ? `
+            ${sortableHeader('id', 'ID')}
+            ${sortableHeader('lst_id', 'List ID')}
+            ${sortableHeader('name', 'Name')}
+            <th>Parent Dir</th>
+            <th>Actions</th>
+          ` : `
+            ${sortableHeader('id', 'ID')}
+            ${sortableHeader('user_id', 'User ID')}
+            ${sortableHeader('name', 'Name')}
+            <th>Parent Entity</th>
+            <th>Actions</th>
+          `}
+        </tr>
       </thead>
       <tbody>${rows}</tbody>
     </table>
@@ -2008,20 +2202,382 @@ function renderDataTable(type, data) {
   `;
 }
 
+function renderPageNumbers(currentPage, totalPages) {
+  if (totalPages <= 1) return `<button class="page-btn active">1</button>`;
+
+  let pages = [];
+  const maxVisible = 5;
+
+  if (totalPages <= maxVisible) {
+    for (let i = 1; i <= totalPages; i++) {
+      pages.push(i);
+    }
+  } else {
+    if (currentPage <= 3) {
+      pages = [1, 2, 3, 4, '...', totalPages];
+    } else if (currentPage >= totalPages - 2) {
+      pages = [1, '...', totalPages - 3, totalPages - 2, totalPages - 1, totalPages];
+    } else {
+      pages = [1, '...', currentPage - 1, currentPage, currentPage + 1, '...', totalPages];
+    }
+  }
+
+  return pages.map(p => {
+    if (p === '...') return `<span class="page-btn" style="cursor: default;">...</span>`;
+    return `<button class="page-btn ${p === currentPage ? 'active' : ''}" onclick="goToDBPage(${p})">${p}</button>`;
+  }).join('');
+}
+
+// ============================================
+// Database Actions
+// ============================================
+async function refreshDBData() {
+  const { dataSubPage, dbPagination, dbSort, dbSearch } = store.state;
+  const pagination = dbPagination[dataSubPage];
+  const sort = dbSort[dataSubPage];
+  const search = dbSearch[dataSubPage];
+
+  const params = new URLSearchParams();
+  params.append('page', pagination.page);
+  params.append('pageSize', pagination.pageSize);
+  params.append('sortBy', sort.sortBy);
+  params.append('sortOrder', sort.sortOrder);
+  if (search) params.append('q', search);
+
+  try {
+    let response;
+    switch (dataSubPage) {
+      case 'users':
+        response = await api.getDBUsers(params.toString());
+        break;
+      case 'lists':
+        response = await api.getDBLists(params.toString());
+        break;
+      case 'entities':
+        response = await api.getDBUserEntities(params.toString());
+        break;
+      case 'listEntities':
+        response = await api.getDBListEntities(params.toString());
+        break;
+      case 'userLinks':
+        response = await api.getDBUserLinks(params.toString());
+        break;
+    }
+
+    if (response) {
+      // API 返回的是分页数据对象（因为 api.request 返回 data.data）
+      const data = response || {};
+      store.setState({
+        dbData: {
+          ...store.state.dbData,
+          [dataSubPage]: {
+            data: data.data || [],
+            total: data.total || 0,
+            page: data.page || 1,
+            pageSize: data.pageSize || 20
+          }
+        },
+        dbPagination: {
+          ...store.state.dbPagination,
+          [dataSubPage]: {
+            page: data.page || 1,
+            pageSize: data.pageSize || 20,
+            totalPages: data.totalPages || 1
+          }
+        }
+      });
+      render();
+      toast.show('数据已刷新');
+    } else {
+      toast.show('获取数据失败', 'error');
+    }
+  } catch (err) {
+    toast.show(err.message, 'error');
+  }
+}
+
+function changeDBPage(delta) {
+  const { dataSubPage, dbPagination } = store.state;
+  const current = dbPagination[dataSubPage];
+  const newPage = current.page + delta;
+
+  if (newPage >= 1 && newPage <= current.totalPages) {
+    store.setState({
+      dbPagination: {
+        ...dbPagination,
+        [dataSubPage]: { ...current, page: newPage }
+      }
+    });
+    refreshDBData();
+  }
+}
+
+function goToDBPage(page) {
+  const { dataSubPage, dbPagination } = store.state;
+  store.setState({
+    dbPagination: {
+      ...dbPagination,
+      [dataSubPage]: { ...dbPagination[dataSubPage], page }
+    }
+  });
+  refreshDBData();
+}
+
+function sortDB(field) {
+  const { dataSubPage, dbSort } = store.state;
+  const current = dbSort[dataSubPage];
+
+  let newOrder = 'asc';
+  if (current.sortBy === field && current.sortOrder === 'asc') {
+    newOrder = 'desc';
+  }
+
+  store.setState({
+    dbSort: {
+      ...dbSort,
+      [dataSubPage]: { sortBy: field, sortOrder: newOrder }
+    }
+  });
+  refreshDBData();
+}
+
+function searchDB() {
+  const input = document.getElementById('dbSearchInput');
+  const { dataSubPage, dbSearch } = store.state;
+
+  store.setState({
+    dbSearch: {
+      ...dbSearch,
+      [dataSubPage]: input.value.trim()
+    },
+    dbPagination: {
+      ...store.state.dbPagination,
+      [dataSubPage]: { ...store.state.dbPagination[dataSubPage], page: 1 }
+    }
+  });
+  refreshDBData();
+}
+
+async function editDBItem(type, id) {
+  try {
+    let item;
+    switch (type) {
+      case 'users':
+        item = await api.getDBUser(id);
+        break;
+      case 'lists':
+        item = await api.getDBList(id);
+        break;
+      case 'entities':
+        item = await api.getDBUserEntity(id);
+        break;
+      case 'listEntities':
+        item = await api.getDBListEntity(id);
+        break;
+      default:
+        throw new Error('Unknown type: ' + type);
+    }
+
+    if (!item) {
+      throw new Error('Failed to load item data');
+    }
+
+    // 根据类型构建表单内容
+    let content = `
+      <div class="form-group">
+        <label class="form-label">ID</label>
+        <div class="font-mono text-sm" style="background: var(--bg-primary); padding: var(--space-3); border-radius: var(--radius-md);">${item.id}</div>
+      </div>
+    `;
+
+    switch (type) {
+      case 'users':
+        content += `
+          <div class="form-group">
+            <label class="form-label">Screen Name</label>
+            <input type="text" class="form-input" id="editScreenName" value="${item.screen_name || ''}">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Name</label>
+            <input type="text" class="form-input" id="editName" value="${item.name || ''}">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Friends Count</label>
+            <input type="number" class="form-input" id="editFriendsCount" value="${item.friends_count || 0}">
+          </div>
+          <div class="form-group">
+            <label class="form-checkbox">
+              <input type="checkbox" id="editProtected" ${item.protected ? 'checked' : ''}> Protected
+            </label>
+          </div>
+          <div class="form-group">
+            <label class="form-checkbox">
+              <input type="checkbox" id="editAccessible" ${item.is_accessible ? 'checked' : ''}> Is Accessible
+            </label>
+          </div>
+        `;
+        break;
+      case 'lists':
+        content += `
+          <div class="form-group">
+            <label class="form-label">Name</label>
+            <input type="text" class="form-input" id="editListName" value="${item.name || ''}">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Owner ID</label>
+            <input type="text" class="form-input" id="editListOwnerId" value="${item.owner_uid || ''}">
+          </div>
+        `;
+        break;
+      case 'entities':
+        content += `
+          <div class="form-group">
+            <label class="form-label">Name</label>
+            <input type="text" class="form-input" id="editEntityName" value="${item.name || ''}">
+          </div>
+          <div class="form-group">
+            <label class="form-label">User ID</label>
+            <div class="font-mono text-sm" style="background: var(--bg-primary); padding: var(--space-3); border-radius: var(--radius-md);">${item.user_id}</div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Parent Dir</label>
+            <input type="text" class="form-input" id="editEntityParentDir" value="${item.parent_dir || ''}">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Media Count</label>
+            <input type="number" class="form-input" id="editEntityMediaCount" value="${item.media_count || 0}">
+          </div>
+        `;
+        break;
+      case 'listEntities':
+        content += `
+          <div class="form-group">
+            <label class="form-label">Name</label>
+            <input type="text" class="form-input" id="editListEntityName" value="${item.name || ''}">
+          </div>
+          <div class="form-group">
+            <label class="form-label">List ID</label>
+            <div class="font-mono text-sm" style="background: var(--bg-primary); padding: var(--space-3); border-radius: var(--radius-md);">${item.lst_id}</div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Parent Dir</label>
+            <input type="text" class="form-input" id="editListEntityParentDir" value="${item.parent_dir || ''}">
+          </div>
+        `;
+        break;
+    }
+
+    const footer = `
+      <button class="btn btn-secondary" onclick="drawer.close()">取消</button>
+      <button class="btn btn-primary" onclick="saveDBItem('${type}', '${id}')">保存</button>
+    `;
+
+    drawer.open('编辑 ' + type, content, footer);
+  } catch (err) {
+    console.error('editDBItem error:', err);
+    toast.show(err.message, 'error');
+  }
+}
+
+async function saveDBItem(type, id) {
+  const data = {};
+
+  // 根据类型收集数据
+  switch (type) {
+    case 'users':
+      data.screen_name = document.getElementById('editScreenName').value.trim();
+      data.name = document.getElementById('editName').value.trim();
+      data.friends_count = parseInt(document.getElementById('editFriendsCount').value) || 0;
+      data.protected = document.getElementById('editProtected').checked;
+      data.is_accessible = document.getElementById('editAccessible').checked;
+      if (!data.name) return toast.show('Name is required', 'error');
+      break;
+    case 'lists':
+      data.name = document.getElementById('editListName').value.trim();
+      data.owner_uid = document.getElementById('editListOwnerId').value.trim();
+      if (!data.name) return toast.show('Name is required', 'error');
+      break;
+    case 'entities':
+      data.name = document.getElementById('editEntityName').value.trim();
+      data.parent_dir = document.getElementById('editEntityParentDir').value.trim();
+      data.media_count = parseInt(document.getElementById('editEntityMediaCount').value) || 0;
+      if (!data.name) return toast.show('Name is required', 'error');
+      break;
+    case 'listEntities':
+      data.name = document.getElementById('editListEntityName').value.trim();
+      data.parent_dir = document.getElementById('editListEntityParentDir').value.trim();
+      if (!data.name) return toast.show('Name is required', 'error');
+      break;
+  }
+
+  try {
+    switch (type) {
+      case 'users':
+        await api.updateDBUser(id, data);
+        break;
+      case 'lists':
+        await api.updateDBList(id, data);
+        break;
+      case 'entities':
+        await api.updateDBUserEntity(id, data);
+        break;
+      case 'listEntities':
+        await api.updateDBListEntity(id, data);
+        break;
+      default:
+        throw new Error('Unknown type: ' + type);
+    }
+    drawer.close();
+    toast.show('保存成功');
+    refreshDBData();
+  } catch (err) {
+    console.error('saveDBItem error:', err);
+    toast.show(err.message, 'error');
+  }
+}
+
+async function deleteDBItem(type, id) {
+  if (!confirm(`确定要删除这个${type}记录吗？此操作不可恢复。`)) return;
+
+  try {
+    switch (type) {
+      case 'users':
+        await api.deleteDBUser(id);
+        break;
+      case 'lists':
+        await api.deleteDBList(id);
+        break;
+      case 'entities':
+        await api.deleteDBUserEntity(id);
+        break;
+      case 'listEntities':
+        await api.deleteDBListEntity(id);
+        break;
+      default:
+        throw new Error('Unknown type: ' + type);
+    }
+    toast.show('删除成功');
+    refreshDBData();
+  } catch (err) {
+    console.error('deleteDBItem error:', err);
+    toast.show(err.message, 'error');
+  }
+}
+
 // ============================================
 // Actions
 // ============================================
 async function handleQuickDownload() {
   const input = document.getElementById('quickDownloadInput');
   const value = input.value.trim();
-  if (!value) return;
-  
+  if (!value) return toast.show('请输入用户名或链接', 'error');
+
   // Extract username from various formats
   let username = value;
   const match = value.match(/(?:twitter\.com|x\.com)\/([^/\s?]+)/);
   if (match) username = match[1];
   if (username.startsWith('@')) username = username.slice(1);
-  
+
   try {
     await api.createUserDownload(username, { auto_follow: true });
     toast.show(`已创建用户下载任务: @${username}`);
@@ -2053,10 +2609,11 @@ async function createUserTask() {
 async function createProfileTask() {
   const screenName = document.getElementById('userScreenName').value.trim();
   if (!screenName) return toast.show('请输入 Screen Name', 'error');
-  
+
   try {
     await api.createProfileDownload(screenName);
     toast.show('Profile 下载任务已创建');
+    document.getElementById('userScreenName').value = '';
     refreshTasks();
   } catch (err) {
     toast.show(err.message, 'error');
@@ -2066,7 +2623,7 @@ async function createProfileTask() {
 async function createListTask() {
   const listId = document.getElementById('listId').value.trim();
   if (!listId) return toast.show('请输入 List ID', 'error');
-  
+
   try {
     await api.createListDownload(listId, {
       auto_follow: document.getElementById('listAutoFollow').checked,
@@ -2074,6 +2631,7 @@ async function createListTask() {
       no_retry: document.getElementById('listNoRetry').checked
     });
     toast.show('列表下载任务已创建');
+    document.getElementById('listId').value = '';
     refreshTasks();
   } catch (err) {
     toast.show(err.message, 'error');
@@ -2083,10 +2641,11 @@ async function createListTask() {
 async function createListProfileTask() {
   const listId = document.getElementById('listId').value.trim();
   if (!listId) return toast.show('请输入 List ID', 'error');
-  
+
   try {
     await api.createListProfile(listId);
     toast.show('列表 Profile 任务已创建');
+    document.getElementById('listId').value = '';
     refreshTasks();
   } catch (err) {
     toast.show(err.message, 'error');
@@ -2095,7 +2654,7 @@ async function createListProfileTask() {
 
 async function createBatchTask() {
   const users = document.getElementById('batchUsers').value.split('\n').map(s => s.trim()).filter(Boolean);
-  const lists = document.getElementById('batchLists').value.split(',').map(s => parseInt(s.trim())).filter(Boolean);
+  const lists = document.getElementById('batchLists').value.split('\n').map(s => parseInt(s.trim())).filter(id => !isNaN(id));
   
   if (!users.length && !lists.length) return toast.show('请输入至少一个用户或列表', 'error');
   
@@ -2205,21 +2764,6 @@ async function refreshTasks() {
   }
 }
 
-async function refreshData() {
-  try {
-    const [users, lists, entities] = await Promise.all([
-      api.getUsers(),
-      api.getLists(),
-      api.getEntities()
-    ]);
-    store.setState({ users: users.users || [], lists: lists.lists || [], entities: entities.entities || [] });
-    render();
-    toast.show('数据已刷新');
-  } catch (err) {
-    toast.show(err.message, 'error');
-  }
-}
-
 function refreshLogs() {
   // TODO: Implement actual log refresh when API is available
   toast.show('日志功能开发中，当前显示为示例数据');
@@ -2231,10 +2775,71 @@ function clearLogs() {
 }
 
 // ============================================
-// Navigation
+// Navigation & Routing
 // ============================================
+
+// Parse URL to determine current page
+function parseRoute() {
+  const path = window.location.pathname;
+  const hash = window.location.hash.slice(1); // Remove #
+  
+  // Map paths to pages
+  const pathMap = {
+    '/': 'overview',
+    '/tasks': 'tasks',
+    '/data': 'data',
+    '/system': 'system'
+  };
+  
+  // Map hash to data sub-pages
+  const hashMap = {
+    'users': 'users',
+    'lists': 'lists',
+    'entities': 'entities',
+    'list-entities': 'listEntities',
+    'user-links': 'userLinks',
+    'previous-names': 'previousNames'
+  };
+  
+  const page = pathMap[path] || 'overview';
+  const dataSubPage = hashMap[hash] || 'users';
+  
+  return { page, dataSubPage };
+}
+
+// Update URL based on current page
+function updateURL(page, dataSubPage = null) {
+  const pathMap = {
+    'overview': '/',
+    'tasks': '/tasks',
+    'data': '/data',
+    'system': '/system'
+  };
+  
+  const hashMap = {
+    'users': '',
+    'lists': '#lists',
+    'entities': '#entities',
+    'listEntities': '#list-entities',
+    'userLinks': '#user-links',
+    'previousNames': '#previous-names'
+  };
+  
+  const path = pathMap[page] || '/';
+  const hash = (page === 'data' && dataSubPage) ? hashMap[dataSubPage] : '';
+  
+  // Use history API to update URL without reloading
+  const newUrl = path + hash;
+  if (window.location.pathname + window.location.hash !== newUrl) {
+    window.history.pushState({ page, dataSubPage }, '', newUrl);
+  }
+}
+
 function navigateTo(page) {
   store.setState({ currentPage: page });
+  
+  // Update URL
+  updateURL(page, store.state.dataSubPage);
   
   // Update sidebar
   document.querySelectorAll('.nav-item').forEach(el => {
@@ -2255,12 +2860,55 @@ function navigateTo(page) {
     document.getElementById('sidebar').classList.remove('open');
   }
   
-  render();
+  // Note: render() is called by subscribe callback when page changes
 }
 
-function setDataSubPage(subPage) {
-  store.setState({ dataSubPage: subPage });
+// Handle browser back/forward buttons
+window.onpopstate = (event) => {
+  const { page, dataSubPage } = parseRoute();
+  
+  if (page === 'data' && dataSubPage !== store.state.dataSubPage) {
+    store.setState({ 
+      currentPage: page,
+      dataSubPage: dataSubPage 
+    });
+  } else {
+    store.setState({ currentPage: page });
+  }
+  
+  // Update sidebar active state
+  document.querySelectorAll('.nav-item').forEach(el => {
+    el.classList.toggle('active', el.dataset.page === page);
+  });
+  document.querySelectorAll('.mobile-nav-item').forEach(el => {
+    el.classList.toggle('active', el.dataset.page === page);
+  });
+  
+  // Update title
+  const titles = { overview: '概览', tasks: '任务中心', data: '数据管理', system: '系统' };
+  document.getElementById('pageTitle').textContent = titles[page];
+  
   render();
+};
+
+function setDataSubPage(subPage) {
+  store.setState({
+    dataSubPage: subPage,
+    dbPagination: {
+      ...store.state.dbPagination,
+      [subPage]: { page: 1, pageSize: 20, totalPages: 1 }
+    },
+    dbSearch: {
+      ...store.state.dbSearch,
+      [subPage]: ''
+    }
+  });
+  
+  // Update URL when changing data sub-page
+  updateURL('data', subPage);
+  
+  // Note: render() is called by subscribe callback for data page
+  refreshDBData();
 }
 
 function render() {
@@ -2305,36 +2953,8 @@ function render() {
 
 // Filter tasks based on status and search
 function filterTasks() {
-  const filter = document.getElementById('taskFilter')?.value || 'all';
-  const search = document.getElementById('taskSearch')?.value?.toLowerCase() || '';
-  
-  let filtered = store.state.tasks;
-  
-  if (filter !== 'all') {
-    filtered = filtered.filter(t => t.status === filter);
-  }
-  
-  if (search) {
-    filtered = filtered.filter(t => {
-      const target = (t.data?.screen_name || t.data?.list_id || '').toString().toLowerCase();
-      return target.includes(search) || t.task_id.toLowerCase().includes(search);
-    });
-  }
-  
-  const taskList = document.getElementById('taskList');
-  if (taskList) {
-    if (filtered.length === 0) {
-      taskList.innerHTML = `
-        <div class="empty-state">
-          <div class="empty-icon">🔍</div>
-          <div class="empty-title">没有找到匹配的任务</div>
-          <div class="empty-desc">尝试调整筛选条件或搜索关键词</div>
-        </div>
-      `;
-    } else {
-      taskList.innerHTML = filtered.map(t => renderTaskItem(t, true)).join('');
-    }
-  }
+  // Reuse updateTaskListUI to render filtered tasks
+  updateTaskListUI(store.state.tasks);
 }
 
 // ============================================
@@ -2366,6 +2986,27 @@ function setButtonLoading(btn, loading) {
 }
 
 async function init() {
+  // Parse URL route first
+  const { page, dataSubPage } = parseRoute();
+  
+  // Set initial state based on URL
+  store.setState({
+    currentPage: page,
+    dataSubPage: dataSubPage
+  });
+  
+  // Update sidebar active state
+  document.querySelectorAll('.nav-item').forEach(el => {
+    el.classList.toggle('active', el.dataset.page === page);
+  });
+  document.querySelectorAll('.mobile-nav-item').forEach(el => {
+    el.classList.toggle('active', el.dataset.page === page);
+  });
+  
+  // Update title
+  const titles = { overview: '概览', tasks: '任务中心', data: '数据管理', system: '系统' };
+  document.getElementById('pageTitle').textContent = titles[page] || '概览';
+  
   // Show loading state
   document.getElementById('contentContainer').innerHTML = `
     <div class="empty-state">
@@ -2374,26 +3015,23 @@ async function init() {
       <div class="empty-desc">正在初始化应用数据</div>
     </div>
   `;
-  
+
   // Load initial data
   try {
-    const [health, tasks, users, lists, entities, config] = await Promise.all([
+    const [health, tasks, config] = await Promise.all([
       api.getHealth(),
       api.getTasks(),
-      api.getUsers(),
-      api.getLists(),
-      api.getEntities(),
       api.getConfig()
     ]);
-    
+
     store.setState({
       health,
       tasks: tasks.tasks || [],
-      users: users.users || [],
-      lists: lists.lists || [],
-      entities: entities.entities || [],
       config
     });
+
+    // Load database data for current subpage
+    await refreshDBData();
   } catch (err) {
     toast.show('加载数据失败: ' + err.message, 'error');
   }
@@ -2421,7 +3059,7 @@ document.querySelectorAll('.mobile-nav-item').forEach(el => {
 document.getElementById('refreshBtn').onclick = () => {
   const page = store.state.currentPage;
   if (page === 'tasks') refreshTasks();
-  else if (page === 'data') refreshData();
+  else if (page === 'data') refreshDBData();
   else init();
 };
 
@@ -2434,9 +3072,96 @@ window.addEventListener('resize', () => {
 });
 
 // Subscribe to state changes
-store.subscribe(() => {
-  render();
+let lastPage = store.state.currentPage;
+let lastTasksJson = JSON.stringify(store.state.tasks);
+store.subscribe((state) => {
+  // Re-render when page changes
+  if (state.currentPage !== lastPage) {
+    lastPage = state.currentPage;
+    render();
+  } else {
+    const tasksJson = JSON.stringify(state.tasks);
+    const tasksChanged = tasksJson !== lastTasksJson;
+    
+    if (tasksChanged) {
+      lastTasksJson = tasksJson;
+      
+      // Update only task list if on tasks page
+      if (state.currentPage === 'tasks') {
+        updateTaskListUI(state.tasks);
+      }
+      
+      // Update overview page recent tasks
+      if (state.currentPage === 'overview') {
+        updateOverviewTasksUI(state.tasks);
+      }
+    }
+    
+    // Re-render data page when data changes
+    if (state.currentPage === 'data') {
+      render();
+    }
+  }
 });
+
+// Update overview page recent tasks without full re-render
+function updateOverviewTasksUI(tasks) {
+  const recentTasks = tasks.slice(0, 5);
+  const taskList = document.querySelector('.overview-tasks-list');
+  if (!taskList) return;
+  
+  if (recentTasks.length === 0) {
+    taskList.innerHTML = `
+      <div class="empty-state">
+        <div class="empty-icon">📋</div>
+        <div class="empty-title">暂无任务</div>
+        <div class="empty-desc">创建一个新任务开始下载 Twitter 媒体文件</div>
+      </div>
+    `;
+  } else {
+    taskList.innerHTML = recentTasks.map(t => renderTaskItem(t)).join('');
+  }
+}
+
+// Update only the task list part of the UI without full re-render
+function updateTaskListUI(tasks) {
+  const taskList = document.getElementById('taskList');
+  if (!taskList) return;
+  
+  const filter = document.getElementById('taskFilter')?.value || 'all';
+  const search = document.getElementById('taskSearch')?.value?.toLowerCase() || '';
+  
+  let filtered = tasks;
+  
+  if (filter !== 'all') {
+    filtered = filtered.filter(t => t.status === filter);
+  }
+  
+  if (search) {
+    filtered = filtered.filter(t => {
+      const target = (t.data?.screen_name || t.data?.list_id || '').toString().toLowerCase();
+      return target.includes(search) || t.task_id.toLowerCase().includes(search);
+    });
+  }
+  
+  if (filtered.length === 0) {
+    taskList.innerHTML = `
+      <div class="empty-state">
+        <div class="empty-icon">🔍</div>
+        <div class="empty-title">没有找到匹配的任务</div>
+        <div class="empty-desc">尝试调整筛选条件或搜索关键词</div>
+      </div>
+    `;
+  } else {
+    taskList.innerHTML = filtered.map(t => renderTaskItem(t, true)).join('');
+  }
+  
+  // Update task count subtitle
+  const subtitle = document.querySelector('.card-subtitle');
+  if (subtitle) {
+    subtitle.textContent = `共 ${tasks.length} 个任务`;
+  }
+}
 
 // Start
 init();

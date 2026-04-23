@@ -99,13 +99,13 @@ func TestSyncUser_ClearLatestReleaseTime(t *testing.T) {
 	require.NoError(t, err)
 
 	now := time.Now()
-	err = SetUserEntityLatestReleaseTime(db, int(entity.Id.Int32), now)
+	err = SetUserEntityLatestReleaseTime(db, int(NullInt32(entity.Id)), now)
 	require.NoError(t, err)
 
-	err = ClearUserEntityLatestReleaseTime(db, int(entity.Id.Int32))
+	err = ClearUserEntityLatestReleaseTime(db, int(NullInt32(entity.Id)))
 	require.NoError(t, err)
 
-	updated, err := GetUserEntity(db, int(entity.Id.Int32))
+	updated, err := GetUserEntity(db, int(NullInt32(entity.Id)))
 	require.NoError(t, err)
 	require.NotNil(t, updated)
 	assert.True(t, updated.LatestReleaseTime.Time.IsZero())

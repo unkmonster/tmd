@@ -178,7 +178,7 @@ func BatchUserDownload(ctx context.Context, client *resty.Client, db *sqlx.DB, u
 			curlink := &database.UserLink{}
 			curlink.Name = linkname
 			curlink.ParentLstEntityId = int32(*leid)
-			curlink.Uid = user.Id
+			curlink.UserId = user.Id
 
 			linkpath, err := curlink.Path(db)
 			if err == nil {

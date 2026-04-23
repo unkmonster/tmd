@@ -90,14 +90,14 @@ type TaskListResponse struct {
 
 // UserInfo 用户信息
 type UserInfo struct {
-	ID         uint64 `json:"id"`
+	ID         string `json:"id"`
 	ScreenName string `json:"screen_name"`
 	Name       string `json:"name"`
 }
 
 // DBUserItem 数据库用户项（前端友好格式）
 type DBUserItem struct {
-	ID           uint64 `json:"id"`
+	ID           string `json:"id"`
 	ScreenName   string `json:"screen_name"`
 	Name         string `json:"name"`
 	IsProtected  bool   `json:"protected"`
@@ -107,15 +107,15 @@ type DBUserItem struct {
 
 // DBListItem 数据库列表项（前端友好格式）
 type DBListItem struct {
-	ID      uint64 `json:"id"`
+	ID      string `json:"id"`
 	Name    string `json:"name"`
-	OwnerID uint64 `json:"owner_uid"`
+	OwnerID string `json:"owner_uid"`
 }
 
 // DBEntityItem 数据库用户实体项（前端友好格式）
 type DBEntityItem struct {
-	ID                int64  `json:"id"`
-	UserID            uint64 `json:"user_id"`
+	ID                string `json:"id"`
+	UserID            string `json:"user_id"`
 	Name              string `json:"name"`
 	LatestReleaseTime string `json:"latest_release_time"`
 	ParentDir         string `json:"parent_dir"`
@@ -138,6 +138,31 @@ type DBListResponse struct {
 type DBEntityResponse struct {
 	Entities []DBEntityItem `json:"entities"`
 	Total    int            `json:"total"`
+}
+
+// DBListEntityItem 数据库列表实体项
+type DBListEntityItem struct {
+	ID        string `json:"id"`
+	LstID     string `json:"lst_id"`
+	Name      string `json:"name"`
+	ParentDir string `json:"parent_dir"`
+}
+
+// DBUserLinkItem 用户链接项
+type DBUserLinkItem struct {
+	ID                string `json:"id"`
+	UserID            string `json:"user_id"`
+	Name              string `json:"name"`
+	ParentLstEntityID string `json:"parent_lst_entity_id"`
+}
+
+// DBUserPreviousNameItem 用户历史名称项
+type DBUserPreviousNameItem struct {
+	ID         string `json:"id"`
+	Uid        string `json:"uid"`
+	ScreenName string `json:"screen_name"`
+	Name       string `json:"name"`
+	RecordDate string `json:"record_date"`
 }
 
 // ConfigResponse 配置响应（脱敏）

@@ -68,7 +68,19 @@ CREATE TABLE IF NOT EXISTS user_links (
 	FOREIGN KEY(parent_lst_entity_id) REFERENCES lst_entities (id)
 );
 
-CREATE INDEX IF NOT EXISTS idx_user_links_user_id ON user_links (user_id);
+-- 索引
+CREATE INDEX IF NOT EXISTS idx_users_screen_name ON users(screen_name);
+CREATE INDEX IF NOT EXISTS idx_users_name ON users(name);
+CREATE INDEX IF NOT EXISTS idx_users_accessible ON users(is_accessible);
+CREATE INDEX IF NOT EXISTS idx_users_protected ON users(protected);
+CREATE INDEX IF NOT EXISTS idx_lsts_name ON lsts(name);
+CREATE INDEX IF NOT EXISTS idx_lsts_owner ON lsts(owner_uid);
+CREATE INDEX IF NOT EXISTS idx_user_entities_user_id ON user_entities(user_id);
+CREATE INDEX IF NOT EXISTS idx_user_entities_name ON user_entities(name);
+CREATE INDEX IF NOT EXISTS idx_lst_entities_lst_id ON lst_entities(lst_id);
+CREATE INDEX IF NOT EXISTS idx_user_links_user_id ON user_links(user_id);
+CREATE INDEX IF NOT EXISTS idx_user_links_lst_entity ON user_links(parent_lst_entity_id);
+CREATE INDEX IF NOT EXISTS idx_user_previous_names_uid ON user_previous_names(uid);
 `
 
 func CreateTables(db *sqlx.DB) {

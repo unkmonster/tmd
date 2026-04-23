@@ -933,6 +933,579 @@ GET /api/v1/config
 
 ***
 
+## 数据库管理 API 详解
+
+### 通用查询参数
+
+所有数据库列表查询端点（GET）支持以下通用参数：
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `page` | int | 1 | 页码 |
+| `pageSize` | int | 20 | 每页数量（最大 100） |
+| `sortBy` | string | `id` | 排序字段 |
+| `sortOrder` | string | `desc` | 排序方向：`asc` 或 `desc` |
+| `q` | string | - | 搜索关键词 |
+
+### 1. 用户管理
+
+#### 查询用户列表
+
+**请求：**
+
+```http
+GET /api/v1/db/users?page=1&pageSize=20&sortBy=id&sortOrder=desc&q=elonmusk
+```
+
+**查询参数：**
+
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| `accessible` | bool | 按可访问状态筛选 |
+| `protected` | bool | 按保护状态筛选 |
+
+**响应：**
+
+```json
+{
+  "success": true,
+  "data": {
+    "items": [
+      {
+        "id": "44196397",
+        "screen_name": "elonmusk",
+        "name": "Elon Musk",
+        "protected": false,
+        "friends_count": 100,
+        "is_accessible": true
+      }
+    ],
+    "total": 1,
+    "page": 1,
+    "pageSize": 20,
+    "totalPages": 1
+  }
+}
+```
+
+#### 获取用户详情
+
+**请求：**
+
+```http
+GET /api/v1/db/users/44196397
+```
+
+**响应：**
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": "44196397",
+    "screen_name": "elonmusk",
+    "name": "Elon Musk",
+    "protected": false,
+    "friends_count": 100,
+    "is_accessible": true
+  }
+}
+```
+
+#### 更新用户
+
+**请求：**
+
+```http
+PUT /api/v1/db/users/44196397
+Content-Type: application/json
+
+{
+  "screen_name": "elonmusk",
+  "name": "Elon Musk Updated",
+  "friends_count": 150,
+  "protected": true,
+  "is_accessible": false
+}
+```
+
+**请求体参数：**
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `screen_name` | string | 否 | 用户 Screen Name |
+| `name` | string | 否 | 显示名称 |
+| `friends_count` | int | 否 | 关注数 |
+| `protected` | bool | 否 | 是否受保护 |
+| `is_accessible` | bool | 否 | 是否可访问 |
+
+**响应：**
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": "44196397",
+    "screen_name": "elonmusk",
+    "name": "Elon Musk Updated",
+    "protected": true,
+    "friends_count": 150,
+    "is_accessible": false
+  }
+}
+```
+
+#### 删除用户
+
+**请求：**
+
+```http
+DELETE /api/v1/db/users/44196397
+```
+
+**响应：**
+
+```json
+{
+  "success": true,
+  "data": {
+    "message": "User deleted successfully"
+  }
+}
+```
+
+#### 获取用户历史名称
+
+**请求：**
+
+```http
+GET /api/v1/db/users/44196397/previous-names
+```
+
+**响应：**
+
+```json
+{
+  "success": true,
+  "data": {
+    "items": [
+      {
+        "id": "1",
+        "uid": "44196397",
+        "screen_name": "elonmusk_old",
+        "name": "Elon Musk Old Name",
+        "record_date": "2023-01-15"
+      }
+    ],
+    "total": 1,
+    "page": 1,
+    "pageSize": 20,
+    "totalPages": 1
+  }
+}
+```
+
+***
+
+### 2. 列表管理
+
+#### 查询列表
+
+**请求：**
+
+```http
+GET /api/v1/db/lists?page=1&pageSize=20&q=tech
+```
+
+**查询参数：**
+
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| `ownerId` | string | 按所有者 ID 筛选 |
+
+**响应：**
+
+```json
+{
+  "success": true,
+  "data": {
+    "items": [
+      {
+        "id": "123456789",
+        "name": "Tech News",
+        "owner_uid": "44196397"
+      }
+    ],
+    "total": 1,
+    "page": 1,
+    "pageSize": 20,
+    "totalPages": 1
+  }
+}
+```
+
+#### 获取列表详情
+
+**请求：**
+
+```http
+GET /api/v1/db/lists/123456789
+```
+
+**响应：**
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": "123456789",
+    "name": "Tech News",
+    "owner_uid": "44196397"
+  }
+}
+```
+
+#### 更新列表
+
+**请求：**
+
+```http
+PUT /api/v1/db/lists/123456789
+Content-Type: application/json
+
+{
+  "name": "Updated List Name",
+  "owner_uid": "44196397"
+}
+```
+
+**请求体参数：**
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `name` | string | 否 | 列表名称 |
+| `owner_uid` | string | 否 | 所有者用户 ID |
+
+**响应：**
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": "123456789",
+    "name": "Updated List Name",
+    "owner_uid": "44196397"
+  }
+}
+```
+
+#### 删除列表
+
+**请求：**
+
+```http
+DELETE /api/v1/db/lists/123456789
+```
+
+**响应：**
+
+```json
+{
+  "success": true,
+  "data": {
+    "message": "List deleted successfully"
+  }
+}
+```
+
+***
+
+### 3. 用户实体管理
+
+#### 查询用户实体
+
+**请求：**
+
+```http
+GET /api/v1/db/user-entities?page=1&pageSize=20&q=elonmusk
+```
+
+**查询参数：**
+
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| `userId` | string | 按用户 ID 筛选 |
+
+**响应：**
+
+```json
+{
+  "success": true,
+  "data": {
+    "items": [
+      {
+        "id": "1",
+        "user_id": "44196397",
+        "name": "Elon Musk(elonmusk)",
+        "latest_release_time": "2024-01-15 10:30:00",
+        "parent_dir": "users",
+        "media_count": 150
+      }
+    ],
+    "total": 1,
+    "page": 1,
+    "pageSize": 20,
+    "totalPages": 1
+  }
+}
+```
+
+#### 获取用户实体详情
+
+**请求：**
+
+```http
+GET /api/v1/db/user-entities/1
+```
+
+**响应：**
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": "1",
+    "user_id": "44196397",
+    "name": "Elon Musk(elonmusk)",
+    "latest_release_time": "2024-01-15 10:30:00",
+    "parent_dir": "users",
+    "media_count": 150
+  }
+}
+```
+
+#### 更新用户实体
+
+**请求：**
+
+```http
+PUT /api/v1/db/user-entities/1
+Content-Type: application/json
+
+{
+  "name": "Updated Entity Name",
+  "parent_dir": "users/updated",
+  "media_count": 200
+}
+```
+
+**请求体参数：**
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `name` | string | 否 | 实体名称 |
+| `parent_dir` | string | 否 | 父目录路径 |
+| `media_count` | int | 否 | 媒体文件数量 |
+
+**响应：**
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": "1",
+    "user_id": "44196397",
+    "name": "Updated Entity Name",
+    "latest_release_time": "2024-01-15 10:30:00",
+    "parent_dir": "users/updated",
+    "media_count": 200
+  }
+}
+```
+
+#### 删除用户实体
+
+**请求：**
+
+```http
+DELETE /api/v1/db/user-entities/1
+```
+
+**响应：**
+
+```json
+{
+  "success": true,
+  "data": {
+    "message": "Entity deleted successfully"
+  }
+}
+```
+
+***
+
+### 4. 列表实体管理
+
+#### 查询列表实体
+
+**请求：**
+
+```http
+GET /api/v1/db/list-entities?page=1&pageSize=20&q=listname
+```
+
+**查询参数：**
+
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| `listId` | string | 按列表 ID 筛选 |
+
+**响应：**
+
+```json
+{
+  "success": true,
+  "data": {
+    "items": [
+      {
+        "id": "1",
+        "lst_id": "123456789",
+        "name": "List Entity Name",
+        "parent_dir": "lists"
+      }
+    ],
+    "total": 1,
+    "page": 1,
+    "pageSize": 20,
+    "totalPages": 1
+  }
+}
+```
+
+#### 获取列表实体详情
+
+**请求：**
+
+```http
+GET /api/v1/db/list-entities/1
+```
+
+**响应：**
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": "1",
+    "lst_id": "123456789",
+    "name": "List Entity Name",
+    "parent_dir": "lists"
+  }
+}
+```
+
+#### 更新列表实体
+
+**请求：**
+
+```http
+PUT /api/v1/db/list-entities/1
+Content-Type: application/json
+
+{
+  "name": "Updated List Entity",
+  "parent_dir": "lists/updated"
+}
+```
+
+**请求体参数：**
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `name` | string | 否 | 实体名称 |
+| `parent_dir` | string | 否 | 父目录路径 |
+
+**响应：**
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": "1",
+    "lst_id": "123456789",
+    "name": "Updated List Entity",
+    "parent_dir": "lists/updated"
+  }
+}
+```
+
+#### 删除列表实体
+
+**请求：**
+
+```http
+DELETE /api/v1/db/list-entities/1
+```
+
+**响应：**
+
+```json
+{
+  "success": true,
+  "data": {
+    "message": "List entity deleted successfully"
+  }
+}
+```
+
+***
+
+### 5. 用户链接管理
+
+#### 查询用户链接
+
+**请求：**
+
+```http
+GET /api/v1/db/user-links?page=1&pageSize=20
+```
+
+**查询参数：**
+
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| `userId` | string | 按用户 ID 筛选 |
+| `listEntityId` | string | 按列表实体 ID 筛选 |
+
+**响应：**
+
+```json
+{
+  "success": true,
+  "data": {
+    "items": [
+      {
+        "id": "1",
+        "user_id": "44196397",
+        "name": "elonmusk_link",
+        "parent_lst_entity_id": "1"
+      }
+    ],
+    "total": 1,
+    "page": 1,
+    "pageSize": 20,
+    "totalPages": 1
+  }
+}
+```
+
+**说明：**
+
+- 用户链接是关联表，不支持直接编辑/删除
+- 通过列表下载和用户下载自动创建/更新
+
+***
+
 ## 使用场景示例
 
 ### 场景 1：监控下载进度
@@ -1018,10 +1591,30 @@ TASK_ID=$(curl -s -X POST http://localhost:25556/api/v1/lists/123456789/download
 | `/`                                       | GET  | Web 管理界面首页     |
 | `/static/*`                               | GET  | 静态资源（CSS/JS）   |
 | `/api/v1/sse/tasks`                       | GET  | SSE 实时任务推送     |
-| `/api/v1/db/users`                        | GET  | 查询数据库用户列表    |
-| `/api/v1/db/lists`                        | GET  | 查询数据库列表      |
-| `/api/v1/db/user-entities`                | GET  | 查询用户实体        |
 | `/api/v1/config`                          | GET  | 获取系统配置（脱敏）  |
+
+### 数据库管理 API
+
+| 端点                                        | 方法   | 功能               |
+| ----------------------------------------- | ---- | ---------------- |
+| `/api/v1/db/users`                        | GET  | 查询用户列表（分页/排序/搜索） |
+| `/api/v1/db/users/{id}`                   | GET  | 获取用户详情       |
+| `/api/v1/db/users/{id}`                   | PUT  | 更新用户信息       |
+| `/api/v1/db/users/{id}`                   | DELETE | 删除用户         |
+| `/api/v1/db/users/{id}/previous-names`    | GET  | 获取用户历史名称    |
+| `/api/v1/db/lists`                        | GET  | 查询列表（分页/排序/搜索） |
+| `/api/v1/db/lists/{id}`                   | GET  | 获取列表详情       |
+| `/api/v1/db/lists/{id}`                   | PUT  | 更新列表信息       |
+| `/api/v1/db/lists/{id}`                   | DELETE | 删除列表         |
+| `/api/v1/db/user-entities`                | GET  | 查询用户实体（分页/排序/搜索） |
+| `/api/v1/db/user-entities/{id}`           | GET  | 获取用户实体详情    |
+| `/api/v1/db/user-entities/{id}`           | PUT  | 更新用户实体       |
+| `/api/v1/db/user-entities/{id}`           | DELETE | 删除用户实体     |
+| `/api/v1/db/list-entities`                | GET  | 查询列表实体（分页/排序/搜索） |
+| `/api/v1/db/list-entities/{id}`           | GET  | 获取列表实体详情    |
+| `/api/v1/db/list-entities/{id}`           | PUT  | 更新列表实体       |
+| `/api/v1/db/list-entities/{id}`           | DELETE | 删除列表实体     |
+| `/api/v1/db/user-links`                   | GET  | 查询用户链接（分页/搜索） |
 
 ***
 

@@ -219,7 +219,7 @@ func TestUserEntity(t *testing.T) {
 
 		// latest release time
 		now := time.Now()
-		if err = UpdateUserEntityTweetStat(db, int(entity.Id.Int32), now, 25); err != nil {
+		if err = UpdateUserEntityTweetStat(db, int(NullInt32(entity.Id)), now, 25); err != nil {
 			t.Error(err)
 			return
 		}
@@ -247,7 +247,7 @@ func TestUserEntity(t *testing.T) {
 		}
 
 		// delete
-		if err = DelUserEntity(db, uint32(entity.Id.Int32)); err != nil {
+		if err = DelUserEntity(db, uint32(NullInt32(entity.Id))); err != nil {
 			t.Error(err)
 			return
 		}
@@ -277,7 +277,7 @@ func generateUserEntity(uid uint64, pdir string) *UserEntity {
 }
 
 func hasSameUserEntityRecord(entity *UserEntity) (bool, error) {
-	record, err := GetUserEntity(db, int(entity.Id.Int32))
+	record, err := GetUserEntity(db, int(NullInt32(entity.Id)))
 	return record != nil && *record == *entity, err
 }
 
@@ -347,7 +347,7 @@ func TestLstEntity(t *testing.T) {
 		}
 
 		// delete
-		if err = DelLstEntity(db, int(entity.Id.Int32)); err != nil {
+		if err = DelLstEntity(db, int(NullInt32(entity.Id))); err != nil {
 			t.Error(err)
 			return
 		}
@@ -376,7 +376,7 @@ func generateLstEntity(lid int64, pdir string) *LstEntity {
 }
 
 func hasSameLstEntityRecord(entity *LstEntity) (bool, error) {
-	record, err := GetLstEntity(db, int(entity.Id.Int32))
+	record, err := GetLstEntity(db, int(NullInt32(entity.Id)))
 	return record != nil && *record == *entity, err
 }
 
@@ -429,7 +429,7 @@ func TestLink(t *testing.T) {
 			return
 		}
 
-		records, err := GetUserLinks(db, link.Uid)
+		records, err := GetUserLinks(db, link.UserId)
 		if err != nil {
 			t.Error(err)
 			return
@@ -441,7 +441,7 @@ func TestLink(t *testing.T) {
 
 		// u
 		link.Name = link.Name + "renamed"
-		if err = UpdateUserLink(db, link.Id.Int32, link.Name); err != nil {
+		if err = UpdateUserLink(db, link.Id, link.Name); err != nil {
 			t.Error(err)
 			return
 		}
@@ -466,13 +466,13 @@ func generateLink(uid int, lid int) *UserLink {
 
 	ul := UserLink{}
 	ul.Name = fmt.Sprintf("%d-%d", lid, uid)
-	ul.ParentLstEntityId = le.Id.Int32
-	ul.Uid = usr.Id
+	ul.ParentLstEntityId = NullInt32(le.Id)
+	ul.UserId = usr.Id
 	return &ul
 }
 
 func hasSameUserLinkRecord(link *UserLink) (bool, error) {
-	record, err := GetUserLink(db, link.Uid, link.ParentLstEntityId)
+	record, err := GetUserLink(db, link.UserId, link.ParentLstEntityId)
 	return record != nil && *record == *link, err
 }
 

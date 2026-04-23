@@ -11,9 +11,9 @@ func CreateUserLink(db *sqlx.DB, lnk *UserLink) error {
 	stmt := `INSERT INTO user_links(user_id, name, parent_lst_entity_id) VALUES(:user_id, :name, :parent_lst_entity_id)`
 	res, err := db.NamedExec(stmt, lnk)
 	if err != nil {
-		return fmt.Errorf("failed to create user link for user %d in list entity %d: %w", lnk.Uid, lnk.ParentLstEntityId, err)
+		return fmt.Errorf("failed to create user link for user %d in list entity %d: %w", lnk.UserId, lnk.ParentLstEntityId, err)
 	}
-	return handleInsertWithId(res, err, func(id int64) { lnk.Id.Scan(id) })
+	return handleInsertWithId(res, err, func(id int64) { lnk.Id = int32(id) })
 }
 
 func GetUserLinks(db *sqlx.DB, uid uint64) ([]*UserLink, error) {

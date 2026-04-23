@@ -295,7 +295,13 @@ http://localhost:25556/
 - **仪表盘**：系统状态、任务统计、快速操作
 - **新建任务**：创建用户/列表/批量/JSON 下载任务
 - **任务列表**：实时显示任务状态、进度条、取消操作
-- **数据浏览**：查看数据库中的 Users、Lists、User Entities
+- **数据管理**：完整的数据库 CRUD 操作
+  - **Users**：查看、搜索、排序、编辑、删除用户
+  - **Lists**：查看、搜索、排序、编辑、删除列表
+  - **User Entities**：查看、搜索、排序、编辑、删除用户实体
+  - **List Entities**：查看、搜索、排序、编辑、删除列表实体
+  - **User Links**：查看用户与列表的关联关系
+  - **User Previous Names**：查看用户历史名称变更记录
 - **系统配置**：显示当前配置信息（脱敏）
 
 ### API 文档
@@ -306,6 +312,13 @@ http://localhost:25556/
 - 请求/响应格式
 - 错误处理
 - 使用示例
+- **数据库管理 API**：完整的 CRUD 操作文档
+  - 用户管理（Users）
+  - 列表管理（Lists）
+  - 用户实体管理（User Entities）
+  - 列表实体管理（List Entities）
+  - 用户链接查询（User Links）
+  - 用户历史名称查询（User Previous Names）
 
 ### 快速示例
 

@@ -7,6 +7,86 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ***
 
+## [2.14.2] - 2026-04-15
+
+### Added
+
+#### 新增分页功能
+
+| 文件 | 功能 |
+|------|------|
+| `internal/api/pagination.go` | 分页参数解析和响应封装 |
+| `internal/database/query.go` | 数据库查询构建器 |
+
+**特性：**
+- 支持 `page`、`pageSize`、`sortBy`、`sortOrder` 参数
+- 自动计算 `offset` 和 `totalPages`
+- 统一的分页响应格式
+
+#### 数据库查询优化
+
+| 文件 | 功能 |
+|------|------|
+| `internal/database/query.go` | 通用查询构建器 |
+
+**支持操作：**
+- `Count()` - 获取总数
+- `Query()` - 分页查询
+- `QueryWithJoin()` - 关联查询
+- `BuildWhere()` - 动态条件构建
+
+### Changed
+
+#### API 功能增强
+
+| 文件 | 变更 |
+|------|------|
+| `internal/api/db_handlers.go` | +797 行，完整的数据库管理 API |
+| `internal/api/server.go` | 新增分页中间件 |
+| `internal/api/types.go` | 扩展响应类型 |
+| `internal/api/web/index.html` | +973 行，增强 Web UI |
+
+**新增 API 端点：**
+- `GET /api/v1/db/users` - 分页获取用户列表
+- `GET /api/v1/db/lists` - 分页获取列表
+- `GET /api/v1/db/entities` - 分页获取实体
+- `GET /api/v1/db/links` - 获取用户链接
+- `GET /api/v1/db/previous-names` - 获取历史名称
+
+#### 数据库层优化
+
+| 文件 | 变更 |
+|------|------|
+| `internal/database/model.go` | 优化模型定义 |
+| `internal/database/schema.go` | 优化表结构 |
+| `internal/database/user_link.go` | 优化链接查询 |
+| `internal/database/db_test.go` | 更新测试 |
+| `internal/database/user_sync_test.go` | 更新测试 |
+
+#### 下载模块优化
+
+| 文件 | 变更 |
+|------|------|
+| `internal/downloading/batch_download.go` | 优化批处理 |
+| `internal/downloading/entity.go` | 优化实体处理 |
+| `internal/downloading/list_sync.go` | 优化列表同步 |
+| `internal/downloading/download_test.go` | 更新测试 |
+
+#### 文档更新
+
+| 文件 | 变更 |
+|------|------|
+| `doc/API_DOCUMENTATION.md` | +599 行，完整的 API 文档 |
+| `readme.md` | 更新功能说明 |
+
+### Stats
+
+- **17 个文件变更**
+- **+2354 行 / -218 行**
+- **新增文件：** 2 个（`pagination.go`, `query.go`）
+
+***
+
 ## [2.14.1] - 2026-04-15
 
 ### Added

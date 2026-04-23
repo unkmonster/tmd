@@ -59,11 +59,40 @@ func (s *Server) Start(port int) error {
 
 	// 新增 Web 与数据端点
 	mux.HandleFunc("GET /{$}", s.handleWeb)
+	mux.HandleFunc("GET /tasks", s.handleWeb)
+	mux.HandleFunc("GET /data", s.handleWeb)
+	mux.HandleFunc("GET /system", s.handleWeb)
 	mux.HandleFunc("/static/", s.handleStatic)
 	mux.HandleFunc("/api/v1/sse/tasks", s.handleSSETasks)
-	mux.HandleFunc("/api/v1/db/users", s.handleDBUsers)
-	mux.HandleFunc("/api/v1/db/lists", s.handleDBLists)
-	mux.HandleFunc("/api/v1/db/user-entities", s.handleDBUserEntities)
+
+	// 数据库查询路由 - Users
+	mux.HandleFunc("GET /api/v1/db/users", s.handleDBUsers)
+	mux.HandleFunc("GET /api/v1/db/users/{id}", s.handleDBUserDetail)
+	mux.HandleFunc("PUT /api/v1/db/users/{id}", s.handleDBUserUpdate)
+	mux.HandleFunc("DELETE /api/v1/db/users/{id}", s.handleDBUserDelete)
+	mux.HandleFunc("GET /api/v1/db/users/{id}/previous-names", s.handleDBUserPreviousNames)
+
+	// 数据库查询路由 - Lists
+	mux.HandleFunc("GET /api/v1/db/lists", s.handleDBLists)
+	mux.HandleFunc("GET /api/v1/db/lists/{id}", s.handleDBListDetail)
+	mux.HandleFunc("PUT /api/v1/db/lists/{id}", s.handleDBListUpdate)
+	mux.HandleFunc("DELETE /api/v1/db/lists/{id}", s.handleDBListDelete)
+
+	// 数据库查询路由 - User Entities
+	mux.HandleFunc("GET /api/v1/db/user-entities", s.handleDBUserEntities)
+	mux.HandleFunc("GET /api/v1/db/user-entities/{id}", s.handleDBUserEntityDetail)
+	mux.HandleFunc("PUT /api/v1/db/user-entities/{id}", s.handleDBUserEntityUpdate)
+	mux.HandleFunc("DELETE /api/v1/db/user-entities/{id}", s.handleDBUserEntityDelete)
+
+	// 数据库查询路由 - List Entities（新增）
+	mux.HandleFunc("GET /api/v1/db/list-entities", s.handleDBListEntities)
+	mux.HandleFunc("GET /api/v1/db/list-entities/{id}", s.handleDBListEntityDetail)
+	mux.HandleFunc("PUT /api/v1/db/list-entities/{id}", s.handleDBListEntityUpdate)
+	mux.HandleFunc("DELETE /api/v1/db/list-entities/{id}", s.handleDBListEntityDelete)
+
+	// 数据库查询路由 - User Links（新增）
+	mux.HandleFunc("GET /api/v1/db/user-links", s.handleDBUserLinks)
+
 	mux.HandleFunc("/api/v1/config", s.handleConfig)
 
 	// 中间件链
@@ -105,6 +134,22 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		Status:    "ok",
 		Version:   "2.0.0",
 		Timestamp: time.Now().UTC(),
+	}
+	s.writeJSON(w, http.StatusOK, NewSuccessResponse(resp))
+}
+
+// handleConfig 获取配置（脱敏）
+func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		s.writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+
+	// 返回脱敏后的配置
+	resp := ConfigResponse{
+		RootPath:           s.config.RootPath,
+		MaxDownloadRoutine: s.config.MaxDownloadRoutine,
+		MaxFileNameLen:     s.config.MaxFileNameLen,
 	}
 	s.writeJSON(w, http.StatusOK, NewSuccessResponse(resp))
 }
@@ -177,7 +222,7 @@ func (s *Server) handleUserDownload(w http.ResponseWriter, r *http.Request, scre
 		"task_id": task.ID,
 		"status":  task.Status,
 		"user": UserInfo{
-			ID:         user.Id,
+			ID:         strconv.FormatUint(user.Id, 10),
 			ScreenName: user.ScreenName,
 			Name:       user.Name,
 		},
@@ -273,7 +318,7 @@ func (s *Server) handleFollowingDownload(w http.ResponseWriter, r *http.Request,
 		"task_id": task.ID,
 		"status":  task.Status,
 		"user": UserInfo{
-			ID:         user.Id,
+			ID:         strconv.FormatUint(user.Id, 10),
 			ScreenName: user.ScreenName,
 			Name:       user.Name,
 		},

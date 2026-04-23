@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"path/filepath"
+	"time"
 
 	"github.com/jmoiron/sqlx"
 )
@@ -27,10 +28,19 @@ type UserEntity struct {
 }
 
 type UserLink struct {
-	Id                sql.NullInt32 `db:"id"`
-	Uid               uint64        `db:"user_id"`
-	Name              string        `db:"name"`
-	ParentLstEntityId int32         `db:"parent_lst_entity_id"`
+	Id                int32  `db:"id" json:"id"`
+	UserId            uint64 `db:"user_id" json:"user_id"`
+	Name              string `db:"name" json:"name"`
+	ParentLstEntityId int32  `db:"parent_lst_entity_id" json:"parent_lst_entity_id"`
+}
+
+// UserPreviousName 用户历史名称
+type UserPreviousName struct {
+	Id         int32     `db:"id" json:"id"`
+	Uid        uint64    `db:"uid" json:"uid"`
+	ScreenName string    `db:"screen_name" json:"screen_name"`
+	Name       string    `db:"name" json:"name"`
+	RecordDate time.Time `db:"record_date" json:"record_date"`
 }
 
 type Lst struct {
@@ -74,4 +84,12 @@ func (ul *UserLink) Path(db *sqlx.DB) (string, error) {
 		return "", err
 	}
 	return filepath.Join(lePath, ul.Name), nil
+}
+
+// NullInt32 辅助函数：将 sql.NullInt32 转换为 int32
+func NullInt32(n sql.NullInt32) int32 {
+	if n.Valid {
+		return n.Int32
+	}
+	return 0
 }

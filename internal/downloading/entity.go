@@ -42,7 +42,7 @@ func updateUserLink(lnk *database.UserLink, db *sqlx.DB, path string) error {
 		return err
 	}
 
-	if err = database.UpdateUserLink(db, lnk.Id.Int32, name); err != nil {
+	if err = database.UpdateUserLink(db, lnk.Id, name); err != nil {
 		return err
 	}
 

@@ -208,8 +208,8 @@ func verifyUserRecord(t *testing.T, e entity.Entity, uid uint64, name string, pa
 		t.Error(err)
 		return nil
 	}
-	if int(record.Id.Int32) != eid {
-		t.Errorf("eid: %d, want %d", eid, record.Id.Int32)
+	if int(database.NullInt32(record.Id)) != eid {
+		t.Errorf("eid: %d, want %d", eid, database.NullInt32(record.Id))
 	}
 	recordPath, err := record.Path()
 	if err != nil {
@@ -240,8 +240,8 @@ func verifyLstRecord(t *testing.T, e entity.Entity, lid int64, name string, pare
 		t.Error(err)
 		return
 	}
-	if int(record.Id.Int32) != eid {
-		t.Errorf("eid: %d, want %d", eid, record.Id.Int32)
+	if int(database.NullInt32(record.Id)) != eid {
+		t.Errorf("eid: %d, want %d", eid, database.NullInt32(record.Id))
 	}
 	recordPath, err := record.Path()
 	if err != nil {

@@ -54,9 +54,9 @@ func (lsm *ListSyncManager) SyncListMembers(ctx context.Context, lstEntityId int
 
 	removedCount := 0
 	for _, link := range links {
-		if !memberSet[link.Uid] {
+		if !memberSet[link.UserId] {
 			if err := lsm.removeUserLinkWithTx(tx, link, lstEntityId); err != nil {
-				log.Warnln("failed to remove user link:", link.Uid, err)
+				log.Warnln("failed to remove user link:", link.UserId, err)
 			} else {
 				removedCount++
 			}
@@ -75,8 +75,8 @@ func (lsm *ListSyncManager) SyncListMembers(ctx context.Context, lstEntityId int
 }
 
 func (lsm *ListSyncManager) removeUserLinkWithTx(tx *sqlx.Tx, link *database.UserLink, lstEntityId int) error {
-	if !link.Id.Valid {
-		return fmt.Errorf("link id is not valid for user %d in list %d", link.Uid, lstEntityId)
+	if link.Id == 0 {
+		return fmt.Errorf("link id is not valid for user %d in list %d", link.UserId, lstEntityId)
 	}
 
 	linkpath, err := link.Path(lsm.db)
@@ -86,11 +86,11 @@ func (lsm *ListSyncManager) removeUserLinkWithTx(tx *sqlx.Tx, link *database.Use
 		}
 	}
 
-	_, err = tx.Exec(`DELETE FROM user_links WHERE id = ?`, link.Id.Int32)
+	_, err = tx.Exec(`DELETE FROM user_links WHERE id = ?`, link.Id)
 	if err != nil {
-		return fmt.Errorf("failed to delete user link %d from database: %w", link.Id.Int32, err)
+		return fmt.Errorf("failed to delete user link %d from database: %w", link.Id, err)
 	}
 
-	log.Debugln("Removed user link:", link.Uid, "from list", lstEntityId)
+	log.Debugln("Removed user link:", link.UserId, "from list", lstEntityId)
 	return nil
 }

@@ -2,28 +2,95 @@ package api
 
 import (
 	"database/sql"
+	"encoding/json"
 	"net/http"
-	"path/filepath"
+	"strconv"
+	"strings"
 
 	"github.com/unkmonster/tmd/internal/database"
 )
 
-// handleDBUsers 查询数据库用户
+// ============ 排序字段白名单 ============
+
+var userSortFields = map[string]string{
+	"id":            "id",
+	"screen_name":   "screen_name",
+	"name":          "name",
+	"friends_count": "friends_count",
+	"is_accessible": "is_accessible",
+}
+
+var listSortFields = map[string]string{
+	"id":       "id",
+	"name":     "name",
+	"owner_id": "owner_uid",
+}
+
+var entitySortFields = map[string]string{
+	"id":                  "id",
+	"user_id":             "user_id",
+	"name":                "name",
+	"media_count":         "media_count",
+	"latest_release_time": "latest_release_time",
+}
+
+// ============ Users 管理 ============
+
 func (s *Server) handleDBUsers(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		s.writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
-		return
+	pagination := NewPagination(r)
+
+	var whereConditions []string
+	var args []interface{}
+
+	// 搜索关键词
+	if keyword := r.URL.Query().Get("q"); keyword != "" {
+		cond, searchArgs := database.BuildSearchCondition(
+			[]string{"screen_name", "name"},
+			keyword,
+		)
+		whereConditions = append(whereConditions, cond)
+		args = append(args, searchArgs...)
 	}
-	var rows []database.User
-	err := s.db.Select(&rows, "SELECT * FROM users ORDER BY id DESC LIMIT 100")
+
+	// 可访问状态筛选
+	if accessible := r.URL.Query().Get("accessible"); accessible != "" {
+		whereConditions = append(whereConditions, "is_accessible = ?")
+		args = append(args, accessible == "true")
+	}
+
+	// 保护状态筛选
+	if protected := r.URL.Query().Get("protected"); protected != "" {
+		whereConditions = append(whereConditions, "protected = ?")
+		args = append(args, protected == "true")
+	}
+
+	whereClause := ""
+	if len(whereConditions) > 0 {
+		whereClause = strings.Join(whereConditions, " AND ")
+	}
+
+	// 获取总数
+	total, err := database.Count(s.db, "users", &database.QueryOptions{
+		Where: whereClause,
+		Args:  args,
+	})
 	if err != nil {
 		s.writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	items := make([]DBUserItem, len(rows))
-	for i, u := range rows {
+
+	// 查询数据
+	orderBy := pagination.BuildOrderBy(userSortFields)
+	users, err := database.QueryUsers(s.db, whereClause, args, orderBy, pagination.PageSize, pagination.Offset)
+	if err != nil {
+		s.writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	items := make([]DBUserItem, len(users))
+	for i, u := range users {
 		items[i] = DBUserItem{
-			ID:           u.Id,
+			ID:           strconv.FormatUint(u.Id, 10),
 			ScreenName:   u.ScreenName,
 			Name:         u.Name,
 			IsProtected:  u.IsProtected,
@@ -31,49 +98,336 @@ func (s *Server) handleDBUsers(w http.ResponseWriter, r *http.Request) {
 			IsAccessible: u.IsAccessible,
 		}
 	}
-	s.writeJSON(w, http.StatusOK, NewSuccessResponse(DBUserResponse{Users: items, Total: len(items)}))
+
+	response := pagination.ToResponse(items, total)
+	s.writeJSON(w, http.StatusOK, NewSuccessResponse(response))
 }
 
-// handleDBLists 查询数据库列表
-func (s *Server) handleDBLists(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		s.writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
+func (s *Server) handleDBUserDetail(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseUint(r.PathValue("id"), 10, 64)
+	if err != nil {
+		s.writeError(w, http.StatusBadRequest, "Invalid user ID")
 		return
 	}
-	var rows []database.Lst
-	err := s.db.Select(&rows, "SELECT * FROM lsts ORDER BY id DESC LIMIT 100")
+
+	user, err := database.GetUserById(s.db, id)
 	if err != nil {
 		s.writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	items := make([]DBListItem, len(rows))
-	for i, l := range rows {
+	if user == nil {
+		s.writeError(w, http.StatusNotFound, "User not found")
+		return
+	}
+
+	item := DBUserItem{
+		ID:           strconv.FormatUint(user.Id, 10),
+		ScreenName:   user.ScreenName,
+		Name:         user.Name,
+		IsProtected:  user.IsProtected,
+		FriendsCount: user.FriendsCount,
+		IsAccessible: user.IsAccessible,
+	}
+
+	s.writeJSON(w, http.StatusOK, NewSuccessResponse(item))
+}
+
+func (s *Server) handleDBUserUpdate(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseUint(r.PathValue("id"), 10, 64)
+	if err != nil {
+		s.writeError(w, http.StatusBadRequest, "Invalid user ID")
+		return
+	}
+
+	var req struct {
+		ScreenName   string `json:"screen_name"`
+		Name         string `json:"name"`
+		FriendsCount *int   `json:"friends_count,omitempty"`
+		IsProtected  *bool  `json:"protected,omitempty"`
+		IsAccessible *bool  `json:"is_accessible,omitempty"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.writeError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	user, err := database.GetUserById(s.db, id)
+	if err != nil {
+		s.writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if user == nil {
+		s.writeError(w, http.StatusNotFound, "User not found")
+		return
+	}
+
+	if req.ScreenName != "" {
+		user.ScreenName = req.ScreenName
+	}
+	if req.Name != "" {
+		user.Name = req.Name
+	}
+	if req.FriendsCount != nil {
+		user.FriendsCount = *req.FriendsCount
+	}
+	if req.IsProtected != nil {
+		user.IsProtected = *req.IsProtected
+	}
+	if req.IsAccessible != nil {
+		user.IsAccessible = *req.IsAccessible
+	}
+
+	if err := database.UpdateUser(s.db, user); err != nil {
+		s.writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	item := DBUserItem{
+		ID:           strconv.FormatUint(user.Id, 10),
+		ScreenName:   user.ScreenName,
+		Name:         user.Name,
+		IsProtected:  user.IsProtected,
+		FriendsCount: user.FriendsCount,
+		IsAccessible: user.IsAccessible,
+	}
+
+	s.writeJSON(w, http.StatusOK, NewSuccessResponse(item))
+}
+
+func (s *Server) handleDBUserDelete(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseUint(r.PathValue("id"), 10, 64)
+	if err != nil {
+		s.writeError(w, http.StatusBadRequest, "Invalid user ID")
+		return
+	}
+
+	user, err := database.GetUserById(s.db, id)
+	if err != nil {
+		s.writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if user == nil {
+		s.writeError(w, http.StatusNotFound, "User not found")
+		return
+	}
+
+	_, err = s.db.Exec("DELETE FROM users WHERE id = ?", id)
+	if err != nil {
+		s.writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	s.writeJSON(w, http.StatusOK, NewSuccessResponse(map[string]string{
+		"message": "User deleted successfully",
+	}))
+}
+
+// ============ Lists 管理 ============
+
+func (s *Server) handleDBLists(w http.ResponseWriter, r *http.Request) {
+	pagination := NewPagination(r)
+
+	var whereConditions []string
+	var args []interface{}
+
+	if keyword := r.URL.Query().Get("q"); keyword != "" {
+		cond, searchArgs := database.BuildSearchCondition([]string{"name"}, keyword)
+		whereConditions = append(whereConditions, cond)
+		args = append(args, searchArgs...)
+	}
+
+	if ownerID := r.URL.Query().Get("ownerId"); ownerID != "" {
+		whereConditions = append(whereConditions, "owner_uid = ?")
+		args = append(args, ownerID)
+	}
+
+	whereClause := ""
+	if len(whereConditions) > 0 {
+		whereClause = strings.Join(whereConditions, " AND ")
+	}
+
+	total, err := database.Count(s.db, "lsts", &database.QueryOptions{
+		Where: whereClause,
+		Args:  args,
+	})
+	if err != nil {
+		s.writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	orderBy := pagination.BuildOrderBy(listSortFields)
+	lists, err := database.QueryLists(s.db, whereClause, args, orderBy, pagination.PageSize, pagination.Offset)
+	if err != nil {
+		s.writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	items := make([]DBListItem, len(lists))
+	for i, l := range lists {
 		items[i] = DBListItem{
-			ID:      l.Id,
+			ID:      strconv.FormatUint(l.Id, 10),
 			Name:    l.Name,
-			OwnerID: l.OwnerId,
+			OwnerID: strconv.FormatUint(l.OwnerId, 10),
 		}
 	}
-	s.writeJSON(w, http.StatusOK, NewSuccessResponse(DBListResponse{Lists: items, Total: len(items)}))
+
+	response := pagination.ToResponse(items, total)
+	s.writeJSON(w, http.StatusOK, NewSuccessResponse(response))
 }
 
-// handleDBUserEntities 查询用户实体
-func (s *Server) handleDBUserEntities(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		s.writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
+func (s *Server) handleDBListDetail(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseUint(r.PathValue("id"), 10, 64)
+	if err != nil {
+		s.writeError(w, http.StatusBadRequest, "Invalid list ID")
 		return
 	}
-	var rows []database.UserEntity
-	err := s.db.Select(&rows, "SELECT * FROM user_entities ORDER BY id DESC LIMIT 100")
+
+	lst, err := database.GetLst(s.db, id)
 	if err != nil {
 		s.writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	items := make([]DBEntityItem, len(rows))
-	for i, e := range rows {
+	if lst == nil {
+		s.writeError(w, http.StatusNotFound, "List not found")
+		return
+	}
+
+	item := DBListItem{
+		ID:      strconv.FormatUint(lst.Id, 10),
+		Name:    lst.Name,
+		OwnerID: strconv.FormatUint(lst.OwnerId, 10),
+	}
+
+	s.writeJSON(w, http.StatusOK, NewSuccessResponse(item))
+}
+
+func (s *Server) handleDBListUpdate(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseUint(r.PathValue("id"), 10, 64)
+	if err != nil {
+		s.writeError(w, http.StatusBadRequest, "Invalid list ID")
+		return
+	}
+
+	var req struct {
+		Name    string `json:"name"`
+		OwnerID string `json:"owner_uid"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.writeError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	lst, err := database.GetLst(s.db, id)
+	if err != nil {
+		s.writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if lst == nil {
+		s.writeError(w, http.StatusNotFound, "List not found")
+		return
+	}
+
+	if req.Name != "" {
+		lst.Name = req.Name
+	}
+	if req.OwnerID != "" {
+		ownerID, err := strconv.ParseUint(req.OwnerID, 10, 64)
+		if err != nil {
+			s.writeError(w, http.StatusBadRequest, "Invalid owner ID")
+			return
+		}
+		lst.OwnerId = ownerID
+	}
+
+	if err := database.UpdateLst(s.db, lst); err != nil {
+		s.writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	item := DBListItem{
+		ID:      strconv.FormatUint(lst.Id, 10),
+		Name:    lst.Name,
+		OwnerID: strconv.FormatUint(lst.OwnerId, 10),
+	}
+
+	s.writeJSON(w, http.StatusOK, NewSuccessResponse(item))
+}
+
+func (s *Server) handleDBListDelete(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseUint(r.PathValue("id"), 10, 64)
+	if err != nil {
+		s.writeError(w, http.StatusBadRequest, "Invalid list ID")
+		return
+	}
+
+	lst, err := database.GetLst(s.db, id)
+	if err != nil {
+		s.writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if lst == nil {
+		s.writeError(w, http.StatusNotFound, "List not found")
+		return
+	}
+
+	_, err = s.db.Exec("DELETE FROM lsts WHERE id = ?", id)
+	if err != nil {
+		s.writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	s.writeJSON(w, http.StatusOK, NewSuccessResponse(map[string]string{
+		"message": "List deleted successfully",
+	}))
+}
+
+// ============ User Entities 管理 ============
+
+func (s *Server) handleDBUserEntities(w http.ResponseWriter, r *http.Request) {
+	pagination := NewPagination(r)
+
+	var whereConditions []string
+	var args []interface{}
+
+	if keyword := r.URL.Query().Get("q"); keyword != "" {
+		cond, searchArgs := database.BuildSearchCondition([]string{"name"}, keyword)
+		whereConditions = append(whereConditions, cond)
+		args = append(args, searchArgs...)
+	}
+
+	if userID := r.URL.Query().Get("userId"); userID != "" {
+		whereConditions = append(whereConditions, "user_id = ?")
+		args = append(args, userID)
+	}
+
+	whereClause := ""
+	if len(whereConditions) > 0 {
+		whereClause = strings.Join(whereConditions, " AND ")
+	}
+
+	total, err := database.Count(s.db, "user_entities", &database.QueryOptions{
+		Where: whereClause,
+		Args:  args,
+	})
+	if err != nil {
+		s.writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	orderBy := pagination.BuildOrderBy(entitySortFields)
+	entities, err := database.QueryUserEntities(s.db, whereClause, args, orderBy, pagination.PageSize, pagination.Offset)
+	if err != nil {
+		s.writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	items := make([]DBEntityItem, len(entities))
+	for i, e := range entities {
 		items[i] = DBEntityItem{
-			ID:         int64(nullInt32(e.Id)),
-			UserID:     e.Uid,
+			ID:         strconv.FormatInt(int64(nullInt32(e.Id)), 10),
+			UserID:     strconv.FormatUint(e.Uid, 10),
 			Name:       e.Name,
 			ParentDir:  e.ParentDir,
 			MediaCount: nullInt32(e.MediaCount),
@@ -82,29 +436,380 @@ func (s *Server) handleDBUserEntities(w http.ResponseWriter, r *http.Request) {
 			items[i].LatestReleaseTime = e.LatestReleaseTime.Time.Format("2006-01-02 15:04:05")
 		}
 	}
-	s.writeJSON(w, http.StatusOK, NewSuccessResponse(DBEntityResponse{Entities: items, Total: len(items)}))
+
+	response := pagination.ToResponse(items, total)
+	s.writeJSON(w, http.StatusOK, NewSuccessResponse(response))
 }
 
-// nullInt32 辅助函数：将 sql.NullInt32 转为 int32，无效时返回 0
+func (s *Server) handleDBUserEntityDetail(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.Atoi(r.PathValue("id"))
+	if err != nil {
+		s.writeError(w, http.StatusBadRequest, "Invalid entity ID")
+		return
+	}
+
+	entity, err := database.GetUserEntity(s.db, id)
+	if err != nil {
+		s.writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if entity == nil {
+		s.writeError(w, http.StatusNotFound, "Entity not found")
+		return
+	}
+
+	item := DBEntityItem{
+		ID:         strconv.FormatInt(int64(nullInt32(entity.Id)), 10),
+		UserID:     strconv.FormatUint(entity.Uid, 10),
+		Name:       entity.Name,
+		ParentDir:  entity.ParentDir,
+		MediaCount: nullInt32(entity.MediaCount),
+	}
+	if entity.LatestReleaseTime.Valid {
+		item.LatestReleaseTime = entity.LatestReleaseTime.Time.Format("2006-01-02 15:04:05")
+	}
+
+	s.writeJSON(w, http.StatusOK, NewSuccessResponse(item))
+}
+
+func (s *Server) handleDBUserEntityUpdate(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.Atoi(r.PathValue("id"))
+	if err != nil {
+		s.writeError(w, http.StatusBadRequest, "Invalid entity ID")
+		return
+	}
+
+	var req struct {
+		Name       string `json:"name"`
+		ParentDir  string `json:"parent_dir"`
+		MediaCount *int32 `json:"media_count,omitempty"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.writeError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	entity, err := database.GetUserEntity(s.db, id)
+	if err != nil {
+		s.writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if entity == nil {
+		s.writeError(w, http.StatusNotFound, "Entity not found")
+		return
+	}
+
+	if req.Name != "" {
+		entity.Name = req.Name
+	}
+	if req.ParentDir != "" {
+		entity.ParentDir = req.ParentDir
+	}
+	if req.MediaCount != nil {
+		entity.MediaCount = sql.NullInt32{Int32: *req.MediaCount, Valid: true}
+	}
+
+	if err := database.UpdateUserEntity(s.db, entity); err != nil {
+		s.writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	item := DBEntityItem{
+		ID:         strconv.FormatInt(int64(nullInt32(entity.Id)), 10),
+		UserID:     strconv.FormatUint(entity.Uid, 10),
+		Name:       entity.Name,
+		ParentDir:  entity.ParentDir,
+		MediaCount: nullInt32(entity.MediaCount),
+	}
+	if entity.LatestReleaseTime.Valid {
+		item.LatestReleaseTime = entity.LatestReleaseTime.Time.Format("2006-01-02 15:04:05")
+	}
+
+	s.writeJSON(w, http.StatusOK, NewSuccessResponse(item))
+}
+
+func (s *Server) handleDBUserEntityDelete(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.Atoi(r.PathValue("id"))
+	if err != nil {
+		s.writeError(w, http.StatusBadRequest, "Invalid entity ID")
+		return
+	}
+
+	entity, err := database.GetUserEntity(s.db, id)
+	if err != nil {
+		s.writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if entity == nil {
+		s.writeError(w, http.StatusNotFound, "Entity not found")
+		return
+	}
+
+	if err := database.DelUserEntity(s.db, uint32(id)); err != nil {
+		s.writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	s.writeJSON(w, http.StatusOK, NewSuccessResponse(map[string]string{
+		"message": "Entity deleted successfully",
+	}))
+}
+
+// ============ List Entities 管理（新增） ============
+
+func (s *Server) handleDBListEntities(w http.ResponseWriter, r *http.Request) {
+	pagination := NewPagination(r)
+
+	var whereConditions []string
+	var args []interface{}
+
+	if keyword := r.URL.Query().Get("q"); keyword != "" {
+		cond, searchArgs := database.BuildSearchCondition([]string{"name"}, keyword)
+		whereConditions = append(whereConditions, cond)
+		args = append(args, searchArgs...)
+	}
+
+	if listID := r.URL.Query().Get("listId"); listID != "" {
+		whereConditions = append(whereConditions, "lst_id = ?")
+		args = append(args, listID)
+	}
+
+	whereClause := ""
+	if len(whereConditions) > 0 {
+		whereClause = strings.Join(whereConditions, " AND ")
+	}
+
+	total, err := database.Count(s.db, "lst_entities", &database.QueryOptions{
+		Where: whereClause,
+		Args:  args,
+	})
+	if err != nil {
+		s.writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	orderBy := pagination.BuildOrderBy(entitySortFields)
+	entities, err := database.QueryLstEntities(s.db, whereClause, args, orderBy, pagination.PageSize, pagination.Offset)
+	if err != nil {
+		s.writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	items := make([]DBListEntityItem, len(entities))
+	for i, e := range entities {
+		items[i] = DBListEntityItem{
+			ID:        strconv.FormatInt(int64(nullInt32(e.Id)), 10),
+			LstID:     strconv.FormatInt(e.LstId, 10),
+			Name:      e.Name,
+			ParentDir: e.ParentDir,
+		}
+	}
+
+	response := pagination.ToResponse(items, total)
+	s.writeJSON(w, http.StatusOK, NewSuccessResponse(response))
+}
+
+func (s *Server) handleDBListEntityDetail(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.Atoi(r.PathValue("id"))
+	if err != nil {
+		s.writeError(w, http.StatusBadRequest, "Invalid list entity ID")
+		return
+	}
+
+	entity, err := database.GetLstEntity(s.db, id)
+	if err != nil {
+		s.writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if entity == nil {
+		s.writeError(w, http.StatusNotFound, "List entity not found")
+		return
+	}
+
+	item := DBListEntityItem{
+		ID:        strconv.FormatInt(int64(nullInt32(entity.Id)), 10),
+		LstID:     strconv.FormatInt(entity.LstId, 10),
+		Name:      entity.Name,
+		ParentDir: entity.ParentDir,
+	}
+
+	s.writeJSON(w, http.StatusOK, NewSuccessResponse(item))
+}
+
+func (s *Server) handleDBListEntityUpdate(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.Atoi(r.PathValue("id"))
+	if err != nil {
+		s.writeError(w, http.StatusBadRequest, "Invalid list entity ID")
+		return
+	}
+
+	var req struct {
+		Name      string `json:"name"`
+		ParentDir string `json:"parent_dir"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.writeError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	entity, err := database.GetLstEntity(s.db, id)
+	if err != nil {
+		s.writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if entity == nil {
+		s.writeError(w, http.StatusNotFound, "List entity not found")
+		return
+	}
+
+	if req.Name != "" {
+		entity.Name = req.Name
+	}
+	if req.ParentDir != "" {
+		entity.ParentDir = req.ParentDir
+	}
+
+	if err := database.UpdateLstEntity(s.db, entity); err != nil {
+		s.writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	item := DBListEntityItem{
+		ID:        strconv.FormatInt(int64(nullInt32(entity.Id)), 10),
+		LstID:     strconv.FormatInt(entity.LstId, 10),
+		Name:      entity.Name,
+		ParentDir: entity.ParentDir,
+	}
+
+	s.writeJSON(w, http.StatusOK, NewSuccessResponse(item))
+}
+
+func (s *Server) handleDBListEntityDelete(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.Atoi(r.PathValue("id"))
+	if err != nil {
+		s.writeError(w, http.StatusBadRequest, "Invalid list entity ID")
+		return
+	}
+
+	entity, err := database.GetLstEntity(s.db, id)
+	if err != nil {
+		s.writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if entity == nil {
+		s.writeError(w, http.StatusNotFound, "List entity not found")
+		return
+	}
+
+	if err := database.DelLstEntity(s.db, id); err != nil {
+		s.writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	s.writeJSON(w, http.StatusOK, NewSuccessResponse(map[string]string{
+		"message": "List entity deleted successfully",
+	}))
+}
+
+// ============ User Links 管理（新增） ============
+
+func (s *Server) handleDBUserLinks(w http.ResponseWriter, r *http.Request) {
+	pagination := NewPagination(r)
+
+	var whereConditions []string
+	var args []interface{}
+
+	if userID := r.URL.Query().Get("userId"); userID != "" {
+		whereConditions = append(whereConditions, "user_id = ?")
+		args = append(args, userID)
+	}
+
+	if listEntityID := r.URL.Query().Get("listEntityId"); listEntityID != "" {
+		whereConditions = append(whereConditions, "parent_lst_entity_id = ?")
+		args = append(args, listEntityID)
+	}
+
+	whereClause := ""
+	if len(whereConditions) > 0 {
+		whereClause = strings.Join(whereConditions, " AND ")
+	}
+
+	total, err := database.Count(s.db, "user_links", &database.QueryOptions{
+		Where: whereClause,
+		Args:  args,
+	})
+	if err != nil {
+		s.writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	links, err := database.QueryUserLinks(s.db, whereClause, args, pagination.PageSize, pagination.Offset)
+	if err != nil {
+		s.writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	items := make([]DBUserLinkItem, len(links))
+	for i, l := range links {
+		items[i] = DBUserLinkItem{
+			ID:                strconv.Itoa(int(l.Id)),
+			UserID:            strconv.FormatUint(l.UserId, 10),
+			Name:              l.Name,
+			ParentLstEntityID: strconv.Itoa(int(l.ParentLstEntityId)),
+		}
+	}
+
+	response := pagination.ToResponse(items, total)
+	s.writeJSON(w, http.StatusOK, NewSuccessResponse(response))
+}
+
+// ============ User Previous Names 查询（新增） ============
+
+func (s *Server) handleDBUserPreviousNames(w http.ResponseWriter, r *http.Request) {
+	uid, err := strconv.ParseUint(r.PathValue("id"), 10, 64)
+	if err != nil {
+		s.writeError(w, http.StatusBadRequest, "Invalid user ID")
+		return
+	}
+
+	pagination := NewPagination(r)
+
+	names, err := database.QueryUserPreviousNames(s.db, uid, pagination.PageSize, pagination.Offset)
+	if err != nil {
+		s.writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	// 获取总数
+	var total int
+	err = s.db.Get(&total, "SELECT COUNT(*) FROM user_previous_names WHERE uid = ?", uid)
+	if err != nil {
+		s.writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	items := make([]DBUserPreviousNameItem, len(names))
+	for i, n := range names {
+		items[i] = DBUserPreviousNameItem{
+			ID:         strconv.Itoa(int(n.Id)),
+			Uid:        strconv.FormatUint(n.Uid, 10),
+			ScreenName: n.ScreenName,
+			Name:       n.Name,
+			RecordDate: n.RecordDate.Format("2006-01-02"),
+		}
+	}
+
+	response := pagination.ToResponse(items, total)
+	s.writeJSON(w, http.StatusOK, NewSuccessResponse(response))
+}
+
+// ============ 辅助函数 ============
+
 func nullInt32(n sql.NullInt32) int32 {
 	if n.Valid {
 		return n.Int32
 	}
 	return 0
-}
-
-// handleConfig 获取脱敏配置
-func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		s.writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
-		return
-	}
-	// 仅返回目录名，避免暴露完整绝对路径
-	rootName := filepath.Base(s.config.RootPath)
-	resp := ConfigResponse{
-		RootPath:           rootName,
-		MaxDownloadRoutine: s.config.MaxDownloadRoutine,
-		MaxFileNameLen:     s.config.MaxFileNameLen,
-	}
-	s.writeJSON(w, http.StatusOK, NewSuccessResponse(resp))
 }
