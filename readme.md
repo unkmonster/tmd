@@ -16,7 +16,7 @@
 - [高级设置](#高级设置)
 - [常见问题](#常见问题)
 
----
+***
 
 ## 项目架构
 
@@ -26,11 +26,13 @@
 ┌─────────────────────────────────────────────────────────────┐
 │  main.go (应用层)                                            │
 │  - 命令行解析、依赖注入、流程编排                              │
+│  - Server 模式启动 / CLI 模式执行                            │
 └──────────┬──────────────────────────────────────────────────┘
            │
 ┌──────────▼──────────────────────────────────────────────────┐
 │  internal/config (配置层)                                    │
 │  - config.go: 配置结构、读写、Cookie 管理、附加 Cookie 加载   │
+│  - partial_update.go: 配置部分更新                          │
 └──────────┬──────────────────────────────────────────────────┘
            │
 ┌──────────▼──────────────────┐  ┌────────────────────────────▼┐
@@ -41,15 +43,34 @@
 │  - client.go: 客户端管理     │  │  - schema.go: 建表与迁移     │
 │  - user.go: 用户接口         │  │  - model.go: 数据模型        │
 │  - tweet.go: 推文接口        │  │  - helpers.go: 通用查询封装  │
-│  - timeline.go: 时间线接口   │  │  - user.go: 用户 CRUD +      │
-│  - list.go: 列表接口         │  │    MarkUserInaccessible     │
-│  - batch_login.go: 多账号   │  │  - user_entity.go: 用户实体  │
-│    批量登录                  │  │  - lst_entity.go: 列表实体   │
-│  - errors.go: 错误类型       │  │  - user_sync.go: 用户同步    │
+│  - timeline.go: 时间线接口   │  │  - query.go: 分页查询封装    │
+│  - list.go: 列表接口         │  │  - user.go: 用户 CRUD        │
+│  - batch_login.go: 多账号   │  │  - lst.go: 列表 CRUD         │
+│    批量登录                  │  │  - user_entity.go: 用户实体  │
+│  - errors.go: 错误类型       │  │  - lst_entity.go: 列表实体   │
+│                             │  │  - user_sync.go: 用户同步    │
 │                             │  │  - user_link.go: 用户链接    │
 └──────────┬──────────────────┘  └─────────────┬───────────────┘
            │                                    │
 ┌──────────▼────────────────────────────────────┴─────────────┐
+│  internal/api (API Server 层 - Web 管理界面)                │
+│                                                             │
+│  - server.go: HTTP 服务器、路由注册、中间件                  │
+│  - handlers.go: REST API 端点实现                           │
+│  - db_handlers.go: 数据库管理 API (CRUD)                   │
+│  - types.go: API 请求/响应类型定义                          │
+│  - pagination.go: 分页工具                                  │
+│  - task_manager.go: 异步任务管理                            │
+│  - async_executor.go: 异步任务执行器                        │
+│  - sse.go: Server-Sent Events 实时推送                      │
+│  - middleware.go: HTTP 中间件 (日志、恢复)                  │
+├─────────────────────────────────────────────────────────────┤
+│  internal/cli (CLI 命令层)                                  │
+│  - executor.go: CLI 命令执行器                              │
+│  - args.go: 命令行参数解析                                  │
+│  - paths.go: 路径处理                                       │
+│  - helpers.go: CLI 辅助函数                                 │
+├─────────────────────────────────────────────────────────────┤
 │  internal/downloading (业务层 - 推文下载)                    │
 │                                                             │
 │  - types.go: PackagedTweet 接口与全局状态                    │
@@ -63,6 +84,7 @@
 │  - retry.go: 失败重试                                       │
 │  - dumper.go: 失败推文持久化                                 │
 │  - entity.go: TweetInEntity 封装                            │
+│  - list_download.go: 列表下载                               │
 └──────────┬──────────────────────────────────────────────────┘
            │
 ┌──────────▼──────────────────────────────────────────────────┐
@@ -106,17 +128,17 @@
 
 ### 核心设计原则
 
-| 原则 | 实现 |
-|------|------|
-| **分层解耦** | 应用层 → 配置层 → API层/数据层 → 业务层 → 基础设施层 |
-| **依赖注入** | `downloader.Downloader` 接口注入到业务层，构造函数支持多客户端 |
-| **单一职责** | 每个包职责明确，配置/下载/命名/存储/数据分离 |
-| **接口隔离** | 小接口设计（Entity, Downloader, FileWriter, VersionManager, PackagedTweet） |
+| 原则       | 实现                                                                    |
+| -------- | --------------------------------------------------------------------- |
+| **分层解耦** | 应用层 → 配置层 → API层/数据层 → 业务层 → 基础设施层                                    |
+| **依赖注入** | `downloader.Downloader` 接口注入到业务层，构造函数支持多客户端                           |
+| **单一职责** | 每个包职责明确，配置/下载/命名/存储/数据分离                                              |
+| **接口隔离** | 小接口设计（Entity, Downloader, FileWriter, VersionManager, PackagedTweet）  |
 | **逻辑复用** | `database.SyncUser()` 统一用户同步，`database.MarkUserInaccessible()` 统一标记逻辑 |
-| **并发安全** | `sync.Mutex`/`sync.Map`/`atomic`/`context.Context`，协程池 (`ants`) 控制并发 |
-| **增量下载** | 基于 `latest_release_time` 的增量拉取，避免重复下载 |
+| **并发安全** | `sync.Mutex`/`sync.Map`/`atomic`/`context.Context`，协程池 (`ants`) 控制并发  |
+| **增量下载** | 基于 `latest_release_time` 的增量拉取，避免重复下载                                 |
 
----
+***
 
 ## 功能特性
 
@@ -149,7 +171,7 @@
 - **标记已下载**：标记用户为已下载状态，跳过历史推文
 - **API Server 模式**：提供 HTTP REST API 和 Web 管理界面，支持远程控制和监控
 
----
+***
 
 ## 安装与配置
 
@@ -175,20 +197,20 @@ tmd -conf
 
 程序会提示输入以下配置：
 
-| 配置项 | 说明 | 示例 |
-|--------|------|------|
-| storage dir | 文件存储目录 | `D:\twitter_downloads` |
-| auth_token | Twitter Cookie 中的 auth_token | `a1b2c3d4e5f6...` |
-| ct0 | Twitter Cookie 中的 ct0 | `x1y2z3...` |
-| max download routine | 最大并发下载数（0为默认值） | `20` |
-| max file name len | 最大文件名长度（50-250，默认155） | `155` |
+| 配置项                  | 说明                            | 示例                     |
+| -------------------- | ----------------------------- | ---------------------- |
+| storage dir          | 文件存储目录                        | `D:\twitter_downloads` |
+| auth\_token          | Twitter Cookie 中的 auth\_token | `a1b2c3d4e5f6...`      |
+| ct0                  | Twitter Cookie 中的 ct0         | `x1y2z3...`            |
+| max download routine | 最大并发下载数（0为默认值）                | `20`                   |
+| max file name len    | 最大文件名长度（50-250，默认155）         | `155`                  |
 
 ### 配置文件位置
 
-| 系统 | 路径 |
-|------|------|
-| Windows | `%APPDATA%\.tmd2\conf.yaml` |
-| macOS/Linux | `~/.tmd2/conf.yaml` |
+| 系统          | 路径                          |
+| ----------- | --------------------------- |
+| Windows     | `%APPDATA%\.tmd2\conf.yaml` |
+| macOS/Linux | `~/.tmd2/conf.yaml`         |
 
 ### 获取 Cookie
 
@@ -199,65 +221,66 @@ tmd -conf
 
 > 详细获取方式请参考 [获取 Cookie](https://github.com/unkmonster/tmd/blob/master/doc/help.md#获取-cookie)
 
----
+***
 
 ## 命令行参数详解
 
 ### 基础参数
 
-| 参数 | 类型 | 默认值 | 说明 |
-|------|------|--------|------|
-| `-conf` | bool | false | 重新配置程序，配置完成后退出 |
-| `-dbg` | bool | false | 显示调试信息，包括请求计数等 |
-| `-server` | bool | false | 启动 API Server 模式 |
-| `-port` | int | 25556 | API Server 监听端口（仅与 `-server` 一起使用）|
+| 参数        | 类型   | 默认值   | 说明                                 |
+| --------- | ---- | ----- | ---------------------------------- |
+| `-conf`   | bool | false | 重新配置程序，配置完成后退出                     |
+| `-dbg`    | bool | false | 显示调试信息，包括请求计数等                     |
+| `-server` | bool | false | 启动 API Server 模式                   |
+| `-port`   | int  | 25556 | API Server 监听端口（仅与 `-server` 一起使用） |
 
 ### 推文下载参数
 
-| 参数 | 类型 | 可重复 | 说明 |
-|------|------|--------|------|
-| `-user` | string | ✅ | 指定下载用户，支持用户ID或用户名（可带@前缀） |
-| `-list` | uint64 | ✅ | 指定下载列表ID |
-| `-foll` | string | ✅ | 指定用户，下载其关注的所有用户 |
+| 参数      | 类型     | 可重复 | 说明                       |
+| ------- | ------ | --- | ------------------------ |
+| `-user` | string | ✅   | 指定下载用户，支持用户ID或用户名（可带@前缀） |
+| `-list` | uint64 | ✅   | 指定下载列表ID                 |
+| `-foll` | string | ✅   | 指定用户，下载其关注的所有用户          |
 
 ### JSON 下载参数
 
-| 参数 | 类型 | 可重复 | 说明 |
-|------|------|--------|------|
-| `-json` | string | ✅ | 从 JSON 文件下载媒体，支持其他工具导出的原始 API JSON 或 `.loongtweet` 格式 JSON |
+| 参数      | 类型     | 可重复 | 说明                                                         |
+| ------- | ------ | --- | ---------------------------------------------------------- |
+| `-json` | string | ✅   | 从 JSON 文件下载媒体，支持其他工具导出的原始 API JSON 或 `.loongtweet` 格式 JSON |
 
 支持的 JSON 格式：
+
 - **原始 API JSON**：Twitter API 返回的原始推文数据（单个对象或数组）
-- **`.loongtweet` 格式**：本程序之前保存的格式化推文 JSON
+- **`.loongtweet`** **格式**：本程序之前保存的格式化推文 JSON
 - 支持指定文件或目录（目录会递归扫描所有 `.json` 文件）
 
 > 💡 **推荐搭配**：使用 [twitter-web-exporter](https://github.com/prinsss/twitter-web-exporter) 浏览器脚本导出推文 JSON，然后用 `-json` 参数下载媒体文件。该脚本支持导出任意用户的推文、书签、关注列表等为 JSON 格式，无需 API 密钥。
 
 ### 下载行为参数
 
-| 参数 | 类型 | 默认值 | 说明 |
-|------|------|--------|------|
+| 参数             | 类型   | 默认值   | 说明                        |
+| -------------- | ---- | ----- | ------------------------- |
 | `-auto-follow` | bool | false | 自动向受保护用户发送关注请求（列表下载时默认启用） |
-| `-no-retry` | bool | false | 快速退出，不重试失败的推文 |
+| `-no-retry`    | bool | false | 快速退出，不重试失败的推文             |
 
 ### 标记参数
 
-| 参数 | 类型 | 默认值 | 说明 |
-|------|------|--------|------|
-| `-mark-downloaded` | bool | false | 仅标记用户为已下载，不下载内容 |
-| `-mark-time` | string | 当前时间 | 指定标记时间戳，格式：`2006-01-02T15:04:05` |
+| 参数                 | 类型     | 默认值   | 说明                               |
+| ------------------ | ------ | ----- | -------------------------------- |
+| `-mark-downloaded` | bool   | false | 仅标记用户为已下载，不下载内容                  |
+| `-mark-time`       | string | 当前时间  | 指定标记时间戳，格式：`2006-01-02T15:04:05` |
 
 ### Profile 下载参数
 
-| 参数 | 类型 | 可重复 | 说明 |
-|------|------|--------|------|
-| `-noprofile` | bool | - | 跳过 Profile 下载（默认在使用 `-user`/`-list`/`-foll` 时自动下载 Profile） |
-| `-profile-user` | string | ✅ | 单独指定下载 profile 的用户（无需同时下载推文） |
-| `-profile-list` | uint64 | ✅ | 单独指定下载 profile 的列表ID（无需同时下载推文） |
+| 参数              | 类型     | 可重复 | 说明                                                         |
+| --------------- | ------ | --- | ---------------------------------------------------------- |
+| `-noprofile`    | bool   | -   | 跳过 Profile 下载（默认在使用 `-user`/`-list`/`-foll` 时自动下载 Profile） |
+| `-profile-user` | string | ✅   | 单独指定下载 profile 的用户（无需同时下载推文）                               |
+| `-profile-list` | uint64 | ✅   | 单独指定下载 profile 的列表ID（无需同时下载推文）                             |
 
 > **注意**：使用 `-user`、`-list`、`-foll` 下载推文时，Profile 下载默认启用。使用 `-noprofile` 可跳过。使用 `-profile-user`/`-profile-list` 可仅下载 Profile 而不下载推文。
 
----
+***
 
 ## API Server 模式
 
@@ -275,13 +298,13 @@ tmd -server -port 8080
 
 ### 功能特性
 
-| 功能 | 说明 |
-|------|------|
+| 功能           | 说明                              |
+| ------------ | ------------------------------- |
 | **REST API** | 完整的 HTTP API，支持下载任务管理、状态查询、任务取消 |
-| **Web 管理界面** | 内置可视化界面，支持浏览器访问和操作 |
-| **实时任务监控** | SSE 推送任务状态更新，无需刷新页面 |
-| **数据库浏览** | 查看已下载的用户、列表、用户实体信息 |
-| **跨域支持** | 默认启用 CORS，支持 Web 前端直接调用 |
+| **Web 管理界面** | 内置可视化界面，支持浏览器访问和操作              |
+| **实时任务监控**   | SSE 推送任务状态更新，无需刷新页面             |
+| **数据库浏览**    | 查看已下载的用户、列表、用户实体信息              |
+| **跨域支持**     | 默认启用 CORS，支持 Web 前端直接调用         |
 
 ### Web 管理界面
 
@@ -292,6 +315,7 @@ http://localhost:25556/
 ```
 
 界面功能：
+
 - **仪表盘**：系统状态、任务统计、快速操作
 - **新建任务**：创建用户/列表/批量/JSON 下载任务
 - **任务列表**：实时显示任务状态、进度条、取消操作
@@ -306,7 +330,7 @@ http://localhost:25556/
 
 ### API 文档
 
-详细的 API 文档请参考 [API_DOCUMENTATION.md](doc/API_DOCUMENTATION.md)，包含：
+详细的 API 文档请参考 [API\_DOCUMENTATION.md](doc/API_DOCUMENTATION.md)，包含：
 
 - 所有 API 端点说明
 - 请求/响应格式
@@ -336,7 +360,7 @@ curl http://localhost:25556/api/v1/tasks
 curl -X POST http://localhost:25556/api/v1/tasks/task_xxx/cancel
 ```
 
----
+***
 
 ## Profile 下载功能
 
@@ -344,12 +368,12 @@ curl -X POST http://localhost:25556/api/v1/tasks/task_xxx/cancel
 
 Profile 下载功能可以保存用户的完整个人资料：
 
-| 文件 | 说明 | 格式 |
-|------|------|------|
-| `avatar.jpg/png/gif/webp` | 高清头像 (400x400) | 图片 |
-| `banner.jpg/png/gif/webp` | 个人主页横幅 | 图片 |
-| `description.txt` | 用户简介 | 纯文本 |
-| `profile.json` | 完整资料信息 | JSON |
+| 文件                        | 说明             | 格式   |
+| ------------------------- | -------------- | ---- |
+| `avatar.jpg/png/gif/webp` | 高清头像 (400x400) | 图片   |
+| `banner.jpg/png/gif/webp` | 个人主页横幅         | 图片   |
+| `description.txt`         | 用户简介           | 纯文本  |
+| `profile.json`            | 完整资料信息         | JSON |
 
 ### Profile JSON 结构
 
@@ -382,7 +406,7 @@ Profile 下载功能可以保存用户的完整个人资料：
 
 版本命名格式：`{类型}_{日期}_{时间}.{扩展名}`
 
----
+***
 
 ## 推文 JSON 保存
 
@@ -390,10 +414,10 @@ Profile 下载功能可以保存用户的完整个人资料：
 
 ### 保存内容
 
-| 文件 | 格式 | 说明 |
-|------|------|------|
+| 文件                | 格式   | 说明               |
+| ----------------- | ---- | ---------------- |
 | `{tweet_id}.json` | JSON | 推文完整信息（格式化 JSON） |
-| `{tweet_id}.txt` | TXT | 人类可读的文本格式 |
+| `{tweet_id}.txt`  | TXT  | 人类可读的文本格式        |
 
 ### JSON 内容
 
@@ -418,7 +442,7 @@ media:2
 这是推文的文本内容...
 ```
 
----
+***
 
 ## 文件存储结构
 
@@ -445,7 +469,7 @@ media:2
     └── errors.json                 # 失败推文记录
 ```
 
----
+***
 
 ## 使用场景与示例
 
@@ -567,7 +591,7 @@ tmd -user elonmusk -dbg
 tmd -user elonmusk -no-retry
 ```
 
----
+***
 
 ## 高级设置
 
@@ -576,6 +600,7 @@ tmd -user elonmusk -no-retry
 运行前通过环境变量指定代理服务器（TUN 模式跳过这一步）
 
 **Windows CMD:**
+
 ```bash
 set HTTP_PROXY=http://127.0.0.1:7890
 set HTTPS_PROXY=http://127.0.0.1:7890
@@ -583,6 +608,7 @@ tmd -user elonmusk
 ```
 
 **Windows PowerShell:**
+
 ```powershell
 $Env:HTTP_PROXY="http://127.0.0.1:7890"
 $Env:HTTPS_PROXY="http://127.0.0.1:7890"
@@ -590,6 +616,7 @@ tmd -user elonmusk
 ```
 
 **Linux/macOS:**
+
 ```bash
 export HTTP_PROXY=http://127.0.0.1:7890
 export HTTPS_PROXY=http://127.0.0.1:7890
@@ -621,31 +648,31 @@ tmd -user elonmusk
 
 Twitter API 限制一段时间内过快的请求（例如某端点每15分钟仅允许请求500次，超出这个次数会以429响应）。当某一端点将要达到速率限制程序会打印一条通知并阻塞尝试请求这个端点的协程直到余量刷新（这最多是15分钟），但并不会阻塞所有协程，所以其余协程打印的消息可能将这条休眠通知覆盖让人认为程序无响应了，等待余量刷新程序会继续工作。
 
----
+***
 
 ## 参数兼容性速查表
 
-| 组合 | 兼容 | 说明 |
-|------|:----:|------|
-| `-user` + `-list` + `-foll` | ✅ | 多种来源可叠加 |
-| `-user` + `-list` + `-foll` + `-json` | ✅ | JSON 文件与其他来源可叠加 |
-| `-json` + `-noprofile` | ✅ | 仅从 JSON 下载媒体，跳过 Profile |
-| `-user` + Profile 自动下载 | ✅ | 下载推文时自动下载 Profile |
-| `-list` + Profile 自动下载 | ✅ | 下载列表成员推文时自动下载 Profile |
-| `-foll` + Profile 自动下载 | ✅ | 下载关注用户推文时自动下载 Profile |
-| `-profile-user` + `-profile-list` | ✅ | 仅下载资料，不下载推文 |
-| `-user` + `-profile-user` | ✅ | 推文下载 + 额外用户资料 |
-| `-dbg` + 任意参数 | ✅ | 启用调试输出 |
-| `-auto-follow` + 推文下载 | ✅ | 自动关注受保护用户 |
-| `-no-retry` + 推文下载 | ✅ | 失败不重试 |
-| `-mark-downloaded` + `-mark-time` | ✅ | 指定标记时间 |
-| `-mark-downloaded` + 推文下载 | ⚠️ | 只标记，不下载 |
-| `-conf` + 其他参数 | ⚠️ | 配置后退出，忽略其他 |
-| `-noprofile` + 推文下载参数 | ✅ | 下载推文但跳过 Profile |
-| `-server` + `-port` | ✅ | 指定 API Server 端口 |
-| `-server` + 下载参数 | ⚠️ | Server 模式下忽略下载参数 |
+| 组合                                    |  兼容 | 说明                      |
+| ------------------------------------- | :-: | ----------------------- |
+| `-user` + `-list` + `-foll`           |  ✅  | 多种来源可叠加                 |
+| `-user` + `-list` + `-foll` + `-json` |  ✅  | JSON 文件与其他来源可叠加         |
+| `-json` + `-noprofile`                |  ✅  | 仅从 JSON 下载媒体，跳过 Profile |
+| `-user` + Profile 自动下载                |  ✅  | 下载推文时自动下载 Profile       |
+| `-list` + Profile 自动下载                |  ✅  | 下载列表成员推文时自动下载 Profile   |
+| `-foll` + Profile 自动下载                |  ✅  | 下载关注用户推文时自动下载 Profile   |
+| `-profile-user` + `-profile-list`     |  ✅  | 仅下载资料，不下载推文             |
+| `-user` + `-profile-user`             |  ✅  | 推文下载 + 额外用户资料           |
+| `-dbg` + 任意参数                         |  ✅  | 启用调试输出                  |
+| `-auto-follow` + 推文下载                 |  ✅  | 自动关注受保护用户               |
+| `-no-retry` + 推文下载                    |  ✅  | 失败不重试                   |
+| `-mark-downloaded` + `-mark-time`     |  ✅  | 指定标记时间                  |
+| `-mark-downloaded` + 推文下载             |  ⚠️ | 只标记，不下载                 |
+| `-conf` + 其他参数                        |  ⚠️ | 配置后退出，忽略其他              |
+| `-noprofile` + 推文下载参数                 |  ✅  | 下载推文但跳过 Profile         |
+| `-server` + `-port`                   |  ✅  | 指定 API Server 端口        |
+| `-server` + 下载参数                      |  ⚠️ | Server 模式下忽略下载参数        |
 
----
+***
 
 ## 常见问题
 
@@ -672,14 +699,16 @@ Twitter API 限制一段时间内过快的请求（例如某端点每15分钟仅
 ### Q: 如何获取列表ID？
 
 在 Twitter 网页版打开列表，URL 格式为：
+
 ```
 https://x.com/i/lists/1234567890123
 ```
+
 其中数字就是列表ID。
 
-### Q: 不知道啥是 user_id/list_id/screen_name?
+### Q: 不知道啥是 user\_id/list\_id/screen\_name?
 
-请参考 [获取 list_id, user_id, screen_name](https://github.com/unkmonster/tmd/blob/master/doc/help.md#获取-list_id-user_id-screen_name)
+请参考 [获取 list\_id, user\_id, screen\_name](https://github.com/unkmonster/tmd/blob/master/doc/help.md#获取-list_id-user_id-screen_name)
 
 ### Q: Windows 上需要管理员权限吗？
 
@@ -689,7 +718,7 @@ https://x.com/i/lists/1234567890123
 
 即使媒体下载失败，推文信息也会保存到 `.loongtweet/` 目录。JSON 文件包含完整的推文数据，可用于数据分析或备份。
 
----
+***
 
 ## 输出结果格式
 
@@ -714,6 +743,7 @@ SCREEN_NAME:test|STATUS:FAIL
 ```
 
 状态说明：
+
 - `OK` - 下载成功
 - `SKIP` - 跳过（文件未变更）
 - `FAIL` - 下载失败
@@ -727,35 +757,36 @@ ENTITY_ID:2|USER_ID:23248887|SCREEN_NAME:NASA|STATUS:OK
 === END_RESULTS ===
 ```
 
----
+***
 
 ## 参数类型总结
 
 ### 布尔型参数（开关型，无需值）
 
-| 参数 | 说明 |
-|------|------|
-| `-conf` | 重新配置 |
-| `-dbg` | 调试模式 |
-| `-server` | 启动 API Server 模式 |
-| `-auto-follow` | 自动关注受保护用户 |
-| `-no-retry` | 不重试失败推文 |
-| `-mark-downloaded` | 仅标记已下载 |
-| `-noprofile` | 跳过 Profile 下载 |
+| 参数                 | 说明               |
+| ------------------ | ---------------- |
+| `-conf`            | 重新配置             |
+| `-dbg`             | 调试模式             |
+| `-server`          | 启动 API Server 模式 |
+| `-auto-follow`     | 自动关注受保护用户        |
+| `-no-retry`        | 不重试失败推文          |
+| `-mark-downloaded` | 仅标记已下载           |
+| `-noprofile`       | 跳过 Profile 下载    |
 
 ### 可重复参数（可多次使用）
 
-| 参数 | 说明 |
-|------|------|
-| `-user` | 用户名/ID |
-| `-list` | 列表ID |
-| `-foll` | 用户名/ID |
-| `-json` | JSON 文件路径（支持文件或目录） |
-| `-profile-user` | 用户名/ID |
-| `-profile-list` | 列表ID |
+| 参数              | 说明                 |
+| --------------- | ------------------ |
+| `-user`         | 用户名/ID             |
+| `-list`         | 列表ID               |
+| `-foll`         | 用户名/ID             |
+| `-json`         | JSON 文件路径（支持文件或目录） |
+| `-profile-user` | 用户名/ID             |
+| `-profile-list` | 列表ID               |
 
 ### 字符串参数
 
-| 参数 | 说明 |
-|------|------|
+| 参数           | 说明                       |
+| ------------ | ------------------------ |
 | `-mark-time` | 时间戳（2006-01-02T15:04:05） |
+
