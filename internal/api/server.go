@@ -47,31 +47,33 @@ func NewServer(client *resty.Client, additionalClients []*resty.Client, db *sqlx
 func (s *Server) Start(port int) error {
 	mux := http.NewServeMux()
 
-	// 健康检查
+	// 原有 API 端点
 	mux.HandleFunc("/api/v1/health", s.handleHealth)
-
-	// 用户相关
 	mux.HandleFunc("/api/v1/users/", s.handleUsers)
-
-	// 列表相关
 	mux.HandleFunc("/api/v1/lists/", s.handleLists)
-
-	// JSON 下载
 	mux.HandleFunc("/api/v1/json/download", s.handleJsonDownload)
-
-	// 批量下载
 	mux.HandleFunc("/api/v1/batch/download", s.handleBatchDownload)
-
-	// 任务管理
 	mux.HandleFunc("/api/v1/tasks", s.handleTasks)
-	mux.HandleFunc("/api/v1/tasks/", s.handleTaskDetail)
+	mux.HandleFunc("GET /api/v1/tasks/{task_id}", s.handleGetTask)
+	mux.HandleFunc("POST /api/v1/tasks/{task_id}/cancel", s.handleCancelTask)
 
-	// CORS
-	handler := cors.New(cors.Options{
+	// 新增 Web 与数据端点
+	mux.HandleFunc("GET /{$}", s.handleWeb)
+	mux.HandleFunc("/static/", s.handleStatic)
+	mux.HandleFunc("/api/v1/sse/tasks", s.handleSSETasks)
+	mux.HandleFunc("/api/v1/db/users", s.handleDBUsers)
+	mux.HandleFunc("/api/v1/db/lists", s.handleDBLists)
+	mux.HandleFunc("/api/v1/db/user-entities", s.handleDBUserEntities)
+	mux.HandleFunc("/api/v1/config", s.handleConfig)
+
+	// 中间件链
+	var handler http.Handler = mux
+	handler = loggingMiddleware(handler)
+	handler = cors.New(cors.Options{
 		AllowedOrigins: []string{"*"},
 		AllowedMethods: []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowedHeaders: []string{"Content-Type", "Authorization"},
-	}).Handler(mux)
+	}).Handler(handler)
 
 	addr := fmt.Sprintf(":%d", port)
 	log.Infoln("API server starting on", addr)
@@ -90,6 +92,12 @@ func (s *Server) Start(port int) error {
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		s.writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+
+	// 检查数据库连接
+	if err := s.db.Ping(); err != nil {
+		s.writeJSON(w, http.StatusServiceUnavailable, NewErrorResponse("Database unavailable"))
 		return
 	}
 
@@ -158,7 +166,11 @@ func (s *Server) handleUserDownload(w http.ResponseWriter, r *http.Request, scre
 	task := s.taskManager.CreateTask(TaskTypeUserDownload, &req)
 
 	// 构建参数并执行
-	args, _ := BuildArgs(TaskTypeUserDownload, &req)
+	args, err := BuildArgs(TaskTypeUserDownload, &req)
+	if err != nil {
+		s.writeError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to build args: %v", err))
+		return
+	}
 	s.asyncExecutor.Execute(task.ID, args)
 
 	s.writeJSON(w, http.StatusAccepted, NewSuccessResponse(map[string]interface{}{
@@ -364,10 +376,10 @@ func (s *Server) handleListProfile(w http.ResponseWriter, r *http.Request, listI
 		SkipProfile: false,
 	}
 
-	task := s.taskManager.CreateTask(TaskTypeBatchDownload, &req)
+	task := s.taskManager.CreateTask(TaskTypeListProfile, &req)
 
 	// 构建参数并执行
-	args, _ := BuildArgs(TaskTypeBatchDownload, &req)
+	args, _ := BuildArgs(TaskTypeListProfile, &req)
 	s.asyncExecutor.Execute(task.ID, args)
 
 	s.writeJSON(w, http.StatusAccepted, NewSuccessResponse(map[string]interface{}{
@@ -466,11 +478,9 @@ func (s *Server) handleTasks(w http.ResponseWriter, r *http.Request) {
 	}))
 }
 
-// handleTaskDetail 处理任务详情
-func (s *Server) handleTaskDetail(w http.ResponseWriter, r *http.Request) {
-	path := strings.TrimPrefix(r.URL.Path, "/api/v1/tasks/")
-	parts := strings.Split(path, "/")
-	taskID := parts[0]
+// handleGetTask 获取任务详情
+func (s *Server) handleGetTask(w http.ResponseWriter, r *http.Request) {
+	taskID := r.PathValue("task_id")
 
 	task, ok := s.taskManager.GetTask(taskID)
 	if !ok {
@@ -478,38 +488,30 @@ func (s *Server) handleTaskDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 检查是否是取消请求
-	if len(parts) >= 2 && parts[1] == "cancel" {
-		if r.Method != http.MethodPost {
-			s.writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
-			return
-		}
-
-		if !s.taskManager.CancelTask(taskID) {
-			s.writeError(w, http.StatusBadRequest, "Task cannot be cancelled")
-			return
-		}
-
-		s.writeJSON(w, http.StatusOK, NewSuccessResponse(map[string]interface{}{
-			"message": "Task cancelled",
-		}))
-		return
-	}
-
-	// 获取任务详情
-	if r.Method != http.MethodGet {
-		s.writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
-		return
-	}
-
 	s.writeJSON(w, http.StatusOK, NewSuccessResponse(task))
+}
+
+// handleCancelTask 取消任务
+func (s *Server) handleCancelTask(w http.ResponseWriter, r *http.Request) {
+	taskID := r.PathValue("task_id")
+
+	if !s.taskManager.CancelTask(taskID) {
+		s.writeError(w, http.StatusBadRequest, "Task cannot be cancelled")
+		return
+	}
+
+	s.writeJSON(w, http.StatusOK, NewSuccessResponse(map[string]interface{}{
+		"message": "Task cancelled",
+	}))
 }
 
 // writeJSON 写入 JSON 响应
 func (s *Server) writeJSON(w http.ResponseWriter, status int, data interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(data)
+	if err := json.NewEncoder(w).Encode(data); err != nil {
+		log.Warnf("Failed to write response: %v", err)
+	}
 }
 
 // writeError 写入错误响应

@@ -3,8 +3,8 @@ package api
 import (
 	"fmt"
 
-	"github.com/unkmonster/tmd/internal/cli"
 	log "github.com/sirupsen/logrus"
+	"github.com/unkmonster/tmd/internal/cli"
 )
 
 // AsyncExecutor 异步执行器
@@ -62,7 +62,10 @@ func (ae *AsyncExecutor) Execute(taskID string, args []string) {
 func BuildArgs(taskType TaskType, data interface{}) ([]string, error) {
 	switch taskType {
 	case TaskTypeUserDownload:
-		d := data.(*UserDownloadTaskData)
+		d, ok := data.(*UserDownloadTaskData)
+		if !ok {
+			return nil, fmt.Errorf("invalid data type for UserDownload, expected *UserDownloadTaskData, got %T", data)
+		}
 		args := []string{"-user", d.ScreenName}
 		if d.AutoFollow {
 			args = append(args, "-auto-follow")
@@ -76,7 +79,10 @@ func BuildArgs(taskType TaskType, data interface{}) ([]string, error) {
 		return args, nil
 
 	case TaskTypeListDownload:
-		d := data.(*ListDownloadTaskData)
+		d, ok := data.(*ListDownloadTaskData)
+		if !ok {
+			return nil, fmt.Errorf("invalid data type for ListDownload, expected *ListDownloadTaskData, got %T", data)
+		}
 		args := []string{"-list", fmt.Sprintf("%d", d.ListID)}
 		if d.AutoFollow {
 			args = append(args, "-auto-follow")
@@ -90,7 +96,10 @@ func BuildArgs(taskType TaskType, data interface{}) ([]string, error) {
 		return args, nil
 
 	case TaskTypeFollowingDownload:
-		d := data.(*FollowingDownloadTaskData)
+		d, ok := data.(*FollowingDownloadTaskData)
+		if !ok {
+			return nil, fmt.Errorf("invalid data type for FollowingDownload, expected *FollowingDownloadTaskData, got %T", data)
+		}
 		args := []string{"-foll", d.ScreenName}
 		if d.AutoFollow {
 			args = append(args, "-auto-follow")
@@ -104,11 +113,17 @@ func BuildArgs(taskType TaskType, data interface{}) ([]string, error) {
 		return args, nil
 
 	case TaskTypeProfileDownload:
-		d := data.(*ProfileDownloadTaskData)
+		d, ok := data.(*ProfileDownloadTaskData)
+		if !ok {
+			return nil, fmt.Errorf("invalid data type for ProfileDownload, expected *ProfileDownloadTaskData, got %T", data)
+		}
 		return []string{"-profile-user", d.ScreenName, "-noprofile"}, nil
 
 	case TaskTypeMarkDownloaded:
-		d := data.(*MarkDownloadedTaskData)
+		d, ok := data.(*MarkDownloadedTaskData)
+		if !ok {
+			return nil, fmt.Errorf("invalid data type for MarkDownloaded, expected *MarkDownloadedTaskData, got %T", data)
+		}
 		args := []string{"-user", d.ScreenName, "-mark-downloaded"}
 		if d.Timestamp != nil {
 			args = append(args, "-mark-time", d.Timestamp.Format("2006-01-02T15:04:05"))
@@ -116,7 +131,10 @@ func BuildArgs(taskType TaskType, data interface{}) ([]string, error) {
 		return args, nil
 
 	case TaskTypeJsonDownload:
-		d := data.(*JsonDownloadTaskData)
+		d, ok := data.(*JsonDownloadTaskData)
+		if !ok {
+			return nil, fmt.Errorf("invalid data type for JsonDownload, expected *JsonDownloadTaskData, got %T", data)
+		}
 		args := []string{"-json"}
 		args = append(args, d.Paths...)
 		if d.NoRetry {
@@ -125,7 +143,10 @@ func BuildArgs(taskType TaskType, data interface{}) ([]string, error) {
 		return args, nil
 
 	case TaskTypeBatchDownload:
-		d := data.(*BatchDownloadTaskData)
+		d, ok := data.(*BatchDownloadTaskData)
+		if !ok {
+			return nil, fmt.Errorf("invalid data type for BatchDownload, expected *BatchDownloadTaskData, got %T", data)
+		}
 		args := []string{}
 		for _, u := range d.Users {
 			args = append(args, "-user", u)
@@ -142,6 +163,18 @@ func BuildArgs(taskType TaskType, data interface{}) ([]string, error) {
 		if d.SkipProfile {
 			args = append(args, "-noprofile")
 		}
+		return args, nil
+
+	case TaskTypeListProfile:
+		d, ok := data.(*BatchDownloadTaskData)
+		if !ok {
+			return nil, fmt.Errorf("invalid data type for ListProfile, expected *BatchDownloadTaskData, got %T", data)
+		}
+		args := []string{}
+		for _, u := range d.Users {
+			args = append(args, "-profile-user", u)
+		}
+		args = append(args, "-noprofile")
 		return args, nil
 
 	default:

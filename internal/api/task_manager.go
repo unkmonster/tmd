@@ -30,6 +30,7 @@ const (
 	TaskTypeMarkDownloaded    TaskType = "mark_downloaded"
 	TaskTypeJsonDownload      TaskType = "json_download"
 	TaskTypeBatchDownload     TaskType = "batch_download"
+	TaskTypeListProfile       TaskType = "list_profile"
 )
 
 // Task 任务
@@ -222,12 +223,12 @@ func (tm *TaskManager) cleanupLoop() {
 	}
 }
 
-// cleanup 清理 24 小时前的已完成任务
+// cleanup 清理 8 小时前的已完成任务
 func (tm *TaskManager) cleanup() {
 	tm.mu.Lock()
 	defer tm.mu.Unlock()
 
-	cutoff := time.Now().Add(-24 * time.Hour)
+	cutoff := time.Now().Add(-8 * time.Hour)
 	for id, task := range tm.tasks {
 		if task.Status == TaskStatusCompleted || task.Status == TaskStatusFailed || task.Status == TaskStatusCancelled {
 			if task.EndedAt != nil && task.EndedAt.Before(cutoff) {

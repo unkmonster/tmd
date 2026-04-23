@@ -133,7 +133,11 @@ func BatchUserDownload(ctx context.Context, client *resty.Client, db *sqlx.DB, u
 						symlinkWarnMu.Unlock()
 					}
 					sl, _ := syncedListUsers.LoadOrStore(int(linkd.ParentLstEntityId), &sync.Map{})
-					syncedList := sl.(*sync.Map)
+					syncedList, ok := sl.(*sync.Map)
+					if !ok {
+						log.Warnln("invalid type in syncedListUsers map for list", linkd.ParentLstEntityId)
+						continue
+					}
 					syncedList.Store(user.Id, struct{}{})
 				}
 

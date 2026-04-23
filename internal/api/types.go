@@ -1,8 +1,6 @@
 package api
 
-import (
-	"time"
-)
+import "time"
 
 // UserDownloadTaskData 用户下载任务数据
 type UserDownloadTaskData struct {
@@ -95,4 +93,56 @@ type UserInfo struct {
 	ID         uint64 `json:"id"`
 	ScreenName string `json:"screen_name"`
 	Name       string `json:"name"`
+}
+
+// DBUserItem 数据库用户项（前端友好格式）
+type DBUserItem struct {
+	ID           uint64 `json:"id"`
+	ScreenName   string `json:"screen_name"`
+	Name         string `json:"name"`
+	IsProtected  bool   `json:"protected"`
+	FriendsCount int    `json:"friends_count"`
+	IsAccessible bool   `json:"is_accessible"`
+}
+
+// DBListItem 数据库列表项（前端友好格式）
+type DBListItem struct {
+	ID      uint64 `json:"id"`
+	Name    string `json:"name"`
+	OwnerID uint64 `json:"owner_uid"`
+}
+
+// DBEntityItem 数据库用户实体项（前端友好格式）
+type DBEntityItem struct {
+	ID                int64  `json:"id"`
+	UserID            uint64 `json:"user_id"`
+	Name              string `json:"name"`
+	LatestReleaseTime string `json:"latest_release_time"`
+	ParentDir         string `json:"parent_dir"`
+	MediaCount        int32  `json:"media_count"`
+}
+
+// DBUserResponse 数据库用户响应
+type DBUserResponse struct {
+	Users []DBUserItem `json:"users"`
+	Total int          `json:"total"`
+}
+
+// DBListResponse 数据库列表响应
+type DBListResponse struct {
+	Lists []DBListItem `json:"lists"`
+	Total int          `json:"total"`
+}
+
+// DBEntityResponse 数据库用户实体响应
+type DBEntityResponse struct {
+	Entities []DBEntityItem `json:"entities"`
+	Total    int            `json:"total"`
+}
+
+// ConfigResponse 配置响应（脱敏）
+type ConfigResponse struct {
+	RootPath           string `json:"root_path"`
+	MaxDownloadRoutine int    `json:"max_download_routine"`
+	MaxFileNameLen     int    `json:"max_file_name_len"`
 }

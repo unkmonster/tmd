@@ -7,6 +7,79 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ***
 
+## [2.14.1] - 2026-04-15
+
+### Added
+
+#### 新增 Web 管理界面
+
+| 文件 | 功能 |
+|------|------|
+| `internal/api/handlers.go` | Web 页面处理器（`handleWeb`, `handleStatic`） |
+| `internal/api/web/index.html` | Web 管理界面（嵌入式） |
+
+**Web 界面功能：**
+- 任务管理：查看、创建、取消下载任务
+- 数据浏览：查看数据库中的 Users、Lists、User Entities
+- 系统配置：显示当前配置信息（脱敏）
+- 实时状态：SSE 推送任务状态更新
+
+#### 新增 SSE 实时推送
+
+| 文件 | 功能 |
+|------|------|
+| `internal/api/sse.go` | Server-Sent Events 实现 |
+
+**特性：**
+- 每 2 秒推送一次任务列表更新
+- 支持浏览器实时订阅
+- 自动重连机制
+
+#### 新增数据库管理 API
+
+| 文件 | 功能 |
+|------|------|
+| `internal/api/db_handlers.go` | 数据库查询处理器 |
+
+**API 端点：**
+- `GET /api/v1/db/users` - 获取用户列表
+- `GET /api/v1/db/lists` - 获取列表数据
+- `GET /api/v1/db/entities` - 获取用户实体
+- `GET /api/v1/db/config` - 获取配置信息（脱敏）
+
+#### 新增中间件
+
+| 文件 | 功能 |
+|------|------|
+| `internal/api/middleware.go` | CORS、日志、恢复中间件 |
+
+### Changed
+
+#### API 功能增强
+
+| 文件 | 变更 |
+|------|------|
+| `internal/api/server.go` | 新增 Web 路由、静态文件服务 |
+| `internal/api/async_executor.go` | 增强任务执行器，支持更多任务类型 |
+| `internal/api/task_manager.go` | 优化任务管理 |
+| `internal/api/types.go` | 扩展类型定义 |
+| `internal/downloading/batch_download.go` | 优化批量下载错误处理 |
+
+#### 文档更新
+
+| 文件 | 变更 |
+|------|------|
+| `doc/API_DOCUMENTATION.md` | 完整重写（+261 行），包含所有新 API |
+| `readme.md` | 更新 API Server 模式说明（+73 行） |
+
+### Stats
+
+- **12 个文件变更**
+- **+480 行 / -62 行**
+- **新增文件：** 5 个（`handlers.go`, `db_handlers.go`, `middleware.go`, `sse.go`, `web/index.html`）
+
+***
+
 ## [2.14.0] - 2026-04-15
 
 ### Added

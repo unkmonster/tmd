@@ -1,8 +1,8 @@
-# TMD2 API 使用文档
+# TMD API 使用文档
 
 ## 概述
 
-TMD2 (Twitter Media Downloader 2) 提供 HTTP REST API，允许通过编程方式控制下载任务。API Server 模式支持 Web/AI 调用。
+TMD (Twitter Media Downloader) 提供 HTTP REST API，允许通过编程方式控制下载任务。API Server 模式支持 Web/AI 调用。
 
 ## 启动 API Server
 
@@ -198,6 +198,8 @@ Content-Type: application/json
   }
 }
 ```
+
+**注意：** 如果请求中未提供 `timestamp`，响应中的 `timestamp` 字段将为 `null`，任务将使用当前时间执行。
 
 **示例：**
 
@@ -662,6 +664,21 @@ curl -X POST http://localhost:25556/api/v1/tasks/task_abc123/cancel
 | 404 | 资源不存在       |
 | 405 | 方法不允许       |
 | 500 | 服务器内部错误     |
+| 503 | 服务不可用（数据库连接失败）|
+
+### 日志记录
+
+API Server 记录所有请求的详细信息：
+
+```
+2024/01/15 10:30:00 127.0.0.1 GET /api/v1/tasks 200 2.3ms
+```
+
+日志包含：客户端 IP、HTTP 方法、请求路径、状态码、处理时间
+
+### 响应写入错误处理
+
+所有 JSON 响应的编码错误都会被记录到日志，便于排查客户端连接问题。
 
 ***
 
@@ -672,6 +689,37 @@ API 默认启用 CORS 支持，允许 Web 前端直接调用：
 - **允许来源：** `*`（所有来源）
 - **允许方法：** GET, POST, PUT, DELETE, OPTIONS
 - **允许头：** Content-Type, Authorization
+
+SSE 端点 (`/api/v1/sse/tasks`) 同样支持 CORS，确保 Web 界面可以跨域接收实时推送。
+
+***
+
+## 安全特性
+
+### 路径穿越防护
+
+静态文件服务已实施路径穿越防护：
+
+- 自动过滤 `..` 路径组件
+- 禁止访问根目录之外的文件
+- 仅允许访问嵌入的静态资源
+
+### 配置脱敏
+
+`/api/v1/config` 端点返回的配置信息已脱敏：
+
+- `root_path` 仅返回目录名，不返回完整绝对路径
+- 敏感信息（如 Cookie）不会返回
+
+### 缓存控制
+
+Web 界面响应包含适当的缓存头：
+
+| 资源类型 | Cache-Control | 说明 |
+|---------|---------------|------|
+| HTML 页面 | `public, max-age=3600` | 1小时缓存 |
+| 静态资源 | `public, max-age=86400` | 24小时缓存 |
+| API 响应 | 无缓存 | 实时数据 |
 
 ***
 
@@ -686,9 +734,202 @@ API 默认启用 CORS 支持，允许 Web 前端直接调用：
 
 ### 自动清理
 
-- 任务保留时间：24 小时
+- 任务保留时间：8 小时
 - 最大任务数：1000 个
 - 清理频率：每小时
+
+### SSE 实时更新
+
+Web 界面使用 Server-Sent Events (SSE) 技术实现任务状态实时推送：
+
+- **推送频率**：每 2 秒
+- **重连策略**：指数退避（2s → 4s → 8s ... 最大 30s）
+- **连接断开**：客户端断开时立即清理 goroutine，无资源泄漏
+
+***
+
+## Web 管理界面
+
+Server 模式提供内置的 Web 管理界面，可通过浏览器访问。
+
+### 访问方式
+
+启动 Server 后，打开浏览器访问：
+
+```
+http://localhost:25556/
+```
+
+### 功能模块
+
+| 模块 | 功能描述 |
+|------|----------|
+| **仪表盘** | 显示系统健康状态、任务统计、快速操作入口 |
+| **新建任务** | 创建用户下载、列表下载、批量下载、JSON 下载任务 |
+| **任务列表** | 实时显示所有任务状态（支持 SSE 实时更新）、进度条、取消操作 |
+| **数据浏览** | 查看数据库中的 Users、Lists、User Entities |
+| **系统配置** | 显示当前配置信息（脱敏） |
+
+### 实时任务更新
+
+Web 界面使用 Server-Sent Events (SSE) 技术实现任务状态实时推送，无需手动刷新页面即可看到任务进度更新。
+
+***
+
+## 新增 API 端点（Web 集成）
+
+### SSE 实时任务推送
+
+**请求：**
+
+```http
+GET /api/v1/sse/tasks
+```
+
+**说明：**
+
+- 建立 SSE 连接，服务器每 2 秒推送一次任务列表更新
+- 支持跨域访问（CORS）
+- 连接断开后会自动重连（指数退避策略）
+
+**响应格式：**
+
+```
+data: [{"task_id":"task_xxx","status":"running",...}]
+```
+
+**示例：**
+
+```javascript
+const sse = new EventSource('http://localhost:25556/api/v1/sse/tasks');
+sse.onmessage = (event) => {
+    const tasks = JSON.parse(event.data);
+    console.log('Tasks updated:', tasks);
+};
+```
+
+***
+
+### 查询数据库用户
+
+**请求：**
+
+```http
+GET /api/v1/db/users
+```
+
+**响应：**
+
+```json
+{
+  "success": true,
+  "data": {
+    "users": [
+      {
+        "id": 44196397,
+        "screen_name": "elonmusk",
+        "name": "Elon Musk",
+        "protected": false,
+        "friends_count": 100,
+        "is_accessible": true
+      }
+    ],
+    "total": 1
+  }
+}
+```
+
+**说明：**
+
+- 返回数据库中最近 100 条用户记录
+- 用于 Web 界面数据浏览
+
+***
+
+### 查询数据库列表
+
+**请求：**
+
+```http
+GET /api/v1/db/lists
+```
+
+**响应：**
+
+```json
+{
+  "success": true,
+  "data": {
+    "lists": [
+      {
+        "id": 123456789,
+        "name": "Tech News",
+        "owner_uid": 44196397
+      }
+    ],
+    "total": 1
+  }
+}
+```
+
+***
+
+### 查询用户实体
+
+**请求：**
+
+```http
+GET /api/v1/db/user-entities
+```
+
+**响应：**
+
+```json
+{
+  "success": true,
+  "data": {
+    "entities": [
+      {
+        "id": 1,
+        "user_id": 44196397,
+        "name": "Elon Musk(elonmusk)",
+        "latest_release_time": "2024-01-15 10:30:00",
+        "parent_dir": "users",
+        "media_count": 150
+      }
+    ],
+    "total": 1
+  }
+}
+```
+
+***
+
+### 获取系统配置
+
+**请求：**
+
+```http
+GET /api/v1/config
+```
+
+**响应：**
+
+```json
+{
+  "success": true,
+  "data": {
+    "root_path": "twitter_downloads",
+    "max_download_routine": 20,
+    "max_file_name_len": 155
+  }
+}
+```
+
+**说明：**
+
+- 返回脱敏后的配置信息（不包含敏感 Cookie）
+- `root_path` 仅返回目录名，不返回完整绝对路径
 
 ***
 
@@ -753,6 +994,8 @@ TASK_ID=$(curl -s -X POST http://localhost:25556/api/v1/lists/123456789/download
 
 ## 完整 API 端点速查表
 
+### 核心 API
+
 | 端点                                        | 方法   | 功能             |
 | ----------------------------------------- | ---- | -------------- |
 | `/api/v1/health`                          | GET  | 健康检查           |
@@ -767,6 +1010,18 @@ TASK_ID=$(curl -s -X POST http://localhost:25556/api/v1/lists/123456789/download
 | `/api/v1/tasks`                           | GET  | 获取任务列表         |
 | `/api/v1/tasks/{id}`                      | GET  | 获取任务详情         |
 | `/api/v1/tasks/{id}/cancel`               | POST | 取消任务           |
+
+### Web 界面与数据 API
+
+| 端点                                        | 方法   | 功能               |
+| ----------------------------------------- | ---- | ---------------- |
+| `/`                                       | GET  | Web 管理界面首页     |
+| `/static/*`                               | GET  | 静态资源（CSS/JS）   |
+| `/api/v1/sse/tasks`                       | GET  | SSE 实时任务推送     |
+| `/api/v1/db/users`                        | GET  | 查询数据库用户列表    |
+| `/api/v1/db/lists`                        | GET  | 查询数据库列表      |
+| `/api/v1/db/user-entities`                | GET  | 查询用户实体        |
+| `/api/v1/config`                          | GET  | 获取系统配置（脱敏）  |
 
 ***
 

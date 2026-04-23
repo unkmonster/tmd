@@ -8,6 +8,7 @@
 - [功能特性](#功能特性)
 - [安装与配置](#安装与配置)
 - [命令行参数详解](#命令行参数详解)
+- [API Server 模式](#api-server-模式)
 - [Profile 下载功能](#profile-下载功能)
 - [推文 JSON 保存](#推文-json-保存)
 - [文件存储结构](#文件存储结构)
@@ -146,6 +147,7 @@
 - **推文 JSON 保存**：保存推文完整信息为 JSON/TXT 格式
 - **JSON 文件导入**：从其他工具导出的 JSON 文件批量下载媒体
 - **标记已下载**：标记用户为已下载状态，跳过历史推文
+- **API Server 模式**：提供 HTTP REST API 和 Web 管理界面，支持远程控制和监控
 
 ---
 
@@ -207,6 +209,8 @@ tmd -conf
 |------|------|--------|------|
 | `-conf` | bool | false | 重新配置程序，配置完成后退出 |
 | `-dbg` | bool | false | 显示调试信息，包括请求计数等 |
+| `-server` | bool | false | 启动 API Server 模式 |
+| `-port` | int | 25556 | API Server 监听端口（仅与 `-server` 一起使用）|
 
 ### 推文下载参数
 
@@ -252,6 +256,72 @@ tmd -conf
 | `-profile-list` | uint64 | ✅ | 单独指定下载 profile 的列表ID（无需同时下载推文） |
 
 > **注意**：使用 `-user`、`-list`、`-foll` 下载推文时，Profile 下载默认启用。使用 `-noprofile` 可跳过。使用 `-profile-user`/`-profile-list` 可仅下载 Profile 而不下载推文。
+
+---
+
+## API Server 模式
+
+TMD 支持以 API Server 模式运行，提供 HTTP REST API 和 Web 管理界面，便于远程控制、自动化集成和实时监控。
+
+### 启动 API Server
+
+```bash
+# 使用默认端口 25556 启动
+tmd -server
+
+# 指定端口启动
+tmd -server -port 8080
+```
+
+### 功能特性
+
+| 功能 | 说明 |
+|------|------|
+| **REST API** | 完整的 HTTP API，支持下载任务管理、状态查询、任务取消 |
+| **Web 管理界面** | 内置可视化界面，支持浏览器访问和操作 |
+| **实时任务监控** | SSE 推送任务状态更新，无需刷新页面 |
+| **数据库浏览** | 查看已下载的用户、列表、用户实体信息 |
+| **跨域支持** | 默认启用 CORS，支持 Web 前端直接调用 |
+
+### Web 管理界面
+
+启动 Server 后，打开浏览器访问：
+
+```
+http://localhost:25556/
+```
+
+界面功能：
+- **仪表盘**：系统状态、任务统计、快速操作
+- **新建任务**：创建用户/列表/批量/JSON 下载任务
+- **任务列表**：实时显示任务状态、进度条、取消操作
+- **数据浏览**：查看数据库中的 Users、Lists、User Entities
+- **系统配置**：显示当前配置信息（脱敏）
+
+### API 文档
+
+详细的 API 文档请参考 [API_DOCUMENTATION.md](doc/API_DOCUMENTATION.md)，包含：
+
+- 所有 API 端点说明
+- 请求/响应格式
+- 错误处理
+- 使用示例
+
+### 快速示例
+
+```bash
+# 1. 启动 Server
+tmd -server
+
+# 2. 创建下载任务
+curl -X POST http://localhost:25556/api/v1/users/elonmusk/download
+
+# 3. 查询任务列表
+curl http://localhost:25556/api/v1/tasks
+
+# 4. 取消任务
+curl -X POST http://localhost:25556/api/v1/tasks/task_xxx/cancel
+```
 
 ---
 
@@ -559,6 +629,8 @@ Twitter API 限制一段时间内过快的请求（例如某端点每15分钟仅
 | `-mark-downloaded` + 推文下载 | ⚠️ | 只标记，不下载 |
 | `-conf` + 其他参数 | ⚠️ | 配置后退出，忽略其他 |
 | `-noprofile` + 推文下载参数 | ✅ | 下载推文但跳过 Profile |
+| `-server` + `-port` | ✅ | 指定 API Server 端口 |
+| `-server` + 下载参数 | ⚠️ | Server 模式下忽略下载参数 |
 
 ---
 
@@ -652,6 +724,7 @@ ENTITY_ID:2|USER_ID:23248887|SCREEN_NAME:NASA|STATUS:OK
 |------|------|
 | `-conf` | 重新配置 |
 | `-dbg` | 调试模式 |
+| `-server` | 启动 API Server 模式 |
 | `-auto-follow` | 自动关注受保护用户 |
 | `-no-retry` | 不重试失败推文 |
 | `-mark-downloaded` | 仅标记已下载 |
