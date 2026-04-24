@@ -8,8 +8,6 @@ import (
 	"strings"
 
 	"github.com/go-resty/resty/v2"
-	"github.com/jmoiron/sqlx"
-	"github.com/unkmonster/tmd/internal/database"
 	"github.com/unkmonster/tmd/internal/twitter"
 )
 
@@ -37,28 +35,6 @@ func (u *UserArgs) Set(str string) error {
 
 func (u *UserArgs) String() string {
 	return fmt.Sprintf("ids=%v screenNames=%v", u.ID, u.ScreenName)
-}
-
-func (u *UserArgs) GetUser(ctx context.Context, client *resty.Client, db *sqlx.DB) ([]*twitter.User, error) {
-	users := []*twitter.User{}
-	for _, id := range u.ID {
-		usr, uid, err := twitter.GetUserById(ctx, client, id)
-		if err != nil {
-			database.MarkUserInaccessible(db, uid, "")
-			return nil, err
-		}
-		users = append(users, usr)
-	}
-
-	for _, screenName := range u.ScreenName {
-		usr, uid, err := twitter.GetUserByScreenName(ctx, client, screenName)
-		if err != nil {
-			database.MarkUserInaccessible(db, uid, screenName)
-			return nil, err
-		}
-		users = append(users, usr)
-	}
-	return users, nil
 }
 
 // IntArgs 整数参数

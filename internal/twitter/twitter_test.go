@@ -40,7 +40,10 @@ var someLists = []uint64{
 func init() {
 	var err error
 	ctx := context.Background()
-	client, _, err = Login(ctx, os.Getenv("AUTH_TOKEN"), os.Getenv("CT0"))
+	// 设置代理
+	os.Setenv("HTTP_PROXY", "http://127.0.0.1:7897")
+	os.Setenv("HTTPS_PROXY", "http://127.0.0.1:7897")
+	client, _, err = Login(ctx, "167011fd552e68beaaead97e8c2753f5fe96d33c", "0e5e47afa12276c48324b794702d452a932280edca7f136f8992ca89a489d0637f4999ab0559944bbf80dd50b0366cff61f27186f591b32de5cd421ffa8858159490ba77dfb136310935f5efb8c3bffe")
 	if err != nil {
 		panic(err)
 	}

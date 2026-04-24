@@ -6,6 +6,7 @@ import (
 
 	"github.com/go-resty/resty/v2"
 	"github.com/jmoiron/sqlx"
+	"github.com/unkmonster/tmd/internal/database"
 	"github.com/unkmonster/tmd/internal/twitter"
 )
 
@@ -22,11 +23,23 @@ func MakeTask(ctx context.Context, client *resty.Client, db *sqlx.DB, usrArgs Us
 		Lists: make([]twitter.ListBase, 0),
 	}
 
-	users, err := usrArgs.GetUser(ctx, client, db)
-	if err != nil {
-		return nil, err
+	// 处理用户参数
+	for _, id := range usrArgs.ID {
+		usr, uid, err := twitter.GetUserById(ctx, client, id)
+		if err != nil {
+			database.MarkUserInaccessible(db, uid, "")
+			return nil, err
+		}
+		task.Users = append(task.Users, usr)
 	}
-	task.Users = append(task.Users, users...)
+	for _, screenName := range usrArgs.ScreenName {
+		usr, uid, err := twitter.GetUserByScreenName(ctx, client, screenName)
+		if err != nil {
+			database.MarkUserInaccessible(db, uid, screenName)
+			return nil, err
+		}
+		task.Users = append(task.Users, usr)
+	}
 
 	lists, err := listArgs.GetList(ctx, client)
 	if err != nil {
@@ -36,12 +49,22 @@ func MakeTask(ctx context.Context, client *resty.Client, db *sqlx.DB, usrArgs Us
 		task.Lists = append(task.Lists, list)
 	}
 
-	users, err = follArgs.GetUser(ctx, client, db)
-	if err != nil {
-		return nil, err
+	// 处理关注参数
+	for _, id := range follArgs.ID {
+		usr, uid, err := twitter.GetUserById(ctx, client, id)
+		if err != nil {
+			database.MarkUserInaccessible(db, uid, "")
+			return nil, err
+		}
+		task.Lists = append(task.Lists, usr.Following())
 	}
-	for _, user := range users {
-		task.Lists = append(task.Lists, user.Following())
+	for _, screenName := range follArgs.ScreenName {
+		usr, uid, err := twitter.GetUserByScreenName(ctx, client, screenName)
+		if err != nil {
+			database.MarkUserInaccessible(db, uid, screenName)
+			return nil, err
+		}
+		task.Lists = append(task.Lists, usr.Following())
 	}
 
 	return &task, nil
