@@ -52,6 +52,11 @@ type BatchDownloadTaskData struct {
 	NoRetry     bool     `json:"no_retry"`
 }
 
+// ListProfileTaskData 列表 Profile 下载任务数据
+type ListProfileTaskData struct {
+	ListID uint64 `json:"list_id"`
+}
+
 // APIResponse API 响应
 type APIResponse struct {
 	Success bool        `json:"success"`

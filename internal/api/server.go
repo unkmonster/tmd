@@ -1,7 +1,6 @@
 package api
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -15,7 +14,6 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/unkmonster/tmd/internal/config"
-	"github.com/unkmonster/tmd/internal/twitter"
 )
 
 // Server API Server
@@ -199,14 +197,6 @@ func (s *Server) handleUserDownload(w http.ResponseWriter, r *http.Request, scre
 	}
 	req.ScreenName = screenName
 
-	// 获取用户信息
-	ctx := context.Background()
-	user, _, err := twitter.GetUserByScreenName(ctx, s.client, screenName)
-	if err != nil {
-		s.writeError(w, http.StatusNotFound, fmt.Sprintf("User not found: %v", err))
-		return
-	}
-
 	// 创建任务
 	task := s.taskManager.CreateTask(TaskTypeUserDownload, &req)
 
@@ -219,13 +209,9 @@ func (s *Server) handleUserDownload(w http.ResponseWriter, r *http.Request, scre
 	s.asyncExecutor.Execute(task.ID, args)
 
 	s.writeJSON(w, http.StatusAccepted, NewSuccessResponse(map[string]interface{}{
-		"task_id": task.ID,
-		"status":  task.Status,
-		"user": UserInfo{
-			ID:         strconv.FormatUint(user.Id, 10),
-			ScreenName: user.ScreenName,
-			Name:       user.Name,
-		},
+		"task_id":      task.ID,
+		"status":       task.Status,
+		"screen_name":  req.ScreenName,
 		"auto_follow":  req.AutoFollow,
 		"skip_profile": req.SkipProfile,
 		"no_retry":     req.NoRetry,
@@ -299,14 +285,6 @@ func (s *Server) handleFollowingDownload(w http.ResponseWriter, r *http.Request,
 	}
 	req.ScreenName = screenName
 
-	// 获取用户信息
-	ctx := context.Background()
-	user, _, err := twitter.GetUserByScreenName(ctx, s.client, screenName)
-	if err != nil {
-		s.writeError(w, http.StatusNotFound, fmt.Sprintf("User not found: %v", err))
-		return
-	}
-
 	// 创建任务
 	task := s.taskManager.CreateTask(TaskTypeFollowingDownload, &req)
 
@@ -315,13 +293,9 @@ func (s *Server) handleFollowingDownload(w http.ResponseWriter, r *http.Request,
 	s.asyncExecutor.Execute(task.ID, args)
 
 	s.writeJSON(w, http.StatusAccepted, NewSuccessResponse(map[string]interface{}{
-		"task_id": task.ID,
-		"status":  task.Status,
-		"user": UserInfo{
-			ID:         strconv.FormatUint(user.Id, 10),
-			ScreenName: user.ScreenName,
-			Name:       user.Name,
-		},
+		"task_id":      task.ID,
+		"status":       task.Status,
+		"screen_name":  req.ScreenName,
 		"auto_follow":  req.AutoFollow,
 		"skip_profile": req.SkipProfile,
 		"no_retry":     req.NoRetry,
@@ -395,31 +369,7 @@ func (s *Server) handleListProfile(w http.ResponseWriter, r *http.Request, listI
 		return
 	}
 
-	// 列表 Profile 下载通过批量下载用户 Profile 实现
-	ctx := context.Background()
-	list, err := twitter.GetLst(ctx, s.client, listID)
-	if err != nil {
-		s.writeError(w, http.StatusNotFound, fmt.Sprintf("List not found: %v", err))
-		return
-	}
-
-	// 获取列表成员
-	membersResult, err := list.GetMembers(ctx, s.client)
-	if err != nil {
-		s.writeError(w, http.StatusBadGateway, fmt.Sprintf("Failed to get list members from Twitter: %v", err))
-		return
-	}
-
-	// 创建批量 Profile 下载任务
-	users := make([]string, 0, len(membersResult.Users))
-	for _, u := range membersResult.Users {
-		users = append(users, u.ScreenName)
-	}
-
-	req := BatchDownloadTaskData{
-		Users:       users,
-		SkipProfile: false,
-	}
+	req := ListProfileTaskData{ListID: listID}
 
 	task := s.taskManager.CreateTask(TaskTypeListProfile, &req)
 
@@ -428,11 +378,10 @@ func (s *Server) handleListProfile(w http.ResponseWriter, r *http.Request, listI
 	s.asyncExecutor.Execute(task.ID, args)
 
 	s.writeJSON(w, http.StatusAccepted, NewSuccessResponse(map[string]interface{}{
-		"task_id":    task.ID,
-		"status":     task.Status,
-		"list_id":    listID,
-		"user_count": len(users),
-		"message":    "List profile download task queued",
+		"task_id": task.ID,
+		"status":  task.Status,
+		"list_id": listID,
+		"message": "List profile download task queued",
 	}))
 }
 

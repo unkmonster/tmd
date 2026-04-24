@@ -166,16 +166,11 @@ func BuildArgs(taskType TaskType, data interface{}) ([]string, error) {
 		return args, nil
 
 	case TaskTypeListProfile:
-		d, ok := data.(*BatchDownloadTaskData)
+		d, ok := data.(*ListProfileTaskData)
 		if !ok {
-			return nil, fmt.Errorf("invalid data type for ListProfile, expected *BatchDownloadTaskData, got %T", data)
+			return nil, fmt.Errorf("invalid data type for ListProfile, expected *ListProfileTaskData, got %T", data)
 		}
-		args := []string{}
-		for _, u := range d.Users {
-			args = append(args, "-profile-user", u)
-		}
-		args = append(args, "-noprofile")
-		return args, nil
+		return []string{"-profile-list", fmt.Sprintf("%d", d.ListID), "-noprofile"}, nil
 
 	default:
 		return nil, fmt.Errorf("unknown task type: %s", taskType)
