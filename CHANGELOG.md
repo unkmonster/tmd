@@ -29,10 +29,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 将 `executor.go` 拆分为多个专用执行器文件，提高代码可维护性
 - 删除 `internal/profile/fetcher_test.go`（测试文件）
 
+#### API 优化
+
+| 文件 | 变更 |
+|------|------|
+| `internal/api/server.go` | 简化任务创建流程，移除同步 Twitter API 调用 |
+| `internal/api/async_executor.go` | 更新 ListProfile 任务参数构建逻辑 |
+| `internal/api/types.go` | 新增 `ListProfileTaskData` 类型 |
+
+**优化内容：**
+- 移除 `handleUserDownload`、`handleFollowingDownload`、`handleListProfile` 中的同步 Twitter API 调用
+- 任务创建改为纯异步模式，提高响应速度
+- 简化 API 响应数据结构
+- 新增 `-profile-list` 参数支持列表 Profile 下载
+
 ### Stats
 
-- **13 个文件变更**
-- **+307 行 / -433 行**
+- **16 个文件变更**
+- **+326 行 / -503 行**
 - **新增文件：** 5 个
 - **删除文件：** 1 个
 
