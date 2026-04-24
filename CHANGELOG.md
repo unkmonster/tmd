@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ***
 
+## [Unreleased] - 2026-04-24
+
+### Changed
+
+#### 代码重构
+
+| 文件 | 变更 |
+|------|------|
+| `internal/profile/*` | 删除，功能迁移至 `internal/downloading/profile/` |
+| `internal/downloading/profile/*` | 新增 profile 下载模块 |
+| `internal/cli/executor.go` | 精简，移除已拆分的功能 |
+| `internal/cli/executor_download.go` | 新增下载命令执行器 |
+| `internal/cli/executor_json.go` | 新增 JSON 处理执行器 |
+| `internal/cli/executor_mark.go` | 新增标记功能执行器 |
+| `internal/cli/executor_profile.go` | 新增 profile 下载执行器 |
+| `internal/cli/helpers.go` | 优化辅助函数 |
+
+**重构内容：**
+- 将 profile 相关功能从 `internal/profile/` 迁移至 `internal/downloading/profile/`
+- 将 `executor.go` 拆分为多个专用执行器文件，提高代码可维护性
+- 删除 `internal/profile/fetcher_test.go`（测试文件）
+
+### Stats
+
+- **13 个文件变更**
+- **+307 行 / -433 行**
+- **新增文件：** 5 个
+- **删除文件：** 1 个
+
+***
+
 ## [2.14.2] - 2026-04-23
 
 ### Added
