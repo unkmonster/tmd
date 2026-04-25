@@ -311,7 +311,7 @@ func TestUserLink_PathMethod(t *testing.T) {
 		}
 		path, err := link.Path(db)
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "parent lst was not exists")
+		assert.Contains(t, err.Error(), "does not exist")
 		assert.Empty(t, path)
 	})
 }
