@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ***
 
+## [3.0.3] - 2026-04-25
+
+### Changed
+
+#### 文档更新
+
+| 文件 | 变更 |
+|------|------|
+| `readme.md` | 添加 Service 层架构详细说明 |
+| `doc/API_DOCUMENTATION.md` | 更新 API 文档，完善错误码说明 |
+
+**文档内容：**
+- 新增 Service 层架构设计目标和 `DownloadService` 接口说明
+- 完善项目架构图，展示 Service 层位置
+- 更新 API 文档中的错误码和响应格式说明
+
+### Removed
+
+#### 清理未使用的类型
+
+| 文件 | 变更 |
+|------|------|
+| `internal/api/types.go` | 删除未使用的响应类型（`DBUserResponse`, `DBListResponse`, `DBEntityResponse`） |
+| `internal/api/types_test.go` | 删除相关测试代码 |
+
+### Stats
+
+- **4 个文件变更**
+- **+155 行 / -110 行**
+
+***
+
 ## [3.0.2] - 2026-04-25
 
 ### Fixed
