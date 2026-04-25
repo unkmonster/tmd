@@ -79,8 +79,8 @@ func (lsm *ListSyncManager) removeUserLinkWithTx(tx *sqlx.Tx, link *database.Use
 		return fmt.Errorf("link id is not valid for user %d in list %d", link.UserId, lstEntityId)
 	}
 
-	// 使用事务对象 tx 而不是 lsm.db，确保在事务内一致地读取数据
-	linkpath, err := link.Path(tx)
+	// 使用 tx 而不是 lsm.db，避免在单连接配置下发生死锁
+	linkpath, err := link.PathWithTx(tx)
 	if err == nil {
 		if err := os.Remove(linkpath); err != nil && !os.IsNotExist(err) {
 			log.Warnln("failed to remove symlink:", linkpath, err)
@@ -92,6 +92,5 @@ func (lsm *ListSyncManager) removeUserLinkWithTx(tx *sqlx.Tx, link *database.Use
 		return fmt.Errorf("failed to delete user link %d from database: %w", link.Id, err)
 	}
 
-	log.Debugln("Removed user link:", link.UserId, "from list", lstEntityId)
 	return nil
 }

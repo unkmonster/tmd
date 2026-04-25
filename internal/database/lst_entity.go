@@ -33,9 +33,16 @@ func DelLstEntity(db *sqlx.DB, id int) error {
 }
 
 func GetLstEntity(db *sqlx.DB, id int) (*LstEntity, error) {
+	return GetLstEntityWithTx(db, id)
+}
+
+// GetLstEntityWithTx 支持在事务中查询 lst_entities
+func GetLstEntityWithTx(queryer interface {
+	Get(dest interface{}, query string, args ...interface{}) error
+}, id int) (*LstEntity, error) {
 	stmt := `SELECT * FROM lst_entities WHERE id=?`
 	result := &LstEntity{}
-	err := db.Get(result, stmt, id)
+	err := queryer.Get(result, stmt, id)
 	if err != nil && err != sql.ErrNoRows {
 		return nil, fmt.Errorf("failed to get list entity %d: %w", id, err)
 	}

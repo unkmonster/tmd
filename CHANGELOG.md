@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ***
 
+## [3.0.2] - 2026-04-25
+
+### Fixed
+
+#### 修复数据库死锁问题
+
+| 文件 | 变更 |
+|------|------|
+| `internal/database/lst_entity.go` | 新增 `GetLstEntityWithTx` 函数，支持事务查询 |
+| `internal/database/model.go` | 新增 `PathWithTx` 方法，支持事务内路径计算 |
+| `internal/downloading/list_sync.go` | 修复 `removeUserLinkWithTx`，统一使用事务对象 |
+
+**修复内容：**
+- 修复 `-list` 下载时可能出现的数据库死锁问题
+- 根本原因：事务内混合使用 `tx` 和 `lsm.db` 导致单连接配置下循环等待
+- 解决方案：统一使用事务对象 `tx` 进行所有数据库操作
+
+### Stats
+
+- **3 个文件变更**
+- **+20 行 / -5 行**
+
+***
+
 ## [3.0.1] - 2026-04-24
 
 ### Fixed

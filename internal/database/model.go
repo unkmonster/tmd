@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"path/filepath"
 	"time"
+
+	"github.com/jmoiron/sqlx"
 )
 
 type User struct {
@@ -68,20 +70,20 @@ func (ue *UserEntity) Path() (string, error) {
 	return filepath.Join(ue.ParentDir, ue.Name), nil
 }
 
-// Querier 接口用于支持 *sqlx.DB 和 *sqlx.Tx
-type Querier interface {
-	Get(dest interface{}, query string, args ...interface{}) error
+func (ul *UserLink) Path(db *sqlx.DB) (string, error) {
+	return ul.PathWithTx(db)
 }
 
-func (ul *UserLink) Path(db Querier) (string, error) {
-	stmt := `SELECT * FROM lst_entities WHERE id=?`
-	le := &LstEntity{}
-	err := db.Get(le, stmt, ul.ParentLstEntityId)
-	if err != nil && err != sql.ErrNoRows {
-		return "", fmt.Errorf("failed to get lst entity %d: %w", ul.ParentLstEntityId, err)
+// PathWithTx 支持在事务中计算路径
+func (ul *UserLink) PathWithTx(queryer interface {
+	Get(dest interface{}, query string, args ...interface{}) error
+}) (string, error) {
+	le, err := GetLstEntityWithTx(queryer, int(ul.ParentLstEntityId))
+	if err != nil {
+		return "", err
 	}
-	if err == sql.ErrNoRows || le == nil {
-		return "", fmt.Errorf("parent lst entity %d does not exist", ul.ParentLstEntityId)
+	if le == nil {
+		return "", fmt.Errorf("parent lst was not exists")
 	}
 
 	lePath, err := le.Path()
