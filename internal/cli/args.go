@@ -11,30 +11,23 @@ import (
 	"github.com/unkmonster/tmd/internal/twitter"
 )
 
-// UserArgs 用户参数
+// UserArgs 用户参数（只支持 ScreenName）
 type UserArgs struct {
-	ID         []uint64
 	ScreenName []string
 }
 
 func (u *UserArgs) Set(str string) error {
-	if u.ID == nil {
-		u.ID = make([]uint64, 0)
+	if u.ScreenName == nil {
 		u.ScreenName = make([]string, 0)
 	}
 
-	id, err := strconv.ParseUint(str, 10, 64)
-	if err != nil {
-		str, _ = strings.CutPrefix(str, "@")
-		u.ScreenName = append(u.ScreenName, str)
-	} else {
-		u.ID = append(u.ID, id)
-	}
+	str, _ = strings.CutPrefix(str, "@")
+	u.ScreenName = append(u.ScreenName, str)
 	return nil
 }
 
 func (u *UserArgs) String() string {
-	return fmt.Sprintf("ids=%v screenNames=%v", u.ID, u.ScreenName)
+	return fmt.Sprintf("screenNames=%v", u.ScreenName)
 }
 
 // IntArgs 整数参数

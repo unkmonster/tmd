@@ -2,10 +2,11 @@ package cli
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/go-resty/resty/v2"
 	"github.com/jmoiron/sqlx"
+	log "github.com/sirupsen/logrus"
+
 	"github.com/unkmonster/tmd/internal/database"
 	"github.com/unkmonster/tmd/internal/twitter"
 )
@@ -16,72 +17,48 @@ type Task struct {
 	Lists []twitter.ListBase
 }
 
-// MakeTask 创建任务
-func MakeTask(ctx context.Context, client *resty.Client, db *sqlx.DB, usrArgs UserArgs, listArgs ListArgs, follArgs UserArgs) (*Task, error) {
-	task := Task{
-		Users: make([]*twitter.User, 0),
-		Lists: make([]twitter.ListBase, 0),
-	}
-
-	// 处理用户参数
-	for _, id := range usrArgs.ID {
-		usr, uid, err := twitter.GetUserById(ctx, client, id)
-		if err != nil {
-			database.MarkUserInaccessible(db, uid, "")
-			return nil, err
-		}
-		task.Users = append(task.Users, usr)
-	}
-	for _, screenName := range usrArgs.ScreenName {
-		usr, uid, err := twitter.GetUserByScreenName(ctx, client, screenName)
-		if err != nil {
-			database.MarkUserInaccessible(db, uid, screenName)
-			return nil, err
-		}
-		task.Users = append(task.Users, usr)
-	}
-
-	lists, err := listArgs.GetList(ctx, client)
-	if err != nil {
-		return nil, err
-	}
-	for _, list := range lists {
-		task.Lists = append(task.Lists, list)
-	}
-
-	// 处理关注参数
-	for _, id := range follArgs.ID {
-		usr, uid, err := twitter.GetUserById(ctx, client, id)
-		if err != nil {
-			database.MarkUserInaccessible(db, uid, "")
-			return nil, err
-		}
-		task.Lists = append(task.Lists, usr.Following())
-	}
-	for _, screenName := range follArgs.ScreenName {
-		usr, uid, err := twitter.GetUserByScreenName(ctx, client, screenName)
-		if err != nil {
-			database.MarkUserInaccessible(db, uid, screenName)
-			return nil, err
-		}
-		task.Lists = append(task.Lists, usr.Following())
-	}
-
-	return &task, nil
+// ResolvedEntities 解析后的用户和列表实体
+type ResolvedEntities struct {
+	Users []*twitter.User
+	Lists []twitter.ListBase
 }
 
-// PrintTask 打印任务
-func PrintTask(task *Task) {
-	if len(task.Users) != 0 {
-		fmt.Printf("users: %d\n", len(task.Users))
+// ResolveUsersAndLists 统一解析用户和列表参数（避免 DRY 违反）
+func ResolveUsersAndLists(ctx context.Context, client *resty.Client, db *sqlx.DB, usrArgs UserArgs, listArgs ListArgs, follArgs UserArgs) ResolvedEntities {
+	var entities ResolvedEntities
+
+	for _, screenName := range usrArgs.ScreenName {
+		user, uid, err := twitter.GetUserByScreenName(ctx, client, screenName)
+		if err != nil {
+			if db != nil {
+				database.MarkUserInaccessible(db, uid, screenName)
+			}
+			log.Warnf("Failed to get user %s: %v", screenName, err)
+			continue
+		}
+		entities.Users = append(entities.Users, user)
 	}
-	for _, u := range task.Users {
-		fmt.Printf("    - %s\n", u.Title())
+
+	for _, listID := range listArgs.ID {
+		list, err := twitter.GetLst(ctx, client, listID)
+		if err != nil {
+			log.Warnf("Failed to get list %d: %v", listID, err)
+			continue
+		}
+		entities.Lists = append(entities.Lists, list)
 	}
-	if len(task.Lists) != 0 {
-		fmt.Printf("lists: %d\n", len(task.Lists))
+
+	for _, screenName := range follArgs.ScreenName {
+		user, uid, err := twitter.GetUserByScreenName(ctx, client, screenName)
+		if err != nil {
+			if db != nil {
+				database.MarkUserInaccessible(db, uid, screenName)
+			}
+			log.Warnf("Failed to get user %s for following list: %v", screenName, err)
+			continue
+		}
+		entities.Lists = append(entities.Lists, user.Following())
 	}
-	for _, l := range task.Lists {
-		fmt.Printf("    - %s\n", l.Title())
-	}
+
+	return entities
 }

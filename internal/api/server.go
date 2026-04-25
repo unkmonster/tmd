@@ -14,6 +14,8 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/unkmonster/tmd/internal/config"
+	"github.com/unkmonster/tmd/internal/service"
+	"github.com/unkmonster/tmd/internal/twitter"
 )
 
 // Server API Server
@@ -24,7 +26,8 @@ type Server struct {
 	config            *config.Config
 	appRootPath       string
 	taskManager       *TaskManager
-	asyncExecutor     *AsyncExecutor
+	downloadService   service.DownloadService
+	sseMgr            *sseManager
 }
 
 // NewServer 创建 API Server
@@ -36,8 +39,18 @@ func NewServer(client *resty.Client, additionalClients []*resty.Client, db *sqlx
 		config:            config,
 		appRootPath:       appRootPath,
 		taskManager:       NewTaskManager(),
+		sseMgr:            newSSEManager(),
 	}
-	s.asyncExecutor = NewAsyncExecutor(s.taskManager, s)
+
+	// 创建 Service 层
+	s.downloadService = service.NewDownloadService(&service.Dependencies{
+		Client:            client,
+		AdditionalClients: additionalClients,
+		DB:                db,
+		Config:            config,
+		AppRootPath:       appRootPath,
+	})
+
 	return s
 }
 
@@ -200,13 +213,24 @@ func (s *Server) handleUserDownload(w http.ResponseWriter, r *http.Request, scre
 	// 创建任务
 	task := s.taskManager.CreateTask(TaskTypeUserDownload, &req)
 
-	// 构建参数并执行
-	args, err := BuildArgs(TaskTypeUserDownload, &req)
-	if err != nil {
-		s.writeError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to build args: %v", err))
-		return
+	// 构建下载选项
+	opts := service.DownloadOptions{
+		AutoFollow:  req.AutoFollow,
+		SkipProfile: req.SkipProfile,
+		NoRetry:     req.NoRetry,
 	}
-	s.asyncExecutor.Execute(task.ID, args)
+
+	// 创建进度报告器
+	reporter := NewSSEProgressReporter(s, task.ID)
+
+	// 异步执行
+	go func() {
+		s.taskManager.UpdateTaskStatus(task.ID, TaskStatusRunning)
+		err := s.downloadService.UserDownload(task.Ctx, task.ID, screenName, opts, reporter)
+		if err != nil {
+			s.taskManager.SetTaskError(task.ID, err)
+		}
+	}()
 
 	s.writeJSON(w, http.StatusAccepted, NewSuccessResponse(map[string]interface{}{
 		"task_id":      task.ID,
@@ -231,9 +255,17 @@ func (s *Server) handleUserProfile(w http.ResponseWriter, r *http.Request, scree
 	// 创建任务
 	task := s.taskManager.CreateTask(TaskTypeProfileDownload, &req)
 
-	// 构建参数并执行
-	args, _ := BuildArgs(TaskTypeProfileDownload, &req)
-	s.asyncExecutor.Execute(task.ID, args)
+	// 创建进度报告器
+	reporter := NewSSEProgressReporter(s, task.ID)
+
+	// 异步执行
+	go func() {
+		s.taskManager.UpdateTaskStatus(task.ID, TaskStatusRunning)
+		err := s.downloadService.ProfileDownload(task.Ctx, task.ID, []string{screenName}, reporter)
+		if err != nil {
+			s.taskManager.SetTaskError(task.ID, err)
+		}
+	}()
 
 	s.writeJSON(w, http.StatusAccepted, NewSuccessResponse(map[string]interface{}{
 		"task_id":     task.ID,
@@ -259,9 +291,32 @@ func (s *Server) handleUserMark(w http.ResponseWriter, r *http.Request, screenNa
 	// 创建任务
 	task := s.taskManager.CreateTask(TaskTypeMarkDownloaded, &req)
 
-	// 构建参数并执行
-	args, _ := BuildArgs(TaskTypeMarkDownloaded, &req)
-	s.asyncExecutor.Execute(task.ID, args)
+	// 构建 markTime
+	var markTime *string
+	if req.Timestamp != nil {
+		t := req.Timestamp.Format("2006-01-02T15:04:05")
+		markTime = &t
+	}
+
+	// 创建进度报告器
+	reporter := NewSSEProgressReporter(s, task.ID)
+
+	// 异步执行
+	go func() {
+		s.taskManager.UpdateTaskStatus(task.ID, TaskStatusRunning)
+
+		// 获取用户对象
+		user, _, err := twitter.GetUserByScreenName(task.Ctx, s.client, screenName)
+		if err != nil {
+			s.taskManager.SetTaskError(task.ID, fmt.Errorf("failed to get user %s: %w", screenName, err))
+			return
+		}
+
+		err = s.downloadService.MarkDownloaded(task.Ctx, task.ID, []*twitter.User{user}, nil, markTime, reporter)
+		if err != nil {
+			s.taskManager.SetTaskError(task.ID, err)
+		}
+	}()
 
 	s.writeJSON(w, http.StatusAccepted, NewSuccessResponse(map[string]interface{}{
 		"task_id":     task.ID,
@@ -288,9 +343,24 @@ func (s *Server) handleFollowingDownload(w http.ResponseWriter, r *http.Request,
 	// 创建任务
 	task := s.taskManager.CreateTask(TaskTypeFollowingDownload, &req)
 
-	// 构建参数并执行
-	args, _ := BuildArgs(TaskTypeFollowingDownload, &req)
-	s.asyncExecutor.Execute(task.ID, args)
+	// 构建下载选项
+	opts := service.DownloadOptions{
+		AutoFollow:  req.AutoFollow,
+		SkipProfile: req.SkipProfile,
+		NoRetry:     req.NoRetry,
+	}
+
+	// 创建进度报告器
+	reporter := NewSSEProgressReporter(s, task.ID)
+
+	// 异步执行
+	go func() {
+		s.taskManager.UpdateTaskStatus(task.ID, TaskStatusRunning)
+		err := s.downloadService.FollowingDownload(task.Ctx, task.ID, screenName, opts, reporter)
+		if err != nil {
+			s.taskManager.SetTaskError(task.ID, err)
+		}
+	}()
 
 	s.writeJSON(w, http.StatusAccepted, NewSuccessResponse(map[string]interface{}{
 		"task_id":      task.ID,
@@ -347,9 +417,24 @@ func (s *Server) handleListDownload(w http.ResponseWriter, r *http.Request, list
 	// 创建任务
 	task := s.taskManager.CreateTask(TaskTypeListDownload, &req)
 
-	// 构建参数并执行
-	args, _ := BuildArgs(TaskTypeListDownload, &req)
-	s.asyncExecutor.Execute(task.ID, args)
+	// 构建下载选项
+	opts := service.DownloadOptions{
+		AutoFollow:  req.AutoFollow,
+		SkipProfile: req.SkipProfile,
+		NoRetry:     req.NoRetry,
+	}
+
+	// 创建进度报告器
+	reporter := NewSSEProgressReporter(s, task.ID)
+
+	// 异步执行
+	go func() {
+		s.taskManager.UpdateTaskStatus(task.ID, TaskStatusRunning)
+		err := s.downloadService.ListDownload(task.Ctx, task.ID, listID, opts, reporter)
+		if err != nil {
+			s.taskManager.SetTaskError(task.ID, err)
+		}
+	}()
 
 	s.writeJSON(w, http.StatusAccepted, NewSuccessResponse(map[string]interface{}{
 		"task_id":      task.ID,
@@ -373,9 +458,17 @@ func (s *Server) handleListProfile(w http.ResponseWriter, r *http.Request, listI
 
 	task := s.taskManager.CreateTask(TaskTypeListProfile, &req)
 
-	// 构建参数并执行
-	args, _ := BuildArgs(TaskTypeListProfile, &req)
-	s.asyncExecutor.Execute(task.ID, args)
+	// 创建进度报告器
+	reporter := NewSSEProgressReporter(s, task.ID)
+
+	// 异步执行
+	go func() {
+		s.taskManager.UpdateTaskStatus(task.ID, TaskStatusRunning)
+		err := s.downloadService.ListProfileDownload(task.Ctx, task.ID, listID, reporter)
+		if err != nil {
+			s.taskManager.SetTaskError(task.ID, err)
+		}
+	}()
 
 	s.writeJSON(w, http.StatusAccepted, NewSuccessResponse(map[string]interface{}{
 		"task_id": task.ID,
@@ -406,9 +499,17 @@ func (s *Server) handleJsonDownload(w http.ResponseWriter, r *http.Request) {
 	// 创建任务
 	task := s.taskManager.CreateTask(TaskTypeJsonDownload, &req)
 
-	// 构建参数并执行
-	args, _ := BuildArgs(TaskTypeJsonDownload, &req)
-	s.asyncExecutor.Execute(task.ID, args)
+	// 创建进度报告器
+	reporter := NewSSEProgressReporter(s, task.ID)
+
+	// 异步执行
+	go func() {
+		s.taskManager.UpdateTaskStatus(task.ID, TaskStatusRunning)
+		err := s.downloadService.JsonDownload(task.Ctx, task.ID, req.Paths, req.NoRetry, reporter)
+		if err != nil {
+			s.taskManager.SetTaskError(task.ID, err)
+		}
+	}()
 
 	s.writeJSON(w, http.StatusAccepted, NewSuccessResponse(map[string]interface{}{
 		"task_id":  task.ID,
@@ -440,9 +541,53 @@ func (s *Server) handleBatchDownload(w http.ResponseWriter, r *http.Request) {
 	// 创建任务
 	task := s.taskManager.CreateTask(TaskTypeBatchDownload, &req)
 
-	// 构建参数并执行
-	args, _ := BuildArgs(TaskTypeBatchDownload, &req)
-	s.asyncExecutor.Execute(task.ID, args)
+	// 构建下载选项
+	opts := service.DownloadOptions{
+		AutoFollow:  req.AutoFollow,
+		SkipProfile: req.SkipProfile,
+		NoRetry:     req.NoRetry,
+	}
+
+	// 创建进度报告器
+	reporter := NewSSEProgressReporter(s, task.ID)
+
+	// 异步执行
+	go func() {
+		s.taskManager.UpdateTaskStatus(task.ID, TaskStatusRunning)
+
+		// 获取用户对象
+		var users []*twitter.User
+		for _, screenName := range req.Users {
+			user, _, err := twitter.GetUserByScreenName(task.Ctx, s.client, screenName)
+			if err != nil {
+				log.Warnf("Failed to get user %s: %v", screenName, err)
+				continue
+			}
+			users = append(users, user)
+		}
+
+		// 获取列表对象
+		var lists []twitter.ListBase
+		for _, listID := range req.Lists {
+			list, err := twitter.GetLst(task.Ctx, s.client, listID)
+			if err != nil {
+				log.Warnf("Failed to get list %d: %v", listID, err)
+				continue
+			}
+			lists = append(lists, list)
+		}
+
+		// 检查是否全部解析失败
+		if len(users) == 0 && len(lists) == 0 {
+			s.taskManager.SetTaskError(task.ID, fmt.Errorf("all users and lists failed to resolve"))
+			return
+		}
+
+		err := s.downloadService.BatchDownload(task.Ctx, task.ID, users, lists, opts, reporter)
+		if err != nil {
+			s.taskManager.SetTaskError(task.ID, err)
+		}
+	}()
 
 	s.writeJSON(w, http.StatusAccepted, NewSuccessResponse(map[string]interface{}{
 		"task_id":      task.ID,

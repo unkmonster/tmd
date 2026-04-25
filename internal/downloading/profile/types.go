@@ -1,11 +1,8 @@
 package profile
 
 import (
-	"context"
 	"fmt"
 	"time"
-
-	"github.com/go-resty/resty/v2"
 )
 
 // ProfileInfo 用户资料信息
@@ -92,12 +89,6 @@ func DefaultConfig() *Config {
 		SkipUnchanged:    true,
 		AvatarQuality:    "400x400",
 	}
-}
-
-// Fetcher 远程数据获取器接口
-type Fetcher interface {
-	FetchProfile(ctx context.Context, screenName string) (*ProfileInfo, error)
-	Client() *resty.Client
 }
 
 // ProfileError 自定义错误类型

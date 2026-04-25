@@ -51,9 +51,11 @@ type Task struct {
 
 // TaskProgress 任务进度
 type TaskProgress struct {
-	Total     int `json:"total"`
-	Completed int `json:"completed"`
-	Failed    int `json:"failed"`
+	Stage     string `json:"stage"` // "syncing", "downloading", "retrying", "profile", "marking", "completed"
+	Total     int    `json:"total"`
+	Completed int    `json:"completed"`
+	Failed    int    `json:"failed"`
+	Current   string `json:"current"` // 当前处理的用户/列表
 }
 
 // TaskResult 任务结果

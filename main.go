@@ -22,6 +22,7 @@ import (
 	"github.com/unkmonster/tmd/internal/database"
 	"github.com/unkmonster/tmd/internal/downloading"
 	"github.com/unkmonster/tmd/internal/naming"
+	"github.com/unkmonster/tmd/internal/path"
 	"github.com/unkmonster/tmd/internal/twitter"
 )
 
@@ -182,7 +183,7 @@ func main() {
 		cli.SetClientLogger(c, cliLogFile)
 	}
 
-	pathHelper, err := cli.NewStorePath(conf.RootPath)
+	pathHelper, err := path.NewStorePath(conf.RootPath)
 	if err != nil {
 		log.Fatalln("failed to make store dir:", err)
 	}
@@ -245,7 +246,7 @@ func runServer(conf *config.Config, appRootPath string, port int) {
 	additional := twitter.BatchLogin(ctx, false, twitterCookies, screenName)
 
 	// 连接数据库
-	pathHelper, err := cli.NewStorePath(conf.RootPath)
+	pathHelper, err := path.NewStorePath(conf.RootPath)
 	if err != nil {
 		log.Fatalln("failed to make store dir:", err)
 	}

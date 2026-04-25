@@ -15,49 +15,35 @@ import (
 	"github.com/unkmonster/tmd/internal/utils"
 )
 
-var db *sqlx.DB
-
 /*
 创建
 改名
 */
-func init() {
-	var err error
-	path := filepath.Join(os.TempDir(), "test.db")
-	err = os.RemoveAll(path)
-	if err != nil {
-		panic(err)
-	}
-
-	dsn := fmt.Sprintf("file:%s?_journal_mode=WAL&cache=shared", path)
-	db, err = sqlx.Connect("sqlite3", dsn)
-	if err != nil {
-		panic(err)
-	}
-	database.CreateTables(db)
-}
-
 func TestUserEntity(t *testing.T) {
+	db := setupTestDB(t)
+	defer db.Close()
+
 	tempdir, err := os.MkdirTemp("", "")
 	if err != nil {
 		t.Error(err)
 		return
 	}
+	defer os.RemoveAll(tempdir)
 
 	name := "test"
 	uid := 0
 
 	os.RemoveAll(filepath.Join(tempdir, name))
-	testSyncUser(t, name, uid, tempdir, false)
+	testSyncUser(t, db, name, uid, tempdir, false)
 
 	// 改名
 	name = name + "renamed"
 	os.RemoveAll(filepath.Join(tempdir, name))
-	testSyncUser(t, name, uid, tempdir, true)
+	testSyncUser(t, db, name, uid, tempdir, true)
 
 	// 什么都不干
 	os.RemoveAll(filepath.Join(tempdir, name))
-	ue := testSyncUser(t, name, uid, tempdir, true)
+	ue := testSyncUser(t, db, name, uid, tempdir, true)
 
 	minTime, err := ue.LatestReleaseTime()
 	if err != nil {
@@ -128,24 +114,28 @@ func TestUserEntity(t *testing.T) {
 }
 
 func TestListEntity(t *testing.T) {
+	db := setupTestDB(t)
+	defer db.Close()
+
 	tempdir, err := os.MkdirTemp("", "")
 	if err != nil {
 		t.Error(err)
 		return
 	}
+	defer os.RemoveAll(tempdir)
 
 	name := "test"
 	uid := 0
 	os.RemoveAll(filepath.Join(tempdir, name))
-	testSyncList(t, name, uid, tempdir, false)
+	testSyncList(t, db, name, uid, tempdir, false)
 
 	// 改名
 	name = name + "renamed"
 	os.RemoveAll(filepath.Join(tempdir, name))
-	testSyncList(t, name, uid, tempdir, true)
+	testSyncList(t, db, name, uid, tempdir, true)
 
 	os.RemoveAll(filepath.Join(tempdir, name))
-	le := testSyncList(t, name, uid, tempdir, true)
+	le := testSyncList(t, db, name, uid, tempdir, true)
 
 	// remove
 	eid, err := le.Id()
@@ -196,7 +186,7 @@ func verifyDir(t *testing.T, e entity.Entity, wantPath string) {
 	}
 }
 
-func verifyUserRecord(t *testing.T, e entity.Entity, uid uint64, name string, parentDir string) *entity.UserEntity {
+func verifyUserRecord(t *testing.T, db *sqlx.DB, e entity.Entity, uid uint64, name string, parentDir string) *entity.UserEntity {
 	wantPath := filepath.Join(parentDir, name)
 	record, err := database.LocateUserEntity(db, uid, parentDir)
 	if err != nil {
@@ -228,7 +218,7 @@ func verifyUserRecord(t *testing.T, e entity.Entity, uid uint64, name string, pa
 	return e.(*entity.UserEntity)
 }
 
-func verifyLstRecord(t *testing.T, e entity.Entity, lid int64, name string, parentDir string) {
+func verifyLstRecord(t *testing.T, db *sqlx.DB, e entity.Entity, lid int64, name string, parentDir string) {
 	wantPath := filepath.Join(parentDir, name)
 	record, err := database.LocateLstEntity(db, lid, parentDir)
 	if err != nil {
@@ -259,7 +249,7 @@ func verifyLstRecord(t *testing.T, e entity.Entity, lid int64, name string, pare
 	}
 }
 
-func testSyncUser(t *testing.T, name string, uid int, parentdir string, exist bool) *entity.UserEntity {
+func testSyncUser(t *testing.T, db *sqlx.DB, name string, uid int, parentdir string, exist bool) *entity.UserEntity {
 	ue, err := entity.NewUserEntity(db, uint64(uid), parentdir)
 	if err != nil {
 		t.Error(err)
@@ -280,7 +270,7 @@ func testSyncUser(t *testing.T, name string, uid int, parentdir string, exist bo
 	wantPath := filepath.Join(parentdir, name)
 	verifyDir(t, ue, wantPath)
 
-	verifyUserRecord(t, ue, uint64(uid), name, parentdir)
+	verifyUserRecord(t, db, ue, uint64(uid), name, parentdir)
 
 	if ue.Uid() != uint64(uid) {
 		t.Errorf("uid: %d, want %d", ue.Uid(), uid)
@@ -288,7 +278,7 @@ func testSyncUser(t *testing.T, name string, uid int, parentdir string, exist bo
 	return ue
 }
 
-func testSyncList(t *testing.T, name string, lid int, parentDir string, exist bool) *entity.ListEntity {
+func testSyncList(t *testing.T, db *sqlx.DB, name string, lid int, parentDir string, exist bool) *entity.ListEntity {
 	le, err := entity.NewListEntity(db, int64(lid), parentDir)
 	if err != nil {
 		t.Error(err)
@@ -309,7 +299,7 @@ func testSyncList(t *testing.T, name string, lid int, parentDir string, exist bo
 	wantPath := filepath.Join(parentDir, name)
 	verifyDir(t, le, wantPath)
 
-	verifyLstRecord(t, le, int64(lid), name, parentDir)
+	verifyLstRecord(t, db, le, int64(lid), name, parentDir)
 	return le
 }
 
@@ -349,6 +339,7 @@ func TestDumper(t *testing.T) {
 		t.Error(err)
 		return
 	}
+	defer os.Remove(f.Name())
 
 	if err := dumper.Dump(f.Name()); err != nil {
 		t.Error(err)

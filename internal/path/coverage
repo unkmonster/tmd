@@ -1,0 +1,8 @@
+mode: set
+github.com/unkmonster/tmd/internal/path/store.go:18.52,25.51 6 1
+github.com/unkmonster/tmd/internal/path/store.go:25.51,27.3 1 0
+github.com/unkmonster/tmd/internal/path/store.go:28.2,28.52 1 1
+github.com/unkmonster/tmd/internal/path/store.go:28.52,30.3 1 0
+github.com/unkmonster/tmd/internal/path/store.go:31.2,31.51 1 1
+github.com/unkmonster/tmd/internal/path/store.go:31.51,33.3 1 0
+github.com/unkmonster/tmd/internal/path/store.go:34.2,34.16 1 1

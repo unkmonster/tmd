@@ -1875,6 +1875,20 @@ const pages = {
 // ============================================
 // Helper Functions
 // ============================================
+
+function getStageText(stage) {
+  const stageMap = {
+    'preparing': ' · 准备中',
+    'syncing': ' · 同步列表',
+    'downloading': ' · 下载中',
+    'retrying': ' · 重试中',
+    'profile': ' · 下载资料',
+    'marking': ' · 标记中',
+    'completed': ''
+  };
+  return stageMap[stage] || (stage ? ` · ${stage}` : '');
+}
+
 function renderTaskItem(task, showCheckbox = false) {
   const statusMap = {
     queued: { tag: 'tag-queued', text: '排队' },
@@ -1885,11 +1899,14 @@ function renderTaskItem(task, showCheckbox = false) {
   };
   
   const status = statusMap[task.status] || statusMap.queued;
-  const pct = task.progress && task.progress.total ? 
+  const pct = task.progress && task.progress.total ?
     Math.round((task.progress.completed || 0) / task.progress.total * 100) : 0;
-  
+
+  const stageText = task.progress?.stage ? getStageText(task.progress.stage) : '';
+  const currentText = task.progress?.current ? ` · ${task.progress.current}` : '';
+
   const target = task.data?.screen_name || task.data?.list_id || 'Unknown';
-  
+
   return `
     <div class="task-item" onclick="showTaskDetail('${task.task_id}')">
       ${showCheckbox ? `<div class="task-checkbox"><input type="checkbox" class="form-checkbox" data-task-id="${task.task_id}"></div>` : ''}
@@ -1905,11 +1922,11 @@ function renderTaskItem(task, showCheckbox = false) {
         <div class="progress-bar">
           <div class="progress-fill" style="width: ${pct}%"></div>
         </div>
-        <div class="task-progress-text">${pct}%</div>
+        <div class="task-progress-text">${pct}%${stageText}${currentText}</div>
       </div>
       <div class="task-actions" onclick="event.stopPropagation()">
-        ${task.status === 'running' || task.status === 'queued' ? 
-          `<button class="btn btn-danger btn-sm" onclick="cancelTask('${task.task_id}')">取消</button>` : 
+        ${task.status === 'running' || task.status === 'queued' ?
+          `<button class="btn btn-danger btn-sm" onclick="cancelTask('${task.task_id}')">取消</button>` :
           `<button class="btn btn-ghost btn-sm" onclick="showTaskDetail('${task.task_id}')">详情</button>`
         }
       </div>
@@ -2712,9 +2729,12 @@ function showTaskDetail(id) {
     cancelled: '已取消'
   };
   
-  const pct = task.progress && task.progress.total ? 
+  const pct = task.progress && task.progress.total ?
     Math.round((task.progress.completed || 0) / task.progress.total * 100) : 0;
-  
+
+  const stageText = task.progress?.stage ? getStageText(task.progress.stage) : '';
+  const currentText = task.progress?.current ? ` · ${task.progress.current}` : '';
+
   const content = `
     <div class="form-group">
       <label class="form-label">任务 ID</label>
@@ -2733,7 +2753,8 @@ function showTaskDetail(id) {
       <div class="progress-bar" style="margin-bottom: var(--space-2);">
         <div class="progress-fill" style="width: ${pct}%"></div>
       </div>
-      <div class="text-sm text-secondary">${task.progress?.completed || 0} / ${task.progress?.total || 0} (${pct}%)</div>
+      <div class="text-sm text-secondary">${task.progress?.completed || 0} / ${task.progress?.total || 0} (${pct}%)${stageText}${currentText}</div>
+      ${task.progress?.failed ? `<div class="text-sm" style="color: var(--danger); margin-top: 4px;">失败: ${task.progress.failed}</div>` : ''}
     </div>
     <div class="form-group">
       <label class="form-label">创建时间</label>

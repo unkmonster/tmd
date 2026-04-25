@@ -1,4 +1,4 @@
-package database
+package database_test
 
 import (
 	"database/sql"
@@ -12,6 +12,8 @@ import (
 
 	"github.com/jmoiron/sqlx"
 	_ "github.com/mattn/go-sqlite3"
+
+	"github.com/unkmonster/tmd/internal/database"
 )
 
 var db *sqlx.DB
@@ -30,12 +32,12 @@ func opentmpdb() *sqlx.DB {
 		panic(err)
 	}
 
-	CreateTables(db)
+	database.CreateTables(db)
 	return db
 }
 
-func generateUser(n int) *User {
-	usr := &User{}
+func generateUser(n int) *database.User {
+	usr := &database.User{}
 	usr.Id = uint64(n)
 	name := fmt.Sprintf("user%d", n)
 	usr.ScreenName = name
@@ -48,7 +50,7 @@ func TestUserOperation(t *testing.T) {
 	defer db.Close()
 
 	n := 100
-	users := make([]*User, n)
+	users := make([]*database.User, n)
 	for i := 0; i < n; i++ {
 		users[i] = generateUser(i)
 	}
@@ -58,9 +60,9 @@ func TestUserOperation(t *testing.T) {
 	}
 }
 
-func testUser(t *testing.T, usr *User) {
+func testUser(t *testing.T, usr *database.User) {
 	// create
-	if err := CreateUser(db, usr); err != nil {
+	if err := database.CreateUser(db, usr); err != nil {
 		t.Error(err)
 		return
 	}
@@ -77,7 +79,7 @@ func testUser(t *testing.T, usr *User) {
 
 	// update
 	usr.Name = "renamed"
-	if err := UpdateUser(db, usr); err != nil {
+	if err := database.UpdateUser(db, usr); err != nil {
 		t.Error(err)
 		return
 	}
@@ -93,19 +95,19 @@ func testUser(t *testing.T, usr *User) {
 	}
 
 	// record previous name
-	if err = RecordUserPreviousName(db, usr.Id, usr.Name, usr.ScreenName); err != nil {
+	if err = database.RecordUserPreviousName(db, usr.Id, usr.Name, usr.ScreenName); err != nil {
 		t.Error(err)
 		return
 	}
 }
 
-func hasSameUserRecord(usr *User) (bool, error) {
-	retrieved, err := GetUserById(db, usr.Id)
+func hasSameUserRecord(usr *database.User) (bool, error) {
+	retrieved, err := database.GetUserById(db, usr.Id)
 	return retrieved != nil && *retrieved == *usr, err
 }
 
-func generateList(id int) *Lst {
-	lst := &Lst{}
+func generateList(id int) *database.Lst {
+	lst := &database.Lst{}
 	lst.Id = uint64(id)
 	lst.Name = fmt.Sprintf("lst%d", id)
 	return lst
@@ -115,14 +117,14 @@ func TestList(t *testing.T) {
 	db = opentmpdb()
 	defer db.Close()
 	n := 100
-	lsts := make([]*Lst, n)
+	lsts := make([]*database.Lst, n)
 	for i := 0; i < n; i++ {
 		lsts[i] = generateList(i)
 	}
 
 	for _, lst := range lsts {
 		// create
-		if err := CreateLst(db, lst); err != nil {
+		if err := database.CreateLst(db, lst); err != nil {
 			t.Error(err)
 			return
 		}
@@ -140,7 +142,7 @@ func TestList(t *testing.T) {
 
 		// update
 		lst.Name = "renamed"
-		if err = UpdateLst(db, lst); err != nil {
+		if err = database.UpdateLst(db, lst); err != nil {
 			t.Error(err)
 			return
 		}
@@ -156,8 +158,8 @@ func TestList(t *testing.T) {
 	}
 }
 
-func isSameLstRecord(lst *Lst) (bool, error) {
-	record, err := GetLst(db, lst.Id)
+func isSameLstRecord(lst *database.Lst) (bool, error) {
+	record, err := database.GetLst(db, lst.Id)
 	return record != nil && *record == *lst, err
 }
 
@@ -165,7 +167,7 @@ func TestUserEntity(t *testing.T) {
 	db = opentmpdb()
 	defer db.Close()
 	n := 100
-	entities := make([]*UserEntity, n)
+	entities := make([]*database.UserEntity, n)
 	tempDir := os.TempDir()
 	for i := 0; i < n; i++ {
 		entities[i] = generateUserEntity(uint64(i), tempDir)
@@ -185,7 +187,7 @@ func TestUserEntity(t *testing.T) {
 		}
 
 		// create
-		if err := CreateUserEntity(db, entity); err != nil {
+		if err := database.CreateUserEntity(db, entity); err != nil {
 			t.Error(err)
 			return
 		}
@@ -203,7 +205,7 @@ func TestUserEntity(t *testing.T) {
 
 		// update
 		entity.Name = entity.Name + "renamed"
-		if err := UpdateUserEntity(db, entity); err != nil {
+		if err := database.UpdateUserEntity(db, entity); err != nil {
 			t.Error(err)
 			return
 		}
@@ -219,14 +221,14 @@ func TestUserEntity(t *testing.T) {
 
 		// latest release time
 		now := time.Now()
-		if err = UpdateUserEntityTweetStat(db, int(NullInt32(entity.Id)), now, 25); err != nil {
+		if err = database.UpdateUserEntityTweetStat(db, int(database.NullInt32(entity.Id)), now, 25); err != nil {
 			t.Error(err)
 			return
 		}
 		entity.MediaCount.Scan(25)
 
 		// locate
-		record, err := LocateUserEntity(db, entity.Uid, tempDir)
+		record, err := database.LocateUserEntity(db, entity.Uid, tempDir)
 		if err != nil {
 			t.Error(err)
 			return
@@ -247,7 +249,7 @@ func TestUserEntity(t *testing.T) {
 		}
 
 		// delete
-		if err = DelUserEntity(db, uint32(NullInt32(entity.Id))); err != nil {
+		if err = database.DelUserEntity(db, uint32(database.NullInt32(entity.Id))); err != nil {
 			t.Error(err)
 			return
 		}
@@ -263,10 +265,10 @@ func TestUserEntity(t *testing.T) {
 	}
 }
 
-func generateUserEntity(uid uint64, pdir string) *UserEntity {
-	ue := UserEntity{}
+func generateUserEntity(uid uint64, pdir string) *database.UserEntity {
+	ue := database.UserEntity{}
 	user := generateUser(int(uid))
-	if err := CreateUser(db, user); err != nil {
+	if err := database.CreateUser(db, user); err != nil {
 		panic(err)
 	}
 
@@ -276,8 +278,8 @@ func generateUserEntity(uid uint64, pdir string) *UserEntity {
 	return &ue
 }
 
-func hasSameUserEntityRecord(entity *UserEntity) (bool, error) {
-	record, err := GetUserEntity(db, int(NullInt32(entity.Id)))
+func hasSameUserEntityRecord(entity *database.UserEntity) (bool, error) {
+	record, err := database.GetUserEntity(db, int(database.NullInt32(entity.Id)))
 	return record != nil && *record == *entity, err
 }
 
@@ -286,7 +288,7 @@ func TestLstEntity(t *testing.T) {
 	defer db.Close()
 	tempdir := os.TempDir()
 	n := 100
-	entities := make([]*LstEntity, n)
+	entities := make([]*database.LstEntity, n)
 	for i := 0; i < n; i++ {
 		entities[i] = generateLstEntity(int64(i), tempdir)
 	}
@@ -304,7 +306,7 @@ func TestLstEntity(t *testing.T) {
 			return
 		}
 		// create
-		if err := CreateLstEntity(db, entity); err != nil {
+		if err := database.CreateLstEntity(db, entity); err != nil {
 			t.Error(err)
 			return
 		}
@@ -321,7 +323,7 @@ func TestLstEntity(t *testing.T) {
 
 		// update
 		entity.Name = entity.Name + "renamed"
-		if err = UpdateLstEntity(db, entity); err != nil {
+		if err = database.UpdateLstEntity(db, entity); err != nil {
 			t.Error(err)
 			return
 		}
@@ -336,7 +338,7 @@ func TestLstEntity(t *testing.T) {
 		}
 
 		// locate
-		record, err := LocateLstEntity(db, entity.LstId, entity.ParentDir)
+		record, err := database.LocateLstEntity(db, entity.LstId, entity.ParentDir)
 		if err != nil {
 			t.Error(err)
 			return
@@ -347,7 +349,7 @@ func TestLstEntity(t *testing.T) {
 		}
 
 		// delete
-		if err = DelLstEntity(db, int(NullInt32(entity.Id))); err != nil {
+		if err = database.DelLstEntity(db, int(database.NullInt32(entity.Id))); err != nil {
 			t.Error(err)
 			return
 		}
@@ -363,20 +365,20 @@ func TestLstEntity(t *testing.T) {
 	}
 }
 
-func generateLstEntity(lid int64, pdir string) *LstEntity {
+func generateLstEntity(lid int64, pdir string) *database.LstEntity {
 	lst := generateList(int(lid))
-	if err := CreateLst(db, lst); err != nil {
+	if err := database.CreateLst(db, lst); err != nil {
 		panic(err)
 	}
-	entity := LstEntity{}
+	entity := database.LstEntity{}
 	entity.LstId = lid
 	entity.ParentDir = pdir
 	entity.Name = lst.Name
 	return &entity
 }
 
-func hasSameLstEntityRecord(entity *LstEntity) (bool, error) {
-	record, err := GetLstEntity(db, int(NullInt32(entity.Id)))
+func hasSameLstEntityRecord(entity *database.LstEntity) (bool, error) {
+	record, err := database.GetLstEntity(db, int(database.NullInt32(entity.Id)))
 	return record != nil && *record == *entity, err
 }
 
@@ -384,14 +386,14 @@ func TestLink(t *testing.T) {
 	db = opentmpdb()
 	defer db.Close()
 	n := 100
-	links := make([]*UserLink, n)
+	links := make([]*database.UserLink, n)
 	for i := 0; i < n; i++ {
 		links[i] = generateLink(i, i)
 	}
 
 	for _, link := range links {
 		// path
-		le, err := GetLstEntity(db, int(link.ParentLstEntityId))
+		le, err := database.GetLstEntity(db, int(link.ParentLstEntityId))
 		if err != nil {
 			t.Error(err)
 			return
@@ -413,7 +415,7 @@ func TestLink(t *testing.T) {
 		}
 
 		// c
-		if err := CreateUserLink(db, link); err != nil {
+		if err := database.CreateUserLink(db, link); err != nil {
 			t.Error(err)
 			return
 		}
@@ -429,7 +431,7 @@ func TestLink(t *testing.T) {
 			return
 		}
 
-		records, err := GetUserLinks(db, link.UserId)
+		records, err := database.GetUserLinks(db, link.UserId)
 		if err != nil {
 			t.Error(err)
 			return
@@ -441,7 +443,7 @@ func TestLink(t *testing.T) {
 
 		// u
 		link.Name = link.Name + "renamed"
-		if err = UpdateUserLink(db, link.Id, link.Name); err != nil {
+		if err = database.UpdateUserLink(db, link.Id, link.Name); err != nil {
 			t.Error(err)
 			return
 		}
@@ -457,22 +459,22 @@ func TestLink(t *testing.T) {
 	}
 }
 
-func generateLink(uid int, lid int) *UserLink {
+func generateLink(uid int, lid int) *database.UserLink {
 	usr := generateUser(uid)
 	le := generateLstEntity(int64(lid), os.TempDir())
-	if err := CreateLstEntity(db, le); err != nil {
+	if err := database.CreateLstEntity(db, le); err != nil {
 		panic(err)
 	}
 
-	ul := UserLink{}
+	ul := database.UserLink{}
 	ul.Name = fmt.Sprintf("%d-%d", lid, uid)
-	ul.ParentLstEntityId = NullInt32(le.Id)
+	ul.ParentLstEntityId = database.NullInt32(le.Id)
 	ul.UserId = usr.Id
 	return &ul
 }
 
-func hasSameUserLinkRecord(link *UserLink) (bool, error) {
-	record, err := GetUserLink(db, link.UserId, link.ParentLstEntityId)
+func hasSameUserLinkRecord(link *database.UserLink) (bool, error) {
+	record, err := database.GetUserLink(db, link.UserId, link.ParentLstEntityId)
 	return record != nil && *record == *link, err
 }
 
@@ -481,10 +483,10 @@ func benchmarkUpdateUser(b *testing.B, routines int) {
 	defer db.Close()
 
 	n := 500
-	users := make(chan *User, n)
+	users := make(chan *database.User, n)
 	for i := 0; i < n; i++ {
 		user := generateUser(i)
-		if err := CreateUser(db, user); err != nil {
+		if err := database.CreateUser(db, user); err != nil {
 			b.Error(err)
 			return
 		}
@@ -497,7 +499,7 @@ func benchmarkUpdateUser(b *testing.B, routines int) {
 	routine := func() {
 		defer wg.Done()
 		for user := range users {
-			if err := UpdateUser(db, user); err != nil {
+			if err := database.UpdateUser(db, user); err != nil {
 				b.Error(err)
 			}
 		}
@@ -535,15 +537,15 @@ func TestSetUserAccessible(t *testing.T) {
 
 	t.Run("update_existing_user_to_inaccessible", func(t *testing.T) {
 		usr := generateUser(1)
-		if err := CreateUser(db, usr); err != nil {
+		if err := database.CreateUser(db, usr); err != nil {
 			t.Fatalf("failed to create user: %v", err)
 		}
 
-		if err := SetUserAccessible(db, usr.Id, false); err != nil {
+		if err := database.SetUserAccessible(db, usr.Id, false); err != nil {
 			t.Fatalf("SetUserAccessible failed: %v", err)
 		}
 
-		retrieved, err := GetUserById(db, usr.Id)
+		retrieved, err := database.GetUserById(db, usr.Id)
 		if err != nil {
 			t.Fatalf("GetUserById failed: %v", err)
 		}
@@ -555,15 +557,15 @@ func TestSetUserAccessible(t *testing.T) {
 	t.Run("update_existing_user_back_to_accessible", func(t *testing.T) {
 		usr := generateUser(2)
 		usr.IsAccessible = false
-		if err := CreateUser(db, usr); err != nil {
+		if err := database.CreateUser(db, usr); err != nil {
 			t.Fatalf("failed to create user: %v", err)
 		}
 
-		if err := SetUserAccessible(db, usr.Id, true); err != nil {
+		if err := database.SetUserAccessible(db, usr.Id, true); err != nil {
 			t.Fatalf("SetUserAccessible failed: %v", err)
 		}
 
-		retrieved, err := GetUserById(db, usr.Id)
+		retrieved, err := database.GetUserById(db, usr.Id)
 		if err != nil {
 			t.Fatalf("GetUserById failed: %v", err)
 		}
@@ -575,7 +577,7 @@ func TestSetUserAccessible(t *testing.T) {
 	t.Run("error_when_user_not_exists", func(t *testing.T) {
 		newUID := uint64(99999)
 
-		err := SetUserAccessible(db, newUID, false)
+		err := database.SetUserAccessible(db, newUID, false)
 		if err == nil {
 			t.Fatal("expected error for non-existent user, got nil")
 		}
@@ -586,7 +588,7 @@ func TestSetUserAccessible(t *testing.T) {
 		}
 
 		// 确认用户确实没有被创建
-		retrieved, err := GetUserById(db, newUID)
+		retrieved, err := database.GetUserById(db, newUID)
 		if err != nil {
 			t.Fatalf("GetUserById failed: %v", err)
 		}
@@ -597,18 +599,18 @@ func TestSetUserAccessible(t *testing.T) {
 
 	t.Run("idempotent_on_same_value", func(t *testing.T) {
 		usr := generateUser(3)
-		if err := CreateUser(db, usr); err != nil {
+		if err := database.CreateUser(db, usr); err != nil {
 			t.Fatalf("failed to create user: %v", err)
 		}
 
-		if err := SetUserAccessible(db, usr.Id, true); err != nil {
+		if err := database.SetUserAccessible(db, usr.Id, true); err != nil {
 			t.Fatalf("first SetUserAccessible failed: %v", err)
 		}
-		if err := SetUserAccessible(db, usr.Id, true); err != nil {
+		if err := database.SetUserAccessible(db, usr.Id, true); err != nil {
 			t.Fatalf("second SetUserAccessible (same value) failed: %v", err)
 		}
 
-		retrieved, err := GetUserById(db, usr.Id)
+		retrieved, err := database.GetUserById(db, usr.Id)
 		if err != nil {
 			t.Fatalf("GetUserById failed: %v", err)
 		}
@@ -624,7 +626,7 @@ func TestSetUserAccessibleConcurrent(t *testing.T) {
 
 	const n = 100
 	for i := 0; i < n; i++ {
-		usr := &User{
+		usr := &database.User{
 			Id:           uint64(i),
 			ScreenName:   fmt.Sprintf("concurrent_user_%d", i),
 			Name:         fmt.Sprintf("Concurrent User %d", i),
@@ -632,7 +634,7 @@ func TestSetUserAccessibleConcurrent(t *testing.T) {
 			FriendsCount: 0,
 			IsAccessible: true,
 		}
-		if err := CreateUser(db, usr); err != nil {
+		if err := database.CreateUser(db, usr); err != nil {
 			t.Fatalf("failed to pre-create user %d: %v", i, err)
 		}
 	}
@@ -642,7 +644,7 @@ func TestSetUserAccessibleConcurrent(t *testing.T) {
 		wg.Add(1)
 		go func(uid uint64) {
 			defer wg.Done()
-			if err := SetUserAccessible(db, uid, uid%2 == 0); err != nil {
+			if err := database.SetUserAccessible(db, uid, uid%2 == 0); err != nil {
 				t.Error(err)
 			}
 		}(uint64(i))
@@ -650,7 +652,7 @@ func TestSetUserAccessibleConcurrent(t *testing.T) {
 	wg.Wait()
 
 	for i := 0; i < n; i++ {
-		usr, err := GetUserById(db, uint64(i))
+		usr, err := database.GetUserById(db, uint64(i))
 		if err != nil {
 			t.Errorf("GetUserById(%d) failed: %v", i, err)
 			continue
@@ -706,7 +708,7 @@ CREATE TABLE users (
 			t.Fatal("old table should not have is_accessible column before migration")
 		}
 
-		if err := MigrateDatabase(oldDB); err != nil {
+		if err := database.MigrateDatabase(oldDB); err != nil {
 			t.Fatalf("MigrateDatabase failed: %v", err)
 		}
 
@@ -732,18 +734,18 @@ CREATE TABLE users (
 		testDB := opentmpdb()
 		defer testDB.Close()
 
-		if err := MigrateDatabase(testDB); err != nil {
+		if err := database.MigrateDatabase(testDB); err != nil {
 			t.Fatalf("first MigrateDatabase failed: %v", err)
 		}
-		if err := MigrateDatabase(testDB); err != nil {
+		if err := database.MigrateDatabase(testDB); err != nil {
 			t.Fatalf("second MigrateDatabase (idempotent) failed: %v", err)
 		}
 
 		usr := generateUser(42)
-		if err := CreateUser(testDB, usr); err != nil {
+		if err := database.CreateUser(testDB, usr); err != nil {
 			t.Fatalf("CreateUser after double migration failed: %v", err)
 		}
-		retrieved, err := GetUserById(testDB, usr.Id)
+		retrieved, err := database.GetUserById(testDB, usr.Id)
 		if err != nil {
 			t.Fatalf("GetUserById failed: %v", err)
 		}
@@ -758,7 +760,7 @@ func TestIsAccessibleInCRUD(t *testing.T) {
 	defer db.Close()
 
 	t.Run("create_with_is_accessible_true", func(t *testing.T) {
-		usr := &User{
+		usr := &database.User{
 			Id:           100,
 			ScreenName:   "acc_true",
 			Name:         "Acc True",
@@ -766,18 +768,18 @@ func TestIsAccessibleInCRUD(t *testing.T) {
 			FriendsCount: 50,
 			IsAccessible: true,
 		}
-		if err := CreateUser(db, usr); err != nil {
+		if err := database.CreateUser(db, usr); err != nil {
 			t.Fatalf("CreateUser failed: %v", err)
 		}
 
-		retrieved, _ := GetUserById(db, usr.Id)
+		retrieved, _ := database.GetUserById(db, usr.Id)
 		if retrieved.IsAccessible != true {
 			t.Errorf("after create: IsAccessible = %v, want true", retrieved.IsAccessible)
 		}
 	})
 
 	t.Run("create_with_is_accessible_false", func(t *testing.T) {
-		usr := &User{
+		usr := &database.User{
 			Id:           101,
 			ScreenName:   "acc_false",
 			Name:         "Acc False",
@@ -785,11 +787,11 @@ func TestIsAccessibleInCRUD(t *testing.T) {
 			FriendsCount: 0,
 			IsAccessible: false,
 		}
-		if err := CreateUser(db, usr); err != nil {
+		if err := database.CreateUser(db, usr); err != nil {
 			t.Fatalf("CreateUser failed: %v", err)
 		}
 
-		retrieved, _ := GetUserById(db, usr.Id)
+		retrieved, _ := database.GetUserById(db, usr.Id)
 		if retrieved.IsAccessible != false {
 			t.Errorf("after create: IsAccessible = %v, want false", retrieved.IsAccessible)
 		}
@@ -797,33 +799,33 @@ func TestIsAccessibleInCRUD(t *testing.T) {
 
 	t.Run("update_is_accessible_flip", func(t *testing.T) {
 		usr := generateUser(102)
-		if err := CreateUser(db, usr); err != nil {
+		if err := database.CreateUser(db, usr); err != nil {
 			t.Fatalf("CreateUser failed: %v", err)
 		}
 
 		usr.IsAccessible = false
-		if err := UpdateUser(db, usr); err != nil {
+		if err := database.UpdateUser(db, usr); err != nil {
 			t.Fatalf("UpdateUser failed: %v", err)
 		}
 
-		retrieved, _ := GetUserById(db, usr.Id)
+		retrieved, _ := database.GetUserById(db, usr.Id)
 		if retrieved.IsAccessible != false {
 			t.Errorf("after update to false: IsAccessible = %v, want false", retrieved.IsAccessible)
 		}
 
 		usr.IsAccessible = true
-		if err := UpdateUser(db, usr); err != nil {
+		if err := database.UpdateUser(db, usr); err != nil {
 			t.Fatalf("UpdateUser failed: %v", err)
 		}
 
-		retrieved, _ = GetUserById(db, usr.Id)
+		retrieved, _ = database.GetUserById(db, usr.Id)
 		if retrieved.IsAccessible != true {
 			t.Errorf("after update back to true: IsAccessible = %v, want true", retrieved.IsAccessible)
 		}
 	})
 
 	t.Run("update_preserves_other_fields", func(t *testing.T) {
-		usr := &User{
+		usr := &database.User{
 			Id:           103,
 			ScreenName:   "preserve_test",
 			Name:         "Preserve Test",
@@ -831,17 +833,17 @@ func TestIsAccessibleInCRUD(t *testing.T) {
 			FriendsCount: 999,
 			IsAccessible: true,
 		}
-		if err := CreateUser(db, usr); err != nil {
+		if err := database.CreateUser(db, usr); err != nil {
 			t.Fatalf("CreateUser failed: %v", err)
 		}
 
 		usr.IsAccessible = false
 		usr.FriendsCount = 123
-		if err := UpdateUser(db, usr); err != nil {
+		if err := database.UpdateUser(db, usr); err != nil {
 			t.Fatalf("UpdateUser failed: %v", err)
 		}
 
-		retrieved, _ := GetUserById(db, usr.Id)
+		retrieved, _ := database.GetUserById(db, usr.Id)
 		if retrieved.ScreenName != usr.ScreenName {
 			t.Errorf("ScreenName changed: got %q, want %q", retrieved.ScreenName, usr.ScreenName)
 		}

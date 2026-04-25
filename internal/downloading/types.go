@@ -26,6 +26,9 @@ func (pt TweetInEntity) GetTweet() *twitter.Tweet {
 }
 
 func (pt TweetInEntity) GetPath() string {
+	if pt.Entity == nil {
+		return ""
+	}
 	path, err := pt.Entity.Path()
 	if err != nil {
 		return ""

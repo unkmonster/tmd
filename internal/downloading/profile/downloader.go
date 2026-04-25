@@ -2,10 +2,12 @@ package profile
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sync"
 	"syscall"
 	"time"
@@ -16,6 +18,7 @@ import (
 	"github.com/unkmonster/tmd/internal/database"
 	"github.com/unkmonster/tmd/internal/downloader"
 	"github.com/unkmonster/tmd/internal/naming"
+	"github.com/unkmonster/tmd/internal/twitter"
 	"github.com/unkmonster/tmd/internal/utils"
 )
 
@@ -42,7 +45,7 @@ func ensureProfileDirs(userDir string) (string, error) {
 type ProfileDownloader struct {
 	config     *Config
 	storage    *FileStorageManager
-	fetcher    Fetcher
+	client     *resty.Client
 	db         *sqlx.DB
 	downloader downloader.Downloader
 	fileWriter downloader.FileWriter
@@ -64,25 +67,27 @@ func validateAndDefaultConfig(config *Config, storage *FileStorageManager, dwn d
 	return config
 }
 
-func NewProfileDownloaderWithClients(config *Config, storage *FileStorageManager, clients []*resty.Client, dwn downloader.Downloader, fw downloader.FileWriter) *ProfileDownloader {
-	config = validateAndDefaultConfig(config, storage, dwn, fw)
-	fetcher := NewTwitterFetcherWithClients(clients)
-	return &ProfileDownloader{
-		config:     config,
-		storage:    storage,
-		fetcher:    fetcher,
-		downloader: dwn,
-		fileWriter: fw,
+// getClient 获取可用的HTTP客户端
+func getClient(clients []*resty.Client) *resty.Client {
+	// 优先选择没有错误的客户端
+	for _, client := range clients {
+		if client != nil && twitter.GetClientError(client) == nil {
+			return client
+		}
 	}
+	// 如果没有可用客户端，返回第一个（如果有）
+	if len(clients) > 0 {
+		return clients[0]
+	}
+	return nil
 }
 
 func NewProfileDownloaderWithDB(config *Config, storage *FileStorageManager, clients []*resty.Client, db *sqlx.DB, dwn downloader.Downloader, fw downloader.FileWriter) *ProfileDownloader {
 	config = validateAndDefaultConfig(config, storage, dwn, fw)
-	fetcher := NewTwitterFetcherWithClients(clients)
 	return &ProfileDownloader{
 		config:     config,
 		storage:    storage,
-		fetcher:    fetcher,
+		client:     getClient(clients),
 		db:         db,
 		downloader: dwn,
 		fileWriter: fw,
@@ -90,12 +95,12 @@ func NewProfileDownloaderWithDB(config *Config, storage *FileStorageManager, cli
 }
 
 type DownloadRequest struct {
-	ScreenName  string
+	ScreenName  string // 用户屏幕名 (@username)
 	UserTitle   string // 用于目录名，格式: Name(ScreenName)
 	Name        string // 纯净的显示名称(仅Name，不含ScreenName)
-	UserID      uint64
-	AvatarURL   string // 可选，如果提供则跳过API获取
-	BannerURL   string // 可选，如果提供则跳过API获取
+	UserID      uint64 // 用户ID（必需）
+	AvatarURL   string // 头像URL
+	BannerURL   string // 横幅URL（可选）
 	Description string // 用户简介
 	Location    string // 位置
 	URL         string // 个人链接
@@ -116,39 +121,37 @@ func (pd *ProfileDownloader) Download(ctx context.Context, req DownloadRequest) 
 		Files:      make([]FileResult, 0),
 	}
 
-	var profile *ProfileInfo
-	var err error
-
-	needAPICall := req.UserID == 0 || req.AvatarURL == ""
-
-	if needAPICall && pd.fetcher != nil {
-		// 调用API获取用户数据
-		log.Debugln("calling API to fetch profile data for:", req.ScreenName)
-		profile, err = pd.fetcher.FetchProfile(ctx, req.ScreenName)
-		if err != nil {
-			result.Error = fmt.Errorf("failed to fetch profile: %w", err)
-			if pd.db != nil {
-				database.MarkUserInaccessible(pd.db, 0, req.ScreenName)
-			}
-			return result, result.Error
+	// 数据完整性检查
+	if req.UserID == 0 {
+		result.Error = fmt.Errorf("incomplete profile data: UserID is required")
+		if pd.db != nil {
+			database.MarkUserInaccessible(pd.db, 0, req.ScreenName)
 		}
-	} else {
-		// 使用预获取的数据
-		profile = &ProfileInfo{
-			ID:          req.UserID,
-			Name:        req.Name,
-			ScreenName:  req.ScreenName,
-			AvatarURL:   req.AvatarURL,
-			BannerURL:   req.BannerURL,
-			Description: req.Description,
-			Location:    req.Location,
-			URL:         req.URL,
-			Verified:    req.Verified,
-			Protected:   req.Protected,
-			CreatedAt:   req.CreatedAt,
-		}
-		log.Debugln("using pre-fetched profile data, no API call needed")
+		return result, result.Error
 	}
+	if req.Name == "" {
+		result.Error = fmt.Errorf("incomplete profile data: Name is required")
+		if pd.db != nil {
+			database.MarkUserInaccessible(pd.db, req.UserID, req.ScreenName)
+		}
+		return result, result.Error
+	}
+
+	// 直接使用传递的数据，不再调用API
+	profile := &ProfileInfo{
+		ID:          req.UserID,
+		Name:        req.Name,
+		ScreenName:  req.ScreenName,
+		AvatarURL:   req.AvatarURL,
+		BannerURL:   req.BannerURL,
+		Description: req.Description,
+		Location:    req.Location,
+		URL:         req.URL,
+		Verified:    req.Verified,
+		Protected:   req.Protected,
+		CreatedAt:   req.CreatedAt,
+	}
+	log.Debugln("using provided profile data for:", req.ScreenName)
 
 	result.Profile = profile
 	log.Debugln("profile fetched:", profile.Name, "(id:", profile.ID, ")")
@@ -160,6 +163,7 @@ func (pd *ProfileDownloader) Download(ctx context.Context, req DownloadRequest) 
 	userTitle = utils.WinFileNameWithMaxLen(userTitle, naming.MaxFileNameLen)
 
 	var userDir string
+	var err error
 
 	if pd.db != nil && profile.ID != 0 {
 		userDir, err = pd.syncUserDirectory(profile, userTitle, req.ScreenName)
@@ -378,11 +382,10 @@ func (pd *ProfileDownloader) downloadAvatar(ctx context.Context, userTitle, scre
 
 func (pd *ProfileDownloader) downloadFile(ctx context.Context, userTitle, screenName string, fileType FileType, url, defaultExt string, fetchedAt time.Time, label string) FileResult {
 	filePath := pd.storage.GetFilePathWithExt(userTitle, fileType, defaultExt)
-	client := pd.fetcher.Client()
 
 	downloadReq := downloader.DownloadRequest{
 		Context:     ctx,
-		Client:      client,
+		Client:      pd.client,
 		URL:         url,
 		Destination: filePath,
 		Options: downloader.DownloadOptions{
@@ -437,4 +440,19 @@ func (pd *ProfileDownloader) saveContent(userTitle string, fileType FileType, da
 		status = StatusSkipped
 	}
 	return FileResult{FileType: fileType, Status: status, FilePath: filePath, OldSize: result.OldSize, NewSize: result.NewSize}
+}
+
+var reNormalAvatarURL = regexp.MustCompile(`_normal(\.[a-zA-Z]+)$`)
+
+// GetHighResAvatarURL 获取高分辨率头像URL
+func GetHighResAvatarURL(url string, quality string) string {
+	if url == "" {
+		return ""
+	}
+	return reNormalAvatarURL.ReplaceAllString(url, "_"+quality+"$1")
+}
+
+// ProfileToJSON 将ProfileInfo转换为JSON
+func ProfileToJSON(profile *ProfileInfo) ([]byte, error) {
+	return json.MarshalIndent(profile, "", "  ")
 }
