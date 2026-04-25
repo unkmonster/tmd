@@ -92,11 +92,7 @@ Content-Type: application/json
   "data": {
     "task_id": "task_abc123",
     "status": "queued",
-    "user": {
-      "id": 44196397,
-      "screen_name": "elonmusk",
-      "name": "Elon Musk"
-    },
+    "screen_name": "elonmusk",
     "auto_follow": false,
     "skip_profile": false,
     "no_retry": false,
@@ -254,11 +250,7 @@ Content-Type: application/json
   "data": {
     "task_id": "task_jkl012",
     "status": "queued",
-    "user": {
-      "id": 44196397,
-      "screen_name": "elonmusk",
-      "name": "Elon Musk"
-    },
+    "screen_name": "elonmusk",
     "auto_follow": false,
     "skip_profile": false,
     "no_retry": false,
@@ -363,7 +355,6 @@ POST /api/v1/lists/{list_id}/profile
     "task_id": "task_pqr678",
     "status": "queued",
     "list_id": 123456789,
-    "user_count": 50,
     "message": "List profile download task queued"
   }
 }
@@ -520,9 +511,11 @@ GET /api/v1/tasks
         "type": "user_download",
         "status": "running",
         "progress": {
+          "stage": "downloading",
           "total": 100,
           "completed": 45,
-          "failed": 2
+          "failed": 2,
+          "current": "elonmusk"
         },
         "created_at": "2024-01-15T10:30:00Z",
         "started_at": "2024-01-15T10:30:05Z"
@@ -540,6 +533,28 @@ GET /api/v1/tasks
 - `completed` - 已完成
 - `failed` - 失败
 - `cancelled` - 已取消
+
+**进度阶段 (`stage`)：**
+
+- `syncing` - 同步中（获取用户/列表信息）
+- `downloading` - 下载中
+- `retrying` - 重试中
+- `profile` - 下载 Profile 中
+- `marking` - 标记已下载中
+- `completed` - 已完成
+
+**任务类型 (`type`)：**
+
+| 类型值 | 说明 |
+|--------|------|
+| `user_download` | 用户推文下载 |
+| `list_download` | 列表成员下载 |
+| `following_download` | 关注列表下载 |
+| `profile_download` | Profile 下载 |
+| `list_profile` | 列表成员 Profile 下载 |
+| `mark_downloaded` | 标记已下载 |
+| `json_download` | JSON 文件下载 |
+| `batch_download` | 批量下载 |
 
 **示例：**
 
@@ -575,9 +590,11 @@ GET /api/v1/tasks/{task_id}
     "type": "user_download",
     "status": "completed",
     "progress": {
+      "stage": "downloading",
       "total": 100,
       "completed": 100,
-      "failed": 0
+      "failed": 0,
+      "current": ""
     },
     "result": {
       "downloaded": 100,
@@ -671,10 +688,10 @@ curl -X POST http://localhost:25556/api/v1/tasks/task_abc123/cancel
 API Server 记录所有请求的详细信息：
 
 ```
-2024/01/15 10:30:00 127.0.0.1 GET /api/v1/tasks 200 2.3ms
+[GET] /api/v1/tasks 127.0.0.1 200 (2.3ms)
 ```
 
-日志包含：客户端 IP、HTTP 方法、请求路径、状态码、处理时间
+日志包含：HTTP 方法（方括号包围）、请求路径、客户端 IP、状态码、处理时间
 
 ### 响应写入错误处理
 
@@ -824,9 +841,9 @@ GET /api/v1/db/users
 {
   "success": true,
   "data": {
-    "users": [
+    "data": [
       {
-        "id": 44196397,
+        "id": "44196397",
         "screen_name": "elonmusk",
         "name": "Elon Musk",
         "protected": false,
@@ -834,14 +851,19 @@ GET /api/v1/db/users
         "is_accessible": true
       }
     ],
-    "total": 1
+    "total": 1,
+    "page": 1,
+    "pageSize": 20,
+    "totalPages": 1
   }
 }
 ```
 
 **说明：**
 
-- 返回数据库中最近 100 条用户记录
+- 返回数据库中用户记录（支持分页，默认每页 20 条）
+- 支持通用查询参数：`page`、`pageSize`、`sortBy`、`sortOrder`、`q`
+- 支持筛选参数：`accessible`（可访问状态）、`protected`（保护状态）
 - 用于 Web 界面数据浏览
 
 ***
@@ -860,14 +882,17 @@ GET /api/v1/db/lists
 {
   "success": true,
   "data": {
-    "lists": [
+    "data": [
       {
-        "id": 123456789,
+        "id": "123456789",
         "name": "Tech News",
-        "owner_uid": 44196397
+        "owner_uid": "44196397"
       }
     ],
-    "total": 1
+    "total": 1,
+    "page": 1,
+    "pageSize": 20,
+    "totalPages": 1
   }
 }
 ```
@@ -888,17 +913,20 @@ GET /api/v1/db/user-entities
 {
   "success": true,
   "data": {
-    "entities": [
+    "data": [
       {
-        "id": 1,
-        "user_id": 44196397,
+        "id": "1",
+        "user_id": "44196397",
         "name": "Elon Musk(elonmusk)",
         "latest_release_time": "2024-01-15 10:30:00",
         "parent_dir": "users",
         "media_count": 150
       }
     ],
-    "total": 1
+    "total": 1,
+    "page": 1,
+    "pageSize": 20,
+    "totalPages": 1
   }
 }
 ```
@@ -1589,6 +1617,9 @@ TASK_ID=$(curl -s -X POST http://localhost:25556/api/v1/lists/123456789/download
 | 端点                                        | 方法   | 功能               |
 | ----------------------------------------- | ---- | ---------------- |
 | `/`                                       | GET  | Web 管理界面首页     |
+| `/tasks`                                  | GET  | Web 任务页面（SPA路由） |
+| `/data`                                   | GET  | Web 数据浏览页（SPA路由） |
+| `/system`                                 | GET  | Web 系统配置页（SPA路由） |
 | `/static/*`                               | GET  | 静态资源（CSS/JS）   |
 | `/api/v1/sse/tasks`                       | GET  | SSE 实时任务推送     |
 | `/api/v1/config`                          | GET  | 获取系统配置（脱敏）  |

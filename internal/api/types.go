@@ -127,24 +127,6 @@ type DBEntityItem struct {
 	MediaCount        int32  `json:"media_count"`
 }
 
-// DBUserResponse 数据库用户响应
-type DBUserResponse struct {
-	Users []DBUserItem `json:"users"`
-	Total int          `json:"total"`
-}
-
-// DBListResponse 数据库列表响应
-type DBListResponse struct {
-	Lists []DBListItem `json:"lists"`
-	Total int          `json:"total"`
-}
-
-// DBEntityResponse 数据库用户实体响应
-type DBEntityResponse struct {
-	Entities []DBEntityItem `json:"entities"`
-	Total    int            `json:"total"`
-}
-
 // DBListEntityItem 数据库列表实体项
 type DBListEntityItem struct {
 	ID        string `json:"id"`

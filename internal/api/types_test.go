@@ -412,51 +412,6 @@ func TestDBEntityItem(t *testing.T) {
 	assert.JSONEq(t, `{"id":"1","user_id":"123","name":"entity_name","latest_release_time":"2024-01-01 12:00:00","parent_dir":"/data","media_count":50}`, string(bytes))
 }
 
-func TestDBUserResponse(t *testing.T) {
-	resp := DBUserResponse{
-		Users: []DBUserItem{
-			{ID: "1", ScreenName: "user1"},
-			{ID: "2", ScreenName: "user2"},
-		},
-		Total: 2,
-	}
-
-	bytes, err := json.Marshal(resp)
-	assert.NoError(t, err)
-
-	var decoded map[string]interface{}
-	err = json.Unmarshal(bytes, &decoded)
-	assert.NoError(t, err)
-	assert.Equal(t, float64(2), decoded["total"])
-	assert.NotNil(t, decoded["users"])
-}
-
-func TestDBListResponse(t *testing.T) {
-	resp := DBListResponse{
-		Lists: []DBListItem{
-			{ID: "1", Name: "list1"},
-		},
-		Total: 1,
-	}
-
-	bytes, err := json.Marshal(resp)
-	assert.NoError(t, err)
-	assert.Contains(t, string(bytes), `"total":1`)
-}
-
-func TestDBEntityResponse(t *testing.T) {
-	resp := DBEntityResponse{
-		Entities: []DBEntityItem{
-			{ID: "1", Name: "entity1"},
-		},
-		Total: 1,
-	}
-
-	bytes, err := json.Marshal(resp)
-	assert.NoError(t, err)
-	assert.Contains(t, string(bytes), `"total":1`)
-}
-
 func TestDBListEntityItem(t *testing.T) {
 	item := DBListEntityItem{
 		ID:        "1",

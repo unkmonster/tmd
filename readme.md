@@ -551,7 +551,8 @@ Twitter API 限制一段时间内过快的请求（例如某端点每15分钟仅
 | `-auto-follow` + 推文下载                 |  ✅  | 自动关注受保护用户               |
 | `-no-retry` + 推文下载                    |  ✅  | 失败不重试                   |
 | `-mark-downloaded` + `-mark-time`     |  ✅  | 指定标记时间                  |
-| `-mark-downloaded` + 推文下载             |  ⚠️ | 只标记，不下载                 |
+| `-mark-downloaded` + 推文下载             |  ⚠️  | **仅执行标记，不下载推文**（与稳定版不同） |
+| `-json` + `-mark-downloaded`            |  ⚠️  | **仅执行 JSON 下载**（与稳定版不同） |
 | `-conf` + 其他参数                        |  ⚠️ | 配置后退出，忽略其他              |
 | `-noprofile` + 推文下载参数                 |  ✅  | 下载推文但跳过 Profile         |
 | `-server` + `-port`                   |  ✅  | 指定 API Server 端口        |
@@ -593,7 +594,15 @@ Twitter API 限制一段时间内过快的请求（例如某端点每15分钟仅
 │                             │  │  - user_link.go: 用户链接    │
 └──────────┬──────────────────┘  └─────────────┬───────────────┘
            │                                    │
-┌──────────▼────────────────────────────────────┴─────────────┐
+┌──────────▼──────────────────────────────────────────────────┐
+│  internal/service (Service 层 - 业务编排)                    │
+│                                                             │
+│  - interfaces.go: DownloadService 接口定义                  │
+│  - download_service.go: 下载业务实现（用户/列表/批量/JSON/   │
+│    Profile/标记）                                           │
+│  - deps.go: 依赖定义与构造函数                              │
+│  - progress.go: 进度报告接口与实现                          │
+├─────────────────────────────────────────────────────────────┤
 │  internal/api (API Server 层 - Web 管理界面)                │
 │                                                             │
 │  - server.go: HTTP 服务器、路由注册、中间件                  │
@@ -601,16 +610,17 @@ Twitter API 限制一段时间内过快的请求（例如某端点每15分钟仅
 │  - db_handlers.go: 数据库管理 API (CRUD)                   │
 │  - types.go: API 请求/响应类型定义                          │
 │  - pagination.go: 分页工具                                  │
-│  - task_manager.go: 异步任务管理                            │
-│  - async_executor.go: 异步任务执行器                        │
-│  - sse.go: Server-Sent Events 实时推送                      │
-│  - middleware.go: HTTP 中间件 (日志、恢复)                  │
+│  - task_manager.go: 任务状态管理（创建/查询/取消/清理）          │
+│  - progress.go: SSE 进度推送                                │
+│  - middleware.go: HTTP 中间件 (日志、恢复、CORS)               │
 ├─────────────────────────────────────────────────────────────┤
 │  internal/cli (CLI 命令层)                                  │
-│  - executor.go: CLI 命令执行器                              │
+│  - executor.go: CLI 命令执行器（通过 Service 层调度）          │
 │  - args.go: 命令行参数解析                                  │
-│  - paths.go: 路径处理                                       │
-│  - helpers.go: CLI 辅助函数                                 │
+│  - helpers.go: CLI 辅助函数（ResolveUsersAndLists）         │
+├─────────────────────────────────────────────────────────────┤
+│  internal/path (路径管理层)                                 │
+│  - store.go: 存储路径定义与初始化（StorePath）                │
 ├─────────────────────────────────────────────────────────────┤
 │  internal/downloading (业务层 - 推文下载)                    │
 │                                                             │
@@ -626,14 +636,11 @@ Twitter API 限制一段时间内过快的请求（例如某端点每15分钟仅
 │  - dumper.go: 失败推文持久化                                 │
 │  - entity.go: TweetInEntity 封装                            │
 │  - list_download.go: 列表下载                               │
-└──────────┬──────────────────────────────────────────────────┘
-           │
-┌──────────▼──────────────────────────────────────────────────┐
-│  internal/profile (业务层 - 用户资料)                        │
-│  - fetcher.go: Twitter API 获取（复用 twitter 包）           │
+├─────────────────────────────────────────────────────────────┤
+│  internal/downloading/profile (业务层 - 用户资料)            │
 │  - downloader.go: Profile 下载调度                           │
 │  - storage.go: 文件存储与版本管理                            │
-│  - types.go: ProfileInfo / DownloadRequest 等类型定义        │
+│  - types.go: ProfileInfo / DownloadResult 等类型定义         │
 └──────────┬──────────────────────────────────────────────────┘
            │
 ┌──────────▼──────────────────────────────────────────────────┐
@@ -671,13 +678,83 @@ Twitter API 限制一段时间内过快的请求（例如某端点每15分钟仅
 
 | 原则       | 实现                                                                    |
 | -------- | --------------------------------------------------------------------- |
-| **分层解耦** | 应用层 → 配置层 → API/CLI/数据层 → 业务层 → 基础设施层                                    |
-| **依赖注入** | `downloader.Downloader` 接口注入到业务层，构造函数支持多客户端                           |
-| **单一职责** | 每个包职责明确，配置/下载/命名/存储/数据分离                                              |
-| **接口隔离** | 小接口设计（Entity, Downloader, FileWriter, VersionManager, PackagedTweet）  |
+| **分层解耦** | 应用层 → 配置层 → Service 层 → API/CLI/数据层 → 业务层 → 基础设施层              |
+| **Service 层** | CLI 和 API 共享 `DownloadService` 接口，统一业务逻辑编排                     |
+| **依赖注入** | `downloader.Downloader` 接口注入到业务层，构造函数支持多客户端                   |
+| **单一职责** | 每个包职责明确，配置/Service/下载/命名/存储/数据分离                              |
+| **接口隔离** | 小接口设计（DownloadService, Downloader, FileWriter, VersionManager）       |
 | **逻辑复用** | `database.SyncUser()` 统一用户同步，`database.MarkUserInaccessible()` 统一标记逻辑 |
-| **并发安全** | `sync.Mutex`/`sync.Map`/`atomic`/`context.Context`，协程池 (`ants`) 控制并发  |
+| **并发安全** | `sync.Mutex`/`sync.Map`/`atomic`/`context.Context`，协程池控制并发            |
 | **增量下载** | 基于 `latest_release_time` 的增量拉取，避免重复下载                                 |
+
+***
+
+## Service 层架构
+
+重构后的代码引入了 **Service 层**，将核心下载逻辑从 CLI 和 API 中抽象出来，实现代码复用和统一业务逻辑。
+
+### 设计目标
+
+| 目标 | 实现 |
+|------|------|
+| **统一业务逻辑** | CLI 和 API 共享同一套下载实现 |
+| **简化 CLI 层** | CLI 只负责参数解析和调用 Service |
+| **简化 API 层** | API 只负责 HTTP 路由和 SSE 推送 |
+| **便于测试** | Service 接口易于 Mock 和单元测试 |
+
+### DownloadService 接口
+
+```go
+type DownloadService interface {
+    // 用户下载（单用户）
+    UserDownload(ctx context.Context, taskID string, screenName string, opts DownloadOptions, reporter ProgressReporter) error
+    
+    // 列表下载（单列表）
+    ListDownload(ctx context.Context, taskID string, listID uint64, opts DownloadOptions, reporter ProgressReporter) error
+    
+    // 关注列表下载
+    FollowingDownload(ctx context.Context, taskID string, screenName string, opts DownloadOptions, reporter ProgressReporter) error
+    
+    // 批量下载（多用户/多列表）
+    BatchDownload(ctx context.Context, taskID string, users []*twitter.User, lists []twitter.ListBase, opts DownloadOptions, reporter ProgressReporter) error
+    
+    // Profile 下载（指定用户）
+    ProfileDownload(ctx context.Context, taskID string, screenNames []string, reporter ProgressReporter) error
+    
+    // 列表 Profile 下载
+    ListProfileDownload(ctx context.Context, taskID string, listID uint64, reporter ProgressReporter) error
+    
+    // JSON 文件下载
+    JsonDownload(ctx context.Context, taskID string, paths []string, noRetry bool, reporter ProgressReporter) error
+    
+    // 标记已下载
+	MarkDownloaded(ctx context.Context, taskID string, users []*twitter.User, lists []twitter.ListBase, markTime *string, reporter ProgressReporter) error
+}
+```
+
+### 调用关系
+
+```
+┌─────────────┐     ┌─────────────────┐     ┌─────────────────┐
+│   CLI 层    │────▶│  DownloadService │────▶│  downloading包  │
+│  executor   │     │  (业务编排)      │     │  (具体实现)     │
+└─────────────┘     └─────────────────┘     └─────────────────┘
+                           ▲
+┌─────────────┐            │
+│   API 层    │────────────┘
+│  handlers   │
+└─────────────┘
+```
+
+### 与稳定版的区别
+
+| 特性 | 稳定版 | 重构版 |
+|------|--------|--------|
+| CLI 实现 | 直接调用 downloading 包 | 通过 Service 层间接调用 |
+| API 实现 | 调用 CLI Execute | 直接调用 Service 层 |
+| 代码复用 | 低（CLI 和 API 各自实现） | 高（共享 Service） |
+| 可测试性 | 低 | 高（接口化设计） |
+| 实时进度 | 无 | SSE 推送 |
 
 ***
 
