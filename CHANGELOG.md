@@ -7,48 +7,64 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ***
 
-## [Unreleased] - 2026-04-24
+## [3.0.0] - 2026-04-24
 
 ### Changed
 
-#### 代码重构
+#### 架构重构
 
 | 文件 | 变更 |
 |------|------|
-| `internal/profile/*` | 删除，功能迁移至 `internal/downloading/profile/` |
-| `internal/downloading/profile/*` | 新增 profile 下载模块 |
-| `internal/cli/executor.go` | 精简，移除已拆分的功能 |
-| `internal/cli/executor_download.go` | 新增下载命令执行器 |
-| `internal/cli/executor_json.go` | 新增 JSON 处理执行器 |
-| `internal/cli/executor_mark.go` | 新增标记功能执行器 |
-| `internal/cli/executor_profile.go` | 新增 profile 下载执行器 |
-| `internal/cli/helpers.go` | 优化辅助函数 |
+| `internal/api/async_executor.go` | **删除** - 移除异步执行器 |
+| `internal/api/server.go` | 重构 - 简化任务创建流程 |
+| `internal/api/progress.go` | 新增 - 进度追踪模块 |
+| `internal/cli/executor.go` | 重构 - 整合执行器 |
+| `internal/cli/executor_*.go` | **删除** - 合并到主 executor |
+| `internal/cli/paths.go` | **移动** 到 `internal/path/store.go` |
+| `internal/service/` | 新增 - Service 层架构 |
+| `internal/path/` | 新增 - 路径管理模块 |
 
-**重构内容：**
-- 将 profile 相关功能从 `internal/profile/` 迁移至 `internal/downloading/profile/`
-- 将 `executor.go` 拆分为多个专用执行器文件，提高代码可维护性
-- 删除 `internal/profile/fetcher_test.go`（测试文件）
+**架构变更：**
+- 移除 `async_executor`，改为直接在 server 中处理任务
+- 新增 Service 层 (`internal/service/`)，实现业务逻辑分离
+- 新增 Path 模块 (`internal/path/`)，统一管理路径存储
+- 合并 CLI executor 文件，简化代码结构
+- 移除 `internal/profile/fetcher.go`
 
 #### API 优化
 
 | 文件 | 变更 |
 |------|------|
 | `internal/api/server.go` | 简化任务创建流程，移除同步 Twitter API 调用 |
-| `internal/api/async_executor.go` | 更新 ListProfile 任务参数构建逻辑 |
-| `internal/api/types.go` | 新增 `ListProfileTaskData` 类型 |
+| `internal/api/task_manager.go` | 优化任务管理 |
 
 **优化内容：**
-- 移除 `handleUserDownload`、`handleFollowingDownload`、`handleListProfile` 中的同步 Twitter API 调用
+- 移除任务创建时的同步 Twitter API 调用
 - 任务创建改为纯异步模式，提高响应速度
 - 简化 API 响应数据结构
-- 新增 `-profile-list` 参数支持列表 Profile 下载
+
+#### 测试增强
+
+| 文件 | 变更 |
+|------|------|
+| `internal/api/*_test.go` | 新增 11 个测试文件 |
+| `internal/cli/*_test.go` | 新增 3 个测试文件 |
+| `internal/database/test/` | 新增数据库测试套件 |
+| `internal/downloading/*_test.go` | 新增 12 个测试文件 |
+| `internal/service/*_test.go` | 新增 5 个测试文件 |
+
+**测试覆盖：**
+- 大幅扩展单元测试覆盖范围
+- 新增数据库集成测试
+- 新增 API 端点测试
+- 新增 Service 层测试
 
 ### Stats
 
-- **16 个文件变更**
-- **+326 行 / -503 行**
-- **新增文件：** 5 个
-- **删除文件：** 1 个
+- **87 个文件变更**
+- **+25,557 行 / -1,251 行**
+- **新增文件：** 64 个
+- **删除文件：** 6 个
 
 ***
 
