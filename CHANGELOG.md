@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ***
 
+## [3.0.1] - 2026-04-24
+
+### Fixed
+
+#### 数据库事务支持修复
+
+| 文件 | 变更 |
+|------|------|
+| `internal/database/model.go` | 修复 `UserLink.Path` 方法，添加 `Querier` 接口支持 |
+| `internal/downloading/list_sync.go` | 使用事务对象 `tx` 替代 `lsm.db` 确保数据一致性 |
+
+**修复内容：**
+- 新增 `Querier` 接口，支持 `*sqlx.DB` 和 `*sqlx.Tx` 两种类型
+- 修复 `UserLink.Path` 方法，使其能在事务中正确执行查询
+- 优化 `list_sync.go` 中的 `removeUserLinkWithTx`，确保在事务内一致地读取数据
+- 改进错误处理，提供更详细的错误信息
+
+### Stats
+
+- **4 个文件变更**
+- **+17 行 / -11 行**
+
+***
+
 ## [3.0.0] - 2026-04-24
 
 ### Changed
