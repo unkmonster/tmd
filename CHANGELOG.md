@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ***
 
+## [3.1.0] - 2026-04-26
+
+### Changed
+
+#### JSON 下载模块重构
+
+| 文件 | 变更 |
+|------|------|
+| `internal/downloading/json_download.go` | **删除** - 拆分为独立模块 |
+| `internal/downloading/json_file_download.go` | 新增 - 单文件 JSON 下载 |
+| `internal/downloading/json_folder_download.go` | 新增 - 文件夹 JSON 下载 |
+| `internal/downloading/tweet_json_converter.go` | 新增 - Tweet 转换器 |
+| `internal/database/tx/manager.go` | 新增 - 事务管理器 |
+
+**主要变更：**
+- 将 JSON 下载功能拆分为文件和文件夹两种模式
+- 新增事务管理器，优化数据库事务处理
+- 更新 CLI 参数支持新的 JSON 下载选项
+- 完善 Web 界面交互
+
+### Stats
+
+- **24 个文件变更**
+- **+2,398 行 / -1,415 行**
+- **新增文件：** 5 个
+- **删除文件：** 2 个
+
+***
+
 ## [3.0.3] - 2026-04-25
 
 ### Changed
