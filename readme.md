@@ -1,5 +1,12 @@
 # Twitter Media Downloader
 
+[![Go Version](https://img.shields.io/badge/Go-1.25.0-blue.svg)](https://go.dev/)
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](./LICENSE)
+[![CI/CD](https://github.com/unkmonster/tmd/actions/workflows/go.yml/badge.svg)](.github/workflows/go.yml)
+[Release](https://github.com/unkmonster/tmd/releases/latest)
+
+> **版本**: 3.0.3 | **状态**: 活跃维护 | **许可证**: GPL-3.0
+
 本项目的代码基于 [unkmonster/tmd](https://github.com/unkmonster/tmd) 项目，修改了部分代码，添加了新的功能特性。新增的功能见 [CHANGELOG.md文件](CHANGELOG.md)
 
 ## 目录
@@ -45,27 +52,98 @@
 - 添加备用 cookie：提高推文获取速度和总数量
 - **Profile 下载**：下载用户头像、横幅、简介等个人资料，支持版本管理
 - **推文 JSON 保存**：保存推文完整信息为 JSON/TXT 格式
-- **JSON 文件导入**：从其他工具导出的 JSON 文件批量下载媒体
+- **JSON 文件导入**：从第三方工具导出的 JSON 文件下载用户资料（`-jsonfile`）
+- **LoongTweet 文件夹导入**：从 TMD 生成的 `.loongtweet` 文件夹下载推文媒体（`-jsonfolder`）
 - **标记已下载**：标记用户为已下载状态，跳过历史推文
 - **API Server 模式**：提供 HTTP REST API 和 Web 管理界面，支持远程控制和监控
+- **大文件流式下载**：≥10MB 文件自动启用流式模式，节省内存（v2.12.3+）
+- **智能部分重试**：仅重试失败的媒体文件，跳过已成功的（v2.12.0+）
+- **用户可访问状态检测**：自动识别封禁/注销用户，避免无效请求（v2.8.0+）
+
+***
+
+### 大文件流式下载 (v2.12.3+)
+
+自动根据文件大小选择最优下载策略：
+
+| 文件大小 | 下载模式 | 特性 |
+|---------|---------|------|
+| < 10 MB | Buffer 模式 | 内存缓冲，支持 MD5 去重 |
+| ≥ 10 MB | 流式模式 | 分块写入，节省内存 |
+
+**核心特性：**
+- HEAD 请求预获取文件大小，智能选择策略
+- 带重试机制（最多 3 次，间隔 2 秒递增）
+- 文件大小验证（下载完成后校验完整性）
+- 自动清理不完整文件
+- 失败后回退到 Buffer 模式（容错）
+
+### 智能部分重试机制 (v2.12.0+)
+
+URL 级别的精细化重试控制：
+
+- **成功 URL 跟踪**：记录每个媒体文件的下载成功状态
+- **失败 URL 收集**：仅收集失败 URL 进入重试队列
+- **部分重试**：重试时只下载失败的媒体，不重复下载已成功的
+- **空队列优化**：无待重试任务时直接返回，节省资源
+- **进度显示**：`[成功数/总数]` 格式展示下载进度
+
+### 用户可访问状态管理 (v2.8.0+)
+
+自动识别并标记不可访问的用户：
+
+- 数据库字段：`users.is_accessible`
+- 自动更新时机：获取列表成员时同步检测
+- 检测类型：Twitter API 返回的 `UserUnavailable` 错误
+- 用途：避免浪费时间尝试下载已失效用户的内容
+- 向后兼容：对已有数据库无破坏性影响
 
 ***
 
 ## 安装与配置
 
+### 环境要求
+
+- **Go**: >= 1.25.0（从源码编译时需要）
+- **操作系统**: Windows 10+, macOS 10.15+, Ubuntu 18.04+
+- **编译器**: CGO_ENABLED=1（需要 GCC/MingW for Windows，用于 SQLite）
+- **内存**: 建议 >= 512MB
+- **磁盘空间**: 根据下载数量而定
+- **权限**: Windows 需要管理员权限（创建符号链接）
+
 ### 下载/编译
 
-**直接下载**
+**直接下载（推荐）**
 
-前往 [Release](https://github.com/unkmonster/tmd/releases/latest) 自行选择合适的版本并下载
+前往 [Release](https://github.com/unkmonster/tmd/releases/latest) 自行选择合适的版本：
+
+| 平台 | 文件名 |
+|------|--------|
+| Windows | `tmd-windows-amd64.exe` |
+| Linux | `tmd-linux-amd64` |
+| macOS | `tmd-darwin-amd64` |
 
 **自行编译**
 
 ```bash
-git clone https://github.com/unkmonster/tmd
+# 克隆项目
+git clone https://github.com/unkmonster/tmd.git
 cd tmd
-go build .
+
+# 编译（Windows，需要安装 MinGW-w64 提供 GCC）
+go build -o tmd.exe .
+
+# 交叉编译 Linux 版本
+GOOS=linux GOARCH=amd64 CGO_ENABLED=1 go build -o tmd-linux .
+
+# 交叉编译 macOS 版本
+GOOS=darwin GOARCH=amd64 CGO_ENABLED=1 go build -o tmd-macos .
 ```
+
+> ⚠️ **注意**: 本项目使用 `mattn/go-sqlite3` 驱动，必须启用 CGO 编译。如果遇到编译错误，请确保已安装 GCC 编译器：
+> - **Windows**: 安装 [MinGW-w64](http://mingw-w64.org/) 或 [TDM-GCC](https://jmeubank.github.io/tdm-gcc/)
+> - **Ubuntu**: `sudo apt-get install gcc`
+> - **macOS**: `xcode-select --install`
 
 ### 首次运行
 
@@ -75,13 +153,13 @@ tmd -conf
 
 程序会提示输入以下配置：
 
-| 配置项                  | 说明                            | 示例                     |
-| -------------------- | ----------------------------- | ---------------------- |
-| storage dir          | 文件存储目录                        | `D:\twitter_downloads` |
-| auth\_token          | Twitter Cookie 中的 auth\_token | `a1b2c3d4e5f6...`      |
-| ct0                  | Twitter Cookie 中的 ct0         | `x1y2z3...`            |
-| max download routine | 最大并发下载数（0为默认值）                | `20`                   |
-| max file name len    | 最大文件名长度（50-250，默认158）         | `158`                  |
+| 配置项                  | 说明                            | 默认值                   | 示例                     |
+| -------------------- | ----------------------------- | ---------------------- | ---------------------- |
+| storage dir          | 文件存储目录                        | 无（必填）                | `D:\twitter_downloads` |
+| auth\_token          | Twitter Cookie 中的 auth\_token | 无（必填）                | `a1b2c3d4e5f6...`      |
+| ct0                  | Twitter Cookie 中的 ct0         | 无（必填）                | `x1y2z3...`            |
+| max download routine | 最大并发下载数（范围 1-100）         | `35`                    | `20`                   |
+| max file name len    | 最大文件名长度（50-250）           | `158`                   | `158`                  |
 
 ### 配置文件位置
 
@@ -122,17 +200,34 @@ tmd -conf
 
 ### JSON 下载参数
 
-| 参数      | 类型     | 可重复 | 说明                                                         |
-| ------- | ------ | --- | ---------------------------------------------------------- |
-| `-json` | string | ✅   | 从 JSON 文件下载媒体，支持其他工具导出的原始 API JSON 或 `.loongtweet` 格式 JSON |
+| 参数           | 类型     | 可重复 | 说明                                                         |
+| -------------- | ------ | --- | ---------------------------------------------------------- |
+| `-jsonfile`    | string | ✅   | 从第三方工具导出的 JSON 文件下载推文媒体（图片/视频/txt/json） |
+| `-jsonfolder`  | string | ✅   | 从 TMD 生成的 `.loongtweet` 文件夹下载推文媒体 |
 
-支持的 JSON 格式：
+**`-jsonfile` 参数**：
+- 用于第三方工具导出的 Twitter 推文搜索结果 JSON（包含推文列表和 media 数组）
+- **下载内容**：推文媒体文件（图片/视频）、推文文本（`.txt`）、完整 metadata（`.json`）
+- **保存位置**：`users/{screen_name}/` 目录下
+  - 媒体文件：`{推文文本}_{tweetID}.jpg`、`{推文文本}_{tweetID}(1).jpg`
+  - `.loongtweet/` 子目录：
+    - `{推文文本}_{tweetID}.txt` — 推文文本内容
+    - `{推文文本}_{tweetID}.json` — 完整 metadata（已转换+清理）
+- 文件命名与 `-user` 模式完全一致（使用 `TweetNaming`）
+- **格式转换**：自动将第三方新格式 JSON 转换为 TMD 兼容旧格式
+  - 嵌套对象扁平化：`RelationshipPerspectives.blocked_by` → `legacy.blocked_by`
+  - 头像 URL 清理：移除 `_normal` 后缀
+  - **高清参数**：图片 URL 自动追加 `?name=4096x4096`
+- 转换失败时降级使用原始 metadata（不阻塞下载）
 
-- **原始 API JSON**：Twitter API 返回的原始推文数据（单个对象或数组）
-- **`.loongtweet`** **格式**：本程序之前保存的格式化推文 JSON
-- 支持指定文件或目录（目录会递归扫描所有 `.json` 文件）
+**`-jsonfolder` 参数**：
+- 用于 TMD 之前下载保存的 `.loongtweet` 文件夹中的 JSON 文件
+- **仅下载推文媒体文件**（图片/视频），**不保存** `.json`、`.txt`、`.profile` 等元数据
+- 适合重新下载或迁移媒体文件
+- 文件命名与 `-user` 模式完全一致
+- 图片 URL 自动追加 `?name=4096x4096` 高清参数
 
-> 💡 **推荐搭配**：使用 [twitter-web-exporter](https://github.com/prinsss/twitter-web-exporter) 浏览器脚本导出推文 JSON，然后用 `-json` 参数下载媒体文件。该脚本支持导出任意用户的推文、书签、关注列表等为 JSON 格式，无需 API 密钥。
+> 💡 **推荐搭配**：使用 [twitter-web-exporter](https://github.com/prinsss/twitter-web-exporter) 浏览器脚本导出推文或用户列表为 JSON 格式，然后用 `-jsonfile` 或 `-jsonfolder` 参数下载。
 
 ### 下载行为参数
 
@@ -183,6 +278,35 @@ tmd -server -port 8080
 | **实时任务监控**   | SSE 推送任务状态更新，无需刷新页面             |
 | **数据库浏览**    | 查看已下载的用户、列表、用户实体信息              |
 | **跨域支持**     | 默认启用 CORS，支持 Web 前端直接调用         |
+
+### API 端点速查
+
+| 方法 | 端点 | 说明 | 认证 |
+|------|------|------|------|
+| **GET** | `/api/v1/health` | 健康检查 | ❌ |
+| **POST** | `/api/v1/users/{name}/download` | 下载用户推文 | ❌ |
+| **POST** | `/api/v1/lists/{id}/download` | 下载列表推文 | ❌ |
+| **POST** | `/api/v1/json/file/download` | JSON 文件导入下载 | ❌ |
+| **POST** | `/api/v1/json/folder/download` | LoongTweet 文件夹下载 | ❌ |
+| **POST** | `/api/v1/batch/download` | 批量下载（多用户/列表） | ❌ |
+| **GET** | `/api/v1/tasks` | 任务列表 | ❌ |
+| **GET** | `/api/v1/tasks/{id}` | 任务详情 | ❌ |
+| **POST** | `/api/v1/tasks/{id}/cancel` | 取消任务 | ❌ |
+| **GET** | `/api/v1/sse/tasks` | SSE 实时任务推送 | ❌ |
+| **GET** | `/api/v1/db/users` | 用户列表（分页） | ❌ |
+| **GET** | `/api/v1/db/users/{id}` | 用户详情 | ❌ |
+| **PUT** | `/api/v1/db/users/{id}` | 更新用户 | ❌ |
+| **DELETE** | `/api/v1/db/users/{id}` | 删除用户 | ❌ |
+| **GET** | `/api/v1/db/lists` | 列表列表（分页） | ❌ |
+| **GET** | `/api/v1/db/lists/{id}` | 列表详情 | ❌ |
+| **PUT** | `/api/v1/db/lists/{id}` | 更新列表 | ❌ |
+| **DELETE** | `/api/v1/db/lists/{id}` | 删除列表 | ❌ |
+| **GET** | `/api/v1/db/user-entities` | 用户实体列表（分页） | ❌ |
+| **GET** | `/api/v1/db/list-entities` | 列表实体列表（分页） | ❌ |
+| **GET** | `/api/v1/db/user-links` | 用户链接查询 | ❌ |
+| **GET** | `/api/v1/config` | 系统配置（脱敏） | ❌ |
+
+> ⚠️ **安全提示**: 当前版本 API 无需认证，仅建议在本地或可信网络使用。生产环境请配合反向代理（Nginx/Caddy）添加 Basic Auth 或 IP 白名单。
 
 ### Web 管理界面
 
@@ -301,8 +425,9 @@ Profile 下载功能可以保存用户的完整个人资料：
 
 - 推文文本、时间戳、URL
 - 用户信息（头像已清理为高清 URL）
-- 媒体信息（已清理冗余字段）
+- 媒体信息（已清理冗余字段，图片追加 `?name=4096x4096` 高清参数）
 - 完整的原始数据
+- **`-jsonfile` 模式额外处理**：第三方新格式自动转换为 TMD 兼容旧格式（嵌套对象扁平化）
 
 ### 用途
 
@@ -331,10 +456,11 @@ media:2
 │   │   ├── 2024/
 │   │   │   ├── 01/
 │   │   │   │   └── 推文媒体文件...
-│   │   └── .loongtweet/
-│   │       ├── {tweet_id}.json     # 推文 JSON
-│   │       ├── {tweet_id}.txt      # 推文文本
-│   │       └── .profile/           # Profile 目录
+│   │   │   └── 推文媒体文件...     # -user/-jsonfile/-jsonfolder 媒体文件均在此
+│   │   └── .loongtweet/           # 仅 -user 和 -jsonfile 创建
+│   │       ├── {推文文本}_{tweetID}.json    # 推文 JSON（均已清理：-user cleanTweetJson / -jsonfile 格式转换+清理）
+│   │       ├── {推文文本}_{tweetID}.txt     # 推文文本
+│   │       └── .profile/            # 仅 -user 创建
 │   │           ├── avatar.jpg
 │   │           ├── banner.jpg
 │   │           ├── description.txt
@@ -342,7 +468,7 @@ media:2
 │   │           └── .versions/      # 历史版本
 │   └── NASA(NASA)/
 │       └── ...
-└── .data/                          # 数据目录
+├── .data/                          # 数据目录
     ├── foo.db                      # SQLite 数据库
     │                                 # 包含以下数据表：
     │                                 # - users: 用户信息
@@ -450,21 +576,40 @@ tmd -user elonmusk -mark-downloaded -mark-time "2024-01-01T00:00:00"
 tmd -user a -user b -user c -mark-downloaded
 ```
 
-### 场景9：从 JSON 文件下载
+### 场景9：从 JSON 文件/文件夹下载
 
 ```bash
-# 从单个 JSON 文件下载媒体
-tmd -json tweets.json
+# 从第三方工具导出的推文搜索结果 JSON 下载推文媒体（图片/视频/txt/json）
+tmd -jsonfile ./twitter-search-results-123.json
 
 # 从多个 JSON 文件下载
-tmd -json tweets1.json -json tweets2.json
+tmd -jsonfile ./search1.json -jsonfile ./search2.json -jsonfile ./followers.json
 
-# 从包含 JSON 文件的目录下载（递归扫描）
-tmd -json ./exported_tweets/
+# 从 TMD 生成的 .loongtweet 文件夹下载推文媒体（仅媒体，无元数据）
+tmd -jsonfolder ./path/to/.loongtweet
 
-# 混合使用：JSON + 用户下载
-tmd -json exported.json -user elonmusk
+# 从多个 .loongtweet 文件夹下载
+tmd -jsonfolder ./folder1/.loongtweet -jsonfolder ./folder2/.loongtweet
+
+# 注意：-jsonfile 和 -jsonfolder 是独占参数，优先级最高
+# 以下命令只会执行 -jsonfile，-user 被忽略
+tmd -jsonfile ./search.json -user elonmusk
 ```
+
+**`-jsonfile` 输出示例**：
+```
+[screen_name] 推文文本内容_1234567890 [3/3 succeeded]
+[screen_name] 另一条推文_1234567891 [2/2 succeeded]
+JSON file download completed: 2 success, 0 failed, 5 media
+```
+
+**`-jsonfolder` 输出示例**：
+```
+[jsonfolder] .loongtweet: 8/10 tweets succeeded (2 failed)
+LoongTweet folder download completed: 1 folder(s) processed, 8 succeeded, 2 failed, 15 media
+```
+
+> 💡 **推荐搭配**：使用 [twitter-web-exporter](https://github.com/prinsss/twitter-web-exporter) 浏览器脚本导出推文或用户列表为 JSON 格式，然后用 `-jsonfile` 或 `-jsonfolder` 参数下载。
 
 ### 场景10：调试与排错
 
@@ -540,8 +685,10 @@ Twitter API 限制一段时间内过快的请求（例如某端点每15分钟仅
 | 组合                                    |  兼容 | 说明                      |
 | ------------------------------------- | :-: | ----------------------- |
 | `-user` + `-list` + `-foll`           |  ✅  | 多种来源可叠加                 |
-| `-user` + `-list` + `-foll` + `-json` |  ✅  | JSON 文件与其他来源可叠加         |
-| `-json` + `-noprofile`                |  ✅  | 仅从 JSON 下载媒体，跳过 Profile |
+| `-user` + `-list` + `-foll` + `-jsonfile` |  ⚠️  | **仅执行 `-jsonfile`**（高优先级独占） |
+| `-user` + `-list` + `-foll` + `-jsonfolder` |  ⚠️  | **仅执行 `-jsonfolder`**（高优先级独占） |
+| `-jsonfile` + `-noprofile`            |  ⚠️  | **仅执行 `-jsonfile`**（高优先级独占） |
+| `-jsonfolder` + `-noprofile`           |  ⚠️  | **仅执行 `-jsonfolder`**（高优先级独占） |
 | `-user` + Profile 自动下载                |  ✅  | 下载推文时自动下载 Profile       |
 | `-list` + Profile 自动下载                |  ✅  | 下载列表成员推文时自动下载 Profile   |
 | `-foll` + Profile 自动下载                |  ✅  | 下载关注用户推文时自动下载 Profile   |
@@ -552,7 +699,8 @@ Twitter API 限制一段时间内过快的请求（例如某端点每15分钟仅
 | `-no-retry` + 推文下载                    |  ✅  | 失败不重试                   |
 | `-mark-downloaded` + `-mark-time`     |  ✅  | 指定标记时间                  |
 | `-mark-downloaded` + 推文下载             |  ⚠️  | **仅执行标记，不下载推文**（与稳定版不同） |
-| `-json` + `-mark-downloaded`            |  ⚠️  | **仅执行 JSON 下载**（与稳定版不同） |
+| `-jsonfile` + `-mark-downloaded`        |  ⚠️  | **仅执行 `-jsonfile`**（高优先级独占） |
+| `-jsonfolder` + `-mark-downloaded`      |  ⚠️  | **仅执行 `-jsonfolder`**（高优先级独占） |
 | `-conf` + 其他参数                        |  ⚠️ | 配置后退出，忽略其他              |
 | `-noprofile` + 推文下载参数                 |  ✅  | 下载推文但跳过 Profile         |
 | `-server` + `-port`                   |  ✅  | 指定 API Server 端口        |
@@ -562,18 +710,18 @@ Twitter API 限制一段时间内过快的请求（例如某端点每15分钟仅
 ***
 ## 项目架构
 
-本项目采用分层架构设计，职责清晰：
+本项目采用分层架构设计，以 **Service 层** 为核心实现业务逻辑复用：
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│  main.go (应用层)                                            │
+│  main.go (应用入口层)                                        │
 │  - 命令行解析、依赖注入、流程编排                              │
-│  - Server 模式启动 / CLI 模式执行                            │
+│  - 模式选择：Server / CLI                                    │
 └──────────┬──────────────────────────────────────────────────┘
            │
 ┌──────────▼──────────────────────────────────────────────────┐
 │  internal/config (配置层)                                    │
-│  - config.go: 配置结构、读写、Cookie 管理、附加 Cookie 加载   │
+│  - config.go: 配置结构、读写、Cookie 管理                     │
 │  - partial_update.go: 配置部分更新                          │
 └──────────┬──────────────────────────────────────────────────┘
            │
@@ -581,96 +729,70 @@ Twitter API 限制一段时间内过快的请求（例如某端点每15分钟仅
 │  internal/twitter           │  │  internal/database          │
 │  (API 客户端层)              │  │  (数据持久化层)               │
 │                             │  │                             │
-│  - api.go: REST API 封装     │  │  - connect.go: 数据库连接    │
-│  - client.go: 客户端管理     │  │  - schema.go: 建表与迁移     │
-│  - user.go: 用户接口         │  │  - model.go: 数据模型        │
-│  - tweet.go: 推文接口        │  │  - helpers.go: 通用查询封装  │
-│  - timeline.go: 时间线接口   │  │  - query.go: 分页查询封装    │
-│  - list.go: 列表接口         │  │  - user.go: 用户 CRUD        │
-│  - batch_login.go: 多账号   │  │  - lst.go: 列表 CRUD         │
-│    批量登录                  │  │  - user_entity.go: 用户实体  │
-│  - errors.go: 错误类型       │  │  - lst_entity.go: 列表实体   │
-│                             │  │  - user_sync.go: 用户同步    │
-│                             │  │  - user_link.go: 用户链接    │
+│  - api.go: REST API 封装     │  │  - connect/schema/model     │
+│  - client.go: 客户端管理     │  │  - query/user/lst           │
+│  - user/tweet/list 接口      │  │  - entity/sync/link         │
+│  - batch_login.go: 多账号    │  │                             │
 └──────────┬──────────────────┘  └─────────────┬───────────────┘
            │                                    │
-┌──────────▼──────────────────────────────────────────────────┐
-│  internal/service (Service 层 - 业务编排)                    │
-│                                                             │
-│  - interfaces.go: DownloadService 接口定义                  │
-│  - download_service.go: 下载业务实现（用户/列表/批量/JSON/   │
-│    Profile/标记）                                           │
-│  - deps.go: 依赖定义与构造函数                              │
-│  - progress.go: 进度报告接口与实现                          │
-├─────────────────────────────────────────────────────────────┤
-│  internal/api (API Server 层 - Web 管理界面)                │
-│                                                             │
-│  - server.go: HTTP 服务器、路由注册、中间件                  │
-│  - handlers.go: REST API 端点实现                           │
-│  - db_handlers.go: 数据库管理 API (CRUD)                   │
-│  - types.go: API 请求/响应类型定义                          │
-│  - pagination.go: 分页工具                                  │
-│  - task_manager.go: 任务状态管理（创建/查询/取消/清理）          │
-│  - progress.go: SSE 进度推送                                │
-│  - middleware.go: HTTP 中间件 (日志、恢复、CORS)               │
-├─────────────────────────────────────────────────────────────┤
-│  internal/cli (CLI 命令层)                                  │
-│  - executor.go: CLI 命令执行器（通过 Service 层调度）          │
-│  - args.go: 命令行参数解析                                  │
-│  - helpers.go: CLI 辅助函数（ResolveUsersAndLists）         │
-├─────────────────────────────────────────────────────────────┤
-│  internal/path (路径管理层)                                 │
-│  - store.go: 存储路径定义与初始化（StorePath）                │
-├─────────────────────────────────────────────────────────────┤
+           └──────────────┬─────────────────────┘
+                          │
+          ┌───────────────▼───────────────────────┐
+          │  🎯 internal/service (Service 层)       │
+          │        ★ 核心业务编排层 ★               │
+          │                                         │
+          │  - interfaces.go: DownloadService 接口   │
+          │  - download_service.go: 统一业务实现     │
+          │  - deps.go: 依赖注入与构造函数            │
+          │  - progress.go: 进度报告接口              │
+          └───────────────┬───────────────────────┘
+                          │
+          ┌───────────────┼───────────────────────┐
+          │               │                       │
+┌─────────▼────────┐ ┌────▼───────────┐ ┌─────────▼─────────┐
+│  internal/api   │ │  internal/cli   │ │  internal/path    │
+│  (Server 层)     │ │  (CLI 命令层)   │ │  (路径管理层)      │
+│                  │ │                 │ │                   │
+│  - server.go     │ │  - executor.go  │ │  - store.go       │
+│  - handlers.go   │ │  - args.go      │ │                   │
+│  - db_handlers   │ │  - helpers.go   │ │                   │
+│  - task_manager  │ │                 │ │                   │
+│  - sse/middleware│ │                 │ │                   │
+└────────┬─────────┘ └─────────────────┘ └───────────────────┘
+         │
+         ▼
+┌─────────────────────────────────────────────────────────────┐
 │  internal/downloading (业务层 - 推文下载)                    │
 │                                                             │
-│  - types.go: PackagedTweet 接口与全局状态                    │
 │  - tweet_download.go: 单推文下载与 JSON/TXT 保存             │
 │  - user_sync.go: 用户信息同步与时间线下载                    │
 │  - list_sync.go: 列表成员获取与同步                          │
 │  - batch_download.go: 批量用户下载（优先级队列+并发池）       │
 │  - batch_any.go: 统一入口 (BatchDownloadAny)                │
-│  - json_download.go: JSON 文件批量下载                       │
-│  - mark_downloaded.go: 标记已下载                            │
-│  - retry.go: 失败重试                                       │
-│  - dumper.go: 失败推文持久化                                 │
-│  - entity.go: TweetInEntity 封装                            │
-│  - list_download.go: 列表下载                               │
+│  - json_file_download.go: 第三方 JSON 媒体下载（-jsonfile）  │
+│  - json_folder_download.go: LoongTweet 文件夹下载            │
+│  - tweet_json_converter.go: JSON 格式转换                    │
+│  - mark_downloaded.go / retry.go / dumper.go                │
 ├─────────────────────────────────────────────────────────────┤
 │  internal/downloading/profile (业务层 - 用户资料)            │
 │  - downloader.go: Profile 下载调度                           │
 │  - storage.go: 文件存储与版本管理                            │
-│  - types.go: ProfileInfo / DownloadResult 等类型定义         │
 └──────────┬──────────────────────────────────────────────────┘
            │
 ┌──────────▼──────────────────────────────────────────────────┐
 │  internal/entity (数据实体层)                                │
-│  - interface.go: Entity 接口定义 (Create/Remove/Rename/...)  │
-│  - user.go: UserEntity 实现                                 │
-│  - list.go: ListEntity 实现                                 │
-│  - sync.go: Sync 通用同步逻辑                               │
+│  - interface.go / user.go / list.go / sync.go               │
 ├─────────────────────────────────────────────────────────────┤
 │  internal/downloader (基础设施层 - 通用下载)                 │
-│  - downloader.go: HTTP 下载、批量下载、回调机制              │
+│  - downloader.go: HTTP 下载、批量下载、流式下载（≥10MB）      │
 │  - file_writer.go: 原子写入、MD5 去重、并发锁管理            │
 │  - version_manager.go: 版本备份管理                          │
-│  - helpers.go: 辅助函数                                     │
-│  - types.go: Downloader/FileWriter/VersionManager 接口       │
 ├─────────────────────────────────────────────────────────────┤
 │  internal/naming (命名服务)                                  │
-│  - base.go: 基础命名结构                                    │
-│  - tweet_naming.go: TweetNaming (推文文件命名)               │
-│  - user_naming.go: UserNaming (用户目录命名)                 │
-│  - list_naming.go: ListNaming (列表目录命名)                 │
+│  - tweet_naming.go / user_naming.go / list_naming.go        │
 ├─────────────────────────────────────────────────────────────┤
 │  internal/utils (工具层)                                     │
-│  - fs.go: 文件路径工具 (去重、唯一路径、扩展名)              │
-│  - http.go: URL 处理、头像后缀清理                           │
-│  - algo.go: 泛型堆、切片洗牌                                │
-│  - time_range.go: 时间范围类型                               │
-│  - user.go: 泛型 ID 提取                                    │
-│  - recovery.go: panic 恢复                                  │
-│  - win32.go / stub.go: 控制台标题 (跨平台)                  │
+│  - fs.go / http.go / algo.go / time_range.go / recovery.go   │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -724,8 +846,11 @@ type DownloadService interface {
     // 列表 Profile 下载
     ListProfileDownload(ctx context.Context, taskID string, listID uint64, reporter ProgressReporter) error
     
-    // JSON 文件下载
-    JsonDownload(ctx context.Context, taskID string, paths []string, noRetry bool, reporter ProgressReporter) error
+    // JSON 文件下载（第三方工具导出的推文 JSON）
+    JsonFileDownload(ctx context.Context, taskID string, paths []string, noRetry bool, reporter ProgressReporter) error
+
+    // LoongTweet 文件夹下载（TMD 生成的 .loongtweet）
+    JsonFolderDownload(ctx context.Context, taskID string, paths []string, noRetry bool, reporter ProgressReporter) error
     
     // 标记已下载
 	MarkDownloaded(ctx context.Context, taskID string, users []*twitter.User, lists []twitter.ListBase, markTime *string, reporter ProgressReporter) error
@@ -802,6 +927,23 @@ https://x.com/i/lists/1234567890123
 
 即使媒体下载失败，推文信息也会保存到 `.loongtweet/` 目录。JSON 文件包含完整的推文数据，可用于数据分析或备份。
 
+### Q: `-jsonfile` 保存的 JSON 与 `-user` 的有什么区别？
+
+两者最终格式一致，但处理流程不同：
+- **`-user`**：直接调用 `cleanTweetJson` 清理冗余字段
+- **`-jsonfile`**：先经过 `ConvertThirdPartyTweetJSON` 格式转换（第三方新格式 → TMD 兼容旧格式），再由 `cleanTweetJson` 清理
+
+转换规则包括：嵌套对象扁平化（如 `RelationshipPerspectives` → `legacy` 扁平字段）、头像 `_normal` 后缀移除、图片 URL 追加高清参数等。
+
+### Q: `-jsonfile` 和 `-jsonfolder` 的区别？
+
+| 特性 | `-jsonfile` | `-jsonfolder` |
+|------|------------|--------------|
+| 输入来源 | 第三方工具导出的 JSON 文件 | TMD 生成的 `.loongtweet/` 文件夹 |
+| 保存元数据 | ✅ 保存 `.json` + `.txt` | ❌ 不保存 |
+| 格式转换 | ✅ 新格式→旧格式 | 不需要（已是 TMD 格式） |
+| 适用场景 | 首次从第三方导入 | 重新下载/迁移媒体文件 |
+
 ***
 
 ## 输出结果格式
@@ -864,7 +1006,8 @@ ENTITY_ID:2|USER_ID:23248887|SCREEN_NAME:NASA|STATUS:OK
 | `-user`         | 用户名/ID             |
 | `-list`         | 列表ID               |
 | `-foll`         | 用户名/ID             |
-| `-json`         | JSON 文件路径（支持文件或目录） |
+| `-jsonfile`     | 第三方工具导出的 JSON 文件路径   |
+| `-jsonfolder`   | TMD 生成的 `.loongtweet` 文件夹路径 |
 | `-profile-user` | 用户名/ID             |
 | `-profile-list` | 列表ID               |
 
@@ -873,4 +1016,526 @@ ENTITY_ID:2|USER_ID:23248887|SCREEN_NAME:NASA|STATUS:OK
 | 参数           | 说明                       |
 | ------------ | ------------------------ |
 | `-mark-time` | 时间戳（2006-01-02T15:04:05） |
+
+***
+
+## 开发指南
+
+### 项目结构
+
+```
+tmd/
+├── main.go                      # 应用入口（命令行解析、模式选择）
+├── internal/
+│   ├── api/                     # API Server 模块
+│   ├── cli/                     # CLI 命令模块
+│   ├── config/                  # 配置管理
+│   ├── service/                 # Service 层（核心业务编排）
+│   ├── database/                # 数据持久化层
+│   ├── downloading/             # 核心下载逻辑
+│   ├── downloader/              # 通用下载基础设施
+│   ├── twitter/                 # Twitter API 客户端
+│   ├── naming/                  # 命名服务
+│   ├── entity/                  # 数据实体层
+│   ├── path/                    # 路径管理
+│   └── utils/                   # 工具函数
+├── doc/                         # 详细文档
+├── .github/workflows/           # CI/CD 配置
+└── test/                        # 集成测试
+```
+
+### 运行测试
+
+项目包含 **52 个测试文件**，覆盖核心业务逻辑：
+
+```bash
+# 运行所有测试（含竞态检测）
+go test -race ./...
+
+# 运行特定包的测试
+go test -v ./internal/downloading/
+go test -v ./internal/api/
+go test -v ./internal/database/
+go test -v ./internal/service/
+
+# 运行单个测试函数
+go test -v -run TestFunctionName ./internal/package/
+
+# 生成覆盖率报告
+go test -race -covermode atomic -coverprofile=covprofile ./...
+go tool cover -html=covprofile -o coverage.html
+```
+
+### 代码风格
+
+本项目遵循以下编码规范：
+
+- **Go 标准**: 遵循 [Effective Go](https://go.dev/doc/effective_go) 和官方风格指南
+- **格式化**: 使用 `gofmt` 格式化代码（IDE 自动格式化）
+- **编码准则**: 参考 [CLAUDE.md](./CLAUDE.md) 中的 AI 编码准则
+- **设计原则**:
+  - 简单优先：只写解决问题所需的最少代码
+  - 外科手术式修改：只改必须改的内容
+  - 接口隔离：小接口设计，便于 Mock 和测试
+  - 分层解耦：清晰的层次结构，避免循环依赖
+
+### 关键设计模式
+
+| 模式 | 应用位置 | 说明 |
+|------|---------|------|
+| **依赖注入** | `service/deps.go` | 通过构造函数注入依赖，支持测试 Mock |
+| **策略模式** | `downloader/downloader.go` | 小文件 Buffer / 大文件流式两种策略 |
+| **观察者模式** | `api/sse.go` | SSE 推送任务状态更新 |
+| **工厂模式** | `naming/` | TweetNaming / UserNaming / ListNaming 工厂 |
+| **单例模式** | `database/connect.go` | 全局数据库连接（SQLite） |
+
+### CI/CD 流程
+
+项目配置了 GitHub Actions 自动化流程：
+
+```yaml
+触发条件:
+  - push 到 master 分支
+  - Pull Request 到 master
+  - 创建版本标签 (v*)
+
+执行步骤:
+  1. 多平台构建 (Windows / Linux / macOS)
+  2. 运行测试套件 (go test -race)
+  3. 上报覆盖率到 Coveralls
+  4. 发布版本时自动创建 Release
+```
+
+***
+
+## 安全说明
+
+### Cookie 安全 ⚠️
+
+`auth_token` 和 `ct0` 相当于你的 **Twitter 登录凭证**，请务必妥善保管！
+
+**安全建议：**
+
+- ❌ **不要**将配置文件提交到公开 Git 仓库（已在 `.gitignore` 排除）
+- ❌ **不要**分享包含真实 Cookie 的配置文件或截图
+- ❌ **不要**在日志或调试信息中暴露完整 Cookie
+- ✅ 定期更新 Cookie（Twitter 可能会使其失效或定期轮换）
+- ✅ 使用 `tmd -conf` 安全更新配置，避免手动编辑出错
+- ✅ 仅在可信设备上运行程序
+
+**Cookie 存储位置：**
+
+| 平台 | 路径 | 权限 |
+|------|------|------|
+| Windows | `%APPDATA%\.tmd2\conf.yaml` | 当前用户 |
+| macOS/Linux | `~/.tmd2/conf.yaml` | 当前用户 (600) |
+
+### 权限要求
+
+| 操作系统 | 特殊权限 | 原因 |
+|---------|---------|------|
+| **Windows** | 管理员权限 | 创建符号链接需要 SeCreateSymbolicLinkPrivilege |
+| **Linux/macOS** | 文件系统写入权限 | 写入存储目录和数据库文件 |
+
+> 💡 **提示**: Windows 用户可以右键点击 `tmd.exe` → "以管理员身份运行"，或在管理员 PowerShell 中执行。
+
+### 数据隐私
+
+所有下载的数据**仅存储在本地**，不会上传到任何第三方服务器：
+
+```
+{存储目录}/
+├── users/              # 推文媒体文件（图片/视频/GIF）
+│   └── {用户名}/
+│       ├── .loongtweet/   # 推文元数据（JSON/TXT）
+│       │   └── .profile/ # 用户资料（头像/横幅/简介）
+│       └── {日期}/        # 按日期组织的媒体文件
+├── .data/
+│   ├── foo.db          # SQLite 数据库（用户/列表/实体关系）
+│   └── errors.json     # 失败推文记录
+└── ...
+```
+
+**数据保护建议：**
+- 定期备份 `{存储目录}` 和 `.data/foo.db`
+- 敏感数据（如受保护用户的推文）注意访问控制
+- 删除用户数据时同时清理数据库记录
+
+### API Server 安全
+
+当前版本 API Server **无需认证**，适用于本地使用：
+
+**生产环境安全加固方案：**
+
+```nginx
+# Nginx 反向代理示例 - 添加 Basic Auth
+server {
+    listen 8080;
+    
+    location /api/v1/ {
+        auth_basic "TMD API";
+        auth_basic_user_file /etc/nginx/.htpasswd;
+        
+        proxy_pass http://127.0.0.1:25556;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        
+        # 限制请求速率
+        limit_req zone=api burst=20 nodelay;
+    }
+}
+```
+
+**推荐安全措施：**
+1. **网络隔离**: 仅绑定到 localhost (`127.0.0.1:25556`)
+2. **反向代理**: 使用 Nginx/Caddy 添加认证层
+3. **IP 白名单**: 防火墙限制访问来源 IP
+4. **HTTPS**: 公网部署时强制 TLS 加密
+5. **速率限制**: 防止 API 滥用
+
+***
+
+## 性能参考
+
+### 下载速度调优
+
+| 并发数 | 适用场景 | 带宽占用 | 推荐度 |
+|-------|---------|---------|--------|
+| **10-20** | 家庭网络 / 共享网络 | 低 (5-20 Mbps) | ⭐⭐⭐ 稳定首选 |
+| **20-35** | 企业网络 / 独享带宽 | 中 (20-50 Mbps) | ⭐⭐⭐⭐ **默认值** |
+| **35-50** | 服务器 / VPS / 高速宽带 | 高 (50-100 Mbps) | ⭐⭐ 需要优质网络 |
+
+**配置方法：**
+
+```bash
+# 方式1: 首次配置时设置
+tmd -conf
+# 输入 max download routine: 35
+
+# 方式2: 修改配置文件后更新
+tmd -conf
+# 仅修改需要调整的字段，其他留空保持原值
+```
+
+### 资源占用参考
+
+| 资源类型 | 空闲状态 | 下载中（并发35） | 备注 |
+|---------|---------|-----------------|------|
+| **内存** | ~40-60 MB | ~100-200 MB | 取决于并发数和文件大小 |
+| **CPU** | < 1% | 5-15% | 单核即可满足 |
+| **磁盘 I/O** | 极低 | 中等 | SSD 推荐用于大文件下载 |
+| **网络连接** | 1 个（登录） | 35+ 个 | 每个媒体文件一个连接 |
+| **数据库** | ~5 MB | ~50-200 MB | SQLite，无需额外服务 |
+
+### 性能优化特性
+
+TMD 内置多项性能优化机制：
+
+#### 1. 流式下载（v2.12.3+）
+
+自动根据文件大小选择最优策略：
+
+```
+文件大小 < 10MB → Buffer 模式（内存缓冲，支持 MD5 去重）
+文件大小 ≥ 10MB → 流式模式（分块写入，节省内存）
+```
+
+**优势：**
+- 大视频文件不再占用大量内存
+- 实时进度跟踪
+- 失败时仅重试未完成部分
+
+#### 2. 增量下载
+
+基于 `latest_release_time` 时间戳的智能增量拉取：
+
+```sql
+-- 仅获取比上次更新的推文
+WHERE created_at > '2024-01-15 10:30:00'
+```
+
+**效果：**
+- 首次运行：全量下载用户所有推文
+- 后续运行：仅下载新增推文（通常几分钟完成）
+- 节省 API 配额和网络带宽
+
+#### 3. MD5 去重
+
+相同内容的文件自动跳过：
+
+```go
+// 文件写入前计算 MD5
+if fileWriter.Exists(md5Hash) {
+    log.Info("File already exists, skipping...")
+    return nil  // 跳过重复下载
+}
+```
+
+**适用场景：**
+- 重试失败任务时跳过已成功的文件
+- 多列表包含同一用户时避免重复保存
+- Profile 未变更时自动跳过
+
+#### 4. 符号链接去重
+
+多列表包含同一用户时使用符号链接：
+
+```
+lists/科技圈/users/ -> ../../users/Elon Musk(elonmusk)/
+lists/新闻/users/   -> ../../users/Elon Musk(elonmusk)/
+```
+
+**节省空间：**
+- 无论多少列表包含同一用户，本地仅保留一份存档
+- 显著减少磁盘空间占用（尤其对于热门用户）
+
+### 性能瓶颈与解决方案
+
+| 瓶颈 | 表现 | 解决方案 |
+|------|------|---------|
+| **Twitter API 速率限制** | 日志显示 `rate limit` 提示 | 添加备用 Cookie（`additional_cookies.yaml`） |
+| **磁盘 I/O 瓶颈** | 下载速度远低于带宽 | 使用 SSD 存储，或降低并发数 |
+| **网络延迟高** | 单个文件下载时间长 | 检查代理设置，或启用调试模式 (`-dbg`) 查看请求耗时 |
+| **内存不足** | 系统卡顿或 OOM | 降低 `max_download_routine` 到 10-20 |
+
+### 监控与诊断
+
+```bash
+# 启用调试模式查看详细性能指标
+tmd -user elonmusk -dbg
+
+# 输出示例：
+# [INFO] Download routine count: 35
+# [INFO] Total requests: 150
+# [INFO] Success rate: 98.5%
+# [INFO] Average download speed: 2.3 MB/s
+# [INFO] Total time: 5m 23s
+```
+
+***
+
+## 故障排除进阶
+
+### 常见错误码速查
+
+| HTTP 状态码 | 错误类型 | 原因 | 解决方案 |
+|------------|---------|------|---------|
+| **429** | Too Many Requests | 触发 Twitter API 速率限制 | 等待 15 分钟自动恢复；或添加备用 Cookie |
+| **401** | Unauthorized | Cookie 失效或过期 | 运行 `tmd -conf` 更新 Cookie |
+| **403** | Forbidden | 用户受保护且未关注 | 使用 `-auto-follow` 或手动关注后重试 |
+| **404** | Not Found | 用户不存在/已注销/被封禁 | 检查用户名是否正确；用户可能已被封禁 |
+| **500** | Internal Server Error | Twitter 服务器内部错误 | 稍后自动重试；检查网络连接 |
+| **503** | Service Unavailable | Twitter 服务暂时不可用 | 等待服务恢复后重试 |
+| **connection reset** | 网络连接中断 | 代理不稳定或网络波动 | 检查代理设置；启用 `-no-retry` 快速测试 |
+
+### 调试技巧集锦
+
+#### 基础调试
+
+```bash
+# 1. 启用调试模式（查看请求计数和详细日志）
+tmd -user elonmusk -dbg
+
+# 2. 快速退出模式（不重试失败项，快速验证配置）
+tmd -user elonmusk -no-retry
+
+# 3. 仅标记不下载（测试同步逻辑，不实际下载文件）
+tmd -user elonmusk -mark-downloaded
+
+# 4. 指定标记时间（回溯到特定时间点）
+tmd -user elonmusk -mark-downloaded -mark-time "2024-01-01T00:00:00"
+```
+
+#### 高级诊断
+
+```bash
+# 5. 测试单用户下载（最小化变量）
+tmd -user elonmusk -noprofile -dbg
+
+# 6. 检查 API Server 是否正常
+tmd -server
+# 然后在浏览器访问 http://localhost:25556/api/v1/health
+
+# 7. 查看数据库内容（确认同步状态）
+sqlite3 .data/foo.db "SELECT screen_name, latest_release_time FROM users;"
+
+# 8. 检查失败记录
+cat .data/errors.json | head -20
+```
+
+#### 网络问题排查
+
+```bash
+# 9. 测试代理连通性（Windows PowerShell）
+$Env:HTTP_PROXY="http://127.0.0.1:7890"
+$Env:HTTPS_PROXY="http://127.0.0.1:7890"
+tmd -user elonmusk -dbg
+
+# 10. 绕过代理直连（TUN 模式下不需要设置代理）
+# 直接运行 tmd，不设置 HTTP_PROXY/HTTPS_PROXY
+```
+
+### 日志系统详解
+
+#### 日志位置
+
+| 平台 | 主日志路径 | CLI 输出日志 |
+|------|----------|-------------|
+| **Windows** | `%APPDATA%\.tmd2\tmd2.log` | `%APPDATA%\.tmd2\client.log` |
+| **macOS/Linux** | `~/.tmd2/tmd2.log` | `~/.tmd2/client.log` |
+
+#### 日志轮转配置
+
+程序使用 [lumberjack](https://github.com/natefinch/lumberjack) 进行日志轮转：
+
+| 配置项 | 当前值 | 说明 |
+|--------|-------|------|
+| 单文件最大 | **2 MB** | 防止单个日志文件过大 |
+| 保留份数 | **2** | 最多保留 2 个历史日志文件 |
+| 保留天数 | **14 天** | 自动清理 14 天前的日志 |
+| 压缩 | ❌ 关闭 | 不压缩历史日志（便于查看） |
+
+#### 日志级别
+
+```bash
+# 默认级别：Info（显示重要信息）
+tmd -user elonmusk
+
+# 调试级别：Debug（显示所有请求详情）
+tmd -user elonmusk -dbg
+```
+
+**Debug 模式额外输出：**
+- 每个 Twitter API 请求的 URL 和响应时间
+- 总请求数统计（`twitter.ReportRequestCount()`）
+- 数据库查询详情
+- 文件写入操作日志
+
+### 典型问题场景与解决方案
+
+#### 场景 1：首次使用完全无法下载
+
+**症状：**
+```
+[ERROR] failed to login: invalid cookie or token
+```
+
+**排查步骤：**
+1. ✅ 确认 Cookie 正确性（重新从浏览器复制）
+2. ✅ 检查 Cookie 是否过期（Twitter 会定期刷新）
+3. ✅ 尝试重新配置：`tmd -conf`
+4. ✅ 确认网络可以访问 Twitter（非墙内环境）
+
+---
+
+#### 场景 2：下载一段时间后停止
+
+**症状：**
+```
+[WARN] rate limit approaching, sleeping for 5m0s...
+```
+
+**原因：** 触发 Twitter API 速率限制（每 15 分钟 500 次请求）
+
+**解决方案：**
+- **短期**：等待 15 分钟自动恢复
+- **长期**：添加备用 Cookie 到 `additional_cookies.yaml`
+- **优化**：降低并发数到 10-20
+
+---
+
+#### 场景 3：符号链接创建失败（Windows）
+
+**症状：**
+```
+[ERROR] failed to create symlink: A required privilege is not held by the client
+```
+
+**原因：** Windows 需要管理员权限才能创建符号链接
+
+**解决方案：**
+1. 右键点击 `tmd.exe` → **"以管理员身份运行"**
+2. 或在管理员 PowerShell 中执行：
+   ```powershell
+   Start-Process tmd.exe -Verb RunAs -ArgumentList "-user elonmusk"
+   ```
+
+---
+
+#### 场景 4：数据库锁定错误
+
+**症状：**
+```
+[ERROR] database is locked
+```
+
+**原因：**
+- 另一个 TMD 实例正在运行
+- 上次程序异常退出未正确关闭数据库
+
+**解决方案：**
+1. 检查是否有其他 TMD 进程：`tasklist | findstr tmd`
+2. 结束残留进程：`taskkill /f /im tmd.exe`
+3. 删除数据库锁文件：`.data/foo.db-journal`（如果存在）
+4. 重启程序
+
+---
+
+#### 场景 5：大文件下载失败
+
+**症状：**
+```
+[ERROR] download failed: context deadline exceeded
+[WARN] retrying tweet 1234567890 with 3 media(s)
+```
+
+**原因：** 大视频文件下载超时或网络不稳定
+
+**解决方案：**
+1. 启用调试模式查看具体耗时：`-dbg`
+2. 降低并发数减少带宽竞争
+3. 检查磁盘空间是否充足
+4. 使用 `-no-retry` 快速定位问题文件
+
+---
+
+#### 场景 6：Profile 下载跳过所有用户
+
+**症状：**
+```
+=== PROFILE_DOWNLOAD_RESULTS ===
+SCREEN_NAME:user1|STATUS:SKIP
+SCREEN_NAME:user2|STATUS:SKIP
+```
+
+**原因：** Profile 文件未变更（MD5 校验通过）
+
+**这是正常行为！** 如果需要强制重新下载：
+1. 手动删除 `.loongtweet/.profile/` 目录
+2. 或删除特定用户的 profile 文件
+3. 重新运行命令
+
+---
+
+### 获取帮助
+
+如果以上方法仍无法解决问题：
+
+1. **查看详细日志**：启用 `-dbg` 模式并保存输出
+   ```bash
+   tmd -user test_user -dbg > debug_log.txt 2>&1
+   ```
+
+2. **收集环境信息**：
+   - 操作系统和版本
+   - TMD 版本号（启动 Server 后访问 `/api/v1/health`）
+   - Go 版本（如从源码编译）：`go version`
+   - 错误复现步骤
+
+3. **提交 Issue**：前往 [GitHub Issues](https://github.com/unkmonster/tmd/issues) 提交
+   - 标题：简洁描述问题
+   - 内容：包含环境信息、复现步骤、完整日志（**脱敏后**）
+   - 标签：选择合适的标签（bug / question / enhancement）
+
+4. **社区支持**：查看 [已有 Issues](https://github.com/unkmonster/tmd/issues) 或 [Discussions](https://github.com/unkmonster/tmd/discussions)
 

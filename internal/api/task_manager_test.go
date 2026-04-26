@@ -56,9 +56,9 @@ func TestTaskManager_CreateTask(t *testing.T) {
 			data:     &MarkDownloadedTaskData{ScreenName: "mark_user"},
 		},
 		{
-			name:     "创建 JSON 下载任务",
-			taskType: TaskTypeJsonDownload,
-			data:     &JsonDownloadTaskData{Paths: []string{"/path/to/file.json"}},
+			name:     "创建 JSON 文件下载任务",
+			taskType: TaskTypeJsonFileDownload,
+			data:     &JsonFileDownloadTaskData{Paths: []string{"/path/to/file.json"}},
 		},
 		{
 			name:     "创建列表 Profile 任务",
@@ -135,11 +135,11 @@ func TestTaskManager_UpdateTaskStatus(t *testing.T) {
 	task := tm.CreateTask(TaskTypeUserDownload, nil)
 
 	tests := []struct {
-		name     string
-		status       TaskStatus
-		wantStarted  bool
-		wantEnded    bool
-		expectedOk   bool
+		name        string
+		status      TaskStatus
+		wantStarted bool
+		wantEnded   bool
+		expectedOk  bool
 	}{
 		{
 			name:        "设置为运行中",
@@ -456,7 +456,8 @@ func TestTaskType_Constants(t *testing.T) {
 	assert.Equal(t, TaskType("following_download"), TaskTypeFollowingDownload)
 	assert.Equal(t, TaskType("profile_download"), TaskTypeProfileDownload)
 	assert.Equal(t, TaskType("mark_downloaded"), TaskTypeMarkDownloaded)
-	assert.Equal(t, TaskType("json_download"), TaskTypeJsonDownload)
+	assert.Equal(t, TaskType("json_file_download"), TaskTypeJsonFileDownload)
+	assert.Equal(t, TaskType("json_folder_download"), TaskTypeJsonFolderDownload)
 	assert.Equal(t, TaskType("batch_download"), TaskTypeBatchDownload)
 	assert.Equal(t, TaskType("list_profile"), TaskTypeListProfile)
 }

@@ -37,8 +37,14 @@ type MarkDownloadedTaskData struct {
 	Timestamp  *time.Time `json:"timestamp,omitempty"`
 }
 
-// JsonDownloadTaskData JSON 下载任务数据
-type JsonDownloadTaskData struct {
+// JsonFileDownloadTaskData 第三方工具JSON下载任务数据（用户资料）
+type JsonFileDownloadTaskData struct {
+	Paths   []string `json:"paths"`
+	NoRetry bool     `json:"no_retry"`
+}
+
+// JsonFolderDownloadTaskData loongtweet文件夹下载任务数据（推文媒体）
+type JsonFolderDownloadTaskData struct {
 	Paths   []string `json:"paths"`
 	NoRetry bool     `json:"no_retry"`
 }

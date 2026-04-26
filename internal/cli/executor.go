@@ -57,24 +57,46 @@ func Execute(ctx context.Context, args []string, deps *Dependencies) error {
 	}
 
 	// 处理不同类型的下载任务
+	// 参数优先级（从高到低，前面的参数会独占执行，后面的参数被忽略）：
+	// 1. -jsonfile    : 第三方工具导出的JSON文件（用户资料下载）- 完全独占
+	// 2. -jsonfolder  : TMD生成的.loongtweet文件夹（推文媒体下载）- 完全独占
+	// 3. -mark-downloaded : 标记已下载 - 完全独占
+	// 4. -user/-list/-foll : 批量下载推文 - 可与 -profile-user/-profile-list 组合
+	// 5. -profile-user/-profile-list : Profile下载 - 可与批量下载组合执行
 
 	log.Infoln("start working for...")
 
-	// 1. JSON 下载
-	if len(cfg.JsonArgs.GetPaths()) > 0 {
-		log.Infof("json files: %d", len(cfg.JsonArgs.GetPaths()))
-		return deps.DownloadService.JsonDownload(ctx, "cli", cfg.JsonArgs.GetPaths(), cfg.NoRetry, reporter)
+	// 1. 第三方工具JSON文件下载（-jsonfile）- 最高优先级，独占执行
+	if len(cfg.JsonFileArgs.GetPaths()) > 0 {
+		log.Infof("jsonfile: %d files", len(cfg.JsonFileArgs.GetPaths()))
+		if hasOtherParams(cfg, "jsonfile") {
+			log.Warn("-jsonfile is exclusive, other download parameters will be ignored")
+		}
+		return deps.DownloadService.JsonFileDownload(ctx, "cli", cfg.JsonFileArgs.GetPaths(), cfg.NoRetry, reporter)
 	}
 
-	// 2. 标记已下载
+	// 2. TMD loongtweet文件夹下载（-jsonfolder）- 第二优先级，独占执行
+	if len(cfg.JsonFolderArgs.GetPaths()) > 0 {
+		log.Infof("jsonfolder: %d folders", len(cfg.JsonFolderArgs.GetPaths()))
+		if hasOtherParams(cfg, "jsonfolder") {
+			log.Warn("-jsonfolder is exclusive, other download parameters will be ignored")
+		}
+		return deps.DownloadService.JsonFolderDownload(ctx, "cli", cfg.JsonFolderArgs.GetPaths(), cfg.NoRetry, reporter)
+	}
+
+	// 3. 标记已下载（-mark-downloaded）- 第三优先级，独占执行
 	if cfg.MarkDownloaded {
+		log.Infoln("mark downloaded mode")
+		if hasOtherParams(cfg, "mark") {
+			log.Warn("-mark-downloaded is exclusive, other download parameters will be ignored")
+		}
 		entities := ResolveUsersAndLists(ctx, deps.Client, deps.DB, cfg.UsrArgs, cfg.ListArgs, cfg.FollArgs)
 		log.Infof("mark downloaded: users: %d, lists: %d", len(entities.Users), len(entities.Lists))
 		return deps.DownloadService.MarkDownloaded(ctx, "cli", entities.Users, entities.Lists, opts.MarkTime, reporter)
 	}
 
-	// 3. 批量下载（包含用户、列表、关注）
-	// 注意：批量下载和 Profile 下载可以同时执行（-user + -profile-user）
+	// 4. 批量下载（包含用户、列表、关注）- 第四优先级
+	// 可与 Profile 下载（第5步）组合执行（-user + -profile-user）
 	entities := ResolveUsersAndLists(ctx, deps.Client, deps.DB, cfg.UsrArgs, cfg.ListArgs, cfg.FollArgs)
 	hasBatchDownload := len(entities.Users) > 0 || len(entities.Lists) > 0
 
@@ -113,8 +135,8 @@ func Execute(ctx context.Context, args []string, deps *Dependencies) error {
 		}
 	}
 
-	// 4. Profile 下载
-	// 可以与批量下载同时执行（-user + -profile-user）
+	// 5. Profile 下载 - 第五优先级
+	// 可以与批量下载（第4步）同时执行（-user + -profile-user）
 	// 也可以单独执行（仅 -profile-user/-profile-list）
 	hasProfileUsers := len(cfg.ProfileUsers.ScreenName) > 0
 	hasProfileLists := len(cfg.ProfileList.ID) > 0
@@ -148,6 +170,35 @@ func Execute(ctx context.Context, args []string, deps *Dependencies) error {
 	}
 
 	return nil
+}
+
+// hasOtherParams 检查是否有其他下载参数被忽略（用于独占参数警告）
+func hasOtherParams(cfg *CLIConfig, current string) bool {
+	switch current {
+	case "jsonfile":
+		// -jsonfile 独占时，检查其他参数
+		return len(cfg.JsonFolderArgs.GetPaths()) > 0 ||
+			cfg.MarkDownloaded ||
+			len(cfg.UsrArgs.ScreenName) > 0 ||
+			len(cfg.ListArgs.ID) > 0 ||
+			len(cfg.FollArgs.ScreenName) > 0 ||
+			len(cfg.ProfileUsers.ScreenName) > 0 ||
+			len(cfg.ProfileList.ID) > 0
+	case "jsonfolder":
+		// -jsonfolder 独占时，检查其他参数
+		return len(cfg.JsonFileArgs.GetPaths()) > 0 ||
+			cfg.MarkDownloaded ||
+			len(cfg.UsrArgs.ScreenName) > 0 ||
+			len(cfg.ListArgs.ID) > 0 ||
+			len(cfg.FollArgs.ScreenName) > 0 ||
+			len(cfg.ProfileUsers.ScreenName) > 0 ||
+			len(cfg.ProfileList.ID) > 0
+	case "mark":
+		// -mark-downloaded 独占时，检查其他参数（除了自身需要的 -user/-list/-foll）
+		return len(cfg.ProfileUsers.ScreenName) > 0 ||
+			len(cfg.ProfileList.ID) > 0
+	}
+	return false
 }
 
 // SetClientLogger 设置客户端日志

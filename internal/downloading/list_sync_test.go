@@ -17,10 +17,6 @@ func TestNewListSyncManager(t *testing.T) {
 	if manager == nil {
 		t.Fatal("NewListSyncManager() returned nil")
 	}
-
-	if manager.db != db {
-		t.Error("manager.db should match input db")
-	}
 }
 
 func TestListSyncManager_SyncListMembers(t *testing.T) {
@@ -213,7 +209,7 @@ func TestListSyncManager_SyncListMembers_CancelledContext(t *testing.T) {
 	}
 }
 
-func TestListSyncManager_removeUserLinkWithTx(t *testing.T) {
+func TestListSyncManager_removeUserLinkInTx(t *testing.T) {
 	db := setupTestDB(t)
 	defer db.Close()
 
@@ -273,9 +269,9 @@ func TestListSyncManager_removeUserLinkWithTx(t *testing.T) {
 	}
 
 	// Remove the link
-	err = manager.removeUserLinkWithTx(tx, link, int(listEntity.Id.Int32))
+	err = manager.removeUserLinkInTx(tx, link, int(listEntity.Id.Int32))
 	if err != nil {
-		t.Errorf("removeUserLinkWithTx() error = %v", err)
+		t.Errorf("removeUserLinkInTx() error = %v", err)
 	}
 
 	// Commit transaction
@@ -300,7 +296,7 @@ func TestListSyncManager_removeUserLinkWithTx(t *testing.T) {
 	}
 }
 
-func TestListSyncManager_removeUserLinkWithTx_InvalidId(t *testing.T) {
+func TestListSyncManager_removeUserLinkInTx_InvalidId(t *testing.T) {
 	db := setupTestDB(t)
 	defer db.Close()
 
@@ -321,13 +317,13 @@ func TestListSyncManager_removeUserLinkWithTx_InvalidId(t *testing.T) {
 		Name:              "Test",
 	}
 
-	err = manager.removeUserLinkWithTx(tx, link, 1)
+	err = manager.removeUserLinkInTx(tx, link, 1)
 	if err == nil {
-		t.Error("removeUserLinkWithTx() with invalid ID should return error")
+		t.Error("removeUserLinkInTx() with invalid ID should return error")
 	}
 }
 
-func TestListSyncManager_removeUserLinkWithTx_NonExistentSymlink(t *testing.T) {
+func TestListSyncManager_removeUserLinkInTx_NonExistentSymlink(t *testing.T) {
 	db := setupTestDB(t)
 	defer db.Close()
 
@@ -363,9 +359,9 @@ func TestListSyncManager_removeUserLinkWithTx_NonExistentSymlink(t *testing.T) {
 	}
 
 	// Remove the link (symlink doesn't exist, should not error)
-	err = manager.removeUserLinkWithTx(tx, link, int(listEntity.Id.Int32))
+	err = manager.removeUserLinkInTx(tx, link, int(listEntity.Id.Int32))
 	if err != nil {
-		t.Errorf("removeUserLinkWithTx() error = %v (non-existent symlink should be OK)", err)
+		t.Errorf("removeUserLinkInTx() error = %v (non-existent symlink should be OK)", err)
 	}
 
 	// Commit transaction

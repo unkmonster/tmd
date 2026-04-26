@@ -104,9 +104,12 @@ const api = {
   createBatchDownload(data) { 
     return this.post('/api/v1/batch/download', data); 
   },
-  createJsonDownload(data) { 
-    return this.post('/api/v1/json/download', data); 
-  },
+  createJsonFileDownload(data) { 
+    return this.post('/api/v1/json/file/download', data); 
+},
+createJsonFolderDownload(data) { 
+    return this.post('/api/v1/json/folder/download', data); 
+},
   
   // Config
   getConfig() { return this.get('/api/v1/config'); },
@@ -339,7 +342,8 @@ const pages = {
                 <div class="tab active" data-task-tab="user">用户</div>
                 <div class="tab" data-task-tab="list">列表</div>
                 <div class="tab" data-task-tab="batch">批量</div>
-                <div class="tab" data-task-tab="json">JSON</div>
+                <div class="tab" data-task-tab="jsonfile">JSON文件</div>
+                <div class="tab" data-task-tab="jsonfolder">LoongTweet</div>
               </div>
               
               <div id="taskFormContainer">
@@ -624,18 +628,36 @@ function renderTaskForm(type) {
       </div>
       <button class="btn btn-primary" onclick="createBatchTask()">创建批量任务</button>
     `,
-    json: `
-      <div class="form-group">
-        <label class="form-label">JSON 文件路径（每行一个）</label>
-        <textarea class="form-textarea" id="jsonPaths" placeholder="/path/to/tweets.json\n/path/to/another.json" rows="4"></textarea>
-      </div>
-      <div class="form-group">
-        <label class="form-checkbox">
-          <input type="checkbox" id="jsonNoRetry"> NoRetry
-        </label>
-      </div>
-      <button class="btn btn-primary" onclick="createJsonTask()">创建 JSON 任务</button>
-    `
+    jsonfile: `
+  <div class="form-group">
+    <label class="form-label">第三方工具导出的JSON文件路径（每行一个）</label>
+    <textarea class="form-textarea" id="jsonFilePaths" placeholder="/path/to/twitter-followers-123.json\n/path/to/more.json" rows="4"></textarea>
+  </div>
+  <div class="text-sm text-tertiary mt-2">
+    支持格式: 第三方工具导出的Twitter推文搜索结果JSON（含推文列表、media数组、metadata字段）
+  </div>
+  <div class="form-group mt-3">
+    <label class="form-checkbox">
+      <input type="checkbox" id="jsonFileNoRetry"> NoRetry
+    </label>
+  </div>
+  <button class="btn btn-primary" onclick="createJsonFileTask()">创建 JSON 文件任务</button>
+`,
+jsonfolder: `
+  <div class="form-group">
+    <label class="form-label">TMD .loongtweet 文件夹路径（每行一个）</label>
+    <textarea class="form-textarea" id="jsonFolderPath" placeholder="/path/to/.loongtweet\n/path/to/another/.loongtweet" rows="4"></textarea>
+  </div>
+  <div class="text-sm text-tertiary mt-2">
+    从 TMD 生成的 .loongtweet 目录下载推文媒体文件（仅下载媒体，不保存元数据）
+  </div>
+  <div class="form-group mt-3">
+    <label class="form-checkbox">
+      <input type="checkbox" id="jsonFolderNoRetry"> NoRetry
+    </label>
+  </div>
+  <button class="btn btn-primary" onclick="createJsonFolderTask()">创建 LoongTweet 任务</button>
+`
   };
   return forms[type] || forms.user;
 }
@@ -1314,16 +1336,32 @@ async function createBatchTask() {
   }
 }
 
-async function createJsonTask() {
-  const paths = document.getElementById('jsonPaths').value.split('\n').map(s => s.trim()).filter(Boolean);
-  if (!paths.length) return toast.show('请输入至少一个 JSON 路径', 'error');
-  
+async function createJsonFileTask() {
+  const paths = document.getElementById('jsonFilePaths').value.split('\n').map(s => s.trim()).filter(Boolean);
+  if (!paths.length) return toast.show('请输入至少一个 JSON 文件路径', 'error');
+
   try {
-    await api.createJsonDownload({
+    await api.createJsonFileDownload({
       paths,
-      no_retry: document.getElementById('jsonNoRetry').checked
+      no_retry: document.getElementById('jsonFileNoRetry').checked
     });
-    toast.show('JSON 任务已创建');
+    toast.show('JSON 文件任务已创建');
+    refreshTasks();
+  } catch (err) {
+    toast.show(err.message, 'error');
+  }
+}
+
+async function createJsonFolderTask() {
+  const paths = document.getElementById('jsonFolderPath').value.split('\n').map(s => s.trim()).filter(Boolean);
+  if (!paths.length) return toast.show('请输入至少一个 LoongTweet 文件夹路径', 'error');
+
+  try {
+    await api.createJsonFolderDownload({
+      paths,
+      no_retry: document.getElementById('jsonFolderNoRetry').checked
+    });
+    toast.show('LoongTweet 任务已创建');
     refreshTasks();
   } catch (err) {
     toast.show(err.message, 'error');

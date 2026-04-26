@@ -62,7 +62,8 @@ func (s *Server) Start(port int) error {
 	mux.HandleFunc("/api/v1/health", s.handleHealth)
 	mux.HandleFunc("/api/v1/users/", s.handleUsers)
 	mux.HandleFunc("/api/v1/lists/", s.handleLists)
-	mux.HandleFunc("/api/v1/json/download", s.handleJsonDownload)
+	mux.HandleFunc("/api/v1/json/file/download", s.handleJsonFileDownload)
+	mux.HandleFunc("/api/v1/json/folder/download", s.handleJsonFolderDownload)
 	mux.HandleFunc("/api/v1/batch/download", s.handleBatchDownload)
 	mux.HandleFunc("/api/v1/tasks", s.handleTasks)
 	mux.HandleFunc("GET /api/v1/tasks/{task_id}", s.handleGetTask)
@@ -478,14 +479,14 @@ func (s *Server) handleListProfile(w http.ResponseWriter, r *http.Request, listI
 	}))
 }
 
-// handleJsonDownload 处理 JSON 下载
-func (s *Server) handleJsonDownload(w http.ResponseWriter, r *http.Request) {
+// handleJsonFileDownload 处理第三方工具JSON文件下载（用户资料）
+func (s *Server) handleJsonFileDownload(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		s.writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
 		return
 	}
 
-	var req JsonDownloadTaskData
+	var req JsonFileDownloadTaskData
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		s.writeError(w, http.StatusBadRequest, "Invalid request body")
 		return
@@ -496,16 +497,12 @@ func (s *Server) handleJsonDownload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 创建任务
-	task := s.taskManager.CreateTask(TaskTypeJsonDownload, &req)
-
-	// 创建进度报告器
+	task := s.taskManager.CreateTask(TaskTypeJsonFileDownload, &req)
 	reporter := NewSSEProgressReporter(s, task.ID)
 
-	// 异步执行
 	go func() {
 		s.taskManager.UpdateTaskStatus(task.ID, TaskStatusRunning)
-		err := s.downloadService.JsonDownload(task.Ctx, task.ID, req.Paths, req.NoRetry, reporter)
+		err := s.downloadService.JsonFileDownload(task.Ctx, task.ID, req.Paths, req.NoRetry, reporter)
 		if err != nil {
 			s.taskManager.SetTaskError(task.ID, err)
 		}
@@ -516,7 +513,45 @@ func (s *Server) handleJsonDownload(w http.ResponseWriter, r *http.Request) {
 		"status":   task.Status,
 		"paths":    req.Paths,
 		"no_retry": req.NoRetry,
-		"message":  "JSON download task queued",
+		"message":  "JSON file download task queued",
+	}))
+}
+
+// handleJsonFolderDownload 处理loongtweet文件夹下载（推文媒体）
+func (s *Server) handleJsonFolderDownload(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		s.writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+
+	var req JsonFolderDownloadTaskData
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.writeError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	if len(req.Paths) == 0 {
+		s.writeError(w, http.StatusBadRequest, "Paths are required")
+		return
+	}
+
+	task := s.taskManager.CreateTask(TaskTypeJsonFolderDownload, &req)
+	reporter := NewSSEProgressReporter(s, task.ID)
+
+	go func() {
+		s.taskManager.UpdateTaskStatus(task.ID, TaskStatusRunning)
+		err := s.downloadService.JsonFolderDownload(task.Ctx, task.ID, req.Paths, req.NoRetry, reporter)
+		if err != nil {
+			s.taskManager.SetTaskError(task.ID, err)
+		}
+	}()
+
+	s.writeJSON(w, http.StatusAccepted, NewSuccessResponse(map[string]interface{}{
+		"task_id":  task.ID,
+		"status":   task.Status,
+		"paths":    req.Paths,
+		"no_retry": req.NoRetry,
+		"message":  "JSON folder download task queued",
 	}))
 }
 

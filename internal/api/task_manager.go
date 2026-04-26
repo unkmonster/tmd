@@ -23,14 +23,15 @@ const (
 type TaskType string
 
 const (
-	TaskTypeUserDownload      TaskType = "user_download"
-	TaskTypeListDownload      TaskType = "list_download"
-	TaskTypeFollowingDownload TaskType = "following_download"
-	TaskTypeProfileDownload   TaskType = "profile_download"
-	TaskTypeMarkDownloaded    TaskType = "mark_downloaded"
-	TaskTypeJsonDownload      TaskType = "json_download"
-	TaskTypeBatchDownload     TaskType = "batch_download"
-	TaskTypeListProfile       TaskType = "list_profile"
+	TaskTypeUserDownload       TaskType = "user_download"
+	TaskTypeListDownload       TaskType = "list_download"
+	TaskTypeFollowingDownload  TaskType = "following_download"
+	TaskTypeProfileDownload    TaskType = "profile_download"
+	TaskTypeMarkDownloaded     TaskType = "mark_downloaded"
+	TaskTypeJsonFileDownload   TaskType = "json_file_download"
+	TaskTypeJsonFolderDownload TaskType = "json_folder_download"
+	TaskTypeBatchDownload      TaskType = "batch_download"
+	TaskTypeListProfile        TaskType = "list_profile"
 )
 
 // Task 任务

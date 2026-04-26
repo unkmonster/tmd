@@ -237,14 +237,11 @@ func downloadTweetMedia(cfg *workerConfig, dir string, tweet *twitter.Tweet, ski
 
 	for _, u := range tweet.Urls {
 		ext, err := utils.GetExtFromUrl(u)
-		if err != nil {
+		if err != nil || ext == "" {
 			ext = ".jpg"
 		}
 
-		queryParams := make(map[string]string)
-		if !strings.Contains(u, "tweet_video") && !strings.Contains(u, "video.twimg.com") && !strings.Contains(u, "?name=") {
-			queryParams["name"] = "4096x4096"
-		}
+		queryParams := utils.GetTwitterImageQualityParams(u)
 
 		mediaMutex.Lock()
 		path, err := tweetNaming.FilePath(dir, ext)

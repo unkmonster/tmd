@@ -344,7 +344,7 @@ func (s *downloadServiceImpl) JsonDownload(ctx context.Context, taskID string, p
 	versionManager.SetFileWriter(fileWriter)
 	dwn := downloader.NewDownloader(fileWriter)
 
-	results := downloading.DownloadJsonDir(ctx, s.deps.Client, pathHelper.Root, dwn, fileWriter, paths...)
+	results := downloading.DownloadFromLoongTweetFolder(ctx, s.deps.Client, pathHelper.Users, dwn, fileWriter, paths...)
 
 	var successCount, failCount int
 	for _, r := range results {
@@ -363,6 +363,94 @@ func (s *downloadServiceImpl) JsonDownload(ctx context.Context, taskID string, p
 		Downloaded: successCount,
 		Failed:     failCount,
 		Message:    fmt.Sprintf("JSON download: %d success, %d failed", successCount, failCount),
+	})
+	return nil
+}
+
+// JsonFileDownload 从第三方工具导出的JSON文件下载推文媒体
+// 支持推文搜索结果格式（包含 media 数组）
+func (s *downloadServiceImpl) JsonFileDownload(ctx context.Context, taskID string, paths []string, noRetry bool, reporter ProgressReporter) error {
+	if reporter == nil {
+		reporter = &NopReporter{}
+	}
+
+	log.Infof("downloading media from %d third-party JSON file(s)...", len(paths))
+	reporter.OnProgress(taskID, Progress{Stage: "downloading", Total: len(paths)})
+
+	pathHelper, err := path.NewStorePath(s.deps.Config.RootPath)
+	if err != nil {
+		return err
+	}
+
+	versionManager := downloader.NewVersionManagerWithWriter(".versions", nil)
+	fileWriter := downloader.NewFileWriter(versionManager)
+	versionManager.SetFileWriter(fileWriter)
+	dwn := downloader.NewDownloader(fileWriter)
+
+	// 使用 pathHelper.Users 确保与 profile 下载目录结构一致
+	results := downloading.DownloadThirdPartyTweets(ctx, s.deps.Client, pathHelper.Users, dwn, fileWriter, paths...)
+
+	var successCount, failCount, totalMedia int
+	for _, r := range results {
+		if r.Success {
+			successCount++
+			totalMedia += r.MediaCount
+			log.Infof("✓ %s: %d media", filepath.Base(r.Path), r.MediaCount)
+		} else {
+			failCount++
+			log.Errorf("✗ %s: %v", filepath.Base(r.Path), r.Error)
+		}
+	}
+
+	log.Infof("JSON file download completed: %d success, %d failed, %d media", successCount, failCount, totalMedia)
+
+	reporter.OnComplete(taskID, Result{
+		Downloaded: successCount,
+		Failed:     failCount,
+		Message:    fmt.Sprintf("JSON file download: %d success, %d failed, %d media", successCount, failCount, totalMedia),
+	})
+	return nil
+}
+
+// JsonFolderDownload 从TMD生成的.loongtweet文件夹下载推文媒体
+func (s *downloadServiceImpl) JsonFolderDownload(ctx context.Context, taskID string, paths []string, noRetry bool, reporter ProgressReporter) error {
+	if reporter == nil {
+		reporter = &NopReporter{}
+	}
+
+	log.Infof("downloading media from %d loongtweet folder(s)...", len(paths))
+	reporter.OnProgress(taskID, Progress{Stage: "downloading", Total: len(paths)})
+
+	pathHelper, err := path.NewStorePath(s.deps.Config.RootPath)
+	if err != nil {
+		return err
+	}
+
+	versionManager := downloader.NewVersionManagerWithWriter(".versions", nil)
+	fileWriter := downloader.NewFileWriter(versionManager)
+	versionManager.SetFileWriter(fileWriter)
+	dwn := downloader.NewDownloader(fileWriter)
+
+	// 使用 pathHelper.Users 确保与 profile 下载目录结构一致
+	results := downloading.DownloadFromLoongTweetFolder(ctx, s.deps.Client, pathHelper.Users, dwn, fileWriter, paths...)
+
+	var successCount, failCount int
+	for _, r := range results {
+		if r.Success {
+			successCount++
+			log.Infof("✓ %s: %d tweets processed", filepath.Base(r.Path), r.TweetCount)
+		} else {
+			failCount++
+			log.Errorf("✗ %s: %v", filepath.Base(r.Path), r.Error)
+		}
+	}
+
+	log.Infof("JSON folder download completed: %d success, %d failed", successCount, failCount)
+
+	reporter.OnComplete(taskID, Result{
+		Downloaded: successCount,
+		Failed:     failCount,
+		Message:    fmt.Sprintf("JSON folder download: %d success, %d failed", successCount, failCount),
 	})
 	return nil
 }

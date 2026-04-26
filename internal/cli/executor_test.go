@@ -21,43 +21,48 @@ type MockDownloadService struct {
 	mock.Mock
 }
 
-func (m *MockDownloadService) UserDownload(ctx context.Context, source string, screenName string, opts service.DownloadOptions, reporter service.ProgressReporter) error {
-	args := m.Called(ctx, source, screenName, opts, reporter)
+func (m *MockDownloadService) UserDownload(ctx context.Context, taskID string, screenName string, opts service.DownloadOptions, reporter service.ProgressReporter) error {
+	args := m.Called(ctx, taskID, screenName, opts, reporter)
 	return args.Error(0)
 }
 
-func (m *MockDownloadService) ListDownload(ctx context.Context, source string, listID uint64, opts service.DownloadOptions, reporter service.ProgressReporter) error {
-	args := m.Called(ctx, source, listID, opts, reporter)
+func (m *MockDownloadService) ListDownload(ctx context.Context, taskID string, listID uint64, opts service.DownloadOptions, reporter service.ProgressReporter) error {
+	args := m.Called(ctx, taskID, listID, opts, reporter)
 	return args.Error(0)
 }
 
-func (m *MockDownloadService) FollowingDownload(ctx context.Context, source string, screenName string, opts service.DownloadOptions, reporter service.ProgressReporter) error {
-	args := m.Called(ctx, source, screenName, opts, reporter)
+func (m *MockDownloadService) FollowingDownload(ctx context.Context, taskID string, screenName string, opts service.DownloadOptions, reporter service.ProgressReporter) error {
+	args := m.Called(ctx, taskID, screenName, opts, reporter)
 	return args.Error(0)
 }
 
-func (m *MockDownloadService) BatchDownload(ctx context.Context, source string, users []*twitter.User, lists []twitter.ListBase, opts service.DownloadOptions, reporter service.ProgressReporter) error {
-	args := m.Called(ctx, source, users, lists, opts, reporter)
+func (m *MockDownloadService) BatchDownload(ctx context.Context, taskID string, users []*twitter.User, lists []twitter.ListBase, opts service.DownloadOptions, reporter service.ProgressReporter) error {
+	args := m.Called(ctx, taskID, users, lists, opts, reporter)
 	return args.Error(0)
 }
 
-func (m *MockDownloadService) ProfileDownload(ctx context.Context, source string, users []string, reporter service.ProgressReporter) error {
-	args := m.Called(ctx, source, users, reporter)
+func (m *MockDownloadService) ProfileDownload(ctx context.Context, taskID string, users []string, reporter service.ProgressReporter) error {
+	args := m.Called(ctx, taskID, users, reporter)
 	return args.Error(0)
 }
 
-func (m *MockDownloadService) ListProfileDownload(ctx context.Context, source string, listID uint64, reporter service.ProgressReporter) error {
-	args := m.Called(ctx, source, listID, reporter)
+func (m *MockDownloadService) ListProfileDownload(ctx context.Context, taskID string, listID uint64, reporter service.ProgressReporter) error {
+	args := m.Called(ctx, taskID, listID, reporter)
 	return args.Error(0)
 }
 
-func (m *MockDownloadService) JsonDownload(ctx context.Context, source string, paths []string, noRetry bool, reporter service.ProgressReporter) error {
-	args := m.Called(ctx, source, paths, noRetry, reporter)
+func (m *MockDownloadService) JsonFileDownload(ctx context.Context, taskID string, paths []string, noRetry bool, reporter service.ProgressReporter) error {
+	args := m.Called(ctx, taskID, paths, noRetry, reporter)
 	return args.Error(0)
 }
 
-func (m *MockDownloadService) MarkDownloaded(ctx context.Context, source string, users []*twitter.User, lists []twitter.ListBase, markTime *string, reporter service.ProgressReporter) error {
-	args := m.Called(ctx, source, users, lists, markTime, reporter)
+func (m *MockDownloadService) JsonFolderDownload(ctx context.Context, taskID string, paths []string, noRetry bool, reporter service.ProgressReporter) error {
+	args := m.Called(ctx, taskID, paths, noRetry, reporter)
+	return args.Error(0)
+}
+
+func (m *MockDownloadService) MarkDownloaded(ctx context.Context, taskID string, users []*twitter.User, lists []twitter.ListBase, markTime *string, reporter service.ProgressReporter) error {
+	args := m.Called(ctx, taskID, users, lists, markTime, reporter)
 	return args.Error(0)
 }
 
@@ -80,7 +85,7 @@ func TestExecute_ParseArgsError(t *testing.T) {
 
 func TestExecute_JsonDownload(t *testing.T) {
 	mockSvc := new(MockDownloadService)
-	mockSvc.On("JsonDownload", mock.Anything, "cli", []string{"/path/to/file.json"}, false, mock.Anything).Return(nil)
+	mockSvc.On("JsonFileDownload", mock.Anything, mock.Anything, []string{"/path/to/file.json"}, false, mock.Anything).Return(nil)
 
 	deps := &Dependencies{
 		Client:          resty.New(),
@@ -89,7 +94,7 @@ func TestExecute_JsonDownload(t *testing.T) {
 		DownloadService: mockSvc,
 	}
 
-	args := []string{"-json", "/path/to/file.json"}
+	args := []string{"-jsonfile", "/path/to/file.json"}
 	err := Execute(context.Background(), args, deps)
 
 	assert.NoError(t, err)
@@ -98,7 +103,7 @@ func TestExecute_JsonDownload(t *testing.T) {
 
 func TestExecute_JsonDownload_NoRetry(t *testing.T) {
 	mockSvc := new(MockDownloadService)
-	mockSvc.On("JsonDownload", mock.Anything, "cli", []string{"/path/to/file.json"}, true, mock.Anything).Return(nil)
+	mockSvc.On("JsonFileDownload", mock.Anything, mock.Anything, []string{"/path/to/file.json"}, true, mock.Anything).Return(nil)
 
 	deps := &Dependencies{
 		Client:          resty.New(),
@@ -107,7 +112,7 @@ func TestExecute_JsonDownload_NoRetry(t *testing.T) {
 		DownloadService: mockSvc,
 	}
 
-	args := []string{"-json", "/path/to/file.json", "-no-retry"}
+	args := []string{"-jsonfile", "/path/to/file.json", "-no-retry"}
 	err := Execute(context.Background(), args, deps)
 
 	assert.NoError(t, err)
@@ -117,7 +122,7 @@ func TestExecute_JsonDownload_NoRetry(t *testing.T) {
 func TestExecute_MarkDownloaded(t *testing.T) {
 	mockSvc := new(MockDownloadService)
 	markTime := "2024-01-01T00:00:00"
-	mockSvc.On("MarkDownloaded", mock.Anything, "cli", mock.AnythingOfType("[]*twitter.User"), mock.AnythingOfType("[]twitter.ListBase"), &markTime, mock.Anything).Return(nil)
+	mockSvc.On("MarkDownloaded", mock.Anything, mock.Anything, mock.AnythingOfType("[]*twitter.User"), mock.AnythingOfType("[]twitter.ListBase"), &markTime, mock.Anything).Return(nil)
 
 	deps := &Dependencies{
 		Client:          resty.New(),
@@ -135,7 +140,7 @@ func TestExecute_MarkDownloaded(t *testing.T) {
 
 func TestExecute_ProfileDownload(t *testing.T) {
 	mockSvc := new(MockDownloadService)
-	mockSvc.On("ProfileDownload", mock.Anything, "cli", []string{"user1", "user2"}, mock.Anything).Return(nil)
+	mockSvc.On("ProfileDownload", mock.Anything, mock.Anything, []string{"user1", "user2"}, mock.Anything).Return(nil)
 
 	deps := &Dependencies{
 		Client:          resty.New(),
@@ -153,7 +158,7 @@ func TestExecute_ProfileDownload(t *testing.T) {
 
 func TestExecute_ListProfileDownload(t *testing.T) {
 	mockSvc := new(MockDownloadService)
-	mockSvc.On("ListProfileDownload", mock.Anything, "cli", uint64(12345), mock.Anything).Return(nil)
+	mockSvc.On("ListProfileDownload", mock.Anything, mock.Anything, uint64(12345), mock.Anything).Return(nil)
 
 	deps := &Dependencies{
 		Client:          resty.New(),

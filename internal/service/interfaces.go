@@ -40,9 +40,13 @@ type DownloadService interface {
 	// 对应 CLI: -user <screen_name> -mark-downloaded
 	MarkDownloaded(ctx context.Context, taskID string, users []*twitter.User, lists []twitter.ListBase, markTime *string, reporter ProgressReporter) error
 
-	// JsonDownload 从JSON下载
-	// 对应 CLI: -json <paths...>
-	JsonDownload(ctx context.Context, taskID string, paths []string, noRetry bool, reporter ProgressReporter) error
+	// JsonFileDownload 从第三方工具导出的JSON文件下载用户资料（头像/横幅/metadata）
+	// 对应 CLI: -jsonfile <paths...>
+	JsonFileDownload(ctx context.Context, taskID string, paths []string, noRetry bool, reporter ProgressReporter) error
+
+	// JsonFolderDownload 从TMD生成的.loongtweet文件夹下载推文媒体
+	// 对应 CLI: -jsonfolder <paths...>
+	JsonFolderDownload(ctx context.Context, taskID string, paths []string, noRetry bool, reporter ProgressReporter) error
 
 	// BatchDownload 批量下载
 	// 对应 CLI: -user <u1> -user <u2> -list <l1>

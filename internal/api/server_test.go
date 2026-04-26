@@ -481,64 +481,64 @@ func TestHandleListProfile_Success(t *testing.T) {
 	assert.Equal(t, float64(123), data["list_id"])
 }
 
-func TestHandleJsonDownload_WrongMethod(t *testing.T) {
+func TestHandleJsonFileDownload_WrongMethod(t *testing.T) {
 	server, db := setupTestServer(t)
 	defer db.Close()
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/json/download", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/json/file/download", nil)
 	rr := httptest.NewRecorder()
 
-	server.handleJsonDownload(rr, req)
+	server.handleJsonFileDownload(rr, req)
 
 	assert.Equal(t, http.StatusMethodNotAllowed, rr.Code)
 }
 
-func TestHandleJsonDownload_InvalidBody(t *testing.T) {
+func TestHandleJsonFileDownload_InvalidBody(t *testing.T) {
 	server, db := setupTestServer(t)
 	defer db.Close()
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/json/download", bytes.NewReader([]byte("invalid")))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/json/file/download", bytes.NewReader([]byte("invalid")))
 	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
 
-	server.handleJsonDownload(rr, req)
+	server.handleJsonFileDownload(rr, req)
 
 	assert.Equal(t, http.StatusBadRequest, rr.Code)
 }
 
-func TestHandleJsonDownload_EmptyPaths(t *testing.T) {
+func TestHandleJsonFileDownload_EmptyPaths(t *testing.T) {
 	server, db := setupTestServer(t)
 	defer db.Close()
 
-	reqData := JsonDownloadTaskData{
+	reqData := JsonFileDownloadTaskData{
 		Paths: []string{},
 	}
 	body, _ := json.Marshal(reqData)
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/json/download", bytes.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/json/file/download", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
 
-	server.handleJsonDownload(rr, req)
+	server.handleJsonFileDownload(rr, req)
 
 	assert.Equal(t, http.StatusBadRequest, rr.Code)
 }
 
-func TestHandleJsonDownload_Success(t *testing.T) {
+func TestHandleJsonFileDownload_Success(t *testing.T) {
 	server, db := setupTestServer(t)
 	defer db.Close()
 
-	reqData := JsonDownloadTaskData{
+	reqData := JsonFileDownloadTaskData{
 		Paths:   []string{"/path/1.json", "/path/2.json"},
 		NoRetry: true,
 	}
 	body, _ := json.Marshal(reqData)
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/json/download", bytes.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/json/file/download", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
 
-	server.handleJsonDownload(rr, req)
+	server.handleJsonFileDownload(rr, req)
 
 	assert.Equal(t, http.StatusAccepted, rr.Code)
 
@@ -1042,7 +1042,8 @@ func TestServer_MultipleTaskTypes(t *testing.T) {
 		TaskTypeFollowingDownload,
 		TaskTypeProfileDownload,
 		TaskTypeMarkDownloaded,
-		TaskTypeJsonDownload,
+		TaskTypeJsonFileDownload,
+		TaskTypeJsonFolderDownload,
 		TaskTypeBatchDownload,
 		TaskTypeListProfile,
 	}
@@ -1061,28 +1062,28 @@ func TestServer_ResponseFormats(t *testing.T) {
 	defer db.Close()
 
 	tests := []struct {
-		name   string
-		data   interface{}
+		name     string
+		data     interface{}
 		contains string
 	}{
 		{
-			name:   "字符串",
-			data:   "test string",
+			name:     "字符串",
+			data:     "test string",
 			contains: "test string",
 		},
 		{
-			name:   "数字",
-			data:   123,
+			name:     "数字",
+			data:     123,
 			contains: "123",
 		},
 		{
-			name:   "布尔值",
-			data:   true,
+			name:     "布尔值",
+			data:     true,
 			contains: "true",
 		},
 		{
-			name:   "map",
-			data:   map[string]string{"key": "value"},
+			name:     "map",
+			data:     map[string]string{"key": "value"},
 			contains: `"key":"value"`,
 		},
 	}

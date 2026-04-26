@@ -146,39 +146,6 @@ func TestMarkDownloadedTaskData(t *testing.T) {
 	}
 }
 
-func TestJsonDownloadTaskData(t *testing.T) {
-	tests := []struct {
-		name     string
-		data     JsonDownloadTaskData
-		wantJSON string
-	}{
-		{
-			name: "多路径",
-			data: JsonDownloadTaskData{
-				Paths:   []string{"/path/1.json", "/path/2.json"},
-				NoRetry: true,
-			},
-			wantJSON: `{"paths":["/path/1.json","/path/2.json"],"no_retry":true}`,
-		},
-		{
-			name: "空路径",
-			data: JsonDownloadTaskData{
-				Paths:   []string{},
-				NoRetry: false,
-			},
-			wantJSON: `{"paths":[],"no_retry":false}`,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			bytes, err := json.Marshal(tt.data)
-			assert.NoError(t, err)
-			assert.JSONEq(t, tt.wantJSON, string(bytes))
-		})
-	}
-}
-
 func TestBatchDownloadTaskData(t *testing.T) {
 	tests := []struct {
 		name     string

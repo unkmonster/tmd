@@ -225,10 +225,10 @@ func TestListArgs_GetList(t *testing.T) {
 	assert.Equal(t, []uint64{123, 456}, l.ID)
 }
 
-// ==================== JsonPathsArgs 测试 ====================
+// ==================== JsonFilePathsArgs 测试 ====================
 
-func TestJsonPathsArgs_Set(t *testing.T) {
-	j := &JsonPathsArgs{}
+func TestJsonFilePathsArgs_Set(t *testing.T) {
+	j := &JsonFilePathsArgs{}
 
 	tests := []struct {
 		input    string
@@ -247,25 +247,25 @@ func TestJsonPathsArgs_Set(t *testing.T) {
 	assert.Equal(t, []string{"/path/to/file1.json", "/path/to/file2.json", "relative/path.json"}, j.Paths)
 }
 
-func TestJsonPathsArgs_String(t *testing.T) {
+func TestJsonFilePathsArgs_String(t *testing.T) {
 	tests := []struct {
 		name     string
-		args     JsonPathsArgs
+		args     JsonFilePathsArgs
 		expected string
 	}{
 		{
 			name:     "空值",
-			args:     JsonPathsArgs{},
+			args:     JsonFilePathsArgs{},
 			expected: "",
 		},
 		{
 			name:     "单个路径",
-			args:     JsonPathsArgs{Paths: []string{"/path/to/file.json"}},
+			args:     JsonFilePathsArgs{Paths: []string{"/path/to/file.json"}},
 			expected: "/path/to/file.json",
 		},
 		{
 			name:     "多个路径",
-			args:     JsonPathsArgs{Paths: []string{"/path/1.json", "/path/2.json", "/path/3.json"}},
+			args:     JsonFilePathsArgs{Paths: []string{"/path/1.json", "/path/2.json", "/path/3.json"}},
 			expected: "/path/1.json,/path/2.json,/path/3.json",
 		},
 	}
@@ -278,20 +278,20 @@ func TestJsonPathsArgs_String(t *testing.T) {
 	}
 }
 
-func TestJsonPathsArgs_GetPaths(t *testing.T) {
+func TestJsonFilePathsArgs_GetPaths(t *testing.T) {
 	tests := []struct {
 		name     string
-		args     JsonPathsArgs
+		args     JsonFilePathsArgs
 		expected []string
 	}{
 		{
 			name:     "空值",
-			args:     JsonPathsArgs{},
+			args:     JsonFilePathsArgs{},
 			expected: nil,
 		},
 		{
 			name:     "有路径",
-			args:     JsonPathsArgs{Paths: []string{"a.json", "b.json"}},
+			args:     JsonFilePathsArgs{Paths: []string{"a.json", "b.json"}},
 			expected: []string{"a.json", "b.json"},
 		},
 	}
@@ -373,10 +373,10 @@ func TestParseArgs(t *testing.T) {
 		},
 		{
 			name:        "JSON参数",
-			args:        []string{"-json", "/path/1.json", "-json", "/path/2.json"},
+			args:        []string{"-jsonfile", "/path/1.json", "-jsonfile", "/path/2.json"},
 			expectError: false,
 			validate: func(t *testing.T, cfg *CLIConfig) {
-				assert.Equal(t, []string{"/path/1.json", "/path/2.json"}, cfg.JsonArgs.Paths)
+				assert.Equal(t, []string{"/path/1.json", "/path/2.json"}, cfg.JsonFileArgs.Paths)
 			},
 		},
 		{
@@ -446,7 +446,8 @@ func TestCLIConfig_DefaultValues(t *testing.T) {
 	assert.Empty(t, cfg.FollArgs.ScreenName)
 	assert.Empty(t, cfg.ProfileUsers.ScreenName)
 	assert.Empty(t, cfg.ProfileList.ID)
-	assert.Empty(t, cfg.JsonArgs.Paths)
+	assert.Empty(t, cfg.JsonFileArgs.Paths)
+	assert.Empty(t, cfg.JsonFolderArgs.Paths)
 
 	// 布尔值默认值
 	assert.False(t, cfg.AutoFollow)
