@@ -381,7 +381,7 @@ func TestMockProgressReporter_ResultVariations(t *testing.T) {
 	reporter := NewMockProgressReporter()
 
 	// 测试不同结果类型
-	reporter.OnComplete("task-1", Result{Downloaded: 100, Failed: 5, Skipped: 10, Message: "Stats"})
+	reporter.OnComplete("task-1", Result{Downloaded: 100, Failed: 5, Versioned: 10, Message: "Stats"})
 	reporter.OnComplete("task-2", Result{Message: "Only message"})
 	reporter.OnComplete("task-3", Result{})
 

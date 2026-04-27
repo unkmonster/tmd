@@ -33,7 +33,6 @@ func TestFileStatus_String(t *testing.T) {
 	}{
 		{StatusFailed, "failed"},
 		{StatusDownloaded, "downloaded"},
-		{StatusSkipped, "skipped"},
 		{FileStatus(999), "unknown"}, // invalid status
 	}
 

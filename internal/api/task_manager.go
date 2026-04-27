@@ -63,7 +63,7 @@ type TaskProgress struct {
 type TaskResult struct {
 	Downloaded int    `json:"downloaded,omitempty"`
 	Failed     int    `json:"failed,omitempty"`
-	Skipped    int    `json:"skipped,omitempty"`
+	Versioned  int    `json:"versioned,omitempty"` // 版本化（旧文件已备份到 .versions）
 	Message    string `json:"message,omitempty"`
 }
 

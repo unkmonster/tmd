@@ -39,7 +39,7 @@ func (r *SSEProgressReporter) OnComplete(taskID string, result service.Result) {
 	r.server.taskManager.SetTaskResult(taskID, &TaskResult{
 		Downloaded: result.Downloaded,
 		Failed:     result.Failed,
-		Skipped:    result.Skipped,
+		Versioned:  result.Versioned,
 		Message:    result.Message,
 	})
 	// 更新任务状态为完成
@@ -139,7 +139,7 @@ func (s *Server) broadcastComplete(taskID string, result service.Result) {
 		Result: &TaskResult{
 			Downloaded: result.Downloaded,
 			Failed:     result.Failed,
-			Skipped:    result.Skipped,
+			Versioned:  result.Versioned,
 			Message:    result.Message,
 		},
 	}

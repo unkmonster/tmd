@@ -259,7 +259,7 @@ func TestTaskManager_SetTaskResult(t *testing.T) {
 	result := &TaskResult{
 		Downloaded: 100,
 		Failed:     5,
-		Skipped:    10,
+		Versioned:  10,
 		Message:    "Download completed",
 	}
 
@@ -270,7 +270,7 @@ func TestTaskManager_SetTaskResult(t *testing.T) {
 	assert.Equal(t, result, got.Result)
 	assert.Equal(t, 100, got.Result.Downloaded)
 	assert.Equal(t, 5, got.Result.Failed)
-	assert.Equal(t, 10, got.Result.Skipped)
+	assert.Equal(t, 10, got.Result.Versioned)
 	assert.Equal(t, "Download completed", got.Result.Message)
 
 	// 测试不存在的任务

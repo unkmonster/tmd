@@ -74,7 +74,7 @@ func (fw *DefaultFileWriter) Write(req WriteRequest) (WriteResult, error) {
 				}
 				newHash := fw.computeDataHash(req.Data)
 				if oldHash == newHash {
-					result.Skipped = true
+					// 文件未变化，跳过写入
 					result.Success = true
 					return result, nil
 				}
@@ -89,6 +89,7 @@ func (fw *DefaultFileWriter) Write(req WriteRequest) (WriteResult, error) {
 			if err != nil {
 				return result, err
 			}
+			result.Versioned = true
 		}
 	}
 
@@ -126,7 +127,6 @@ func (fw *DefaultFileWriter) WriteStream(path string, reader io.Reader, size int
 		if exists && fileInfo.Size() == size {
 			// 大小相同，假设内容相同（跳过重下载）
 			result.OldSize = fileInfo.Size()
-			result.Skipped = true
 			result.Success = true
 			return result, nil
 		}
@@ -139,6 +139,7 @@ func (fw *DefaultFileWriter) WriteStream(path string, reader io.Reader, size int
 			if err != nil {
 				return result, err
 			}
+			result.Versioned = true
 		}
 	}
 

@@ -563,23 +563,28 @@ func (s *downloadServiceImpl) downloadProfile(ctx context.Context, taskID string
 	results := pd.DownloadMultiple(ctx, requests)
 
 	// 统计结果
-	var successCount, failCount, skipCount int
+	var successCount, failCount, versionedCount int
 	for _, result := range results {
-		if result.Success {
-			successCount++
-		} else if result.Error != nil {
+		if result.Error != nil {
 			failCount++
-		} else {
-			skipCount++
+		} else if result.Success {
+			successCount++
+			// 检查是否有文件被版本化（替换旧文件）
+			for _, file := range result.Files {
+				if file.Status == profile.StatusDownloaded && file.OldSize > 0 {
+					versionedCount++
+					break
+				}
+			}
 		}
 	}
 
-	log.Infoln("profile download completed - total:", len(results), "success:", successCount, "failed:", failCount, "skipped:", skipCount)
+	log.Infoln("profile download completed - total:", len(results), "success:", successCount, "failed:", failCount, "versioned:", versionedCount)
 
 	reporter.OnComplete(taskID, Result{
 		Downloaded: successCount,
 		Failed:     failCount,
-		Message:    fmt.Sprintf("Profile download completed: %d success, %d failed, %d skipped", successCount, failCount, skipCount),
+		Message:    fmt.Sprintf("Profile download completed: %d success, %d failed, %d versioned", successCount, failCount, versionedCount),
 	})
 	return nil
 }

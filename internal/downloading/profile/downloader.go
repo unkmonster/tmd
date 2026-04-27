@@ -401,11 +401,7 @@ func (pd *ProfileDownloader) downloadFile(ctx context.Context, userTitle, screen
 		return FileResult{FileType: fileType, Status: StatusFailed, Error: err}
 	}
 
-	status := StatusDownloaded
-	if result.Skipped {
-		status = StatusSkipped
-	}
-	return FileResult{FileType: fileType, Status: status, FilePath: result.FilePath, OldSize: result.OldSize, NewSize: result.FileSize}
+	return FileResult{FileType: fileType, Status: StatusDownloaded, FilePath: result.FilePath, OldSize: result.OldSize, NewSize: result.FileSize}
 }
 
 func (pd *ProfileDownloader) saveProfileJSON(userTitle, screenName string, profile *ProfileInfo, fetchedAt time.Time) FileResult {
@@ -435,11 +431,7 @@ func (pd *ProfileDownloader) saveContent(userTitle string, fileType FileType, da
 		return FileResult{FileType: fileType, FilePath: filePath, Status: StatusFailed, Error: err}
 	}
 
-	status := StatusDownloaded
-	if result.Skipped {
-		status = StatusSkipped
-	}
-	return FileResult{FileType: fileType, Status: status, FilePath: filePath, OldSize: result.OldSize, NewSize: result.NewSize}
+	return FileResult{FileType: fileType, Status: StatusDownloaded, FilePath: filePath, OldSize: result.OldSize, NewSize: result.NewSize}
 }
 
 var reNormalAvatarURL = regexp.MustCompile(`_normal(\.[a-zA-Z]+)$`)

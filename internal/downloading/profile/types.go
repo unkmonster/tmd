@@ -36,7 +36,6 @@ type FileStatus int
 const (
 	StatusFailed FileStatus = iota
 	StatusDownloaded
-	StatusSkipped
 )
 
 func (s FileStatus) String() string {
@@ -45,8 +44,6 @@ func (s FileStatus) String() string {
 		return "failed"
 	case StatusDownloaded:
 		return "downloaded"
-	case StatusSkipped:
-		return "skipped"
 	default:
 		return "unknown"
 	}

@@ -86,7 +86,7 @@ func TestSSEProgressReporter_OnComplete(t *testing.T) {
 	result := service.Result{
 		Downloaded: 95,
 		Failed:     5,
-		Skipped:    10,
+		Versioned:  10,
 		Message:    "Download completed successfully",
 	}
 
@@ -99,7 +99,7 @@ func TestSSEProgressReporter_OnComplete(t *testing.T) {
 	assert.NotNil(t, updatedTask.Result)
 	assert.Equal(t, 95, updatedTask.Result.Downloaded)
 	assert.Equal(t, 5, updatedTask.Result.Failed)
-	assert.Equal(t, 10, updatedTask.Result.Skipped)
+	assert.Equal(t, 10, updatedTask.Result.Versioned)
 	assert.Equal(t, "Download completed successfully", updatedTask.Result.Message)
 }
 
@@ -271,7 +271,7 @@ func TestSSEEvent_Marshal(t *testing.T) {
 				Result: &TaskResult{
 					Downloaded: 95,
 					Failed:     5,
-					Skipped:    10,
+					Versioned:  10,
 					Message:    "Done",
 				},
 				Timestamp: 1234567890,
@@ -324,7 +324,7 @@ func TestResult_Struct(t *testing.T) {
 	r := TaskResult{
 		Downloaded: 100,
 		Failed:     5,
-		Skipped:    10,
+		Versioned:  10,
 		Message:    "Task completed",
 	}
 
@@ -362,7 +362,7 @@ func TestServer_broadcastComplete(t *testing.T) {
 	result := service.Result{
 		Downloaded: 95,
 		Failed:     5,
-		Skipped:    10,
+		Versioned:  10,
 		Message:    "Completed",
 	}
 
@@ -418,7 +418,7 @@ func TestSSEProgressReporter_CompleteWorkflow(t *testing.T) {
 	reporter.OnComplete(task.ID, service.Result{
 		Downloaded: 100,
 		Failed:     0,
-		Skipped:    0,
+		Versioned:  0,
 		Message:    "All done",
 	})
 

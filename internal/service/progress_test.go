@@ -65,13 +65,13 @@ func TestResult_Struct(t *testing.T) {
 	r := Result{
 		Downloaded: 100,
 		Failed:     5,
-		Skipped:    10,
+		Versioned:  10,
 		Message:    "Download completed successfully",
 	}
 
 	assert.Equal(t, 100, r.Downloaded)
 	assert.Equal(t, 5, r.Failed)
-	assert.Equal(t, 10, r.Skipped)
+	assert.Equal(t, 10, r.Versioned)
 	assert.Equal(t, "Download completed successfully", r.Message)
 }
 
@@ -80,7 +80,7 @@ func TestResult_ZeroValues(t *testing.T) {
 
 	assert.Equal(t, 0, r.Downloaded)
 	assert.Equal(t, 0, r.Failed)
-	assert.Equal(t, 0, r.Skipped)
+	assert.Equal(t, 0, r.Versioned)
 	assert.Empty(t, r.Message)
 }
 
@@ -91,7 +91,7 @@ func TestResult_OnlyMessage(t *testing.T) {
 
 	assert.Equal(t, 0, r.Downloaded)
 	assert.Equal(t, 0, r.Failed)
-	assert.Equal(t, 0, r.Skipped)
+	assert.Equal(t, 0, r.Versioned)
 	assert.Equal(t, "Test message", r.Message)
 }
 
@@ -253,7 +253,7 @@ func TestLogReporter_OnComplete_WithStats(t *testing.T) {
 	reporter.OnComplete("task-123", Result{
 		Downloaded: 100,
 		Failed:     5,
-		Skipped:    10,
+		Versioned:  10,
 	})
 
 	assert.Len(t, loggedMessages, 1)

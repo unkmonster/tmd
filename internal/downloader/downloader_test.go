@@ -54,9 +54,6 @@ func TestFileWriter_Write_Normal(t *testing.T) {
 	if !result.Success {
 		t.Error("期望 Success=true, 实际 false")
 	}
-	if result.Skipped {
-		t.Error("期望 Skipped=false, 实际 true")
-	}
 	if result.NewSize != int64(len(testData)) {
 		t.Errorf("期望 NewSize=%d, 实际 %d", len(testData), result.NewSize)
 	}
@@ -98,20 +95,17 @@ func TestFileWriter_Write_SkipUnchanged(t *testing.T) {
 	if err != nil {
 		t.Fatalf("第一次写入失败: %v", err)
 	}
-	if result1.Skipped {
-		t.Error("第一次写入不应该被跳过")
+	if !result1.Success {
+		t.Error("第一次写入应该成功")
 	}
 
-	// 第二次写入相同内容（应该跳过）
+	// 第二次写入相同内容（应该跳过，但标记为成功）
 	result2, err := fw.Write(req)
 	if err != nil {
 		t.Fatalf("第二次写入失败: %v", err)
 	}
 
-	// 验证跳过
-	if !result2.Skipped {
-		t.Error("期望第二次写入被跳过, 实际未跳过")
-	}
+	// 验证跳过（成功但未写入新内容）
 	if !result2.Success {
 		t.Error("跳过的写入仍应标记为成功")
 	}
@@ -123,8 +117,8 @@ func TestFileWriter_Write_SkipUnchanged(t *testing.T) {
 	if err != nil {
 		t.Fatalf("第三次写入失败: %v", err)
 	}
-	if result3.Skipped {
-		t.Error("写入不同内容不应该被跳过")
+	if !result3.Success {
+		t.Error("写入不同内容应该成功")
 	}
 }
 
@@ -421,9 +415,6 @@ func TestDownloader_Download_Normal(t *testing.T) {
 	// 验证结果
 	if !result.Success {
 		t.Error("期望 Success=true")
-	}
-	if result.Skipped {
-		t.Error("期望 Skipped=false")
 	}
 	if result.FilePath != destPath {
 		t.Errorf("期望 FilePath=%s, 实际 %s", destPath, result.FilePath)
@@ -777,9 +768,6 @@ func TestFileWriter_WriteStream_Normal(t *testing.T) {
 	if !result.Success {
 		t.Error("期望 Success=true, 实际 false")
 	}
-	if result.Skipped {
-		t.Error("期望 Skipped=false, 实际 true")
-	}
 	if result.NewSize != expectedSize {
 		t.Errorf("期望 NewSize=%d, 实际 %d", expectedSize, result.NewSize)
 	}
@@ -821,11 +809,11 @@ func TestFileWriter_WriteStream_SkipUnchanged(t *testing.T) {
 	if err != nil {
 		t.Fatalf("第一次流式写入失败: %v", err)
 	}
-	if result1.Skipped {
-		t.Error("第一次写入不应该被跳过")
+	if !result1.Success {
+		t.Error("第一次写入应该成功")
 	}
 
-	// 第二次写入相同大小内容（应该跳过）
+	// 第二次写入相同大小内容（应该跳过，但仍标记为成功）
 	reader2 := strings.NewReader(string(testData))
 	req2 := WriteRequest{
 		Path:   testPath,
@@ -838,9 +826,6 @@ func TestFileWriter_WriteStream_SkipUnchanged(t *testing.T) {
 	result2, err := fw.Write(req2)
 	if err != nil {
 		t.Fatalf("第二次流式写入失败: %v", err)
-	}
-	if !result2.Skipped {
-		t.Error("期望第二次写入被跳过（大小相同）")
 	}
 	if !result2.Success {
 		t.Error("跳过的写入仍应标记为成功")
@@ -1720,20 +1705,14 @@ func TestIntegration_FullDownloadWorkflow(t *testing.T) {
 	if !result1.Success {
 		t.Error("期望第一次下载成功")
 	}
-	if result1.Skipped {
-		t.Error("第一次下载不应该被跳过")
-	}
 
-	// 第二次下载相同文件（应该被跳过）
+	// 第二次下载相同文件（应该被跳过，但仍标记为成功）
 	result2, err := dl.Download(req)
 	if err != nil {
 		t.Fatalf("第二次下载失败: %v", err)
 	}
 	if !result2.Success {
-		t.Error("期望第二次下载成功")
-	}
-	if !result2.Skipped {
-		t.Error("第二次下载应该被跳过")
+		t.Error("期望第二次下载成功（跳过未变化的文件）")
 	}
 
 	// 验证文件内容

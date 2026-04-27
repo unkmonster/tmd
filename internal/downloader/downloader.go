@@ -132,7 +132,6 @@ func (d *DefaultDownloader) downloadBuffer(req DownloadRequest) (*DownloadResult
 	}
 
 	result.Success = writeResult.Success
-	result.Skipped = writeResult.Skipped
 	result.FilePath = req.Destination
 	result.FileSize = writeResult.NewSize
 	result.OldSize = writeResult.OldSize
@@ -265,7 +264,6 @@ func (d *DefaultDownloader) doDownloadStream(req DownloadRequest, contentLength 
 	}
 
 	result.Success = writeResult.Success
-	result.Skipped = writeResult.Skipped
 	result.FilePath = req.Destination
 	result.FileSize = writeResult.NewSize
 	result.OldSize = writeResult.OldSize

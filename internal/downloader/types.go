@@ -24,12 +24,12 @@ type DownloadOptions struct {
 }
 
 type DownloadResult struct {
-	Success  bool
-	Skipped  bool
-	FilePath string
-	FileSize int64
-	OldSize  int64
-	Error    error
+	Success   bool
+	Versioned bool // 是否创建了版本（旧文件已备份到 .versions）
+	FilePath  string
+	FileSize  int64
+	OldSize   int64
+	Error     error
 }
 
 type WriteRequest struct {
@@ -52,10 +52,10 @@ type WriteOptions struct {
 }
 
 type WriteResult struct {
-	Success bool
-	Skipped bool
-	OldSize int64
-	NewSize int64
+	Success   bool
+	Versioned bool // 是否创建了版本（旧文件已备份到 .versions）
+	OldSize   int64
+	NewSize   int64
 }
 
 type Downloader interface {

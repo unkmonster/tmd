@@ -13,7 +13,7 @@ type Progress struct {
 type Result struct {
 	Downloaded int
 	Failed     int
-	Skipped    int
+	Versioned  int // 版本化（旧文件已备份到 .versions）
 	Message    string
 }
 
@@ -69,7 +69,7 @@ func (l *LogReporter) OnComplete(taskID string, r Result) {
 		return
 	}
 	if r.Downloaded > 0 || r.Failed > 0 {
-		l.logger("[%s] Completed: %d downloaded, %d failed, %d skipped", taskID, r.Downloaded, r.Failed, r.Skipped)
+		l.logger("[%s] Completed: %d downloaded, %d failed, %d versioned", taskID, r.Downloaded, r.Failed, r.Versioned)
 	} else {
 		l.logger("[%s] Completed: %s", taskID, r.Message)
 	}

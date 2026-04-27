@@ -981,7 +981,7 @@ func TestServer_TaskProgressAndResult(t *testing.T) {
 	result := &TaskResult{
 		Downloaded: 95,
 		Failed:     5,
-		Skipped:    10,
+		Versioned:  10,
 		Message:    "Done",
 	}
 	ok = server.taskManager.SetTaskResult(task.ID, result)
