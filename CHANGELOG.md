@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ***
 
+## [3.1.2] - 2026-04-26
+
+### Changed
+
+- 重构配置模块，删除部分更新功能，优化客户端初始化
+
+***
+
 ## [3.1.1] - 2026-04-26
 
 ### Fixed
