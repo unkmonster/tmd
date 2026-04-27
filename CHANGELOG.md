@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ***
 
+## [3.1.6] - 2026-04-26
+
+### Fixed
+
+| 文件 | 变更 |
+|------|------|
+| `internal/downloading/profile/downloader.go` | 修复失败时未设置 Error 的问题，添加 Versioned 字段 |
+| `internal/downloading/profile/types.go` | FileResult 新增 Versioned 字段 |
+| `internal/service/download_service.go` | 优化版本化文件统计逻辑 |
+
+**修复内容：**
+- Profile 下载失败时正确设置错误信息
+- 下载结果现在正确报告版本化文件数量（旧文件备份到 .versions 目录）
+- 失败时返回 FilePath 便于调试
+
+***
+
 ## [3.1.5] - 2026-04-26
 
 ### Changed
