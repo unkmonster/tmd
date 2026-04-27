@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ***
 
+## [3.1.1] - 2026-04-26
+
+### Fixed
+
+- 修正文档：删除 readme.md 中错误的月份子目录描述
+
+***
+
 ## [3.1.0] - 2026-04-26
 
 ### Changed
