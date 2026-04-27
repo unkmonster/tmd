@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ***
 
+## [3.1.4] - 2026-04-26
+
+### Changed
+
+- 优化 profile 下载完成报告，添加 versioned 计数
+
+***
+
 ## [3.1.3] - 2026-04-26
 
 ### Changed
