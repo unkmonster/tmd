@@ -203,6 +203,7 @@ func (pd *ProfileDownloader) Download(ctx context.Context, req DownloadRequest) 
 	for _, file := range result.Files {
 		if file.Status == StatusFailed {
 			result.Success = false
+			result.Error = fmt.Errorf("some files failed to download")
 			break
 		}
 	}
@@ -398,17 +399,25 @@ func (pd *ProfileDownloader) downloadFile(ctx context.Context, userTitle, screen
 	result, err := pd.downloader.Download(downloadReq)
 	if err != nil {
 		log.Errorln(label+" download failed:", screenName, "-", err)
-		return FileResult{FileType: fileType, Status: StatusFailed, Error: err}
+		return FileResult{FileType: fileType, FilePath: filePath, Status: StatusFailed, Error: err}
 	}
 
-	return FileResult{FileType: fileType, Status: StatusDownloaded, FilePath: result.FilePath, OldSize: result.OldSize, NewSize: result.FileSize}
+	return FileResult{
+		FileType:  fileType,
+		Status:    StatusDownloaded,
+		FilePath:  result.FilePath,
+		OldSize:   result.OldSize,
+		NewSize:   result.FileSize,
+		Versioned: result.Versioned,
+	}
 }
 
 func (pd *ProfileDownloader) saveProfileJSON(userTitle, screenName string, profile *ProfileInfo, fetchedAt time.Time) FileResult {
 	data, err := ProfileToJSON(profile)
 	if err != nil {
 		log.Errorln("profile JSON serialize failed:", screenName, "-", err)
-		return FileResult{FileType: FileTypeProfile, Status: StatusFailed, Error: err}
+		filePath := pd.storage.GetFilePath(userTitle, FileTypeProfile)
+		return FileResult{FileType: FileTypeProfile, FilePath: filePath, Status: StatusFailed, Error: err}
 	}
 	return pd.saveContent(userTitle, FileTypeProfile, data, fetchedAt)
 }
@@ -431,7 +440,14 @@ func (pd *ProfileDownloader) saveContent(userTitle string, fileType FileType, da
 		return FileResult{FileType: fileType, FilePath: filePath, Status: StatusFailed, Error: err}
 	}
 
-	return FileResult{FileType: fileType, Status: StatusDownloaded, FilePath: filePath, OldSize: result.OldSize, NewSize: result.NewSize}
+	return FileResult{
+		FileType:  fileType,
+		Status:    StatusDownloaded,
+		FilePath:  filePath,
+		OldSize:   result.OldSize,
+		NewSize:   result.NewSize,
+		Versioned: result.Versioned,
+	}
 }
 
 var reNormalAvatarURL = regexp.MustCompile(`_normal(\.[a-zA-Z]+)$`)

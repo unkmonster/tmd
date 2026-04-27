@@ -51,12 +51,13 @@ func (s FileStatus) String() string {
 
 // FileResult 单个文件下载结果
 type FileResult struct {
-	FileType FileType
-	FilePath string
-	Status   FileStatus
-	OldSize  int64
-	NewSize  int64
-	Error    error
+	FileType  FileType
+	FilePath  string
+	Status    FileStatus
+	OldSize   int64
+	NewSize   int64
+	Versioned bool // 是否创建了版本（旧文件已备份到 .versions）
+	Error     error
 }
 
 // DownloadResult 下载结果

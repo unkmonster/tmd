@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ***
 
+## [3.1.5] - 2026-04-26
+
+### Changed
+
+| 文件 | 变更 |
+|------|------|
+| `main.go` | 重构 CLI 启动流程，优化错误处理 |
+| `internal/config/config.go` | 简化配置初始化逻辑 |
+| `internal/cli/executor.go` | 优化执行器错误处理 |
+| `internal/cli/executor_test.go` | 更新测试用例 |
+
+**主要变更：**
+- 重构 CLI 启动流程，简化配置初始化
+- 优化错误处理机制
+- 改进日志输出格式
+
+***
+
 ## [3.1.4] - 2026-04-26
 
 ### Changed
