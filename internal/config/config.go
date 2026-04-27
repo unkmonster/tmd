@@ -197,8 +197,8 @@ func WriteConf(path string, conf *Config) error {
 }
 
 // PromptConfig 统一的配置交互
-// partialMode: true 显示"已更新/未变更"提示，false 不显示
-func PromptConfig(saveto string, partialMode bool) (*Config, error) {
+// showStatus: 是否显示字段更新状态（"updated"/"unchanged"），重新配置时设为 true
+func PromptConfig(saveto string, showStatus bool) (*Config, error) {
 	conf, err := ReadConf(saveto)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -243,10 +243,10 @@ func PromptConfig(saveto string, partialMode bool) (*Config, error) {
 			return nil, fmt.Errorf("failed to set %s: %w", field.Name, err)
 		}
 
-		// 部分模式显示更新状态
-		if partialMode && input != currentValue {
+		// 显示字段更新状态
+		if showStatus && input != currentValue {
 			fmt.Printf("  -> %s updated\n", field.Name)
-		} else if partialMode {
+		} else if showStatus {
 			fmt.Printf("  -> %s unchanged\n", field.Name)
 		}
 	}

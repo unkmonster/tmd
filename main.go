@@ -10,7 +10,9 @@ import (
 	"strconv"
 	"syscall"
 
+	"github.com/go-resty/resty/v2"
 	"github.com/gookit/color"
+	"github.com/jmoiron/sqlx"
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/natefinch/lumberjack"
 	"github.com/rifflock/lfshook"
@@ -23,6 +25,7 @@ import (
 	"github.com/unkmonster/tmd/internal/downloading"
 	"github.com/unkmonster/tmd/internal/naming"
 	"github.com/unkmonster/tmd/internal/path"
+	"github.com/unkmonster/tmd/internal/service"
 	"github.com/unkmonster/tmd/internal/twitter"
 )
 
@@ -91,7 +94,6 @@ func main() {
 	confPath := filepath.Join(appRootPath, "conf.yaml")
 	cliLogPath := filepath.Join(appRootPath, "client.log")
 	logPath := filepath.Join(appRootPath, "tmd2.log")
-	additionalCookiesPath := filepath.Join(appRootPath, "additional_cookies.yaml")
 	if err = os.MkdirAll(appRootPath, 0755); err != nil {
 		log.Fatalln("failed to make app dir", err)
 	}
@@ -132,12 +134,6 @@ func main() {
 		downloading.MaxDownloadRoutine = conf.MaxDownloadRoutine
 	}
 	if conf.MaxFileNameLen > 0 {
-		if conf.MaxFileNameLen < 50 {
-			conf.MaxFileNameLen = 50
-		}
-		if conf.MaxFileNameLen > 250 {
-			conf.MaxFileNameLen = 250
-		}
 		naming.MaxFileNameLen = conf.MaxFileNameLen
 		log.Infoln("max file name length set to:", naming.MaxFileNameLen)
 	}
@@ -151,28 +147,10 @@ func main() {
 	}
 
 	// CLI 模式
-	client, screenName, err := twitter.LoginWithOptions(ctx, conf.Cookie.AuthToken, conf.Cookie.Ct0, loginOpts)
-	if err != nil {
-		log.Fatalln("failed to login:", err)
-	}
-	twitter.EnableRateLimit(client)
-	if dbg {
-		twitter.EnableRequestCounting(client)
-	}
-	log.Infoln("signed in as:", color.FgLightBlue.Render(screenName))
+	client, additional, _, db := initializeClients(ctx, conf, appRootPath, loginOpts, dbg)
+	defer db.Close()
 
-	cookies, err := config.ReadAdditionalCookies(additionalCookiesPath)
-	if err != nil {
-		log.Warnln("failed to load additional cookies:", err)
-	}
-	log.Debugln("loaded additional cookies:", len(cookies))
-	twitterCookies := make([]twitter.AccountCookie, len(cookies))
-	for i, c := range cookies {
-		twitterCookies[i] = twitter.AccountCookie{AuthToken: c.AuthToken, Ct0: c.Ct0}
-	}
-	batchOpts := twitter.BatchLoginOptions{Debug: dbg, ProxyURL: conf.ProxyURL}
-	additional := twitter.BatchLogin(ctx, batchOpts, twitterCookies, screenName)
-
+	// 设置客户端日志
 	cliLogFile, err := os.OpenFile(cliLogPath, os.O_TRUNC|os.O_WRONLY|os.O_CREATE, 0644)
 	if err != nil {
 		log.Fatalln("failed to create log file:", err)
@@ -183,18 +161,7 @@ func main() {
 		cli.SetClientLogger(c, cliLogFile)
 	}
 
-	pathHelper, err := path.NewStorePath(conf.RootPath)
-	if err != nil {
-		log.Fatalln("failed to make store dir:", err)
-	}
-
-	db, err := database.Connect(pathHelper.DB)
-	if err != nil {
-		log.Fatalln("failed to connect to database:", err)
-	}
-	defer db.Close()
-	log.Infoln("database is connected")
-
+	// 信号处理
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
 	defer close(sigChan)
@@ -209,11 +176,13 @@ func main() {
 
 	// 构造依赖
 	deps := &cli.Dependencies{
-		Client:            client,
-		AdditionalClients: additional,
-		DB:                db,
-		Conf:              conf,
-		AppRootPath:       appRootPath,
+		Dependencies: service.Dependencies{
+			Client:            client,
+			AdditionalClients: additional,
+			DB:                db,
+			Config:            conf,
+			AppRootPath:       appRootPath,
+		},
 	}
 
 	// 将 cli 参数传递给 Execute
@@ -222,15 +191,24 @@ func main() {
 	}
 }
 
-func runServer(conf *config.Config, appRootPath string, port int, loginOpts twitter.LoginOptions) {
-	ctx := context.Background()
-
-	// 登录
+// initializeClients 初始化 Twitter 客户端和数据库连接
+// 返回主客户端、附加客户端列表、路径助手和数据库连接
+func initializeClients(
+	ctx context.Context,
+	conf *config.Config,
+	appRootPath string,
+	loginOpts twitter.LoginOptions,
+	enableRequestCounting bool,
+) (*resty.Client, []*resty.Client, *path.StorePath, *sqlx.DB) {
+	// 登录主账户
 	client, screenName, err := twitter.LoginWithOptions(ctx, conf.Cookie.AuthToken, conf.Cookie.Ct0, loginOpts)
 	if err != nil {
 		log.Fatalln("failed to login:", err)
 	}
 	twitter.EnableRateLimit(client)
+	if enableRequestCounting {
+		twitter.EnableRequestCounting(client)
+	}
 	log.Infoln("signed in as:", color.FgLightBlue.Render(screenName))
 
 	// 加载额外 cookies
@@ -239,14 +217,17 @@ func runServer(conf *config.Config, appRootPath string, port int, loginOpts twit
 	if err != nil {
 		log.Warnln("failed to load additional cookies:", err)
 	}
+	log.Debugln("loaded additional cookies:", len(cookies))
+
 	twitterCookies := make([]twitter.AccountCookie, len(cookies))
 	for i, c := range cookies {
 		twitterCookies[i] = twitter.AccountCookie{AuthToken: c.AuthToken, Ct0: c.Ct0}
 	}
-	batchOpts := twitter.BatchLoginOptions{Debug: false, ProxyURL: conf.ProxyURL}
+
+	batchOpts := twitter.BatchLoginOptions{Debug: enableRequestCounting, ProxyURL: conf.ProxyURL}
 	additional := twitter.BatchLogin(ctx, batchOpts, twitterCookies, screenName)
 
-	// 连接数据库
+	// 初始化路径和数据库
 	pathHelper, err := path.NewStorePath(conf.RootPath)
 	if err != nil {
 		log.Fatalln("failed to make store dir:", err)
@@ -256,8 +237,16 @@ func runServer(conf *config.Config, appRootPath string, port int, loginOpts twit
 	if err != nil {
 		log.Fatalln("failed to connect to database:", err)
 	}
-	defer db.Close()
 	log.Infoln("database is connected")
+
+	return client, additional, pathHelper, db
+}
+
+func runServer(conf *config.Config, appRootPath string, port int, loginOpts twitter.LoginOptions) {
+	ctx := context.Background()
+
+	client, additional, _, db := initializeClients(ctx, conf, appRootPath, loginOpts, false)
+	defer db.Close()
 
 	// 创建并启动 API Server
 	server := api.NewServer(client, additional, db, conf, appRootPath)

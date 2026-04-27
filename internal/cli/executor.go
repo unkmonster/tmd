@@ -6,22 +6,16 @@ import (
 	"io"
 
 	"github.com/go-resty/resty/v2"
-	"github.com/jmoiron/sqlx"
 	log "github.com/sirupsen/logrus"
 
-	"github.com/unkmonster/tmd/internal/config"
 	"github.com/unkmonster/tmd/internal/service"
 	"github.com/unkmonster/tmd/internal/twitter"
 )
 
-// Dependencies 执行依赖
+// Dependencies 执行依赖，嵌入 service.Dependencies 避免重复
 type Dependencies struct {
-	Client            *resty.Client
-	AdditionalClients []*resty.Client
-	DB                *sqlx.DB
-	Conf              *config.Config
-	AppRootPath       string
-	DownloadService   service.DownloadService // 新增：Service 层
+	service.Dependencies
+	DownloadService service.DownloadService // 可选：Service 层实例
 }
 
 // Execute 执行 CLI 命令
@@ -34,13 +28,7 @@ func Execute(ctx context.Context, args []string, deps *Dependencies) error {
 
 	// 如果没有提供 Service，创建一个默认的
 	if deps.DownloadService == nil {
-		deps.DownloadService = service.NewDownloadService(&service.Dependencies{
-			Client:            deps.Client,
-			AdditionalClients: deps.AdditionalClients,
-			DB:                deps.DB,
-			Config:            deps.Conf,
-			AppRootPath:       deps.AppRootPath,
-		})
+		deps.DownloadService = service.NewDownloadService(&deps.Dependencies)
 	}
 
 	// 创建进度报告器

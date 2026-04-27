@@ -70,9 +70,11 @@ func (m *MockDownloadService) MarkDownloaded(ctx context.Context, taskID string,
 
 func TestExecute_ParseArgsError(t *testing.T) {
 	deps := &Dependencies{
-		Client:      resty.New(),
-		Conf:        &config.Config{},
-		AppRootPath: "/tmp",
+		Dependencies: service.Dependencies{
+			Client:      resty.New(),
+			Config:      &config.Config{},
+			AppRootPath: "/tmp",
+		},
 	}
 
 	// 使用无效的列表ID
@@ -88,9 +90,11 @@ func TestExecute_JsonDownload(t *testing.T) {
 	mockSvc.On("JsonFileDownload", mock.Anything, mock.Anything, []string{"/path/to/file.json"}, false, mock.Anything).Return(nil)
 
 	deps := &Dependencies{
-		Client:          resty.New(),
-		Conf:            &config.Config{},
-		AppRootPath:     "/tmp",
+		Dependencies: service.Dependencies{
+			Client:      resty.New(),
+			Config:      &config.Config{},
+			AppRootPath: "/tmp",
+		},
 		DownloadService: mockSvc,
 	}
 
@@ -106,9 +110,11 @@ func TestExecute_JsonDownload_NoRetry(t *testing.T) {
 	mockSvc.On("JsonFileDownload", mock.Anything, mock.Anything, []string{"/path/to/file.json"}, true, mock.Anything).Return(nil)
 
 	deps := &Dependencies{
-		Client:          resty.New(),
-		Conf:            &config.Config{},
-		AppRootPath:     "/tmp",
+		Dependencies: service.Dependencies{
+			Client:      resty.New(),
+			Config:      &config.Config{},
+			AppRootPath: "/tmp",
+		},
 		DownloadService: mockSvc,
 	}
 
@@ -125,9 +131,11 @@ func TestExecute_MarkDownloaded(t *testing.T) {
 	mockSvc.On("MarkDownloaded", mock.Anything, mock.Anything, mock.AnythingOfType("[]*twitter.User"), mock.AnythingOfType("[]twitter.ListBase"), &markTime, mock.Anything).Return(nil)
 
 	deps := &Dependencies{
-		Client:          resty.New(),
-		Conf:            &config.Config{},
-		AppRootPath:     "/tmp",
+		Dependencies: service.Dependencies{
+			Client:      resty.New(),
+			Config:      &config.Config{},
+			AppRootPath: "/tmp",
+		},
 		DownloadService: mockSvc,
 	}
 
@@ -143,9 +151,11 @@ func TestExecute_ProfileDownload(t *testing.T) {
 	mockSvc.On("ProfileDownload", mock.Anything, mock.Anything, []string{"user1", "user2"}, mock.Anything).Return(nil)
 
 	deps := &Dependencies{
-		Client:          resty.New(),
-		Conf:            &config.Config{},
-		AppRootPath:     "/tmp",
+		Dependencies: service.Dependencies{
+			Client:      resty.New(),
+			Config:      &config.Config{},
+			AppRootPath: "/tmp",
+		},
 		DownloadService: mockSvc,
 	}
 
@@ -161,9 +171,11 @@ func TestExecute_ListProfileDownload(t *testing.T) {
 	mockSvc.On("ListProfileDownload", mock.Anything, mock.Anything, uint64(12345), mock.Anything).Return(nil)
 
 	deps := &Dependencies{
-		Client:          resty.New(),
-		Conf:            &config.Config{},
-		AppRootPath:     "/tmp",
+		Dependencies: service.Dependencies{
+			Client:      resty.New(),
+			Config:      &config.Config{},
+			AppRootPath: "/tmp",
+		},
 		DownloadService: mockSvc,
 	}
 
@@ -176,9 +188,11 @@ func TestExecute_ListProfileDownload(t *testing.T) {
 
 func TestExecute_NoArgs(t *testing.T) {
 	deps := &Dependencies{
-		Client:          resty.New(),
-		Conf:            &config.Config{},
-		AppRootPath:     "/tmp",
+		Dependencies: service.Dependencies{
+			Client:      resty.New(),
+			Config:      &config.Config{},
+			AppRootPath: "/tmp",
+		},
 		DownloadService: nil,
 	}
 
@@ -191,12 +205,14 @@ func TestExecute_NoArgs(t *testing.T) {
 func TestExecute_DefaultServiceCreation(t *testing.T) {
 	// 当DownloadService为nil时，应该创建默认服务
 	deps := &Dependencies{
-		Client:            resty.New(),
-		AdditionalClients: []*resty.Client{},
-		DB:                &sqlx.DB{},
-		Conf:              &config.Config{},
-		AppRootPath:       "/tmp",
-		DownloadService:   nil,
+		Dependencies: service.Dependencies{
+			Client:            resty.New(),
+			AdditionalClients: []*resty.Client{},
+			DB:                &sqlx.DB{},
+			Config:            &config.Config{},
+			AppRootPath:       "/tmp",
+		},
+		DownloadService: nil,
 	}
 
 	// 由于没有实际的Twitter API，这会失败，但可以验证默认服务被创建
@@ -215,18 +231,20 @@ func TestDependencies_Struct(t *testing.T) {
 	cfg := &config.Config{}
 
 	deps := &Dependencies{
-		Client:            client,
-		AdditionalClients: []*resty.Client{client},
-		DB:                db,
-		Conf:              cfg,
-		AppRootPath:       "/app/root",
-		DownloadService:   nil,
+		Dependencies: service.Dependencies{
+			Client:            client,
+			AdditionalClients: []*resty.Client{client},
+			DB:                db,
+			Config:            cfg,
+			AppRootPath:       "/app/root",
+		},
+		DownloadService: nil,
 	}
 
 	assert.Equal(t, client, deps.Client)
 	assert.Len(t, deps.AdditionalClients, 1)
 	assert.Equal(t, db, deps.DB)
-	assert.Equal(t, cfg, deps.Conf)
+	assert.Equal(t, cfg, deps.Config)
 	assert.Equal(t, "/app/root", deps.AppRootPath)
 	assert.Nil(t, deps.DownloadService)
 }
