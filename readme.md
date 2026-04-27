@@ -73,7 +73,7 @@
 
 **核心特性：**
 - HEAD 请求预获取文件大小，智能选择策略
-- 带重试机制（最多 3 次，间隔 2 秒递增）
+- 带重试机制（最多 2 次，间隔 2 秒递增）
 - 文件大小验证（下载完成后校验完整性）
 - 自动清理不完整文件
 - 失败后回退到 Buffer 模式（容错）
@@ -144,6 +144,12 @@ GOOS=darwin GOARCH=amd64 CGO_ENABLED=1 go build -o tmd-macos .
 > - **Windows**: 安装 [MinGW-w64](http://mingw-w64.org/) 或 [TDM-GCC](https://jmeubank.github.io/tdm-gcc/)
 > - **Ubuntu**: `sudo apt-get install gcc`
 > - **macOS**: `xcode-select --install`
+>
+> **交叉编译额外要求**: `CGO_ENABLED=1` 交叉编译需要对应目标平台的 C 交叉编译器：
+> - **编译 Linux 版**: 需安装 `x86_64-linux-gnu-gcc`（Ubuntu: `sudo apt-get install gcc-x86-64-linux-gnu`）
+> - **编译 Windows 版**: 需安装 `x86_64-w64-mingw32-gcc`（Ubuntu: `sudo apt-get install mingw-w64`）
+> - **编译 macOS 版**: 需安装 `osxcross` 工具链
+> - 在 Windows 上交叉编译到 Linux/macOS 较为复杂，建议使用 Docker 或 GitHub Actions
 
 ### 首次运行
 
@@ -158,8 +164,10 @@ tmd -conf
 | storage dir          | 文件存储目录                        | 无（必填）                | `D:\twitter_downloads` |
 | auth\_token          | Twitter Cookie 中的 auth\_token | 无（必填）                | `a1b2c3d4e5f6...`      |
 | ct0                  | Twitter Cookie 中的 ct0         | 无（必填）                | `x1y2z3...`            |
-| max download routine | 最大并发下载数（范围 1-100）         | `35`                    | `20`                   |
+| max download routine | 最大并发下载数（范围 1-100）         | `min(10, CPU×2)`¹                | `35`                   |
 | max file name len    | 最大文件名长度（50-250）           | `158`                   | `158`                  |
+
+> ¹ `max download routine` 默认值为 `min(10, runtime.GOMAXPROCS(0)*2)`，即 CPU 核数的 2 倍且不超过 10。首次通过 `-conf` 配置时建议输入 35。
 
 ### 配置文件位置
 
@@ -185,7 +193,7 @@ tmd -conf
 
 | 参数        | 类型   | 默认值   | 说明                                 |
 | --------- | ---- | ----- | ---------------------------------- |
-| `-conf`   | bool | false | 重新配置程序，配置完成后退出                     |
+| `-conf`   | bool | false | 重新配置程序（部分更新，显示当前值可逐项修改）       |
 | `-dbg`    | bool | false | 显示调试信息，包括请求计数等                     |
 | `-server` | bool | false | 启动 API Server 模式                   |
 | `-port`   | int  | 25556 | API Server 监听端口（仅与 `-server` 一起使用） |
@@ -194,7 +202,7 @@ tmd -conf
 
 | 参数      | 类型     | 可重复 | 说明                       |
 | ------- | ------ | --- | ------------------------ |
-| `-user` | string | ✅   | 指定下载用户，支持用户ID或用户名（可带@前缀） |
+| `-user` | string | ✅   | 指定下载用户名（可带@前缀，如 `elonmusk` 或 `@elonmusk`） |
 | `-list` | uint64 | ✅   | 指定下载列表ID                 |
 | `-foll` | string | ✅   | 指定用户，下载其关注的所有用户          |
 
@@ -285,7 +293,11 @@ tmd -server -port 8080
 |------|------|------|------|
 | **GET** | `/api/v1/health` | 健康检查 | ❌ |
 | **POST** | `/api/v1/users/{name}/download` | 下载用户推文 | ❌ |
+| **POST** | `/api/v1/users/{name}/profile` | 下载用户 Profile | ❌ |
+| **POST** | `/api/v1/users/{name}/following/download` | 下载关注列表 | ❌ |
+| **POST** | `/api/v1/users/{name}/mark` | 标记用户已下载 | ❌ |
 | **POST** | `/api/v1/lists/{id}/download` | 下载列表推文 | ❌ |
+| **POST** | `/api/v1/lists/{id}/profile` | 下载列表 Profile | ❌ |
 | **POST** | `/api/v1/json/file/download` | JSON 文件导入下载 | ❌ |
 | **POST** | `/api/v1/json/folder/download` | LoongTweet 文件夹下载 | ❌ |
 | **POST** | `/api/v1/batch/download` | 批量下载（多用户/列表） | ❌ |
@@ -297,16 +309,63 @@ tmd -server -port 8080
 | **GET** | `/api/v1/db/users/{id}` | 用户详情 | ❌ |
 | **PUT** | `/api/v1/db/users/{id}` | 更新用户 | ❌ |
 | **DELETE** | `/api/v1/db/users/{id}` | 删除用户 | ❌ |
+| **GET** | `/api/v1/db/users/{id}/previous-names` | 用户历史名称 | ❌ |
 | **GET** | `/api/v1/db/lists` | 列表列表（分页） | ❌ |
 | **GET** | `/api/v1/db/lists/{id}` | 列表详情 | ❌ |
 | **PUT** | `/api/v1/db/lists/{id}` | 更新列表 | ❌ |
 | **DELETE** | `/api/v1/db/lists/{id}` | 删除列表 | ❌ |
 | **GET** | `/api/v1/db/user-entities` | 用户实体列表（分页） | ❌ |
+| **GET** | `/api/v1/db/user-entities/{id}` | 用户实体详情 | ❌ |
+| **PUT** | `/api/v1/db/user-entities/{id}` | 更新用户实体 | ❌ |
+| **DELETE** | `/api/v1/db/user-entities/{id}` | 删除用户实体 | ❌ |
 | **GET** | `/api/v1/db/list-entities` | 列表实体列表（分页） | ❌ |
+| **GET** | `/api/v1/db/list-entities/{id}` | 列表实体详情 | ❌ |
+| **PUT** | `/api/v1/db/list-entities/{id}` | 更新列表实体 | ❌ |
+| **DELETE** | `/api/v1/db/list-entities/{id}` | 删除列表实体 | ❌ |
 | **GET** | `/api/v1/db/user-links` | 用户链接查询 | ❌ |
 | **GET** | `/api/v1/config` | 系统配置（脱敏） | ❌ |
+| **GET** | `/` | Web 管理界面 - 仪表盘 | ❌ |
+| **GET** | `/tasks` | Web 管理界面 - 任务 | ❌ |
+| **GET** | `/data` | Web 管理界面 - 数据 | ❌ |
+| **GET** | `/system` | Web 管理界面 - 系统 | ❌ |
 
 > ⚠️ **安全提示**: 当前版本 API 无需认证，仅建议在本地或可信网络使用。生产环境请配合反向代理（Nginx/Caddy）添加 Basic Auth 或 IP 白名单。
+
+### API 通用参数
+
+**分页参数**（适用于所有 `GET /api/v1/db/*` 端点）：
+
+| 参数 | 默认值 | 说明 |
+|------|--------|------|
+| `page` | 1 | 页码 |
+| `pageSize` | 20 | 每页数量（最大 100） |
+| `sortBy` | id | 排序字段（白名单限制） |
+| `sortOrder` | desc | 排序方向（asc/desc） |
+| `q` | - | 搜索关键词 |
+
+**筛选参数**（按端点不同）：
+
+| 参数 | 适用端点 | 说明 |
+|------|---------|------|
+| `accessible` | `/db/users` | 用户可访问状态筛选 |
+| `protected` | `/db/users` | 用户保护状态筛选 |
+| `userId` | `/db/user-entities`, `/db/user-links` | 按用户ID筛选 |
+| `listId` | `/db/list-entities` | 按列表ID筛选 |
+| `ownerId` | `/db/lists` | 按所有者ID筛选 |
+
+### SSE 实时推送
+
+`GET /api/v1/sse/tasks` 端点行为说明：
+
+- 每 **2 秒**推送一次所有任务列表（全量推送，非增量）
+- 客户端断开时服务端通过 `context.Done()` 自动感知
+- 无心跳机制，依赖 HTTP keep-alive 保持连接
+
+### 任务自动清理
+
+- 已完成/失败/取消的任务在 **8 小时**后自动清理
+- 清理每 **1 小时**执行一次
+- 运行中的任务不会被清理
 
 ### Web 管理界面
 
@@ -384,8 +443,6 @@ Profile 下载功能可以保存用户的完整个人资料：
   "ID": 123456789,
   "Name": "用户名称",
   "ScreenName": "username",
-  "AvatarURL": "https://...",
-  "BannerURL": "https://...",
   "URL": "https://example.com",
   "Location": "地点",
   "Verified": true,
@@ -393,6 +450,8 @@ Profile 下载功能可以保存用户的完整个人资料：
   "CreatedAt": "Wed Oct 01 00:00:00 +0000 2014"
 }
 ```
+
+> **注意**: `AvatarURL`、`BannerURL`、`Description` 不会写入 `profile.json`，它们分别保存为独立的图片文件和 `description.txt`。
 
 ### 版本管理
 
@@ -453,10 +512,7 @@ media:2
 {存储目录}/
 ├── users/                          # 用户目录
 │   ├── Elon Musk(elonmusk)/        # 用户文件夹
-│   │   ├── 2024/
-│   │   │   ├── 01/
-│   │   │   │   └── 推文媒体文件...
-│   │   │   └── 推文媒体文件...     # -user/-jsonfile/-jsonfolder 媒体文件均在此
+│   │   ├── 推文媒体文件...         # -user/-jsonfile/-jsonfolder 媒体文件均在此
 │   │   └── .loongtweet/           # 仅 -user 和 -jsonfile 创建
 │   │       ├── {推文文本}_{tweetID}.json    # 推文 JSON（均已清理：-user cleanTweetJson / -jsonfile 格式转换+清理）
 │   │       ├── {推文文本}_{tweetID}.txt     # 推文文本
@@ -471,12 +527,12 @@ media:2
 ├── .data/                          # 数据目录
     ├── foo.db                      # SQLite 数据库
     │                                 # 包含以下数据表：
-    │                                 # - users: 用户信息
+    │                                 # - users: 用户信息（含 is_accessible 状态）
     │                                 # - lsts: 列表信息
-    │                                 # - user_entities: 用户下载实体
+    │                                 # - user_entities: 用户下载实体（含 media_count）
     │                                 # - lst_entities: 列表下载实体
     │                                 # - user_links: 用户链接关联
-    │                                 # - user_previous_names: 用户历史名称
+    │                                 # - user_previous_names: 用户历史名称（含 record_date）
     └── errors.json                 # 失败推文记录
 ```
 
@@ -503,7 +559,7 @@ tmd -user elonmusk
 # 仅下载推文，不下载 Profile
 tmd -user elonmusk -noprofile
 
-# 使用用户ID
+# 使用数字用户名（如纯数字的 screen_name）
 tmd -user 44196397
 
 # 使用 @ 前缀
@@ -701,7 +757,7 @@ Twitter API 限制一段时间内过快的请求（例如某端点每15分钟仅
 | `-mark-downloaded` + 推文下载             |  ⚠️  | **仅执行标记，不下载推文**（与稳定版不同） |
 | `-jsonfile` + `-mark-downloaded`        |  ⚠️  | **仅执行 `-jsonfile`**（高优先级独占） |
 | `-jsonfolder` + `-mark-downloaded`      |  ⚠️  | **仅执行 `-jsonfolder`**（高优先级独占） |
-| `-conf` + 其他参数                        |  ⚠️ | 配置后退出，忽略其他              |
+| `-conf` + 其他参数                        |  ⚠️ | CLI 模式：配置后退出，忽略其他；Server 模式：配置后启动 Server |
 | `-noprofile` + 推文下载参数                 |  ✅  | 下载推文但跳过 Profile         |
 | `-server` + `-port`                   |  ✅  | 指定 API Server 端口        |
 | `-server` + 下载参数                      |  ⚠️ | Server 模式下忽略下载参数        |
@@ -793,6 +849,7 @@ Twitter API 限制一段时间内过快的请求（例如某端点每15分钟仅
 ├─────────────────────────────────────────────────────────────┤
 │  internal/utils (工具层)                                     │
 │  - fs.go / http.go / algo.go / time_range.go / recovery.go   │
+│  - win32.go (Windows) / stub.go (!Windows)                   │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -851,6 +908,9 @@ type DownloadService interface {
 
     // LoongTweet 文件夹下载（TMD 生成的 .loongtweet）
     JsonFolderDownload(ctx context.Context, taskID string, paths []string, noRetry bool, reporter ProgressReporter) error
+
+    // JSON 下载（通用，根据路径自动判断类型）
+    JsonDownload(ctx context.Context, taskID string, paths []string, noRetry bool, reporter ProgressReporter) error
     
     // 标记已下载
 	MarkDownloaded(ctx context.Context, taskID string, users []*twitter.User, lists []twitter.ListBase, markTime *string, reporter ProgressReporter) error
@@ -1046,7 +1106,7 @@ tmd/
 
 ### 运行测试
 
-项目包含 **52 个测试文件**，覆盖核心业务逻辑：
+项目包含 **49 个测试文件**，覆盖核心业务逻辑：
 
 ```bash
 # 运行所有测试（含竞态检测）
@@ -1202,7 +1262,7 @@ server {
 | 并发数 | 适用场景 | 带宽占用 | 推荐度 |
 |-------|---------|---------|--------|
 | **10-20** | 家庭网络 / 共享网络 | 低 (5-20 Mbps) | ⭐⭐⭐ 稳定首选 |
-| **20-35** | 企业网络 / 独享带宽 | 中 (20-50 Mbps) | ⭐⭐⭐⭐ **默认值** |
+| **20-35** | 企业网络 / 独享带宽 | 中 (20-50 Mbps) | ⭐⭐⭐⭐ **推荐值** |
 | **35-50** | 服务器 / VPS / 高速宽带 | 高 (50-100 Mbps) | ⭐⭐ 需要优质网络 |
 
 **配置方法：**
