@@ -325,48 +325,6 @@ func (s *downloadServiceImpl) MarkDownloaded(ctx context.Context, taskID string,
 	return nil
 }
 
-// JsonDownload 从JSON下载
-func (s *downloadServiceImpl) JsonDownload(ctx context.Context, taskID string, paths []string, noRetry bool, reporter ProgressReporter) error {
-	if reporter == nil {
-		reporter = &NopReporter{}
-	}
-
-	log.Infof("downloading from %d JSON file(s)...", len(paths))
-	reporter.OnProgress(taskID, Progress{Stage: "downloading", Total: len(paths)})
-
-	pathHelper, err := path.NewStorePath(s.deps.Config.RootPath)
-	if err != nil {
-		return err
-	}
-
-	versionManager := downloader.NewVersionManagerWithWriter(".versions", nil)
-	fileWriter := downloader.NewFileWriter(versionManager)
-	versionManager.SetFileWriter(fileWriter)
-	dwn := downloader.NewDownloader(fileWriter)
-
-	results := downloading.DownloadFromLoongTweetFolder(ctx, s.deps.Client, pathHelper.Users, dwn, fileWriter, paths...)
-
-	var successCount, failCount int
-	for _, r := range results {
-		if r.Success {
-			successCount++
-			log.Infof("✓ %s: %d tweets processed", filepath.Base(r.Path), r.TweetCount)
-		} else {
-			failCount++
-			log.Errorf("✗ %s: %v", filepath.Base(r.Path), r.Error)
-		}
-	}
-
-	log.Infof("JSON download completed: %d success, %d failed", successCount, failCount)
-
-	reporter.OnComplete(taskID, Result{
-		Downloaded: successCount,
-		Failed:     failCount,
-		Message:    fmt.Sprintf("JSON download: %d success, %d failed", successCount, failCount),
-	})
-	return nil
-}
-
 // JsonFileDownload 从第三方工具导出的JSON文件下载推文媒体
 // 支持推文搜索结果格式（包含 media 数组）
 func (s *downloadServiceImpl) JsonFileDownload(ctx context.Context, taskID string, paths []string, noRetry bool, reporter ProgressReporter) error {

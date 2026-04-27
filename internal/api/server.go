@@ -118,6 +118,7 @@ func (s *Server) Start(port int) error {
 
 	addr := fmt.Sprintf(":%d", port)
 	log.Infoln("API server starting on", addr)
+	log.Infof("Visit http://localhost%s/ to get started", addr)
 
 	server := &http.Server{
 		Addr:         addr,

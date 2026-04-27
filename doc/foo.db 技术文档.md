@@ -89,6 +89,7 @@ CREATE TABLE IF NOT EXISTS users (
     name VARCHAR NOT NULL,            -- 用户显示名称
     protected BOOLEAN NOT NULL,       -- 是否受保护（私密账户）
     friends_count INTEGER NOT NULL,   -- 关注数量
+    is_accessible BOOLEAN NOT NULL DEFAULT 1, -- 是否可通过 API 正常访问（非封禁/注销）
     PRIMARY KEY (id),
     UNIQUE (screen_name)
 );
@@ -101,6 +102,7 @@ CREATE TABLE IF NOT EXISTS users (
 - `name`: 用户自定义显示名称（可包含特殊字符和表情）
 - `protected`: `true` 表示私密账户，需关注后才能查看内容
 - `friends_count`: 用户关注的其他用户数量
+- `is_accessible`: `true` 表示用户可正常访问，`false` 表示用户已封禁/注销（v2.8.0 新增，默认 1）
 
 #### 2.2.2 user\_previous\_names 表
 
@@ -199,10 +201,27 @@ CREATE TABLE IF NOT EXISTS user_links (
 ### 3.1 显式索引
 
 ```sql
-CREATE INDEX IF NOT EXISTS idx_user_links_user_id ON user_links (user_id);
+CREATE INDEX IF NOT EXISTS idx_users_screen_name ON users(screen_name);
+CREATE INDEX IF NOT EXISTS idx_users_name ON users(name);
+CREATE INDEX IF NOT EXISTS idx_users_accessible ON users(is_accessible);
+CREATE INDEX IF NOT EXISTS idx_users_protected ON users(protected);
+CREATE INDEX IF NOT EXISTS idx_lsts_name ON lsts(name);
+CREATE INDEX IF NOT EXISTS idx_lsts_owner ON lsts(owner_uid);
+CREATE INDEX IF NOT EXISTS idx_user_entities_user_id ON user_entities(user_id);
+CREATE INDEX IF NOT EXISTS idx_user_entities_name ON user_entities(name);
+CREATE INDEX IF NOT EXISTS idx_lst_entities_lst_id ON lst_entities(lst_id);
+CREATE INDEX IF NOT EXISTS idx_user_links_user_id ON user_links(user_id);
+CREATE INDEX IF NOT EXISTS idx_user_links_lst_entity ON user_links(parent_lst_entity_id);
+CREATE INDEX IF NOT EXISTS idx_user_previous_names_uid ON user_previous_names(uid);
 ```
 
-**设计目的**: 加速通过 `user_id` 查询所有关联链接的操作。
+**设计目的**:
+- `idx_users_*`: 加速用户查询（按名称、可访问状态、保护状态筛选）
+- `idx_lsts_*`: 加速列表查询（按名称、所有者筛选）
+- `idx_user_entities_*`: 加速用户实体查询（按用户ID、名称筛选）
+- `idx_lst_entities_lst_id`: 加速列表实体查询（按列表ID筛选）
+- `idx_user_links_*`: 加速用户链接查询（按用户ID、列表实体ID筛选）
+- `idx_user_previous_names_uid`: 加速历史名称查询（按用户ID筛选）
 
 ### 3.2 隐式索引
 
@@ -239,6 +258,7 @@ erDiagram
         string name
         bool protected
         int friends_count
+        bool is_accessible
     }
     
     user_previous_names {
@@ -397,7 +417,7 @@ func CreateUser(db *sqlx.DB, usr *User) error
 **参数**:
 
 - `db`: 数据库连接
-- `usr`: 用户对象，包含 `Id`, `ScreenName`, `Name`, `IsProtected`, `FriendsCount`\
+- `usr`: 用户对象，包含 `Id`, `ScreenName`, `Name`, `IsProtected`, `FriendsCount`, `IsAccessible`\
   **返回值**: 错误信息
 
 **SQL**:
@@ -502,6 +522,7 @@ func GetUserLinks(db *sqlx.DB, uid uint64) ([]*UserLink, error)
    ```
 2. **事务处理**: 批量操作应使用事务（当前实现未显式使用事务，建议优化）
 3. **唯一性约束**: 插入前检查是否违反唯一约束，或使用 `INSERT OR REPLACE`
+4. **数据库迁移**: 新增字段通过 `MigrateDatabase()` 函数自动迁移，支持重复执行
 
 ### 7.2 读取操作规范
 
@@ -766,6 +787,7 @@ CREATE TABLE IF NOT EXISTS users (
     name VARCHAR NOT NULL,
     protected BOOLEAN NOT NULL,
     friends_count INTEGER NOT NULL,
+    is_accessible BOOLEAN NOT NULL DEFAULT 1,
     PRIMARY KEY (id),
     UNIQUE (screen_name)
 );
@@ -820,6 +842,19 @@ CREATE TABLE IF NOT EXISTS user_links (
 );
 
 CREATE INDEX IF NOT EXISTS idx_user_links_user_id ON user_links (user_id);
+
+-- 索引
+CREATE INDEX IF NOT EXISTS idx_users_screen_name ON users(screen_name);
+CREATE INDEX IF NOT EXISTS idx_users_name ON users(name);
+CREATE INDEX IF NOT EXISTS idx_users_accessible ON users(is_accessible);
+CREATE INDEX IF NOT EXISTS idx_users_protected ON users(protected);
+CREATE INDEX IF NOT EXISTS idx_lsts_name ON lsts(name);
+CREATE INDEX IF NOT EXISTS idx_lsts_owner ON lsts(owner_uid);
+CREATE INDEX IF NOT EXISTS idx_user_entities_user_id ON user_entities(user_id);
+CREATE INDEX IF NOT EXISTS idx_user_entities_name ON user_entities(name);
+CREATE INDEX IF NOT EXISTS idx_lst_entities_lst_id ON lst_entities(lst_id);
+CREATE INDEX IF NOT EXISTS idx_user_links_lst_entity ON user_links(parent_lst_entity_id);
+CREATE INDEX IF NOT EXISTS idx_user_previous_names_uid ON user_previous_names(uid);
 ```
 
 ### 12.2 相关文件清单
@@ -827,7 +862,16 @@ CREATE INDEX IF NOT EXISTS idx_user_links_user_id ON user_links (user_id);
 | 文件路径                             | 用途        |
 | -------------------------------- | --------- |
 | `internal/database/model.go`     | 数据模型定义    |
+| `internal/database/schema.go`    | Schema 定义 |
 | `internal/database/crud.go`      | CRUD 操作实现 |
+| `internal/database/connect.go`   | 数据库连接与迁移  |
+| `internal/database/helpers.go`   | 辅助查询函数    |
+| `internal/database/user.go`      | 用户相关操作    |
+| `internal/database/user_entity.go` | 用户实体操作  |
+| `internal/database/user_link.go` | 用户链接操作    |
+| `internal/database/lst.go`       | 列表相关操作    |
+| `internal/database/lst_entity.go` | 列表实体操作   |
+| `internal/database/user_sync.go` | 用户同步操作    |
 | `internal/database/db_test.go`   | 单元测试      |
 | `internal/downloading/entity.go` | 实体管理封装    |
 | `internal/downloading/dumper.go` | 失败数据转储    |
@@ -843,8 +887,8 @@ CREATE INDEX IF NOT EXISTS idx_user_links_user_id ON user_links (user_id);
 
 ## 文档版本
 
-- **版本**: 1.0
-- **更新日期**: 2026-03-27
+- **版本**: 1.1
+- **更新日期**: 2026-04-27
 - **作者**: AI Assistant
-- **适用版本**: TMD v1.0 (源码已修改 能下载 gif 长 250 profile)
+- **适用版本**: TMD v3.0.3
 

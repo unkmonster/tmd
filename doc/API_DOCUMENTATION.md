@@ -40,7 +40,7 @@ GET /api/v1/health
 ```json
 {
   "status": "ok",
-  "version": "2.0.0",
+  "version": "3.0.3",
   "timestamp": "2024-01-15T10:30:00Z"
 }
 ```
@@ -864,6 +864,7 @@ GET /api/v1/db/users
 - 返回数据库中用户记录（支持分页，默认每页 20 条）
 - 支持通用查询参数：`page`、`pageSize`、`sortBy`、`sortOrder`、`q`
 - 支持筛选参数：`accessible`（可访问状态）、`protected`（保护状态）
+- `is_accessible` 字段表示用户是否可通过 API 正常访问（非封禁/注销状态）
 - 用于 Web 界面数据浏览
 
 ***
@@ -1040,6 +1041,17 @@ GET /api/v1/db/users/44196397
 }
 ```
 
+**响应字段：**
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `id` | string | 用户 ID |
+| `screen_name` | string | 用户 Screen Name |
+| `name` | string | 显示名称 |
+| `protected` | bool | 是否受保护 |
+| `friends_count` | int | 关注数 |
+| `is_accessible` | bool | 是否可通过 API 正常访问（非封禁/注销状态） |
+
 #### 更新用户
 
 **请求：**
@@ -1082,6 +1094,17 @@ Content-Type: application/json
   }
 }
 ```
+
+**响应字段：**
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `id` | string | 用户 ID |
+| `screen_name` | string | 用户 Screen Name |
+| `name` | string | 显示名称 |
+| `protected` | bool | 是否受保护 |
+| `friends_count` | int | 关注数 |
+| `is_accessible` | bool | 是否可通过 API 正常访问（非封禁/注销状态） |
 
 #### 删除用户
 

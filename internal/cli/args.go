@@ -1,14 +1,10 @@
 package cli
 
 import (
-	"context"
 	"flag"
 	"fmt"
 	"strconv"
 	"strings"
-
-	"github.com/go-resty/resty/v2"
-	"github.com/unkmonster/tmd/internal/twitter"
 )
 
 // UserArgs 用户参数（只支持 ScreenName）
@@ -21,7 +17,7 @@ func (u *UserArgs) Set(str string) error {
 		u.ScreenName = make([]string, 0)
 	}
 
-	str, _ = strings.CutPrefix(str, "@")
+	str = strings.TrimPrefix(str, "@")
 	u.ScreenName = append(u.ScreenName, str)
 	return nil
 }
@@ -54,18 +50,6 @@ func (i *IntArgs) String() string {
 // ListArgs 列表参数
 type ListArgs struct {
 	IntArgs
-}
-
-func (l ListArgs) GetList(ctx context.Context, client *resty.Client) ([]*twitter.List, error) {
-	lists := []*twitter.List{}
-	for _, id := range l.ID {
-		list, err := twitter.GetLst(ctx, client, id)
-		if err != nil {
-			return nil, err
-		}
-		lists = append(lists, list)
-	}
-	return lists, nil
 }
 
 // JsonFilePathsArgs 第三方工具JSON文件路径参数（-jsonfile）
@@ -128,15 +112,7 @@ type CLIConfig struct {
 
 // ParseArgs 解析命令行参数
 func ParseArgs(args []string) (*flag.FlagSet, *CLIConfig, error) {
-	cfg := &CLIConfig{
-		UsrArgs:        UserArgs{},
-		ListArgs:       ListArgs{},
-		FollArgs:       UserArgs{},
-		ProfileUsers:   UserArgs{},
-		ProfileList:    ListArgs{},
-		JsonFileArgs:   JsonFilePathsArgs{},
-		JsonFolderArgs: JsonFolderPathArgs{},
-	}
+	cfg := &CLIConfig{}
 
 	fs := flag.NewFlagSet("tmd", flag.ContinueOnError)
 	fs.Var(&cfg.UsrArgs, "user", "download tweets from the user")

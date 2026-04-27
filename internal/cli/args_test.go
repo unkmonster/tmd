@@ -215,16 +215,6 @@ func TestIntArgs_String(t *testing.T) {
 	}
 }
 
-// ==================== ListArgs 测试 ====================
-
-func TestListArgs_GetList(t *testing.T) {
-	// 由于GetList需要实际调用twitter API，这里只测试结构
-	l := ListArgs{}
-	l.ID = []uint64{123, 456}
-
-	assert.Equal(t, []uint64{123, 456}, l.ID)
-}
-
 // ==================== JsonFilePathsArgs 测试 ====================
 
 func TestJsonFilePathsArgs_Set(t *testing.T) {

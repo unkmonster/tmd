@@ -316,18 +316,6 @@ func TestTaskListResponse(t *testing.T) {
 	assert.Contains(t, string(bytes), `"total":1`)
 }
 
-func TestUserInfo(t *testing.T) {
-	info := UserInfo{
-		ID:         "12345",
-		ScreenName: "testuser",
-		Name:       "Test User",
-	}
-
-	bytes, err := json.Marshal(info)
-	assert.NoError(t, err)
-	assert.JSONEq(t, `{"id":"12345","screen_name":"testuser","name":"Test User"}`, string(bytes))
-}
-
 func TestDBUserItem(t *testing.T) {
 	item := DBUserItem{
 		ID:           "1",

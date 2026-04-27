@@ -11,12 +11,6 @@ import (
 	"github.com/unkmonster/tmd/internal/twitter"
 )
 
-// Task 任务
-type Task struct {
-	Users []*twitter.User
-	Lists []twitter.ListBase
-}
-
 // ResolvedEntities 解析后的用户和列表实体
 type ResolvedEntities struct {
 	Users []*twitter.User

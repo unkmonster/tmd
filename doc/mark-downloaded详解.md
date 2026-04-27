@@ -381,7 +381,8 @@ CREATE TABLE users (
     screen_name TEXT UNIQUE,
     name TEXT,
     protected BOOLEAN,
-    friends_count INTEGER
+    friends_count INTEGER,
+    is_accessible BOOLEAN NOT NULL DEFAULT 1
 );
 ```
 
@@ -412,7 +413,7 @@ type UserEntity struct {
 }
 ```
 
-### 数据库操作函数 (crud.go)
+### 数据库操作函数 (user_entity.go)
 
 ```go
 // 设置时间戳
@@ -588,7 +589,7 @@ func filterTweetsByTimeRange(tweets []*Tweet, min *time.Time, max *time.Time)
 // features.go:348-362
 func syncUserAndEntity(db *sqlx.DB, user *twitter.User, dir string) (*UserEntity, error) {
     // 1. 同步用户信息到 users 表
-    if err := syncUser(db, user); err != nil {
+    if err := syncUser(db, user, true); err != nil {
         return nil, err
     }
     
@@ -608,7 +609,7 @@ func syncUserAndEntity(db *sqlx.DB, user *twitter.User, dir string) (*UserEntity
 }
 
 // features.go:271-304
-func syncUser(db *sqlx.DB, user *twitter.User) error {
+func syncUser(db *sqlx.DB, user *twitter.User, accessible bool) error {
     renamed := false
     isNew := false
     usrdb, err := database.GetUserById(db, user.Id)
@@ -628,6 +629,7 @@ func syncUser(db *sqlx.DB, user *twitter.User) error {
     usrdb.IsProtected = user.IsProtected
     usrdb.Name = user.Name
     usrdb.ScreenName = user.ScreenName
+    usrdb.IsAccessible = accessible
 
     if isNew {
         err = database.CreateUser(db, usrdb)

@@ -45,7 +45,7 @@
 - internal/
   - config/ (新增)
     - config.go
-  - database/ (扩展)
+  - database/ (扩展, crud.go 已拆分为以下文件)
     - connect.go, helpers.go, lst.go, lst_entity.go, model.go, schema.go, user.go, user_entity.go, user_link.go, user_sync.go, user_sync_test.go, db_test.go
   - downloader/ (新增)
     - downloader.go, file_writer.go, helpers.go, types.go, version_manager.go, downloader_test.go
@@ -516,9 +516,9 @@ client.AddRetryCondition(func(r *resty.Response, err error) bool {
 ```go
 logWriter := &lumberjack.Logger{
     Filename:   logPath,
-    MaxSize:    5,    // MB
+    MaxSize:    2,    // MB
     MaxBackups: 2,
-    MaxAge:     7,    // days
+    MaxAge:     14,   // days
     Compress:   false,
 }
 ```
@@ -573,8 +573,9 @@ CREATE TABLE IF NOT EXISTS user_links (...);
 
 与旧版本基本相同，但增加了：
 - 更完善的索引
-- 数据库迁移支持
-- `MarkUserInaccessible` 功能支持
+- 数据库迁移支持（`MigrateDatabase` 函数）
+- `is_accessible` 字段（users 表，v2.8.0 新增）
+- `SetUserAccessible` 函数支持标记不可访问用户
 
 ---
 
@@ -620,7 +621,7 @@ var mediaMutex sync.Mutex  // 更细粒度的锁
 | 包数量 | 4 | 8 |
 | 代码行数 | ~3000 | ~6000+ |
 | 接口定义 | 1 (PackgedTweet) | 6+ (Entity, Downloader, FileWriter, VersionManager, PackagedTweet) |
-| 测试文件 | 3 | 5+ |
+| 测试文件 | 3 | 49 |
 
 ### 8.2 设计模式应用
 

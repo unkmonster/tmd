@@ -99,13 +99,6 @@ type TaskListResponse struct {
 	Total int     `json:"total"`
 }
 
-// UserInfo 用户信息
-type UserInfo struct {
-	ID         string `json:"id"`
-	ScreenName string `json:"screen_name"`
-	Name       string `json:"name"`
-}
-
 // DBUserItem 数据库用户项（前端友好格式）
 type DBUserItem struct {
 	ID           string `json:"id"`
