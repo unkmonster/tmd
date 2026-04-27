@@ -114,11 +114,8 @@ func main() {
 
 	conf, err := config.ReadConf(confPath)
 	if os.IsNotExist(err) || confArg {
-		if confArg {
-			conf, err = config.PromptPartialConfig(confPath)
-		} else {
-			conf, err = config.PromptConfig(confPath)
-		}
+		// 统一使用 PromptConfig，通过参数控制模式
+		conf, err = config.PromptConfig(confPath, confArg)
 		if err != nil {
 			log.Fatalln("config failure with", err)
 		}
@@ -145,14 +142,16 @@ func main() {
 		log.Infoln("max file name length set to:", naming.MaxFileNameLen)
 	}
 
+	loginOpts := twitter.LoginOptions{ProxyURL: conf.ProxyURL}
+
 	// Server 模式
 	if serverMode {
-		runServer(conf, appRootPath, serverPort)
+		runServer(conf, appRootPath, serverPort, loginOpts)
 		return
 	}
 
 	// CLI 模式
-	client, screenName, err := twitter.Login(ctx, conf.Cookie.AuthToken, conf.Cookie.Ct0)
+	client, screenName, err := twitter.LoginWithOptions(ctx, conf.Cookie.AuthToken, conf.Cookie.Ct0, loginOpts)
 	if err != nil {
 		log.Fatalln("failed to login:", err)
 	}
@@ -171,7 +170,8 @@ func main() {
 	for i, c := range cookies {
 		twitterCookies[i] = twitter.AccountCookie{AuthToken: c.AuthToken, Ct0: c.Ct0}
 	}
-	additional := twitter.BatchLogin(ctx, dbg, twitterCookies, screenName)
+	batchOpts := twitter.BatchLoginOptions{Debug: dbg, ProxyURL: conf.ProxyURL}
+	additional := twitter.BatchLogin(ctx, batchOpts, twitterCookies, screenName)
 
 	cliLogFile, err := os.OpenFile(cliLogPath, os.O_TRUNC|os.O_WRONLY|os.O_CREATE, 0644)
 	if err != nil {
@@ -222,11 +222,11 @@ func main() {
 	}
 }
 
-func runServer(conf *config.Config, appRootPath string, port int) {
+func runServer(conf *config.Config, appRootPath string, port int, loginOpts twitter.LoginOptions) {
 	ctx := context.Background()
 
 	// 登录
-	client, screenName, err := twitter.Login(ctx, conf.Cookie.AuthToken, conf.Cookie.Ct0)
+	client, screenName, err := twitter.LoginWithOptions(ctx, conf.Cookie.AuthToken, conf.Cookie.Ct0, loginOpts)
 	if err != nil {
 		log.Fatalln("failed to login:", err)
 	}
@@ -243,7 +243,8 @@ func runServer(conf *config.Config, appRootPath string, port int) {
 	for i, c := range cookies {
 		twitterCookies[i] = twitter.AccountCookie{AuthToken: c.AuthToken, Ct0: c.Ct0}
 	}
-	additional := twitter.BatchLogin(ctx, false, twitterCookies, screenName)
+	batchOpts := twitter.BatchLoginOptions{Debug: false, ProxyURL: conf.ProxyURL}
+	additional := twitter.BatchLogin(ctx, batchOpts, twitterCookies, screenName)
 
 	// 连接数据库
 	pathHelper, err := path.NewStorePath(conf.RootPath)

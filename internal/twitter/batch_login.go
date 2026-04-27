@@ -14,7 +14,13 @@ type AccountCookie struct {
 	Ct0       string
 }
 
-func BatchLogin(ctx context.Context, dbg bool, cookies []AccountCookie, master string) []*resty.Client {
+// BatchLoginOptions 批量登录选项
+type BatchLoginOptions struct {
+	Debug    bool
+	ProxyURL string
+}
+
+func BatchLogin(ctx context.Context, opts BatchLoginOptions, cookies []AccountCookie, master string) []*resty.Client {
 	if len(cookies) == 0 {
 		return nil
 	}
@@ -26,11 +32,13 @@ func BatchLogin(ctx context.Context, dbg bool, cookies []AccountCookie, master s
 	mtx := sync.Mutex{}
 	added.Store(master, struct{}{})
 
+	loginOpts := LoginOptions{ProxyURL: opts.ProxyURL}
+
 	for i, cookie := range cookies {
 		wg.Add(1)
 		go func(index int) {
 			defer wg.Done()
-			cli, sn, err := Login(ctx, cookie.AuthToken, cookie.Ct0)
+			cli, sn, err := LoginWithOptions(ctx, cookie.AuthToken, cookie.Ct0, loginOpts)
 			if _, loaded := added.LoadOrStore(sn, struct{}{}); loaded {
 				msgs[index] = "    - ? repeated\n"
 				return
@@ -41,7 +49,7 @@ func BatchLogin(ctx context.Context, dbg bool, cookies []AccountCookie, master s
 				return
 			}
 			EnableRateLimit(cli)
-			if dbg {
+			if opts.Debug {
 				EnableRequestCounting(cli)
 			}
 			mtx.Lock()

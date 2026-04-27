@@ -25,31 +25,6 @@ var clientErrors sync.Map
 var clientRateLimiters sync.Map
 var apiCounts sync.Map
 
-// getProxyFromEnvironment 从环境变量获取代理设置
-// 优先使用 HTTPS_PROXY/https_proxy，如果没有设置则使用 HTTP_PROXY/http_proxy
-// 这样用户只需要设置 HTTP_PROXY 就可以代理 HTTPS 请求
-func getProxyFromEnvironment(req *http.Request) (*url.URL, error) {
-	// 首先尝试 HTTPS_PROXY（标准行为）
-	proxyURL, err := http.ProxyFromEnvironment(req)
-	if err != nil {
-		return nil, err
-	}
-	if proxyURL != nil {
-		return proxyURL, nil
-	}
-
-	// 如果 HTTPS 请求没有获取到代理，尝试 HTTP_PROXY
-	if req.URL.Scheme == "https" {
-		for _, env := range []string{"HTTP_PROXY", "http_proxy"} {
-			if value := os.Getenv(env); value != "" {
-				return url.Parse(value)
-			}
-		}
-	}
-
-	return nil, nil
-}
-
 func SetClientAuth(client *resty.Client, authToken string, ct0 string) {
 	client.SetAuthToken(bearer)
 	client.SetCookie(&http.Cookie{
@@ -63,7 +38,18 @@ func SetClientAuth(client *resty.Client, authToken string, ct0 string) {
 	client.SetHeader("X-Csrf-Token", ct0)
 }
 
+// LoginOptions 登录选项
+type LoginOptions struct {
+	ProxyURL string // 代理URL，为空则使用系统代理
+}
+
+// Login 登录Twitter
 func Login(ctx context.Context, authToken string, ct0 string) (*resty.Client, string, error) {
+	return LoginWithOptions(ctx, authToken, ct0, LoginOptions{})
+}
+
+// LoginWithOptions 使用选项登录Twitter
+func LoginWithOptions(ctx context.Context, authToken string, ct0 string, opts LoginOptions) (*resty.Client, string, error) {
 	client := resty.New()
 
 	// 鉴权
@@ -141,7 +127,7 @@ func Login(ctx context.Context, authToken string, ct0 string) (*resty.Client, st
 		IdleConnTimeout:       5 * time.Second, // 连接空闲 n 秒后断开它
 		TLSHandshakeTimeout:   5 * time.Second,
 		ResponseHeaderTimeout: 5 * time.Second,
-		Proxy:                 getProxyFromEnvironment,
+		Proxy:                 newProxyFunc(opts.ProxyURL),
 	})
 
 	screenName, err := GetSelfScreenName(ctx, client)
@@ -151,6 +137,33 @@ func Login(ctx context.Context, authToken string, ct0 string) (*resty.Client, st
 
 	clientScreenNames.Store(client, screenName)
 	return client, screenName, nil
+}
+
+// newProxyFunc 创建代理函数：配置 > 环境变量 > 无代理
+func newProxyFunc(configURL string) func(*http.Request) (*url.URL, error) {
+	return func(req *http.Request) (*url.URL, error) {
+		// 1. 配置文件优先
+		if configURL != "" {
+			return url.Parse(configURL)
+		}
+
+		// 2. 标准环境变量
+		proxyURL, err := http.ProxyFromEnvironment(req)
+		if err != nil || proxyURL != nil {
+			return proxyURL, err
+		}
+
+		// 3. HTTPS请求回退到HTTP_PROXY
+		if req.URL.Scheme == "https" {
+			for _, env := range []string{"HTTP_PROXY", "http_proxy"} {
+				if value := os.Getenv(env); value != "" {
+					return url.Parse(value)
+				}
+			}
+		}
+
+		return nil, nil
+	}
 }
 
 func GetClientScreenName(client *resty.Client) string {
