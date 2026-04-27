@@ -579,11 +579,10 @@ func (s *downloadServiceImpl) downloadProfile(ctx context.Context, taskID string
 		}
 	}
 
-	log.Infoln("profile download completed - total:", len(results), "success:", successCount, "failed:", failCount, "versioned:", versionedCount)
-
 	reporter.OnComplete(taskID, Result{
 		Downloaded: successCount,
 		Failed:     failCount,
+		Versioned:  versionedCount,
 		Message:    fmt.Sprintf("Profile download completed: %d success, %d failed, %d versioned", successCount, failCount, versionedCount),
 	})
 	return nil
