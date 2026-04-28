@@ -7,6 +7,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ***
 
+## [3.2.0] - 2026-04-26
+
+### Added
+
+#### Web 管理界面重大更新
+
+| 功能 | 说明 |
+|------|------|
+| **配置管理** | 支持表单和 YAML 两种编辑模式 |
+| **实时日志** | 查看和流式传输应用日志 |
+| **配置字段管理** | 动态管理配置字段 |
+
+#### API 增强
+
+| 端点 | 功能 |
+|------|------|
+| `GET/PUT /api/v1/config/raw` | 原始配置读写 |
+| `GET/PUT /api/v1/config/fields` | 配置字段管理 |
+| `GET /api/v1/logs` | 分页获取日志 |
+| `GET /api/v1/logs/stream` | 流式日志传输 |
+
+### Changed
+
+| 文件 | 变更 |
+|------|------|
+| `internal/api/server.go` | 新增配置和日志端点，添加并发安全锁 |
+| `internal/api/web/app.js` | 新增系统配置和日志页面 |
+| `internal/api/web/styles.css` | 新增配置和日志样式 |
+| `doc/API_DOCUMENTATION.md` | 更新 API 文档 |
+
+### Stats
+
+- **11 个文件变更**
+- **+1,321 行 / -137 行**
+
+***
+
 ## [3.1.7] - 2026-04-26
 
 ### Changed

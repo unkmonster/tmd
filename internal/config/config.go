@@ -136,7 +136,7 @@ func GetFieldDefs() []FieldDef {
 }
 
 // getFieldValue 获取字段当前值
-func getFieldValue(conf *Config, field FieldDef) string {
+func GetFieldValue(conf *Config, field FieldDef) string {
 	switch field.Name {
 	case "root_path":
 		return conf.RootPath
@@ -221,7 +221,7 @@ func PromptConfig(saveto string, showStatus bool) (*Config, error) {
 	scan := bufio.NewScanner(os.Stdin)
 
 	for _, field := range GetFieldDefs() {
-		currentValue := getFieldValue(conf, field)
+		currentValue := GetFieldValue(conf, field)
 
 		fmt.Printf("%s [%s]: ", field.Prompt, currentValue)
 		if !scan.Scan() {

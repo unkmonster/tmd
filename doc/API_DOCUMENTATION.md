@@ -785,7 +785,8 @@ http://localhost:25556/
 | **新建任务** | 创建用户下载、列表下载、批量下载、JSON 下载任务 |
 | **任务列表** | 实时显示所有任务状态（支持 SSE 实时更新）、进度条、取消操作 |
 | **数据浏览** | 查看数据库中的 Users、Lists、User Entities |
-| **系统配置** | 显示当前配置信息（脱敏） |
+| **配置编辑** | 双模式配置管理：结构化表单 + 原始 YAML 编辑器 |
+| **日志查看** | 实时日志查看器，支持级别筛选、搜索、分页、自动刷新 |
 
 ### 实时任务更新
 
@@ -935,7 +936,6 @@ GET /api/v1/db/user-entities
 ***
 
 ### 获取系统配置
-
 **请求：**
 
 ```http
@@ -959,6 +959,339 @@ GET /api/v1/config
 
 - 返回脱敏后的配置信息（不包含敏感 Cookie）
 - `root_path` 仅返回目录名，不返回完整绝对路径
+
+***
+
+### 获取原始配置文件内容
+
+获取 conf.yaml 文件的原始 YAML 内容。
+
+**请求：**
+
+```http
+GET /api/v1/config/raw
+```
+
+**响应：**
+
+```json
+{
+  "success": true,
+  "data": {
+    "content": "root_path: ./downloads\ncookie:\n  auth_token: xxx\n  ct0: yyy\n...",
+    "path": "/path/to/conf.yaml",
+    "exists": true
+  }
+}
+```
+
+**响应字段：**
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `content` | string | 配置文件原始内容（YAML 格式） |
+| `path` | string | 配置文件完整路径 |
+| `exists` | bool | 配置文件是否存在 |
+
+**示例：**
+
+```bash
+curl http://localhost:25556/api/v1/config/raw
+```
+
+***
+
+### 更新原始配置文件
+
+通过上传 YAML 内容更新配置文件。
+
+**请求：**
+
+```http
+PUT /api/v1/config/raw
+Content-Type: application/json
+
+{
+  "content": "root_path: ./downloads\ncookie:\n  auth_token: new_token\n..."
+}
+```
+
+**请求体参数：**
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `content` | string | 是 | 完整的 YAML 配置内容 |
+
+**响应：**
+
+```json
+{
+  "success": true,
+  "data": {
+    "message": "Configuration saved successfully",
+    "backup": "conf.yaml.backup.1705312345",
+    "applied": true
+  }
+}
+```
+
+**特性：**
+- 自动验证 YAML 格式有效性
+- 保存前自动创建备份（时间戳命名）
+- 更新后立即生效（热重载）
+
+**示例：**
+
+```bash
+curl -X PUT http://localhost:25556/api/v1/config/raw \
+  -H "Content-Type: application/json" \
+  -d '{"content": "root_path: ./downloads\nmax_download_routine: 35"}'
+```
+
+***
+
+### 获取结构化配置字段列表
+
+获取可用于表单编辑的配置字段定义和当前值。
+
+**请求：**
+
+```http
+GET /api/v1/config/fields
+```
+
+**响应：**
+
+```json
+{
+  "success": true,
+  "data": {
+    "exists": true,
+    "fields": [
+      {
+        "name": "root_path",
+        "label": "存储路径",
+        "prompt": "storage dir",
+        "value": "./downloads",
+        "default": "",
+        "type": "text",
+        "placeholder": "storage dir",
+        "required": true,
+        "group": "basic"
+      },
+      {
+        "name": "auth_token",
+        "label": "Auth Token",
+        "prompt": "auth_token",
+        "value": "a1b•••xyz",
+        "default": "",
+        "type": "password",
+        "placeholder": "auth_token",
+        "required": true,
+        "group": "cookie"
+      },
+      {
+        "name": "ct0",
+        "label": "CT0",
+        "prompt": "ct0",
+        "value": "x1y•••789",
+        "default": "",
+        "type": "password",
+        "placeholder": "ct0",
+        "required": true,
+        "group": "cookie"
+      },
+      {
+        "name": "max_download_routine",
+        "label": "最大并发下载",
+        "prompt": "max download routine",
+        "value": "35",
+        "default": "10",
+        "type": "number",
+        "placeholder": "1-100, 默认 10",
+        "required": false,
+        "group": "advanced"
+      },
+      {
+        "name": "max_file_name_len",
+        "label": "最大文件名长度",
+        "prompt": "max file name len",
+        "value": "158",
+        "default": "158",
+        "type": "number",
+        "placeholder": "50-250, 默认 158",
+        "required": false,
+        "group": "advanced"
+      },
+      {
+        "name": "proxy_url",
+        "label": "代理地址",
+        "prompt": "proxy url",
+        "value": "",
+        "default": "",
+        "type": "text",
+        "placeholder": "http://127.0.0.1:7897 或留空",
+        "required": false,
+        "group": "advanced"
+      }
+    ]
+  }
+}
+```
+
+**响应字段说明：**
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `fields[]` | array | 配置字段数组 |
+| `fields[].name` | string | 字段名（用于提交） |
+| `fields[].label` | string | 显示标签（中文） |
+| `fields[].type` | string | 输入类型（text/number/password） |
+| `fields[].group` | string | 分组（basic/cookie/advanced） |
+| `fields[].value` | string | 当前值（密码类型已脱敏） |
+| `fields[].required` | bool | 是否必填 |
+
+**分组说明：**
+- **basic**: 基础设置（存储路径）
+- **cookie**: Cookie 认证（auth_token, ct0）
+- **advanced**: 高级选项（并发数、文件名长度、代理）
+
+**示例：**
+
+```bash
+curl http://localhost:25556/api/v1/config/fields
+```
+
+***
+
+### 保存结构化配置字段
+
+通过键值对方式更新配置字段。
+
+**请求：**
+
+```http
+PUT /api/v1/config/fields
+Content-Type: application/json
+
+{
+  "fields": {
+    "root_path": "./downloads",
+    "auth_token": "__KEEP_OLD__",
+    "ct0": "__KEEP_OLD__",
+    "max_download_routine": "35",
+    "max_file_name_len": "158",
+    "proxy_url": ""
+  }
+}
+```
+
+**请求体参数：**
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `fields` | object | 是 | 键值对，key 为字段名，value 为新值 |
+
+**特殊值：**
+- `__KEEP_OLD__`: 保持原值不变（用于密码字段）
+
+**响应：**
+
+```json
+{
+  "success": true,
+  "data": {
+    "message": "Configuration saved successfully",
+    "backup": "conf.yaml.backup.1705312345",
+    "applied": true,
+    "yaml_preview": "root_path: ./downloads\n...",
+    "fields": [...]
+  }
+}
+```
+
+**响应字段：**
+- `yaml_preview`: 保存后的完整 YAML 内容预览
+- `fields`: 更新后的字段列表（可直接用于刷新前端）
+
+**示例：**
+
+```bash
+# 只修改并发数，其他保持不变
+curl -X PUT http://localhost:25556/api/v1/config/fields \
+  -H "Content-Type: application/json" \
+  -d '{
+    "fields": {
+      "auth_token": "__KEEP_OLD__",
+      "ct0": "__KEEP_OLD__",
+      "max_download_routine": "40"
+    }
+  }'
+```
+
+***
+
+### 获取系统日志
+
+查询系统日志，支持按级别筛选、搜索和分页。
+
+**请求：**
+
+```http
+GET /api/v1/logs?level=info&page=1&pageSize=100&q=download
+```
+
+**查询参数：**
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `level` | string | `""`(全部) | 日志级别筛选：debug/info/warn/error |
+| `page` | int | `1` | 页码 |
+| `pageSize` | int | `100` | 每页数量（最大 200） |
+| `q` | string | - | 搜索关键词 |
+
+**响应：**
+
+```json
+{
+  "success": true,
+  "data": {
+    "logs": [
+      "[2024-01-15 10:30:00] [INFO] [WebUI] config updated via structured form",
+      "[2024-01-15 10:29:58] [INFO] Download completed: user elonmusk, 15 media"
+    ],
+    "total": 150,
+    "page": 1,
+    "pageSize": 100,
+    "totalPages": 2
+  }
+}
+```
+
+**日志级别说明：**
+
+| 级别 | 说明 |
+|------|------|
+| `debug` | 调试信息（需启用 `-dbg` 模式） |
+| `info` | 一般信息 |
+| `warn` | 警告信息 |
+| `error` | 错误信息 |
+
+**示例：**
+
+```bash
+# 获取所有日志（默认前 100 条）
+curl http://localhost:25556/api/v1/logs
+
+# 只看错误日志
+curl "http://localhost:25556/api/v1/logs?level=error"
+
+# 搜索包含 download 的日志
+curl "http://localhost:25556/api/v1/logs?q=download"
+
+# 分页查看第 2 页
+curl "http://localhost:25556/api/v1/logs?page=2&pageSize=50"
+```
 
 ***
 
@@ -1646,6 +1979,11 @@ TASK_ID=$(curl -s -X POST http://localhost:25556/api/v1/lists/123456789/download
 | `/static/*`                               | GET  | 静态资源（CSS/JS）   |
 | `/api/v1/sse/tasks`                       | GET  | SSE 实时任务推送     |
 | `/api/v1/config`                          | GET  | 获取系统配置（脱敏）  |
+| `/api/v1/config/raw`                      | GET  | 获取原始配置文件内容  |
+| `/api/v1/config/raw`                      | PUT  | 更新原始配置文件      |
+| `/api/v1/config/fields`                   | GET  | 获取结构化配置字段    |
+| `/api/v1/config/fields`                   | PUT  | 保存结构化配置字段    |
+| `/api/v1/logs`                            | GET  | 获取系统日志         |
 
 ### 数据库管理 API
 

@@ -43,7 +43,18 @@ const store = {
       entities: '',
       listEntities: '',
       userLinks: ''
-    }
+    },
+    configRaw: '',
+    configExists: false,
+    configSaving: false,
+    logs: [],
+    logLevel: 'all',
+    logSearch: '',
+    logAutoRefresh: false,
+    logPagination: { page: 1, pageSize: 100, total: 0, totalPages: 1 },
+    _systemTab: 'config',
+    configMode: 'form',
+    configFields: [],
   },
 
   listeners: [],
@@ -113,6 +124,13 @@ createJsonFolderDownload(data) {
   
   // Config
   getConfig() { return this.get('/api/v1/config'); },
+  getConfigRaw() { return this.get('/api/v1/config/raw'); },
+  updateConfigRaw(content) { return this.request('PUT', '/api/v1/config/raw', { content }); },
+  getConfigFields() { return this.get('/api/v1/config/fields'); },
+  saveConfigFields(fields) { return this.request('PUT', '/api/v1/config/fields', { fields }); },
+
+  // Logs
+  getLogs(params = '') { return this.get(`/api/v1/logs${params}`); },
 
   // Database CRUD with pagination
   getDBUsers(params = '') { return this.get(`/api/v1/db/users${params ? '?' + params : ''}`); },
@@ -453,48 +471,20 @@ const pages = {
   
   // System Page
   system() {
-    const { config, health } = store.state;
-    
+    const { config, configRaw, logs, logLevel, logSearch, logPagination } = store.state;
+
     return `
-      <div class="stats-grid">
-        <div class="stat-card">
-          <div class="stat-icon">📁</div>
-          <div class="stat-content">
-            <div class="stat-value" style="font-size: var(--text-lg);">${config ? config.root_path : '-'}</div>
-            <div class="stat-label">存储路径</div>
-          </div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-icon">⚡</div>
-          <div class="stat-content">
-            <div class="stat-value">${config ? config.max_download_routine : '-'}</div>
-            <div class="stat-label">最大并发下载</div>
-          </div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-icon">📝</div>
-          <div class="stat-content">
-            <div class="stat-value">${config ? config.max_file_name_len : '-'}</div>
-            <div class="stat-label">最大文件名长度</div>
-          </div>
-        </div>
+      <div class="system-tabs">
+        <div class="tab ${store.state._systemTab === 'config' ? 'active' : ''}" onclick="setSystemTab('config')">⚙️ 配置编辑</div>
+        <div class="tab ${store.state._systemTab === 'logs' ? 'active' : ''}" onclick="setSystemTab('logs')">📋 系统日志</div>
       </div>
-      
-      <div class="card" style="margin-top: var(--space-6);">
-        <div class="card-header">
-          <div class="card-title">系统日志</div>
-          <div class="flex gap-2">
-            <button class="btn btn-ghost btn-sm" onclick="refreshLogs()">🔄 刷新</button>
-            <button class="btn btn-ghost btn-sm" onclick="clearLogs()">🗑️ 清空</button>
-          </div>
-        </div>
-        <div class="card-body">
-          <div class="font-mono text-sm" style="background: var(--bg-primary); padding: var(--space-4); border-radius: var(--radius-md); max-height: 400px; overflow-y: auto;">
-            <div style="color: var(--text-tertiary);">[2024-01-15 14:35:22] [INFO] Server started successfully</div>
-            <div style="color: var(--text-tertiary);">[2024-01-15 14:35:20] [INFO] Database connected</div>
-            <div style="color: var(--info);">[2024-01-15 14:30:15] [INFO] Task created: task_abc123</div>
-          </div>
-        </div>
+
+      <div id="systemConfigPanel" class="system-panel" style="${store.state._systemTab === 'config' ? '' : 'display:none'}">
+        ${renderConfigEditor()}
+      </div>
+
+      <div id="systemLogsPanel" class="system-panel" style="${store.state._systemTab === 'logs' ? '' : 'display:none'}">
+        ${renderLogViewer()}
       </div>
     `;
   }
@@ -1137,7 +1127,6 @@ async function editDBItem(type, id) {
 
     drawer.open('编辑 ' + type, content, footer);
   } catch (err) {
-    console.error('editDBItem error:', err);
     toast.show(err.message, 'error');
   }
 }
@@ -1194,7 +1183,6 @@ async function saveDBItem(type, id) {
     toast.show('保存成功');
     refreshDBData();
   } catch (err) {
-    console.error('saveDBItem error:', err);
     toast.show(err.message, 'error');
   }
 }
@@ -1222,7 +1210,6 @@ async function deleteDBItem(type, id) {
     toast.show('删除成功');
     refreshDBData();
   } catch (err) {
-    console.error('deleteDBItem error:', err);
     toast.show(err.message, 'error');
   }
 }
@@ -1447,14 +1434,288 @@ async function refreshTasks() {
   }
 }
 
-function refreshLogs() {
-  // TODO: Implement actual log refresh when API is available
-  toast.show('日志功能开发中，当前显示为示例数据');
+function refreshLogs() { loadLogs(); }
+
+function clearLogs() { toast.show('日志清空功能暂未开放', 'warning'); }
+
+function escapeHtml(str) {
+  const d = document.createElement('div');
+  d.textContent = str;
+  return d.innerHTML;
 }
 
-function clearLogs() {
-  // TODO: Implement actual log clear when API is available
-  toast.show('日志清空功能开发中');
+function stripAnsi(str) { return str.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, ''); }
+
+function renderConfigEditor() {
+  const { configMode, configFields, configSaving, configExists, configRaw } = store.state;
+
+  const modeTabs = `
+    <div class="config-mode-tabs">
+      <button class="mode-tab ${configMode === 'form' ? 'active' : ''}" onclick="setConfigMode('form')">📝 简易模式</button>
+      <button class="mode-tab ${configMode === 'raw' ? 'active' : ''}" onclick="setConfigMode('raw')">🔧 高级 (YAML)</button>
+    </div>
+  `;
+
+  if (configMode === 'raw') return modeTabs + renderConfigRawEditor(configRaw, configSaving, configExists);
+  return modeTabs + renderConfigForm(configFields, configSaving, configExists);
+}
+
+function renderConfigForm(fields, saving, exists) {
+  if (!fields || fields.length === 0) {
+    return `
+      <div class="card">
+        <div class="card-body"><div class="empty-state"><div class="empty-icon">⏳</div><div class="empty-title">加载中...</div></div></div>
+      </div>
+    `;
+  }
+
+  const groups = { basic: [], cookie: [], advanced: [] };
+  fields.forEach(f => { if (groups[f.group]) groups[f.group].push(f); });
+  const groupLabels = { basic: '📁 基础设置', cookie: '🍪 Cookie 认证', advanced: '⚙️ 高级选项' };
+
+  const renderField = f => {
+    const inputType = f.type === 'password' ? 'password' : (f.type === 'number' ? 'number' : 'text');
+    return `
+      <div class="config-field">
+        <label class="config-label">${f.label}</label>
+        ${f.type === 'password' ? `<div class="config-mask-hint">当前值: ${escapeHtml(f.value)}</div>` : ''}
+        <input type="${inputType}" class="form-input config-input" id="cf_${f.name}"
+          name="${f.name}" value="${escapeHtml(f.type === 'password' ? '' : f.value)}"
+          placeholder="${escapeHtml(f.placeholder || f.prompt)}"
+          ${f.type === 'number' ? `min="1" max="${f.name.includes('routine') ? '100' : '250'}"` : ''}>
+      </div>
+    `;
+  };
+
+  return `
+    <div class="card">
+      <div class="card-header">
+        <div>
+          <div class="card-title">配置编辑</div>
+          <div class="card-subtitle">${exists ? '✅ 配置文件存在' : '⚠️ 将创建新配置'} · 共 ${fields.length} 个可编辑项</div>
+        </div>
+        <button class="btn btn-primary btn-sm" onclick="saveConfigForm()" ${saving ? 'disabled' : ''}>
+          ${saving ? '<span class="loading-spinner"></span> 保存中...' : '💾 保存配置'}
+        </button>
+      </div>
+      <div class="card-body">
+        ${Object.entries(groups).map(([key, items]) => items.length ? `
+          <div class="config-group">
+            <div class="config-group-title">${groupLabels[key]}</div>
+            ${items.map(renderField).join('')}
+          </div>
+        ` : '').join('')}
+      </div>
+    </div>
+
+    <div class="card mt-4">
+      <div class="card-header"><div class="card-title">当前生效配置</div></div>
+      <div class="card-body">
+        <div class="stats-grid">
+          <div class="stat-card"><div class="stat-icon">📁</div><div class="stat-content"><div class="stat-value" style="font-size:var(--text-lg)">${escapeHtml(store.state.config?.root_path || '-')}</div><div class="stat-label">存储路径</div></div></div>
+          <div class="stat-card"><div class="stat-icon">⚡</div><div class="stat-content"><div class="stat-value">${store.state.config?.max_download_routine || '-'}</div><div class="stat-label">并发下载数</div></div></div>
+          <div class="stat-card"><div class="stat-icon">📝</div><div class="stat-content"><div class="stat-value">${store.state.config?.max_file_name_len || '-'}</div><div class="stat-label">文件名长度</div></div></div>
+          <div class="stat-card"><div class="stat-icon">🌐</div><div class="stat-content"><div class="stat-value" style="font-size:var(--text-lg)">${escapeHtml(store.state.config?.proxy_url || '未设置')}</div><div class="stat-label">代理地址</div></div></div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderConfigRawEditor(raw, saving, exists) {
+  return `
+    <div class="card">
+      <div class="card-header">
+        <div><div class="card-title">conf.yaml 原始编辑器</div><div class="card-subtitle">${exists ? '✅ 文件存在' : '⚠️ 将创建新配置'}</div></div>
+        <div class="flex gap-2">
+          <button class="btn btn-ghost btn-sm" onclick="resetConfig()">🔄 重置</button>
+          <button class="btn btn-primary btn-sm" onclick="saveConfig()" ${saving ? 'disabled' : ''}>
+            ${saving ? '<span class="loading-spinner"></span> 保存中...' : '💾 保存配置'}
+          </button>
+        </div>
+      </div>
+      <div class="card-body" style="padding:0;">
+        <textarea id="configEditor" class="form-textarea config-editor"
+          placeholder="# TMD Configuration\nroot_path: ./downloads\ncookie:\n  auth_token: your_auth_token\n  ct0: your_ct0\nmax_download_routine: 35\nmax_file_name_len: 158\nproxy_url:"
+          spellcheck="false">${escapeHtml(raw)}</textarea>
+        <div class="config-hint text-sm text-tertiary p-3 mt-3">
+          ⚠️ 直接编辑 YAML 需要了解语法格式。建议使用简易模式。
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderLogViewer() {
+  const { logs, logLevel, logSearch, logPagination, logAutoRefresh } = store.state;
+
+  function getLineColor(line) {
+    for (const [key, val] of [['debug','DEBUG'],['info','INFO'],['warn','WARN'],['warning','WARNING'],['error','ERROR']]) {
+      if (line.includes('level=' + key)) return val === 'ERROR' ? 'var(--danger)' : val === 'WARNING' || val === 'WARN' ? 'var(--warning)' : val === 'INFO' ? 'var(--info)' : 'var(--text-tertiary)';
+    }
+    return 'var(--text-secondary)';
+  }
+  function renderLine(line) { return `<div style="color:${getLineColor(line)};font-family:var(--font-mono);font-size:12px;padding:1px 8px;white-space:pre-wrap;word-break:break-all">${escapeHtml(stripAnsi(line))}</div>`; }
+
+  return `
+    <div class="card">
+      <div class="card-header">
+        <div><div class="card-title">系统日志</div><div class="card-subtitle">共 ${logPagination.total} 条记录</div></div>
+        <div class="flex gap-2 items-center flex-wrap">
+          <input type="text" class="form-input search-input" id="logSearchInput"
+            placeholder="🔍 搜索..." value="${escapeHtml(logSearch)}"
+            onkeypress="if(event.key==='Enter'){store.setState({logSearch:this.value});refreshLogs();}">
+          <div class="log-level-filters">
+            ${['all','debug','info','warn','error'].map(l => `<button class="btn btn-sm ${logLevel===l?'btn-primary':'btn-ghost'}" onclick="setLogLevel('${l}')">${l.toUpperCase()}</button>`).join('')}
+          </div>
+          <button class="btn btn-ghost btn-sm ${logAutoRefresh?'active':''}" onclick="toggleLogAutoRefresh()">${logAutoRefresh?'⏸️':'▶️'} 自动刷新</button>
+          <button class="btn btn-ghost btn-sm" onclick="refreshLogs()">🔄 刷新</button>
+        </div>
+      </div>
+      <div class="card-body" style="padding:0;">
+        <div class="log-container" id="logContainer">
+          ${logs.length === 0 ? `<div class="empty-state"><div class="empty-icon">📋</div><div class="empty-title">暂无日志</div><div class="empty-desc">选择日志级别或调整筛选条件</div></div>` : logs.map(renderLine).join('')}
+        </div>
+      </div>
+      <div class="pagination">
+        <div class="pagination-info">显示 ${logs.length} / ${logPagination.total} 条 (第 ${logPagination.page}/${logPagination.totalPages} 页)</div>
+        <div class="pagination-controls">
+          <button class="page-btn" onclick="changeLogPage(-1)" ${logPagination.page <= 1 ? 'disabled' : ''}>←</button>
+          ${renderPageNumbers(logPagination.page, logPagination.totalPages)}
+          <button class="page-btn" onclick="changeLogPage(1)" ${logPagination.page >= logPagination.totalPages ? 'disabled' : ''}>→</button>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+async function loadConfigFields() {
+  try {
+    const d = await api.getConfigFields();
+    store.setState({ configFields: d.fields || [], configExists: d.exists || false });
+  } catch (e) { toast.show('加载配置失败: ' + e.message, 'error'); }
+}
+
+async function loadConfigRaw() {
+  try {
+    const d = await api.getConfigRaw();
+    store.setState({ configRaw: d.content || '', configExists: d.exists || false });
+  } catch (e) { toast.show('加载配置失败: ' + e.message, 'error'); }
+}
+
+// 保存配置后刷新状态的通用函数
+async function refreshConfigAfterSave(mode) {
+  const cfg = await api.getConfig();
+  store.setState({ config: cfg });
+  if (mode === 'form') {
+    await loadConfigFields();
+  } else {
+    await loadConfigRaw();
+  }
+}
+
+async function saveConfigForm() {
+  const inputs = document.querySelectorAll('.config-input[name]');
+  const fields = {};
+  for (const el of inputs) {
+    if (el.type === 'password' && el.value.trim() === '') { fields[el.name] = '__KEEP_OLD__'; continue; }
+    if (el.type === 'number') {
+      const val = parseInt(el.value, 10);
+      const min = parseInt(el.min, 10) || 1;
+      const max = parseInt(el.max, 10) || (el.name.includes('routine') ? 100 : 250);
+      if (isNaN(val) || val < min || val > max) {
+        toast.show(`${el.name} 必须在 ${min}-${max} 之间`, 'error');
+        return;
+      }
+    }
+    fields[el.name] = el.value;
+  }
+
+  store.setState({ configSaving: true });
+  try {
+    await api.saveConfigFields(fields);
+    toast.show('✅ 配置保存成功', 'success');
+    await refreshConfigAfterSave('form');
+  } catch (e) { toast.show('❌ 保存失败: ' + e.message, 'error'); }
+  finally { store.setState({ configSaving: false }); }
+}
+
+async function saveConfig() {
+  const el = document.getElementById('configEditor');
+  const content = el?.value || '';
+  if (!content.trim()) return toast.show('配置不能为空', 'error');
+  store.setState({ configSaving: true });
+  try {
+    await api.updateConfigRaw(content);
+    toast.show('✅ 配置保存成功', 'success');
+    await refreshConfigAfterSave('raw');
+  } catch (e) { toast.show('❌ 保存失败: ' + e.message, 'error'); }
+  finally { store.setState({ configSaving: false }); }
+}
+
+function resetConfig() {
+  if (store.state.configMode === 'form') { loadConfigFields(); }
+  else { loadConfigRaw(); }
+  toast.show('配置已重置', 'info');
+}
+
+function setConfigMode(mode) {
+  store.setState({ configMode: mode });
+  if (mode === 'form' && (!store.state.configFields || store.state.configFields.length === 0)) { loadConfigFields(); }
+  if (mode === 'raw' && !store.state.configRaw) { loadConfigRaw(); }
+}
+
+async function loadLogs() {
+  const { logLevel, logSearch, logPagination } = store.state;
+  const p = new URLSearchParams();
+  if (logLevel !== 'all') p.append('level', logLevel);
+  if (logSearch) p.append('q', logSearch);
+  p.append('page', logPagination.page);
+  p.append('pageSize', logPagination.pageSize);
+  try {
+    const d = await api.getLogs('?' + p.toString());
+    store.setState({ logs: d.logs || [], logPagination: { page: d.page, pageSize: d.pageSize, total: d.total, totalPages: d.totalPages } });
+  } catch (e) { toast.show('加载日志失败: ' + e.message, 'error'); }
+}
+
+function setLogLevel(level) {
+  store.setState({ logLevel: level, logPagination: { ...store.state.logPagination, page: 1 } });
+  loadLogs();
+}
+
+function changeLogPage(delta) {
+  const p = store.state.logPagination;
+  const np = p.page + delta;
+  if (np >= 1 && np <= p.totalPages) { store.setState({ logPagination: { ...p, page: np } }); loadLogs(); }
+}
+
+let logAutoRefreshTimer = null;
+
+function toggleLogAutoRefresh() {
+  const ns = !store.state.logAutoRefresh;
+  store.setState({ logAutoRefresh: ns });
+  if (ns) { logAutoRefreshTimer = setInterval(loadLogs, 5000); }
+  else { clearInterval(logAutoRefreshTimer); logAutoRefreshTimer = null; }
+}
+
+function cleanupSystemTimers() {
+  if (logAutoRefreshTimer) {
+    clearInterval(logAutoRefreshTimer);
+    logAutoRefreshTimer = null;
+  }
+  if (store.state.logAutoRefresh) {
+    store.setState({ logAutoRefresh: false });
+  }
+}
+
+function setSystemTab(tab) {
+  store.setState({ _systemTab: tab });
+  if (tab === 'config') {
+    if (store.state.configMode === 'form' && (!store.state.configFields || store.state.configFields.length === 0)) { loadConfigFields(); }
+    if (store.state.configMode === 'raw' && !store.state.configRaw) { loadConfigRaw(); }
+  }
+  if (tab === 'logs' && store.state.logs.length === 0) { loadLogs(); if (!logAutoRefreshTimer && store.state.logAutoRefresh) logAutoRefreshTimer = setInterval(loadLogs, 5000); }
+  render();
 }
 
 // ============================================
@@ -1519,6 +1780,7 @@ function updateURL(page, dataSubPage = null) {
 }
 
 function navigateTo(page) {
+  if (lastPage === 'system' && page !== 'system') cleanupSystemTimers();
   store.setState({ currentPage: page });
   
   // Update URL
@@ -1757,32 +2019,48 @@ window.addEventListener('resize', () => {
 // Subscribe to state changes
 let lastPage = store.state.currentPage;
 let lastTasksJson = JSON.stringify(store.state.tasks);
+let lastSystemTab = store.state._systemTab;
+let lastLogPaginationJson = JSON.stringify(store.state.logPagination);
+let lastConfigRaw = store.state.configRaw;
+let lastConfigSaving = store.state.configSaving;
+let lastConfigFieldsJson = JSON.stringify(store.state.configFields);
+let lastConfigMode = store.state.configMode;
+let lastLogsLength = store.state.logs.length;
 store.subscribe((state) => {
-  // Re-render when page changes
   if (state.currentPage !== lastPage) {
     lastPage = state.currentPage;
     render();
   } else {
     const tasksJson = JSON.stringify(state.tasks);
     const tasksChanged = tasksJson !== lastTasksJson;
-    
+
     if (tasksChanged) {
       lastTasksJson = tasksJson;
-      
-      // Update only task list if on tasks page
-      if (state.currentPage === 'tasks') {
-        updateTaskListUI(state.tasks);
-      }
-      
-      // Update overview page recent tasks
-      if (state.currentPage === 'overview') {
-        updateOverviewTasksUI(state.tasks);
-      }
+      if (state.currentPage === 'tasks') { updateTaskListUI(state.tasks); }
+      if (state.currentPage === 'overview') { updateOverviewTasksUI(state.tasks); }
     }
-    
-    // Re-render data page when data changes
-    if (state.currentPage === 'data') {
-      render();
+
+    if (state.currentPage === 'data') { render(); }
+
+    if (state.currentPage === 'system') {
+      const tabChanged = state._systemTab !== lastSystemTab;
+      const logPagChanged = JSON.stringify(state.logPagination) !== lastLogPaginationJson;
+      const configRawChanged = state.configRaw !== lastConfigRaw;
+      const configSavingChanged = state.configSaving !== lastConfigSaving;
+      const configFieldsChanged = JSON.stringify(state.configFields) !== lastConfigFieldsJson;
+      const configModeChanged = state.configMode !== lastConfigMode;
+      const logsChanged = state.logs.length !== lastLogsLength;
+
+      if (tabChanged || logPagChanged || configRawChanged || configSavingChanged || logsChanged || configFieldsChanged || configModeChanged) {
+        lastSystemTab = state._systemTab;
+        lastLogPaginationJson = JSON.stringify(state.logPagination);
+        lastConfigRaw = state.configRaw;
+        lastConfigSaving = state.configSaving;
+        lastConfigFieldsJson = JSON.stringify(state.configFields);
+        lastConfigMode = state.configMode;
+        lastLogsLength = state.logs.length;
+        render();
+      }
     }
   }
 });

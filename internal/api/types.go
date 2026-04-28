@@ -157,3 +157,48 @@ type ConfigResponse struct {
 	MaxDownloadRoutine int    `json:"max_download_routine"`
 	MaxFileNameLen     int    `json:"max_file_name_len"`
 }
+
+// ConfigRawResponse 原始配置响应
+type ConfigRawResponse struct {
+	Content string `json:"content"`
+	Path    string `json:"path"`
+	Exists  bool   `json:"exists"`
+}
+
+// ConfigUpdateRequest 配置更新请求
+type ConfigUpdateRequest struct {
+	Content string `json:"content"`
+}
+
+// LogsResponse 日志响应
+type LogsResponse struct {
+	Logs       []string `json:"logs"`
+	Total      int      `json:"total"`
+	Page       int      `json:"page"`
+	PageSize   int      `json:"pageSize"`
+	TotalPages int      `json:"totalPages"`
+}
+
+// ConfigFieldItem 单个配置字段的 Web 表示
+type ConfigFieldItem struct {
+	Name        string `json:"name"`
+	Label       string `json:"label"`
+	Prompt      string `json:"prompt"`
+	Value       string `json:"value"`
+	Default     string `json:"default"`
+	Type        string `json:"type"`
+	Placeholder string `json:"placeholder"`
+	Required    bool   `json:"required"`
+	Group       string `json:"group"`
+}
+
+// ConfigFieldsResponse 结构化配置响应
+type ConfigFieldsResponse struct {
+	Exists bool              `json:"exists"`
+	Fields []ConfigFieldItem `json:"fields"`
+}
+
+// ConfigFieldsRequest 结构化配置保存请求
+type ConfigFieldsRequest struct {
+	Fields map[string]string `json:"fields"`
+}

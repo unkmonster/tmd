@@ -297,21 +297,16 @@ func DownloadFromLoongTweetFolder(ctx context.Context, client *resty.Client, use
 			// skipLoongTweet=true：不保存 txt/json（这些文件已存在）
 			failedTweets := BatchDownloadTweet(ctx, client, true, dwn, fileWriter, packged...)
 
-			// 输出文件夹级别的成功/失败统计
-			successCount := len(pts) - len(failedTweets)
-			if successCount > 0 {
-				fmt.Printf("%s%s", color.FgCyan.Render("[jsonfolder]"), color.FgLightMagenta.Render(fmt.Sprintf(" %s: %d/%d tweets succeeded", filepath.Base(fp), successCount, len(pts))))
-				if len(failedTweets) > 0 {
-					fmt.Printf(" (%d failed)", len(failedTweets))
-				}
-				fmt.Println()
-			}
-
-			if len(failedTweets) > 0 {
-				result.Error = fmt.Sprintf("%d tweets failed to download", len(failedTweets))
-			}
 			result.Success = len(failedTweets) == 0
 			result.Duration = time.Since(start)
+
+			// 输出文件夹级别的成功/失败统计
+			if result.Success {
+				fmt.Printf("%s ✓ %s: %d tweets processed\n", color.FgCyan.Render("[jsonfolder]"), filepath.Base(fp), result.TweetCount)
+			} else {
+				result.Error = fmt.Sprintf("%d/%d tweets failed", len(failedTweets), len(pts))
+				fmt.Printf("%s ✗ %s: %v\n", color.FgCyan.Render("[jsonfolder]"), filepath.Base(fp), result.Error)
+			}
 
 			mu.Lock()
 			results = append(results, result)

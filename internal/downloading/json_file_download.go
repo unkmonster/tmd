@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/go-resty/resty/v2"
+	"github.com/gookit/color"
 	log "github.com/sirupsen/logrus"
 	"github.com/unkmonster/tmd/internal/downloader"
 	"github.com/unkmonster/tmd/internal/naming"
@@ -38,8 +39,6 @@ type ThirdPartyMedia struct {
 // ThirdPartyTweetResult 单个 JSON 文件下载结果
 type ThirdPartyTweetResult struct {
 	Path       string        `json:"path"`
-	TweetID    string        `json:"tweet_id"`
-	ScreenName string        `json:"screen_name"`
 	Success    bool          `json:"success"`
 	MediaCount int           `json:"media_count"`
 	Error      string        `json:"error,omitempty"`
@@ -138,10 +137,6 @@ func DownloadThirdPartyTweets(
 				return
 			}
 
-			// 记录第一个推文的信息用于结果统计
-			result.TweetID = entries[0].ID
-			result.ScreenName = entries[0].ScreenName
-
 			// 转换为 twitter.Tweet 并打包为 PackagedTweet
 			// 每个推文有自己的用户目录，按用户分组保存
 			pts := make([]PackagedTweet, 0, len(entries))
@@ -158,22 +153,27 @@ func DownloadThirdPartyTweets(
 				pts = append(pts, JsonPackagedTweet{tweet: tweet, dir: userDir})
 			}
 
-			// 使用 BatchDownloadTweet 统一处理下载
-			// skipLoongTweet=false：需要保存 txt 和 json 元数据文件
-			failedTweets := BatchDownloadTweet(ctx, client, false, dwn, fileWriter, pts...)
-
 			// 统计媒体文件总数（用于结果报告）
 			totalMedia := 0
 			for _, pt := range pts {
 				totalMedia += len(pt.GetTweet().Urls)
 			}
 
-			if len(failedTweets) > 0 {
-				result.Error = fmt.Sprintf("%d/%d tweets failed", len(failedTweets), len(pts))
-			}
+			// 使用 BatchDownloadTweet 统一处理下载
+			// skipLoongTweet=false：需要保存 txt 和 json 元数据文件
+			failedTweets := BatchDownloadTweet(ctx, client, false, dwn, fileWriter, pts...)
+
 			result.Success = len(failedTweets) == 0
 			result.MediaCount = totalMedia
 			result.Duration = time.Since(start)
+
+			// 输出文件级别的成功/失败统计
+			if result.Success {
+				fmt.Printf("%s %s: %d media ✓\n", color.FgCyan.Render("[jsonfile]"), filepath.Base(fp), totalMedia)
+			} else {
+				result.Error = fmt.Sprintf("%d/%d tweets failed", len(failedTweets), len(pts))
+				fmt.Printf("%s %s: %s ✗\n", color.FgCyan.Render("[jsonfile]"), filepath.Base(fp), result.Error)
+			}
 
 			mu.Lock()
 			results = append(results, result)

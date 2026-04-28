@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"fmt"
-	"path/filepath"
 
 	"github.com/go-resty/resty/v2"
 	log "github.com/sirupsen/logrus"
@@ -135,7 +134,6 @@ func (s *downloadServiceImpl) ListDownload(ctx context.Context, taskID string, l
 
 	// Profile 下载（复用 BatchDownloadAny 返回的 listMembers）
 	if !opts.SkipProfile && len(listMembers) > 0 {
-		reporter.OnProgress(taskID, Progress{Stage: "profile", Current: fmt.Sprintf("list:%d", listID)})
 		memberIDs := utils.ExtractIDs(listMembers, func(u *twitter.User) uint64 { return u.Id })
 		database.MarkListMembersAccessibleByIDs(s.deps.DB, memberIDs)
 
@@ -203,7 +201,6 @@ func (s *downloadServiceImpl) FollowingDownload(ctx context.Context, taskID stri
 
 	// Profile 下载（复用 BatchDownloadAny 返回的 listMembers）
 	if !opts.SkipProfile && len(listMembers) > 0 {
-		reporter.OnProgress(taskID, Progress{Stage: "profile", Current: fmt.Sprintf("following:%s", screenName)})
 		memberIDs := utils.ExtractIDs(listMembers, func(u *twitter.User) uint64 { return u.Id })
 		database.MarkListMembersAccessibleByIDs(s.deps.DB, memberIDs)
 
@@ -221,8 +218,6 @@ func (s *downloadServiceImpl) ProfileDownload(ctx context.Context, taskID string
 	if reporter == nil {
 		reporter = &NopReporter{}
 	}
-
-	reporter.OnProgress(taskID, Progress{Stage: "profile", Total: len(screenNames)})
 
 	pathHelper, err := path.NewStorePath(s.deps.Config.RootPath)
 	if err != nil {
@@ -343,6 +338,7 @@ func (s *downloadServiceImpl) JsonFileDownload(ctx context.Context, taskID strin
 	dwn := downloader.NewDownloader(fileWriter)
 
 	// 使用 pathHelper.Users 确保与 profile 下载目录结构一致
+	// 日志已在 downloading 层打印
 	results := downloading.DownloadThirdPartyTweets(ctx, s.deps.Client, pathHelper.Users, dwn, fileWriter, paths...)
 
 	var successCount, failCount, totalMedia int
@@ -350,10 +346,8 @@ func (s *downloadServiceImpl) JsonFileDownload(ctx context.Context, taskID strin
 		if r.Success {
 			successCount++
 			totalMedia += r.MediaCount
-			log.Infof("✓ %s: %d media", filepath.Base(r.Path), r.MediaCount)
 		} else {
 			failCount++
-			log.Errorf("✗ %s: %v", filepath.Base(r.Path), r.Error)
 		}
 	}
 
@@ -384,16 +378,15 @@ func (s *downloadServiceImpl) JsonFolderDownload(ctx context.Context, taskID str
 	dwn := downloader.NewDownloader(fileWriter)
 
 	// 使用 pathHelper.Users 确保与 profile 下载目录结构一致
+	// 日志已在 downloading 层打印
 	results := downloading.DownloadFromLoongTweetFolder(ctx, s.deps.Client, pathHelper.Users, dwn, fileWriter, paths...)
 
 	var successCount, failCount int
 	for _, r := range results {
 		if r.Success {
 			successCount++
-			log.Infof("✓ %s: %d tweets processed", filepath.Base(r.Path), r.TweetCount)
 		} else {
 			failCount++
-			log.Errorf("✗ %s: %v", filepath.Base(r.Path), r.Error)
 		}
 	}
 
@@ -486,8 +479,9 @@ func (s *downloadServiceImpl) saveDumper(dumper *downloading.TweetDumper, path s
 	if dumper.Count() > 0 {
 		if err := dumper.Dump(path); err != nil {
 			log.Warnf("Failed to save dumper: %v", err)
+		} else {
+			log.Infof("%d tweets have been dumped", dumper.Count())
 		}
-		log.Infof("%d tweets have been dumped", dumper.Count())
 	}
 }
 

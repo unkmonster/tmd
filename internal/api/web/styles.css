@@ -1268,3 +1268,31 @@ ul, ol {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+/* ===== System Page ===== */
+.system-tabs{display:flex;gap:var(--space-2);margin-bottom:var(--space-6);border-bottom:1px solid var(--border-primary);padding-bottom:var(--space-3)}
+.config-editor{min-height:300px;max-height:500px;font-family:'Cascadia Code','Fira Code','JetBrains Mono',Consolas,monospace;font-size:13px;line-height:1.6;background:var(--bg-primary);border:1px solid var(--border-primary);border-radius:var(--radius-md);resize:vertical;tab-size:2;color:var(--text-primary)}
+.config-editor:focus{outline:none;border-color:var(--accent-primary);box-shadow:0 0 0 3px rgba(47,129,247,.1)}
+.config-hint{background:rgba(240,136,62,.08);border-radius:var(--radius-md)}
+
+.log-container{background:#0d1117;border-radius:var(--radius-md);max-height:500px;overflow-y:auto;font-size:12px;line-height:1.7}
+.log-container::-webkit-scrollbar{width:8px}
+.log-container::-webkit-scrollbar-track{background:#161b22}
+.log-container::-webkit-scrollbar-thumb{background:#30363d;border-radius:4px}
+.log-level-filters{display:flex;gap:var(--space-1)}
+
+/* ===== Config Form Styles ===== */
+.config-mode-tabs{display:flex;gap:var(--space-2);margin-bottom:var(--space-5)}
+.mode-tab{padding:var(--space-2) var(--space-4);border-radius:var(--radius-md);font-size:var(--text-sm);font-weight:var(--font-medium);color:var(--text-secondary);cursor:pointer;border:1px solid transparent;transition:all var(--duration-fast)}
+.mode-tab:hover{background:var(--bg-tertiary);color:var(--text-primary)}
+.mode-tab.active{background:var(--accent-primary);color:white;border-color:var(--accent-primary)}
+
+.config-group{margin-bottom:var(--space-5)}
+.config-group-title{font-size:var(--text-sm);font-weight:var(--font-semibold);color:var(--text-secondary);margin-bottom:var(--space-3);padding-bottom:var(--space-2);border-bottom:1px solid var(--border-primary)}
+
+.config-field{margin-bottom:var(--space-4)}
+.config-label{display:block;font-size:var(--text-sm);font-weight:var(--font-medium);color:var(--text-secondary);margin-bottom:var(--space-1)}
+.config-input{width:100%;background:var(--bg-primary);border:1px solid var(--border-primary);border-radius:var(--radius-md);padding:10px 12px;color:var(--text-primary);font-size:var(--text-base);transition:border var(--duration-fast)}
+.config-input:focus{outline:none;border-color:var(--accent-primary);box-shadow:0 0 0 3px rgba(47,129,247,.1)}
+.config-input::placeholder{color:var(--text-tertiary)}
+.config-mask-hint{font-size:var(--text-xs);color:var(--text-tertiary);margin-bottom:var(--space-1)}
