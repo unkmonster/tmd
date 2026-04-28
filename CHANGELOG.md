@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ***
 
+## [3.1.7] - 2026-04-26
+
+### Changed
+
+| 文件 | 变更 |
+|------|------|
+| `internal/service/download_service.go` | 删除冗余日志，统一使用 Progress.Current 传递上下文 |
+| `internal/service/progress.go` | 简化 OnComplete 方法，统一使用 r.Message |
+
+**主要变更：**
+- 删除 `log.Infof` 冗余日志输出
+- 将日志上下文信息整合到 `Progress.Current` 字段
+- 统一完成日志格式，简化 `LogReporter.OnComplete` 逻辑
+
+***
+
 ## [3.1.6] - 2026-04-26
 
 ### Fixed

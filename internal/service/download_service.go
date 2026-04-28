@@ -295,9 +295,7 @@ func (s *downloadServiceImpl) MarkDownloaded(ctx context.Context, taskID string,
 		reporter = &NopReporter{}
 	}
 
-	reporter.OnProgress(taskID, Progress{Stage: "marking", Total: len(users) + len(lists)})
-
-	log.Infof("Marking %d users and %d lists as downloaded", len(users), len(lists))
+	reporter.OnProgress(taskID, Progress{Stage: "marking", Total: len(users) + len(lists), Current: fmt.Sprintf("%d users, %d lists", len(users), len(lists))})
 
 	if len(users) == 0 && len(lists) == 0 {
 		return fmt.Errorf("no users or lists to mark")
@@ -332,8 +330,7 @@ func (s *downloadServiceImpl) JsonFileDownload(ctx context.Context, taskID strin
 		reporter = &NopReporter{}
 	}
 
-	log.Infof("downloading media from %d third-party JSON file(s)...", len(paths))
-	reporter.OnProgress(taskID, Progress{Stage: "downloading", Total: len(paths)})
+	reporter.OnProgress(taskID, Progress{Stage: "downloading", Total: len(paths), Current: fmt.Sprintf("%d JSON files", len(paths))})
 
 	pathHelper, err := path.NewStorePath(s.deps.Config.RootPath)
 	if err != nil {
@@ -360,8 +357,6 @@ func (s *downloadServiceImpl) JsonFileDownload(ctx context.Context, taskID strin
 		}
 	}
 
-	log.Infof("JSON file download completed: %d success, %d failed, %d media", successCount, failCount, totalMedia)
-
 	reporter.OnComplete(taskID, Result{
 		Downloaded: successCount,
 		Failed:     failCount,
@@ -376,8 +371,7 @@ func (s *downloadServiceImpl) JsonFolderDownload(ctx context.Context, taskID str
 		reporter = &NopReporter{}
 	}
 
-	log.Infof("downloading media from %d loongtweet folder(s)...", len(paths))
-	reporter.OnProgress(taskID, Progress{Stage: "downloading", Total: len(paths)})
+	reporter.OnProgress(taskID, Progress{Stage: "downloading", Total: len(paths), Current: fmt.Sprintf("%d loongtweet folders", len(paths))})
 
 	pathHelper, err := path.NewStorePath(s.deps.Config.RootPath)
 	if err != nil {
@@ -402,8 +396,6 @@ func (s *downloadServiceImpl) JsonFolderDownload(ctx context.Context, taskID str
 			log.Errorf("✗ %s: %v", filepath.Base(r.Path), r.Error)
 		}
 	}
-
-	log.Infof("JSON folder download completed: %d success, %d failed", successCount, failCount)
 
 	reporter.OnComplete(taskID, Result{
 		Downloaded: successCount,
@@ -516,7 +508,6 @@ func (s *downloadServiceImpl) downloadProfile(ctx context.Context, taskID string
 		return nil
 	}
 
-	log.Infof("Downloading profiles for %d users", len(users))
 	reporter.OnProgress(taskID, Progress{Stage: "profile", Total: len(users), Current: users[0].ScreenName})
 
 	// 创建 storage manager
