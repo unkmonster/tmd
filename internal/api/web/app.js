@@ -462,7 +462,7 @@ const pages = {
           </div>
           <div class="flex gap-2 items-center">
             <input type="text" class="form-input search-input" id="dbSearchInput" 
-              placeholder="搜索..." value="${search}" onkeypress="if(event.key==='Enter')searchDB()">
+              placeholder="搜索..." onkeypress="if(event.key==='Enter')searchDB()">
             <button class="btn btn-ghost btn-icon" onclick="searchDB()">🔍</button>
             <button class="btn btn-ghost btn-icon" onclick="refreshDBData()">🔄</button>
           </div>
@@ -1674,7 +1674,7 @@ function renderLogViewer() {
         <div><div class="card-title">系统日志</div><div class="card-subtitle">共 ${logPagination.total} 条记录</div></div>
         <div class="flex gap-2 items-center flex-wrap">
           <input type="text" class="form-input search-input" id="logSearchInput"
-            placeholder="🔍 搜索..." value="${escapeHtml(logSearch)}"
+            placeholder="🔍 搜索..."
             onkeypress="if(event.key==='Enter'){store.setState({logSearch:this.value});refreshLogs();}">
           <div class="log-level-filters">
             ${['all','debug','info','warn','error'].map(l => `<button class="btn btn-sm ${logLevel===l?'btn-primary':'btn-ghost'}" onclick="setLogLevel('${l}')">${l.toUpperCase()}</button>`).join('')}
@@ -2203,6 +2203,23 @@ function render() {
         input.onkeypress = (e) => { 
           if (e.key === 'Enter') handleQuickDownload(); 
         };
+      }
+    }
+    
+    // Restore search value for data page
+    if (page === 'data') {
+      const searchInput = document.getElementById('dbSearchInput');
+      const savedSearch = store.state.dbSearch[store.state.dataSubPage];
+      if (searchInput && savedSearch) {
+        searchInput.value = savedSearch;
+      }
+    }
+    
+    // Restore search value for logs
+    if (page === 'system' && store.state._systemTab === 'logs') {
+      const logSearchInput = document.getElementById('logSearchInput');
+      if (logSearchInput && store.state.logSearch) {
+        logSearchInput.value = store.state.logSearch;
       }
     }
   }

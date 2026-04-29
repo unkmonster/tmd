@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ***
 
+## [3.2.2] - 2026-04-29
+
+### Fixed
+
+| 文件 | 问题 | 修复 |
+|------|------|------|
+| `internal/downloading/list_download.go` | 循环中共享局部变量地址导致所有用户指向同一内存 | 为每个用户创建独立的 eid 副本 |
+| `internal/api/web/app.js` | 搜索框值通过 HTML 内嵌导致潜在 XSS 风险 | 改为渲染后动态恢复搜索值 |
+
+### Stats
+
+- **2 个文件变更**
+- **+21 行 / -2 行**
+
+***
+
 ## [3.2.1] - 2026-04-26
 
 ### Added
