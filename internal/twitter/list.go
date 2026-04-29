@@ -3,6 +3,7 @@ package twitter
 import (
 	"context"
 	"fmt"
+	"html"
 
 	"github.com/go-resty/resty/v2"
 	log "github.com/sirupsen/logrus"
@@ -55,7 +56,7 @@ func parseList(list *gjson.Result) (*List, error) {
 	result := List{}
 	result.Id = id_str.Uint()
 	result.MemberCount = int(member_count.Int())
-	result.Name = name.String()
+	result.Name = html.UnescapeString(name.String())
 
 	user_results := list.Get("user_results")
 	if user_results.Exists() {

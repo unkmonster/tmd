@@ -3,6 +3,7 @@ package twitter
 import (
 	"context"
 	"fmt"
+	"html"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -118,7 +119,7 @@ func parseUserResults(user_results *gjson.Result) (*User, uint64, error) {
 	usr.FriendsCount = int(friends_count.Int())
 	usr.Id = restId.Uint()
 	usr.IsProtected = protected
-	usr.Name = name.String()
+	usr.Name = html.UnescapeString(name.String())
 	usr.ScreenName = screen_name.String()
 	usr.MediaCount = int(media_count.Int())
 	usr.Muting = muting.Exists() && muting.Bool()
@@ -139,10 +140,10 @@ func parseUserResults(user_results *gjson.Result) (*User, uint64, error) {
 
 	// 提取用户简介和其他信息
 	if desc := legacy.Get("description"); desc.Exists() {
-		usr.Description = desc.String()
+		usr.Description = html.UnescapeString(desc.String())
 	}
 	if loc := legacy.Get("location"); loc.Exists() {
-		usr.Location = loc.String()
+		usr.Location = html.UnescapeString(loc.String())
 	}
 	if url := legacy.Get("url"); url.Exists() {
 		usr.URL = url.String()

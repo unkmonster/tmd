@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ***
 
+## [3.2.4] - 2026-04-29
+
+### Fixed
+
+| 文件 | 修复内容 |
+|------|----------|
+| `internal/twitter/user.go` | 解析用户数据时解码 HTML 实体（Name、Description、Location） |
+| `internal/twitter/list.go` | 解析列表数据时解码 HTML 实体（Name） |
+| `internal/downloading/tweet_download.go` | 保存推文时解码 HTML 实体（text） |
+| `internal/downloading/json_folder_download.go` | 解析 JSON 时解码 HTML 实体（Creator.Name） |
+
+### Changed
+
+- 使用 `html.UnescapeString()` 统一处理 Twitter API 返回的 HTML 实体编码文本
+- 修复用户名、简介、推文内容等显示为 `&amp;` `&lt;` 等 HTML 实体的问题
+
+### Stats
+
+- **4 个文件变更**
+- **+11 行 / -7 行**
+
+***
+
 ## [3.2.3] - 2026-04-29
 
 ### Changed

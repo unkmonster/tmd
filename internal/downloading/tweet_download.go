@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"html"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -90,9 +91,9 @@ func saveLoongTweet(cfg *workerConfig, dir string, tweet *twitter.Tweet, namingO
 			}
 			noteText := result.Get("note_tweet.note_tweet_results.result.text").String()
 			if noteText != "" {
-				text = noteText
+				text = html.UnescapeString(noteText)
 			} else {
-				text = result.Get("legacy.full_text").String()
+				text = html.UnescapeString(result.Get("legacy.full_text").String())
 			}
 			screenName = result.Get("core.user_results.result.legacy.screen_name").String()
 			if screenName == "" {

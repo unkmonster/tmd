@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"html"
 	"os"
 	"path/filepath"
 	"strings"
@@ -113,7 +114,7 @@ func parseFormattedEntry(entry *FormattedTweetEntry) *twitter.Tweet {
 				tweet.Creator = &twitter.User{}
 
 				if legacy, ok := result["legacy"].(map[string]any); ok {
-					tweet.Creator.Name = getStringFromMap(legacy, "name")
+					tweet.Creator.Name = html.UnescapeString(getStringFromMap(legacy, "name"))
 					tweet.Creator.ScreenName = getStringFromMap(legacy, "screen_name")
 				}
 			}
