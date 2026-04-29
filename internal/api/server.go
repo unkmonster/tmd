@@ -24,7 +24,6 @@ import (
 
 	"github.com/unkmonster/tmd/internal/config"
 	"github.com/unkmonster/tmd/internal/service"
-	"github.com/unkmonster/tmd/internal/twitter"
 )
 
 // Server API Server
@@ -213,8 +212,15 @@ func (s *Server) handleUsers(w http.ResponseWriter, r *http.Request) {
 	case "mark":
 		s.handleUserMark(w, r, screenName)
 	case "following":
-		if len(parts) >= 3 && parts[2] == "download" {
-			s.handleFollowingDownload(w, r, screenName)
+		if len(parts) >= 3 {
+			switch parts[2] {
+			case "download":
+				s.handleFollowingDownload(w, r, screenName)
+			case "mark":
+				s.handleFollowingMark(w, r, screenName)
+			default:
+				s.writeError(w, http.StatusNotFound, "Not found")
+			}
 		} else {
 			s.writeError(w, http.StatusNotFound, "Not found")
 		}
@@ -331,15 +337,7 @@ func (s *Server) handleUserMark(w http.ResponseWriter, r *http.Request, screenNa
 	// 异步执行
 	go func() {
 		s.taskManager.UpdateTaskStatus(task.ID, TaskStatusRunning)
-
-		// 获取用户对象
-		user, _, err := twitter.GetUserByScreenName(task.Ctx, s.client, screenName)
-		if err != nil {
-			s.taskManager.SetTaskError(task.ID, fmt.Errorf("failed to get user %s: %w", screenName, err))
-			return
-		}
-
-		err = s.downloadService.MarkDownloaded(task.Ctx, task.ID, []*twitter.User{user}, nil, markTime, reporter)
+		err := s.downloadService.MarkDownloaded(task.Ctx, task.ID, []string{screenName}, nil, nil, markTime, reporter)
 		if err != nil {
 			s.taskManager.SetTaskError(task.ID, err)
 		}
@@ -379,14 +377,7 @@ func (s *Server) handleListMark(w http.ResponseWriter, r *http.Request, listID u
 
 	go func() {
 		s.taskManager.UpdateTaskStatus(task.ID, TaskStatusRunning)
-
-		list, err := twitter.GetLst(task.Ctx, s.client, listID)
-		if err != nil {
-			s.taskManager.SetTaskError(task.ID, fmt.Errorf("failed to get list %d: %w", listID, err))
-			return
-		}
-
-		err = s.downloadService.MarkDownloaded(task.Ctx, task.ID, nil, []twitter.ListBase{list}, markTime, reporter)
+		err := s.downloadService.MarkDownloaded(task.Ctx, task.ID, nil, []uint64{listID}, nil, markTime, reporter)
 		if err != nil {
 			s.taskManager.SetTaskError(task.ID, err)
 		}
@@ -398,6 +389,46 @@ func (s *Server) handleListMark(w http.ResponseWriter, r *http.Request, listID u
 		"list_id":   listID,
 		"timestamp": req.Timestamp,
 		"message":   "Mark list downloaded task queued",
+	}))
+}
+
+// handleFollowingMark 处理标记关注列表已下载
+func (s *Server) handleFollowingMark(w http.ResponseWriter, r *http.Request, screenName string) {
+	if r.Method != http.MethodPost {
+		s.writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+
+	var req MarkDownloadedTaskData
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		req = MarkDownloadedTaskData{}
+	}
+	req.ScreenName = screenName
+
+	task := s.taskManager.CreateTask(TaskTypeMarkDownloaded, &req)
+
+	var markTime *string
+	if req.Timestamp != nil {
+		t := req.Timestamp.Format("2006-01-02T15:04:05")
+		markTime = &t
+	}
+
+	reporter := NewSSEProgressReporter(s, task.ID)
+
+	go func() {
+		s.taskManager.UpdateTaskStatus(task.ID, TaskStatusRunning)
+		err := s.downloadService.MarkDownloaded(task.Ctx, task.ID, nil, nil, []string{screenName}, markTime, reporter)
+		if err != nil {
+			s.taskManager.SetTaskError(task.ID, err)
+		}
+	}()
+
+	s.writeJSON(w, http.StatusAccepted, NewSuccessResponse(map[string]interface{}{
+		"task_id":     task.ID,
+		"status":      task.Status,
+		"screen_name": screenName,
+		"timestamp":   req.Timestamp,
+		"message":     "Mark following downloaded task queued",
 	}))
 }
 
@@ -643,8 +674,8 @@ func (s *Server) handleBatchDownload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if len(req.Users) == 0 && len(req.Lists) == 0 {
-		s.writeError(w, http.StatusBadRequest, "At least one of users or lists is required")
+	if len(req.Users) == 0 && len(req.Lists) == 0 && len(req.FollowingNames) == 0 {
+		s.writeError(w, http.StatusBadRequest, "At least one of users, lists, or following_names is required")
 		return
 	}
 
@@ -664,52 +695,25 @@ func (s *Server) handleBatchDownload(w http.ResponseWriter, r *http.Request) {
 	// 异步执行
 	go func() {
 		s.taskManager.UpdateTaskStatus(task.ID, TaskStatusRunning)
-
-		// 获取用户对象
-		var users []*twitter.User
-		for _, screenName := range req.Users {
-			user, _, err := twitter.GetUserByScreenName(task.Ctx, s.client, screenName)
-			if err != nil {
-				log.Warnf("Failed to get user %s: %v", screenName, err)
-				continue
-			}
-			users = append(users, user)
-		}
-
-		// 获取列表对象
-		var lists []twitter.ListBase
-		for _, listID := range req.Lists {
-			list, err := twitter.GetLst(task.Ctx, s.client, listID)
-			if err != nil {
-				log.Warnf("Failed to get list %d: %v", listID, err)
-				continue
-			}
-			lists = append(lists, list)
-		}
-
-		// 检查是否全部解析失败
-		if len(users) == 0 && len(lists) == 0 {
-			s.taskManager.SetTaskError(task.ID, fmt.Errorf("all users and lists failed to resolve"))
-			return
-		}
-
-		err := s.downloadService.BatchDownload(task.Ctx, task.ID, users, lists, opts, reporter)
+		err := s.downloadService.BatchDownload(task.Ctx, task.ID, req.Users, req.Lists, req.FollowingNames, opts, reporter)
 		if err != nil {
 			s.taskManager.SetTaskError(task.ID, err)
 		}
 	}()
 
 	s.writeJSON(w, http.StatusAccepted, NewSuccessResponse(map[string]interface{}{
-		"task_id":      task.ID,
-		"status":       task.Status,
-		"users":        req.Users,
-		"lists":        req.Lists,
-		"user_count":   len(req.Users),
-		"list_count":   len(req.Lists),
-		"auto_follow":  req.AutoFollow,
-		"skip_profile": req.SkipProfile,
-		"no_retry":     req.NoRetry,
-		"message":      "Batch download task queued",
+		"task_id":         task.ID,
+		"status":          task.Status,
+		"users":           req.Users,
+		"lists":           req.Lists,
+		"following_names": req.FollowingNames,
+		"user_count":      len(req.Users),
+		"list_count":      len(req.Lists),
+		"following_count": len(req.FollowingNames),
+		"auto_follow":     req.AutoFollow,
+		"skip_profile":    req.SkipProfile,
+		"no_retry":        req.NoRetry,
+		"message":         "Batch download task queued",
 	}))
 }
 

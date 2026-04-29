@@ -108,8 +108,8 @@ func TestProfileDownloadTaskData(t *testing.T) {
 func TestMarkDownloadedTaskData(t *testing.T) {
 	now := time.Now()
 	tests := []struct {
-		name   string
-		data   MarkDownloadedTaskData
+		name    string
+		data    MarkDownloadedTaskData
 		hasTime bool
 	}{
 		{
@@ -161,21 +161,21 @@ func TestBatchDownloadTaskData(t *testing.T) {
 				SkipProfile: false,
 				NoRetry:     true,
 			},
-			wantJSON: `{"users":["user1","user2"],"lists":[100,200],"auto_follow":true,"skip_profile":false,"no_retry":true}`,
+			wantJSON: `{"users":["user1","user2"],"lists":[100,200],"following_names":null,"auto_follow":true,"skip_profile":false,"no_retry":true}`,
 		},
 		{
 			name: "仅用户",
 			data: BatchDownloadTaskData{
 				Users: []string{"user3"},
 			},
-			wantJSON: `{"users":["user3"],"lists":null,"auto_follow":false,"skip_profile":false,"no_retry":false}`,
+			wantJSON: `{"users":["user3"],"lists":null,"following_names":null,"auto_follow":false,"skip_profile":false,"no_retry":false}`,
 		},
 		{
 			name: "仅列表",
 			data: BatchDownloadTaskData{
 				Lists: []uint64{300},
 			},
-			wantJSON: `{"users":null,"lists":[300],"auto_follow":false,"skip_profile":false,"no_retry":false}`,
+			wantJSON: `{"users":null,"lists":[300],"following_names":null,"auto_follow":false,"skip_profile":false,"no_retry":false}`,
 		},
 	}
 

@@ -9,7 +9,6 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/unkmonster/tmd/internal/service"
-	"github.com/unkmonster/tmd/internal/twitter"
 )
 
 // Dependencies 执行依赖，嵌入 service.Dependencies 避免重复
@@ -40,8 +39,10 @@ func Execute(ctx context.Context, args []string, deps *Dependencies) error {
 		SkipProfile: cfg.NoProfile,
 		NoRetry:     cfg.NoRetry,
 	}
+
+	var markTime *string
 	if cfg.MarkTime != "" {
-		opts.MarkTime = &cfg.MarkTime
+		markTime = &cfg.MarkTime
 	}
 
 	// 处理不同类型的下载任务
@@ -78,48 +79,47 @@ func Execute(ctx context.Context, args []string, deps *Dependencies) error {
 		if hasOtherParams(cfg, "mark") {
 			log.Warn("-mark-downloaded is exclusive, other download parameters will be ignored")
 		}
-		entities := ResolveUsersAndLists(ctx, deps.Client, deps.DB, cfg.UsrArgs, cfg.ListArgs, cfg.FollArgs)
-		log.Infof("mark downloaded: users: %d, lists: %d", len(entities.Users), len(entities.Lists))
-		return deps.DownloadService.MarkDownloaded(ctx, "cli", entities.Users, entities.Lists, opts.MarkTime, reporter)
+		log.Infof("mark downloaded: users: %d, lists: %d, following: %d",
+			len(cfg.UsrArgs.ScreenName), len(cfg.ListArgs.ID), len(cfg.FollArgs.ScreenName))
+		return deps.DownloadService.MarkDownloaded(ctx, "cli",
+			cfg.UsrArgs.ScreenName, cfg.ListArgs.ID, cfg.FollArgs.ScreenName,
+			markTime, reporter)
 	}
 
 	// 4. 批量下载（包含用户、列表、关注）- 第四优先级
-	// 可与 Profile 下载（第5步）组合执行（-user + -profile-user）
-	entities := ResolveUsersAndLists(ctx, deps.Client, deps.DB, cfg.UsrArgs, cfg.ListArgs, cfg.FollArgs)
-	hasBatchDownload := len(entities.Users) > 0 || len(entities.Lists) > 0
+	screenNames := cfg.UsrArgs.ScreenName
+	listIDs := cfg.ListArgs.ID
+	followingNames := cfg.FollArgs.ScreenName
+	hasBatchDownload := len(screenNames) > 0 || len(listIDs) > 0 || len(followingNames) > 0
 
 	if hasBatchDownload {
-		log.Infof("users: %d, lists: %d", len(entities.Users), len(entities.Lists))
-		for _, u := range entities.Users {
-			log.Infof("    - %s", u.Title())
-		}
-		for _, l := range entities.Lists {
-			log.Infof("    - %s", l.Title())
-		}
+		log.Infof("users: %d, lists: %d, following: %d", len(screenNames), len(listIDs), len(followingNames))
 
-		// 单个用户下载
-		if len(entities.Users) == 1 && len(entities.Lists) == 0 {
-			if err := deps.DownloadService.UserDownload(ctx, "cli", entities.Users[0].ScreenName, opts, reporter); err != nil {
+		var batchErr error
+		if len(screenNames) == 1 && len(listIDs) == 0 && len(followingNames) == 0 {
+			if err := deps.DownloadService.UserDownload(ctx, "cli", screenNames[0], opts, reporter); err != nil {
 				log.Warnf("User download failed: %v", err)
+				batchErr = err
 			}
-		} else if len(entities.Users) == 0 && len(entities.Lists) == 1 {
-			// 单个列表下载
-			// 检查是否是真实列表（正数ID）还是虚拟关注列表（负数ID）
-			if list, ok := entities.Lists[0].(*twitter.List); ok {
-				if err := deps.DownloadService.ListDownload(ctx, "cli", list.Id, opts, reporter); err != nil {
-					log.Warnf("List download failed: %v", err)
-				}
-			} else {
-				// 虚拟关注列表，使用 BatchDownload
-				if err := deps.DownloadService.BatchDownload(ctx, "cli", nil, entities.Lists, opts, reporter); err != nil {
-					log.Warnf("Batch download failed: %v", err)
-				}
+		} else if len(screenNames) == 0 && len(listIDs) == 1 && len(followingNames) == 0 {
+			if err := deps.DownloadService.ListDownload(ctx, "cli", listIDs[0], opts, reporter); err != nil {
+				log.Warnf("List download failed: %v", err)
+				batchErr = err
+			}
+		} else if len(screenNames) == 0 && len(listIDs) == 0 && len(followingNames) == 1 {
+			if err := deps.DownloadService.FollowingDownload(ctx, "cli", followingNames[0], opts, reporter); err != nil {
+				log.Warnf("Following download failed: %v", err)
+				batchErr = err
 			}
 		} else {
-			// 批量下载
-			if err := deps.DownloadService.BatchDownload(ctx, "cli", entities.Users, entities.Lists, opts, reporter); err != nil {
+			if err := deps.DownloadService.BatchDownload(ctx, "cli", screenNames, listIDs, followingNames, opts, reporter); err != nil {
 				log.Warnf("Batch download failed: %v", err)
+				batchErr = err
 			}
+		}
+
+		if batchErr != nil {
+			return batchErr
 		}
 	}
 
@@ -148,13 +148,6 @@ func Execute(ctx context.Context, args []string, deps *Dependencies) error {
 			}
 		}
 		return nil
-	}
-
-	// 如果没有执行任何任务，返回错误
-	if !hasBatchDownload && !hasProfileUsers && !hasProfileLists {
-		if len(cfg.UsrArgs.ScreenName) > 0 || len(cfg.ListArgs.ID) > 0 || len(cfg.FollArgs.ScreenName) > 0 {
-			return fmt.Errorf("no valid users or lists to download (all API calls failed)")
-		}
 	}
 
 	return nil

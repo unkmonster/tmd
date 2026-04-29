@@ -13,7 +13,6 @@ import (
 
 	"github.com/unkmonster/tmd/internal/config"
 	"github.com/unkmonster/tmd/internal/service"
-	"github.com/unkmonster/tmd/internal/twitter"
 )
 
 // MockDownloadService 模拟下载服务
@@ -36,8 +35,8 @@ func (m *MockDownloadService) FollowingDownload(ctx context.Context, taskID stri
 	return args.Error(0)
 }
 
-func (m *MockDownloadService) BatchDownload(ctx context.Context, taskID string, users []*twitter.User, lists []twitter.ListBase, opts service.DownloadOptions, reporter service.ProgressReporter) error {
-	args := m.Called(ctx, taskID, users, lists, opts, reporter)
+func (m *MockDownloadService) BatchDownload(ctx context.Context, taskID string, screenNames []string, listIDs []uint64, followingNames []string, opts service.DownloadOptions, reporter service.ProgressReporter) error {
+	args := m.Called(ctx, taskID, screenNames, listIDs, followingNames, opts, reporter)
 	return args.Error(0)
 }
 
@@ -61,8 +60,8 @@ func (m *MockDownloadService) JsonFolderDownload(ctx context.Context, taskID str
 	return args.Error(0)
 }
 
-func (m *MockDownloadService) MarkDownloaded(ctx context.Context, taskID string, users []*twitter.User, lists []twitter.ListBase, markTime *string, reporter service.ProgressReporter) error {
-	args := m.Called(ctx, taskID, users, lists, markTime, reporter)
+func (m *MockDownloadService) MarkDownloaded(ctx context.Context, taskID string, screenNames []string, listIDs []uint64, followingNames []string, markTime *string, reporter service.ProgressReporter) error {
+	args := m.Called(ctx, taskID, screenNames, listIDs, followingNames, markTime, reporter)
 	return args.Error(0)
 }
 
@@ -128,7 +127,7 @@ func TestExecute_JsonDownload_NoRetry(t *testing.T) {
 func TestExecute_MarkDownloaded(t *testing.T) {
 	mockSvc := new(MockDownloadService)
 	markTime := "2024-01-01T00:00:00"
-	mockSvc.On("MarkDownloaded", mock.Anything, mock.Anything, mock.AnythingOfType("[]*twitter.User"), mock.AnythingOfType("[]twitter.ListBase"), &markTime, mock.Anything).Return(nil)
+	mockSvc.On("MarkDownloaded", mock.Anything, mock.Anything, []string{"testuser"}, mock.AnythingOfType("[]uint64"), mock.AnythingOfType("[]string"), &markTime, mock.Anything).Return(nil)
 
 	deps := &Dependencies{
 		Dependencies: service.Dependencies{

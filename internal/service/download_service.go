@@ -20,6 +20,51 @@ type downloadServiceImpl struct {
 	deps *Dependencies
 }
 
+func (s *downloadServiceImpl) resolveUsers(ctx context.Context, screenNames []string) []*twitter.User {
+	var users []*twitter.User
+	for _, name := range screenNames {
+		user, uid, err := twitter.GetUserByScreenName(ctx, s.deps.Client, name)
+		if err != nil {
+			if s.deps.DB != nil {
+				database.MarkUserInaccessible(s.deps.DB, uid, name)
+			}
+			log.Warnf("Failed to get user %s: %v", name, err)
+			continue
+		}
+		users = append(users, user)
+	}
+	return users
+}
+
+func (s *downloadServiceImpl) resolveLists(ctx context.Context, listIDs []uint64) []twitter.ListBase {
+	var lists []twitter.ListBase
+	for _, id := range listIDs {
+		list, err := twitter.GetLst(ctx, s.deps.Client, id)
+		if err != nil {
+			log.Warnf("Failed to get list %d: %v", id, err)
+			continue
+		}
+		lists = append(lists, list)
+	}
+	return lists
+}
+
+func (s *downloadServiceImpl) resolveFollowings(ctx context.Context, screenNames []string) []twitter.ListBase {
+	var lists []twitter.ListBase
+	for _, name := range screenNames {
+		user, uid, err := twitter.GetUserByScreenName(ctx, s.deps.Client, name)
+		if err != nil {
+			if s.deps.DB != nil {
+				database.MarkUserInaccessible(s.deps.DB, uid, name)
+			}
+			log.Warnf("Failed to get user %s for following list: %v", name, err)
+			continue
+		}
+		lists = append(lists, user.Following())
+	}
+	return lists
+}
+
 // UserDownload 下载用户推文
 func (s *downloadServiceImpl) UserDownload(ctx context.Context, taskID string, screenName string, opts DownloadOptions, reporter ProgressReporter) error {
 	if reporter == nil {
@@ -41,10 +86,11 @@ func (s *downloadServiceImpl) UserDownload(ctx context.Context, taskID string, s
 	}
 	defer s.saveDumper(dumper, pathHelper.ErrorJ)
 
-	// 获取用户信息
 	user, uid, err := twitter.GetUserByScreenName(ctx, s.deps.Client, screenName)
 	if err != nil {
-		database.MarkUserInaccessible(s.deps.DB, uid, screenName)
+		if s.deps.DB != nil {
+			database.MarkUserInaccessible(s.deps.DB, uid, screenName)
+		}
 		return err
 	}
 
@@ -166,14 +212,13 @@ func (s *downloadServiceImpl) FollowingDownload(ctx context.Context, taskID stri
 	}
 	defer s.saveDumper(dumper, pathHelper.ErrorJ)
 
-	// 获取用户信息
 	user, uid, err := twitter.GetUserByScreenName(ctx, s.deps.Client, screenName)
 	if err != nil {
-		database.MarkUserInaccessible(s.deps.DB, uid, screenName)
+		if s.deps.DB != nil {
+			database.MarkUserInaccessible(s.deps.DB, uid, screenName)
+		}
 		return err
 	}
-
-	// 使用 Following() 方法获取关注列表（作为 ListBase）
 	following := user.Following()
 
 	// 初始化下载器
@@ -229,21 +274,15 @@ func (s *downloadServiceImpl) ProfileDownload(ctx context.Context, taskID string
 	versionManager.SetFileWriter(fileWriter)
 	dwn := downloader.NewDownloader(fileWriter)
 
-	// 获取所有用户信息（使用 screenName 去重）
-	users := make([]*twitter.User, 0)
+	unique := make([]string, 0)
 	seen := make(map[string]bool)
-	for _, screenName := range screenNames {
-		if seen[screenName] {
-			continue
+	for _, name := range screenNames {
+		if !seen[name] {
+			seen[name] = true
+			unique = append(unique, name)
 		}
-		user, _, err := twitter.GetUserByScreenName(ctx, s.deps.Client, screenName)
-		if err != nil {
-			log.Warnf("Failed to get user %s: %v", screenName, err)
-			continue
-		}
-		seen[screenName] = true
-		users = append(users, user)
 	}
+	users := s.resolveUsers(ctx, unique)
 
 	if err := s.downloadProfile(ctx, taskID, users, pathHelper, versionManager, fileWriter, dwn, reporter); err != nil {
 		log.Warnf("Profile download failed: %v", err)
@@ -285,16 +324,22 @@ func (s *downloadServiceImpl) ListProfileDownload(ctx context.Context, taskID st
 }
 
 // MarkDownloaded 标记已下载
-func (s *downloadServiceImpl) MarkDownloaded(ctx context.Context, taskID string, users []*twitter.User, lists []twitter.ListBase, markTime *string, reporter ProgressReporter) error {
+func (s *downloadServiceImpl) MarkDownloaded(ctx context.Context, taskID string, screenNames []string, listIDs []uint64, followingNames []string, markTime *string, reporter ProgressReporter) error {
 	if reporter == nil {
 		reporter = &NopReporter{}
 	}
 
-	reporter.OnProgress(taskID, Progress{Stage: "marking", Total: len(users) + len(lists), Current: fmt.Sprintf("%d users, %d lists", len(users), len(lists))})
+	reporter.OnProgress(taskID, Progress{Stage: "resolving"})
+
+	users := s.resolveUsers(ctx, screenNames)
+	lists := s.resolveLists(ctx, listIDs)
+	lists = append(lists, s.resolveFollowings(ctx, followingNames)...)
 
 	if len(users) == 0 && len(lists) == 0 {
-		return fmt.Errorf("no users or lists to mark")
+		return fmt.Errorf("no users or lists to mark (all failed to resolve)")
 	}
+
+	reporter.OnProgress(taskID, Progress{Stage: "marking", Total: len(users) + len(lists), Current: fmt.Sprintf("%d users, %d lists", len(users), len(lists))})
 
 	// 构建参数
 	var markTimeStr string
@@ -403,9 +448,19 @@ func (s *downloadServiceImpl) JsonFolderDownload(ctx context.Context, taskID str
 }
 
 // BatchDownload 批量下载
-func (s *downloadServiceImpl) BatchDownload(ctx context.Context, taskID string, users []*twitter.User, lists []twitter.ListBase, opts DownloadOptions, reporter ProgressReporter) error {
+func (s *downloadServiceImpl) BatchDownload(ctx context.Context, taskID string, screenNames []string, listIDs []uint64, followingNames []string, opts DownloadOptions, reporter ProgressReporter) error {
 	if reporter == nil {
 		reporter = &NopReporter{}
+	}
+
+	reporter.OnProgress(taskID, Progress{Stage: "resolving"})
+
+	users := s.resolveUsers(ctx, screenNames)
+	lists := s.resolveLists(ctx, listIDs)
+	lists = append(lists, s.resolveFollowings(ctx, followingNames)...)
+
+	if len(users) == 0 && len(lists) == 0 {
+		return fmt.Errorf("all users and lists failed to resolve")
 	}
 
 	reporter.OnProgress(taskID, Progress{Stage: "preparing"})
@@ -467,7 +522,7 @@ func (s *downloadServiceImpl) BatchDownload(ctx context.Context, taskID string, 
 			}
 		}
 
-		if !opts.SkipProfile && len(profileUsers) > 0 {
+		if len(profileUsers) > 0 {
 			if err := s.downloadProfile(ctx, taskID, profileUsers, pathHelper, versionManager, fileWriter, dwn, reporter); err != nil {
 				log.Warnf("Profile download failed for batch: %v", err)
 			}

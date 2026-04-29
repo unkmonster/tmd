@@ -57,11 +57,12 @@ type JsonFolderDownloadTaskData struct {
 
 // BatchDownloadTaskData 批量下载任务数据
 type BatchDownloadTaskData struct {
-	Users       []string `json:"users"`
-	Lists       []uint64 `json:"lists"`
-	AutoFollow  bool     `json:"auto_follow"`
-	SkipProfile bool     `json:"skip_profile"`
-	NoRetry     bool     `json:"no_retry"`
+	Users          []string `json:"users"`
+	Lists          []uint64 `json:"lists"`
+	FollowingNames []string `json:"following_names"`
+	AutoFollow     bool     `json:"auto_follow"`
+	SkipProfile    bool     `json:"skip_profile"`
+	NoRetry        bool     `json:"no_retry"`
 }
 
 // ListProfileTaskData 列表 Profile 下载任务数据

@@ -7,6 +7,97 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ***
 
+## [3.2.6] - 2026-04-29
+
+### Added
+
+#### API 增强
+
+| 端点 | 功能 |
+|------|------|
+| `POST /api/v1/users/{screen_name}/following/mark` | 标记用户的关注列表已下载 |
+| `POST /api/v1/batch/download` | 批量下载支持 `following_names` 参数 |
+
+### Changed
+
+#### 服务层重构
+
+| 文件 | 变更 |
+|------|------|
+| `internal/service/download_service.go` | 新增 `resolveUsers()`, `resolveLists()`, `resolveFollowings()` 方法，统一解析逻辑 |
+| `internal/service/download_service.go` | `MarkDownloaded()` 和 `BatchDownload()` 改为接收原始参数，内部解析 |
+| `internal/api/server.go` | 新增 `handleFollowingMark()` 处理关注列表标记 |
+| `internal/api/server.go` | 简化 `handleUserMark()`, `handleListMark()`, `handleBatchDownload()` |
+| `internal/api/types.go` | `BatchDownloadTaskData` 新增 `FollowingNames` 字段 |
+
+### Fixed
+
+- 修复 `database.MarkUserInaccessible()` 在 DB 为 nil 时的空指针问题
+- 优化批量下载的错误处理和进度报告
+
+### Removed
+
+- 删除 `internal/cli/helpers.go`
+
+### Stats
+
+- **10 个文件变更**
+- **+246 行 / -201 行**
+
+***
+
+## [3.2.5] - 2026-04-29
+
+### Added
+
+#### API 增强
+
+| 端点 | 功能 |
+|------|------|
+| `GET/PUT/DELETE /api/v1/db/users/{id}` | 用户详情、更新、删除 |
+| `GET/PUT/DELETE /api/v1/db/lists/{id}` | 列表详情、更新、删除 |
+| `GET/PUT/DELETE /api/v1/db/entities/{id}` | 用户实体详情、更新、删除 |
+| `GET/PUT/DELETE /api/v1/db/list-entities/{id}` | 列表实体详情、更新、删除 |
+| `GET /api/v1/db/users/{id}/entities` | 获取用户的所有实体 |
+| `GET /api/v1/db/lists/{id}/entities` | 获取列表的所有实体 |
+| `GET /api/v1/db/entities/{id}/links` | 获取实体的所有链接 |
+| `GET /api/v1/db/user-links/{id}` | 获取用户链接详情 |
+
+#### 数据库操作增强
+
+| 文件 | 新增功能 |
+|------|----------|
+| `internal/database/user.go` | 新增 `GetUserById`, `UpdateUser`, `DelUser` |
+| `internal/database/lst.go` | 新增 `GetListById`, `UpdateList`, `DelList` |
+| `internal/database/user_entity.go` | 新增 `GetUserEntity`, `UpdateUserEntity`, `GetUserEntitiesByUserId` |
+| `internal/database/lst_entity.go` | 新增 `GetLstEntity`, `UpdateLstEntity`, `GetLstEntitiesByLstId` |
+| `internal/database/user_link.go` | 新增 `GetUserLinkById`, `UpdateUserLink`, `DelUserLink` |
+
+### Removed
+
+- 删除 `internal/api/progress.go` 和 `internal/api/progress_test.go`（进度追踪功能移除）
+- 删除 `internal/downloader/coverage` 测试覆盖率文件
+- 删除 `internal/utils/algo.go` 和 `internal/utils/utils_test.go` 中的部分算法
+
+### Changed
+
+| 文件 | 变更 |
+|------|------|
+| `internal/api/db_handlers.go` | 新增完整的 CRUD 操作接口 |
+| `internal/api/types.go` | 新增数据库项类型定义 |
+| `internal/api/server.go` | 注册新的数据库管理路由 |
+| `internal/api/task_manager.go` | 优化任务管理 |
+| `internal/downloading/batch_download.go` | 优化下载逻辑 |
+| `internal/downloading/list_sync.go` | 优化列表同步 |
+| `internal/downloader/file_writer.go` | 优化文件写入 |
+
+### Stats
+
+- **21 个文件变更**
+- **+280 行 / -483 行**
+
+***
+
 ## [3.2.4] - 2026-04-29
 
 ### Fixed

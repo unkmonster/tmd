@@ -216,7 +216,6 @@ func TestDownloadServiceImpl_DownloadOptions_Variations(t *testing.T) {
 				AutoFollow:  false,
 				SkipProfile: false,
 				NoRetry:     false,
-				MarkTime:    nil,
 			},
 		},
 		{
@@ -225,7 +224,6 @@ func TestDownloadServiceImpl_DownloadOptions_Variations(t *testing.T) {
 				AutoFollow:  true,
 				SkipProfile: true,
 				NoRetry:     true,
-				MarkTime:    strPtr("2024-01-01T00:00:00"),
 			},
 		},
 		{
@@ -234,7 +232,6 @@ func TestDownloadServiceImpl_DownloadOptions_Variations(t *testing.T) {
 				AutoFollow:  true,
 				SkipProfile: false,
 				NoRetry:     true,
-				MarkTime:    strPtr("2024-06-15T12:30:00"),
 			},
 		},
 	}
@@ -342,24 +339,6 @@ func TestDownloadOptions_AllCombinations(t *testing.T) {
 			}
 		}
 	}
-}
-
-func TestDownloadOptions_WithMarkTime(t *testing.T) {
-	markTime := "2024-01-01T00:00:00"
-	opts := DownloadOptions{
-		MarkTime: &markTime,
-	}
-
-	assert.NotNil(t, opts.MarkTime)
-	assert.Equal(t, markTime, *opts.MarkTime)
-}
-
-func TestDownloadOptions_NilMarkTime_Service(t *testing.T) {
-	opts := DownloadOptions{
-		MarkTime: nil,
-	}
-
-	assert.Nil(t, opts.MarkTime)
 }
 
 func TestMockProgressReporter_ProgressStages(t *testing.T) {
