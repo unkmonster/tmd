@@ -202,3 +202,22 @@ type ConfigFieldsResponse struct {
 type ConfigFieldsRequest struct {
 	Fields map[string]string `json:"fields"`
 }
+
+// CookieItem 单个额外账户的 Web 表示（脱敏）
+type CookieItem struct {
+	Index     int    `json:"index"`
+	AuthToken string `json:"auth_token"`
+	Ct0       string `json:"ct0"`
+}
+
+// CookiesRawResponse 原始 cookies 响应
+type CookiesRawResponse struct {
+	Content string `json:"content"`
+	Path    string `json:"path"`
+	Exists  bool   `json:"exists"`
+}
+
+// CookiesSaveRequest cookies 保存请求（form 模式）
+type CookiesSaveRequest struct {
+	Cookies []map[string]string `json:"cookies"`
+}

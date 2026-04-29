@@ -72,7 +72,7 @@ func (s *downloadServiceImpl) UserDownload(ctx context.Context, taskID string, s
 
 	// Profile 下载
 	if !opts.SkipProfile {
-		if err := s.downloadProfile(ctx, taskID, []*twitter.User{user}, pathHelper, versionManager, fileWriter, dwn, reporter, opts.SkipProfile); err != nil {
+		if err := s.downloadProfile(ctx, taskID, []*twitter.User{user}, pathHelper, versionManager, fileWriter, dwn, reporter); err != nil {
 			// Profile 下载失败，但主任务继续
 			log.Warnf("Profile download failed for %s: %v", screenName, err)
 		}
@@ -137,7 +137,7 @@ func (s *downloadServiceImpl) ListDownload(ctx context.Context, taskID string, l
 		memberIDs := utils.ExtractIDs(listMembers, func(u *twitter.User) uint64 { return u.Id })
 		database.MarkListMembersAccessibleByIDs(s.deps.DB, memberIDs)
 
-		if err := s.downloadProfile(ctx, taskID, listMembers, pathHelper, versionManager, fileWriter, dwn, reporter, opts.SkipProfile); err != nil {
+		if err := s.downloadProfile(ctx, taskID, listMembers, pathHelper, versionManager, fileWriter, dwn, reporter); err != nil {
 			log.Warnf("Profile download failed for list %d: %v", listID, err)
 		}
 	}
@@ -204,7 +204,7 @@ func (s *downloadServiceImpl) FollowingDownload(ctx context.Context, taskID stri
 		memberIDs := utils.ExtractIDs(listMembers, func(u *twitter.User) uint64 { return u.Id })
 		database.MarkListMembersAccessibleByIDs(s.deps.DB, memberIDs)
 
-		if err := s.downloadProfile(ctx, taskID, listMembers, pathHelper, versionManager, fileWriter, dwn, reporter, opts.SkipProfile); err != nil {
+		if err := s.downloadProfile(ctx, taskID, listMembers, pathHelper, versionManager, fileWriter, dwn, reporter); err != nil {
 			log.Warnf("Profile download failed for following %s: %v", screenName, err)
 		}
 	}
@@ -245,7 +245,7 @@ func (s *downloadServiceImpl) ProfileDownload(ctx context.Context, taskID string
 		users = append(users, user)
 	}
 
-	if err := s.downloadProfile(ctx, taskID, users, pathHelper, versionManager, fileWriter, dwn, reporter, false); err != nil {
+	if err := s.downloadProfile(ctx, taskID, users, pathHelper, versionManager, fileWriter, dwn, reporter); err != nil {
 		log.Warnf("Profile download failed: %v", err)
 	}
 
@@ -320,6 +320,8 @@ func (s *downloadServiceImpl) MarkDownloaded(ctx context.Context, taskID string,
 
 // JsonFileDownload 从第三方工具导出的JSON文件下载推文媒体
 // 支持推文搜索结果格式（包含 media 数组）
+// 注意：noRetry 参数设计如此，第三方 JSON 文件下载不涉及 TweetDumper 机制，
+// 失败项不会进入 error.json，因此无需重试逻辑
 func (s *downloadServiceImpl) JsonFileDownload(ctx context.Context, taskID string, paths []string, noRetry bool, reporter ProgressReporter) error {
 	if reporter == nil {
 		reporter = &NopReporter{}
@@ -360,6 +362,8 @@ func (s *downloadServiceImpl) JsonFileDownload(ctx context.Context, taskID strin
 }
 
 // JsonFolderDownload 从TMD生成的.loongtweet文件夹下载推文媒体
+// 注意：noRetry 参数设计如此，loongtweet 文件夹下载不涉及 TweetDumper 机制，
+// 失败项不会进入 error.json，因此无需重试逻辑
 func (s *downloadServiceImpl) JsonFolderDownload(ctx context.Context, taskID string, paths []string, noRetry bool, reporter ProgressReporter) error {
 	if reporter == nil {
 		reporter = &NopReporter{}
@@ -463,8 +467,8 @@ func (s *downloadServiceImpl) BatchDownload(ctx context.Context, taskID string, 
 			}
 		}
 
-		if len(profileUsers) > 0 {
-			if err := s.downloadProfile(ctx, taskID, profileUsers, pathHelper, versionManager, fileWriter, dwn, reporter, opts.SkipProfile); err != nil {
+		if !opts.SkipProfile && len(profileUsers) > 0 {
+			if err := s.downloadProfile(ctx, taskID, profileUsers, pathHelper, versionManager, fileWriter, dwn, reporter); err != nil {
 				log.Warnf("Profile download failed for batch: %v", err)
 			}
 		}
@@ -497,7 +501,7 @@ func (s *downloadServiceImpl) collectFailedTweets(dumper *downloading.TweetDumpe
 }
 
 // 内部辅助方法：下载 Profile
-func (s *downloadServiceImpl) downloadProfile(ctx context.Context, taskID string, users []*twitter.User, pathHelper *path.StorePath, versionManager *downloader.DefaultVersionManager, fileWriter *downloader.DefaultFileWriter, dwn *downloader.DefaultDownloader, reporter ProgressReporter, skipProfile bool) error {
+func (s *downloadServiceImpl) downloadProfile(ctx context.Context, taskID string, users []*twitter.User, pathHelper *path.StorePath, versionManager *downloader.DefaultVersionManager, fileWriter *downloader.DefaultFileWriter, dwn *downloader.DefaultDownloader, reporter ProgressReporter) error {
 	if len(users) == 0 {
 		return nil
 	}
@@ -526,21 +530,18 @@ func (s *downloadServiceImpl) downloadProfile(ctx context.Context, taskID string
 	requests := make([]profile.DownloadRequest, len(users))
 	for i, user := range users {
 		requests[i] = profile.DownloadRequest{
-			ScreenName: user.ScreenName,
-			UserTitle:  user.Title(),
-			Name:       user.Name,
-			UserID:     user.Id,
-		}
-		// 如果未设置 skipProfile，则填充详细资料字段
-		if !skipProfile {
-			requests[i].AvatarURL = user.AvatarURL
-			requests[i].BannerURL = user.BannerURL
-			requests[i].Description = user.Description
-			requests[i].Location = user.Location
-			requests[i].URL = user.URL
-			requests[i].Verified = user.Verified
-			requests[i].Protected = user.IsProtected
-			requests[i].CreatedAt = user.CreatedAt
+			ScreenName:  user.ScreenName,
+			UserTitle:   user.Title(),
+			Name:        user.Name,
+			UserID:      user.Id,
+			AvatarURL:   user.AvatarURL,
+			BannerURL:   user.BannerURL,
+			Description: user.Description,
+			Location:    user.Location,
+			URL:         user.URL,
+			Verified:    user.Verified,
+			Protected:   user.IsProtected,
+			CreatedAt:   user.CreatedAt,
 		}
 	}
 

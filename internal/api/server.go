@@ -2,6 +2,7 @@ package api
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -22,8 +23,6 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/unkmonster/tmd/internal/config"
-	"github.com/unkmonster/tmd/internal/downloading"
-	"github.com/unkmonster/tmd/internal/naming"
 	"github.com/unkmonster/tmd/internal/service"
 	"github.com/unkmonster/tmd/internal/twitter"
 )
@@ -39,16 +38,19 @@ type Server struct {
 	taskManager       *TaskManager
 	downloadService   service.DownloadService
 	sseMgr            *sseManager
+	logWriter         io.Closer
+	httpServer        *http.Server
 }
 
 // NewServer 创建 API Server
-func NewServer(client *resty.Client, additionalClients []*resty.Client, db *sqlx.DB, config *config.Config, appRootPath string) *Server {
+func NewServer(client *resty.Client, additionalClients []*resty.Client, db *sqlx.DB, config *config.Config, appRootPath string, logWriter io.Closer) *Server {
 	s := &Server{
 		client:            client,
 		additionalClients: additionalClients,
 		db:                db,
 		config:            config,
 		appRootPath:       appRootPath,
+		logWriter:         logWriter,
 		taskManager:       NewTaskManager(),
 		sseMgr:            newSSEManager(),
 	}
@@ -119,6 +121,10 @@ func (s *Server) Start(port int) error {
 	mux.HandleFunc("/api/v1/config", s.handleConfig)
 	mux.HandleFunc("/api/v1/config/raw", s.handleConfigRaw)
 	mux.HandleFunc("/api/v1/config/fields", s.handleConfigFields)
+	mux.HandleFunc("/api/v1/cookies", s.handleCookies)
+	mux.HandleFunc("/api/v1/cookies/raw", s.handleCookiesRaw)
+	mux.HandleFunc("/api/v1/server/restart", s.handleServerRestart)
+	mux.HandleFunc("/api/v1/server/shutdown", s.handleServerShutdown)
 	mux.HandleFunc("/api/v1/logs", s.handleGetLogs)
 	mux.HandleFunc("/api/v1/logs/stream", s.handleLogStream)
 
@@ -135,14 +141,14 @@ func (s *Server) Start(port int) error {
 	log.Infoln("API server starting on", addr)
 	log.Infof("Visit %s to get started", color.FgLightBlue.Render(fmt.Sprintf("http://localhost%s/", addr)))
 
-	server := &http.Server{
+	s.httpServer = &http.Server{
 		Addr:         addr,
 		Handler:      handler,
 		ReadTimeout:  30 * time.Second,
 		WriteTimeout: 30 * time.Second,
 	}
 
-	return server.ListenAndServe()
+	return s.httpServer.ListenAndServe()
 }
 
 // handleHealth 健康检查
@@ -724,6 +730,9 @@ func (s *Server) handleConfigRaw(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleGetConfigRaw(w http.ResponseWriter, _ *http.Request) {
+	s.configMu.RLock()
+	defer s.configMu.RUnlock()
+
 	confPath := filepath.Join(s.appRootPath, "conf.yaml")
 	data, err := os.ReadFile(confPath)
 	if err != nil {
@@ -778,31 +787,96 @@ func (s *Server) handleUpdateConfigRaw(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if err := os.WriteFile(confPath, []byte(req.Content), 0666); err != nil {
+	if err := os.WriteFile(confPath, []byte(req.Content), 0600); err != nil {
 		s.writeError(w, http.StatusInternalServerError, "Failed to write config: "+err.Error())
 		return
 	}
 
-	s.config.RootPath = testConf.RootPath
-	s.config.Cookie = testConf.Cookie
-	s.config.MaxDownloadRoutine = testConf.MaxDownloadRoutine
-	s.config.MaxFileNameLen = testConf.MaxFileNameLen
-	s.config.ProxyURL = testConf.ProxyURL
+	log.Infoln("[WebUI] config saved via raw editor")
 
-	if testConf.MaxDownloadRoutine > 0 {
-		downloading.MaxDownloadRoutine = testConf.MaxDownloadRoutine
-	}
-	if testConf.MaxFileNameLen > 0 {
-		naming.MaxFileNameLen = testConf.MaxFileNameLen
-	}
-
-	log.Infoln("[WebUI] config updated via web interface")
+	s.config = &testConf
 
 	s.writeJSON(w, http.StatusOK, NewSuccessResponse(map[string]interface{}{
-		"message": "Configuration saved successfully",
-		"backup":  filepath.Base(backupPath),
-		"applied": true,
+		"message":      "Configuration saved successfully",
+		"backup":       filepath.Base(backupPath),
+		"applied":      true,
+		"yaml_preview": req.Content,
 	}))
+}
+
+var configFieldDefCache []config.FieldDef
+var configFieldMetaCache []configFieldMeta
+var configFieldMetaOnce sync.Once
+
+type configFieldMeta struct {
+	Name        string
+	Label       string
+	Prompt      string
+	Default     string
+	Type        string
+	Placeholder string
+	Required    bool
+	Group       string
+	IsSensitive bool
+}
+
+func initConfigFieldMeta() {
+	fieldDefs := config.GetFieldDefs()
+	configFieldDefCache = fieldDefs
+	configFieldMetaCache = make([]configFieldMeta, len(fieldDefs))
+	for i, fd := range fieldDefs {
+		meta := configFieldMeta{
+			Name:     fd.Name,
+			Prompt:   fd.Prompt,
+			Default:  fd.Default,
+			Required: fd.Default == "",
+		}
+		switch fd.Name {
+		case "root_path":
+			meta.Label, meta.Type, meta.Group = "存储路径", "text", "basic"
+		case "auth_token":
+			meta.Label, meta.Type, meta.Group = "Auth Token", "password", "cookie"
+			meta.IsSensitive = true
+		case "ct0":
+			meta.Label, meta.Type, meta.Group = "CT0", "password", "cookie"
+			meta.IsSensitive = true
+		case "max_download_routine":
+			meta.Label, meta.Type, meta.Group = "最大并发下载", "number", "advanced"
+			meta.Placeholder = fmt.Sprintf("1-100, 默认 %s", fd.Default)
+		case "max_file_name_len":
+			meta.Label, meta.Type, meta.Group = "最大文件名长度", "number", "advanced"
+			meta.Placeholder = fmt.Sprintf("%d-%d, 默认 %s", config.MinFileNameLen, config.MaxFileNameLen, fd.Default)
+		case "proxy_url":
+			meta.Label, meta.Type, meta.Group, meta.Placeholder = "代理地址", "text", "advanced", "http://127.0.0.1:7897 或留空"
+		default:
+			meta.Label, meta.Type, meta.Group = fd.Name, "text", "basic"
+		}
+		configFieldMetaCache[i] = meta
+	}
+}
+
+func buildConfigFieldItems(conf *config.Config) []ConfigFieldItem {
+	configFieldMetaOnce.Do(initConfigFieldMeta)
+	items := make([]ConfigFieldItem, 0, len(configFieldMetaCache))
+	for i, m := range configFieldMetaCache {
+		val := config.GetFieldValue(conf, configFieldDefCache[i])
+		item := ConfigFieldItem{
+			Name:        m.Name,
+			Label:       m.Label,
+			Prompt:      m.Prompt,
+			Value:       val,
+			Default:     m.Default,
+			Type:        m.Type,
+			Placeholder: m.Placeholder,
+			Required:    m.Required,
+			Group:       m.Group,
+		}
+		if m.IsSensitive {
+			item.Value = maskSensitive(val)
+		}
+		items = append(items, item)
+	}
+	return items
 }
 
 func (s *Server) handleConfigFields(w http.ResponseWriter, r *http.Request) {
@@ -838,61 +912,9 @@ func (s *Server) handleGetConfigFields(w http.ResponseWriter, _ *http.Request) {
 		}
 	}
 
-	fieldDefs := config.GetFieldDefs()
-	fields := make([]ConfigFieldItem, 0, len(fieldDefs))
-
-	for _, fd := range fieldDefs {
-		val := config.GetFieldValue(currentConf, fd)
-		item := ConfigFieldItem{
-			Name:        fd.Name,
-			Prompt:      fd.Prompt,
-			Value:       val,
-			Default:     fd.Default,
-			Required:    fd.Default == "",
-			Placeholder: fd.Prompt,
-		}
-
-		switch fd.Name {
-		case "root_path":
-			item.Label = "存储路径"
-			item.Type = "text"
-			item.Group = "basic"
-		case "auth_token":
-			item.Label = "Auth Token"
-			item.Type = "password"
-			item.Group = "cookie"
-			item.Value = maskSensitive(val)
-		case "ct0":
-			item.Label = "CT0"
-			item.Type = "password"
-			item.Group = "cookie"
-			item.Value = maskSensitive(val)
-		case "max_download_routine":
-			item.Label = "最大并发下载"
-			item.Type = "number"
-			item.Group = "advanced"
-			item.Placeholder = fmt.Sprintf("1-100, 默认 %s", fd.Default)
-		case "max_file_name_len":
-			item.Label = "最大文件名长度"
-			item.Type = "number"
-			item.Group = "advanced"
-			item.Placeholder = fmt.Sprintf("%d-%d, 默认 %s", config.MinFileNameLen, config.MaxFileNameLen, fd.Default)
-		case "proxy_url":
-			item.Label = "代理地址"
-			item.Type = "text"
-			item.Group = "advanced"
-			item.Placeholder = "http://127.0.0.1:7897 或留空"
-		default:
-			item.Label = fd.Name
-			item.Type = "text"
-			item.Group = "basic"
-		}
-		fields = append(fields, item)
-	}
-
 	s.writeJSON(w, http.StatusOK, NewSuccessResponse(ConfigFieldsResponse{
 		Exists: exists,
-		Fields: fields,
+		Fields: buildConfigFieldItems(currentConf),
 	}))
 }
 
@@ -922,11 +944,6 @@ func (s *Server) handleSaveConfigFields(w http.ResponseWriter, r *http.Request) 
 			}
 		}
 
-		if fd.Name == "root_path" {
-			newConf.RootPath = userVal
-			continue
-		}
-
 		if err := fd.Setter(newConf, userVal); err != nil {
 			s.writeError(w, http.StatusBadRequest,
 				fmt.Sprintf("字段 %s 无效: %s", fd.Name, err.Error()))
@@ -948,57 +965,18 @@ func (s *Server) handleSaveConfigFields(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	log.Infoln("[WebUI] config saved via structured form")
+
 	s.config = newConf
 
-	if newConf.MaxDownloadRoutine > 0 {
-		downloading.MaxDownloadRoutine = newConf.MaxDownloadRoutine
-	}
-	if newConf.MaxFileNameLen > 0 {
-		naming.MaxFileNameLen = newConf.MaxFileNameLen
-	}
-
-	log.Infoln("[WebUI] config updated via structured form")
-
 	yamlPreview, _ := yaml.Marshal(newConf)
-
-	// 重新构建字段列表返回给前端，避免二次请求
-	updatedFields := make([]ConfigFieldItem, 0, len(fieldDefs))
-	for _, fd := range fieldDefs {
-		val := config.GetFieldValue(newConf, fd)
-		item := ConfigFieldItem{
-			Name:     fd.Name,
-			Prompt:   fd.Prompt,
-			Value:    val,
-			Default:  fd.Default,
-			Required: fd.Default == "",
-		}
-		switch fd.Name {
-		case "root_path":
-			item.Label, item.Type, item.Group = "存储路径", "text", "basic"
-		case "auth_token":
-			item.Label, item.Type, item.Group, item.Value = "Auth Token", "password", "cookie", maskSensitive(val)
-		case "ct0":
-			item.Label, item.Type, item.Group, item.Value = "CT0", "password", "cookie", maskSensitive(val)
-		case "max_download_routine":
-			item.Label, item.Type, item.Group = "最大并发下载", "number", "advanced"
-			item.Placeholder = fmt.Sprintf("1-100, 默认 %s", fd.Default)
-		case "max_file_name_len":
-			item.Label, item.Type, item.Group = "最大文件名长度", "number", "advanced"
-			item.Placeholder = fmt.Sprintf("%d-%d, 默认 %s", config.MinFileNameLen, config.MaxFileNameLen, fd.Default)
-		case "proxy_url":
-			item.Label, item.Type, item.Group, item.Placeholder = "代理地址", "text", "advanced", "http://127.0.0.1:7897 或留空"
-		default:
-			item.Label, item.Type, item.Group = fd.Name, "text", "basic"
-		}
-		updatedFields = append(updatedFields, item)
-	}
 
 	s.writeJSON(w, http.StatusOK, NewSuccessResponse(map[string]interface{}{
 		"message":      "Configuration saved successfully",
 		"backup":       filepath.Base(backupPath),
 		"applied":      true,
 		"yaml_preview": string(yamlPreview),
-		"fields":       updatedFields,
+		"fields":       buildConfigFieldItems(newConf),
 	}))
 }
 
@@ -1006,10 +984,259 @@ func maskSensitive(s string) string {
 	if s == "" {
 		return ""
 	}
-	if len(s) <= 6 {
+	runes := []rune(s)
+	if len(runes) <= 6 {
 		return "***"
 	}
-	return s[:3] + "•••" + s[len(s)-3:]
+	return string(runes[:3]) + "•••" + string(runes[len(runes)-3:])
+}
+
+func (s *Server) handleCookiesRaw(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		s.handleGetCookiesRaw(w, r)
+	case http.MethodPut:
+		s.handleUpdateCookiesRaw(w, r)
+	default:
+		s.writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
+	}
+}
+
+func (s *Server) handleGetCookiesRaw(w http.ResponseWriter, _ *http.Request) {
+	cookiesPath := filepath.Join(s.appRootPath, "additional_cookies.yaml")
+	data, err := os.ReadFile(cookiesPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			s.writeJSON(w, http.StatusOK, NewSuccessResponse(CookiesRawResponse{
+				Content: "",
+				Path:    cookiesPath,
+				Exists:  false,
+			}))
+			return
+		}
+		s.writeError(w, http.StatusInternalServerError, "Failed to read cookies: "+err.Error())
+		return
+	}
+
+	s.writeJSON(w, http.StatusOK, NewSuccessResponse(CookiesRawResponse{
+		Content: string(data),
+		Path:    cookiesPath,
+		Exists:  true,
+	}))
+}
+
+func (s *Server) handleUpdateCookiesRaw(w http.ResponseWriter, r *http.Request) {
+	var req ConfigUpdateRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.writeError(w, http.StatusBadRequest, "Invalid request body: "+err.Error())
+		return
+	}
+
+	if strings.TrimSpace(req.Content) == "" {
+		s.writeError(w, http.StatusBadRequest, "Content cannot be empty")
+		return
+	}
+
+	var testCookies []*config.Cookie
+	if err := yaml.Unmarshal([]byte(req.Content), &testCookies); err != nil {
+		s.writeError(w, http.StatusBadRequest, "Invalid YAML format: "+err.Error())
+		return
+	}
+
+	cookiesPath := filepath.Join(s.appRootPath, "additional_cookies.yaml")
+
+	backupPath := cookiesPath + ".backup." + strconv.FormatInt(time.Now().Unix(), 10)
+	if data, err := os.ReadFile(cookiesPath); err == nil {
+		if writeErr := os.WriteFile(backupPath, data, 0644); writeErr != nil {
+			log.Warnf("Failed to create cookies backup: %v", writeErr)
+		}
+	}
+
+	if err := config.WriteAdditionalCookies(cookiesPath, testCookies); err != nil {
+		s.writeError(w, http.StatusInternalServerError, "Failed to write cookies: "+err.Error())
+		return
+	}
+
+	log.Infoln("[WebUI] additional cookies saved via raw editor")
+
+	s.writeJSON(w, http.StatusOK, NewSuccessResponse(map[string]interface{}{
+		"message": "Additional cookies saved successfully",
+		"backup":  filepath.Base(backupPath),
+	}))
+}
+
+func (s *Server) handleCookies(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		s.handleGetCookies(w, r)
+	case http.MethodPut:
+		s.handleSaveCookies(w, r)
+	default:
+		s.writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
+	}
+}
+
+func (s *Server) handleGetCookies(w http.ResponseWriter, _ *http.Request) {
+	cookiesPath := filepath.Join(s.appRootPath, "additional_cookies.yaml")
+	exists := true
+
+	cookies, err := config.ReadAdditionalCookies(cookiesPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			exists = false
+			cookies = nil
+		} else {
+			s.writeError(w, http.StatusInternalServerError, "Failed to read cookies: "+err.Error())
+			return
+		}
+	}
+
+	items := make([]CookieItem, 0, len(cookies))
+	for i, c := range cookies {
+		items = append(items, CookieItem{
+			Index:     i,
+			AuthToken: maskSensitive(c.AuthToken),
+			Ct0:       maskSensitive(c.Ct0),
+		})
+	}
+
+	s.writeJSON(w, http.StatusOK, NewSuccessResponse(map[string]interface{}{
+		"exists": exists,
+		"items":  items,
+	}))
+}
+
+func (s *Server) handleSaveCookies(w http.ResponseWriter, r *http.Request) {
+	var req CookiesSaveRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.writeError(w, http.StatusBadRequest, "Invalid request body: "+err.Error())
+		return
+	}
+
+	cookiesPath := filepath.Join(s.appRootPath, "additional_cookies.yaml")
+
+	existingCookies, _ := config.ReadAdditionalCookies(cookiesPath)
+
+	cookies := make([]*config.Cookie, 0, len(req.Cookies))
+	for i, c := range req.Cookies {
+		authToken := c["auth_token"]
+		ct0 := c["ct0"]
+
+		if strings.TrimSpace(authToken) == "" && strings.TrimSpace(ct0) == "" {
+			s.writeError(w, http.StatusBadRequest, fmt.Sprintf("账户 #%d 的 Auth Token 和 CT0 不能同时为空", i+1))
+			return
+		}
+
+		if authToken == "__KEEP_OLD__" && existingCookies != nil && i < len(existingCookies) {
+			authToken = existingCookies[i].AuthToken
+		}
+		if ct0 == "__KEEP_OLD__" && existingCookies != nil && i < len(existingCookies) {
+			ct0 = existingCookies[i].Ct0
+		}
+
+		cookies = append(cookies, &config.Cookie{
+			AuthToken: authToken,
+			Ct0:       ct0,
+		})
+	}
+
+	backupPath := cookiesPath + ".backup." + strconv.FormatInt(time.Now().Unix(), 10)
+	if data, err := os.ReadFile(cookiesPath); err == nil {
+		if writeErr := os.WriteFile(backupPath, data, 0644); writeErr != nil {
+			log.Warnf("Failed to create cookies backup: %v", writeErr)
+		}
+	}
+
+	if err := config.WriteAdditionalCookies(cookiesPath, cookies); err != nil {
+		s.writeError(w, http.StatusInternalServerError, "Failed to save cookies: "+err.Error())
+		return
+	}
+
+	log.Infoln("[WebUI] additional cookies saved via structured form")
+
+	s.writeJSON(w, http.StatusOK, NewSuccessResponse(map[string]interface{}{
+		"message": "Additional cookies saved successfully",
+		"backup":  filepath.Base(backupPath),
+	}))
+}
+
+// handleServerRestart 触发服务器优雅重启
+func (s *Server) handleServerRestart(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		s.writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+
+	s.writeJSON(w, http.StatusOK, NewSuccessResponse(map[string]interface{}{
+		"message": "Server restarting...",
+		"action":  "restart",
+	}))
+
+	log.Infoln("[WebUI] received restart request, performing graceful shutdown...")
+
+	go func() {
+		time.Sleep(500 * time.Millisecond)
+		s.gracefulShutdown("restart")
+	}()
+}
+
+// handleServerShutdown 关闭服务器
+func (s *Server) handleServerShutdown(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		s.writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+
+	s.writeJSON(w, http.StatusOK, NewSuccessResponse(map[string]interface{}{
+		"message": "Server shutting down...",
+		"action":  "shutdown",
+	}))
+
+	log.Infoln("[WebUI] received shutdown request, performing graceful shutdown...")
+
+	go func() {
+		time.Sleep(500 * time.Millisecond)
+		s.gracefulShutdown("shutdown")
+	}()
+}
+
+// gracefulShutdown 优雅关闭所有资源
+func (s *Server) gracefulShutdown(reason string) {
+	log.Infof("[WebUI] graceful shutdown started (reason: %s)", reason)
+
+	// 1. 关闭 HTTP 服务器（停止接受新连接，等待现有请求完成）
+	if s.httpServer != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		if err := s.httpServer.Shutdown(ctx); err != nil {
+			log.Warnf("[WebUI] http server shutdown error: %v", err)
+		} else {
+			log.Infoln("[WebUI] http server stopped gracefully")
+		}
+	}
+
+	// 2. 关闭数据库连接
+	if s.db != nil {
+		if err := s.db.Close(); err != nil {
+			log.Warnf("[WebUI] failed to close database: %v", err)
+		} else {
+			log.Infoln("[WebUI] database connection closed")
+		}
+	}
+
+	// 3. 关闭日志写入器（确保所有日志刷新到磁盘）
+	if s.logWriter != nil {
+		if err := s.logWriter.Close(); err != nil {
+			log.Warnf("[WebUI] failed to close log writer: %v", err)
+		} else {
+			log.Infoln("[WebUI] log writer closed")
+		}
+	}
+
+	time.Sleep(100 * time.Millisecond)
+	log.Infoln("[WebUI] shutdown complete")
+	os.Exit(0)
 }
 
 func (s *Server) handleGetLogs(w http.ResponseWriter, r *http.Request) {
@@ -1020,7 +1247,7 @@ func (s *Server) handleGetLogs(w http.ResponseWriter, r *http.Request) {
 
 	query := r.URL.Query()
 	levelStr := query.Get("level")
-	search := query.Get("search")
+	search := query.Get("q")
 	page, _ := strconv.Atoi(query.Get("page"))
 	pageSize, _ := strconv.Atoi(query.Get("pageSize"))
 
@@ -1102,6 +1329,8 @@ func (s *Server) handleLogStream(w http.ResponseWriter, r *http.Request) {
 			}
 
 			if currentSize == lastOffset {
+				fmt.Fprint(w, ": ping\n\n")
+				flusher.Flush()
 				continue
 			}
 
@@ -1117,30 +1346,20 @@ func (s *Server) handleLogStream(w http.ResponseWriter, r *http.Request) {
 			}
 
 			reader := bufio.NewReader(file)
-			buf := make([]byte, 4096)
+			scanner := bufio.NewScanner(reader)
+			scanner.Buffer(make([]byte, 64*1024), 1024*1024)
 
-			for {
-				n, err := reader.Read(buf)
-				if n > 0 && levelStr == "" {
-					w.Write(buf[:n])
-					flusher.Flush()
-				} else if n > 0 {
-					chunk := string(buf[:n])
-					for _, line := range strings.Split(chunk, "\n") {
-						line = strings.TrimSpace(line)
-						if line == "" {
-							continue
-						}
-						if matchLogLevel(line, levelStr) {
-							line = stripAnsiCodes(line)
-							fmt.Fprintf(w, "data: %s\n\n", jsonEscape(line))
-							flusher.Flush()
-						}
-					}
+			for scanner.Scan() {
+				line := strings.TrimSpace(scanner.Text())
+				if line == "" {
+					continue
 				}
-				if err != nil {
-					break
+				if levelStr != "" && !matchLogLevel(line, levelStr) {
+					continue
 				}
+				line = stripAnsiCodes(line)
+				fmt.Fprintf(w, "data: %s\n\n", jsonEscape(line))
+				flusher.Flush()
 			}
 
 			newOffset, _ := file.Seek(0, io.SeekCurrent)

@@ -34,3 +34,35 @@ func UpdateLst(db *sqlx.DB, lst *Lst) error {
 	}
 	return nil
 }
+
+func DelLst(db *sqlx.DB, lid uint64) (err error) {
+	tx, err := db.Beginx()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer func() {
+		if err != nil {
+			tx.Rollback()
+		}
+	}()
+
+	_, err = tx.Exec("DELETE FROM user_links WHERE parent_lst_entity_id IN (SELECT id FROM lst_entities WHERE lst_id = ?)", lid)
+	if err != nil {
+		return fmt.Errorf("failed to delete user links for list %d: %w", lid, err)
+	}
+
+	_, err = tx.Exec("DELETE FROM lst_entities WHERE lst_id = ?", lid)
+	if err != nil {
+		return fmt.Errorf("failed to delete lst entities for list %d: %w", lid, err)
+	}
+
+	_, err = tx.Exec("DELETE FROM lsts WHERE id = ?", lid)
+	if err != nil {
+		return fmt.Errorf("failed to delete list %d: %w", lid, err)
+	}
+
+	if err = tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+	return nil
+}

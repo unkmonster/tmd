@@ -35,7 +35,7 @@ func setupTestServer(t *testing.T) (*Server, *sqlx.DB) {
 	}
 
 	client := resty.New()
-	server := NewServer(client, []*resty.Client{}, db, cfg, "/app")
+	server := NewServer(client, []*resty.Client{}, db, cfg, "/app", nil)
 
 	return server, db
 }
@@ -52,7 +52,7 @@ func TestNewServer(t *testing.T) {
 	}
 
 	client := resty.New()
-	server := NewServer(client, []*resty.Client{}, db, cfg, "/app")
+	server := NewServer(client, []*resty.Client{}, db, cfg, "/app", nil)
 
 	assert.NotNil(t, server)
 	assert.NotNil(t, server.client)

@@ -116,8 +116,7 @@ func main() {
 
 	conf, err := config.ReadConf(confPath)
 	if os.IsNotExist(err) || confArg {
-		// 统一使用 PromptConfig，通过参数控制模式
-		conf, err = config.PromptConfig(confPath, confArg)
+		conf, err = config.PromptConfig(confPath)
 		if err != nil {
 			log.Fatalln("config failure with", err)
 		}
@@ -132,6 +131,7 @@ func main() {
 	log.Infoln("config is loaded")
 	if conf.MaxDownloadRoutine > 0 {
 		downloading.MaxDownloadRoutine = conf.MaxDownloadRoutine
+		log.Infoln("max download routine set to:", downloading.MaxDownloadRoutine)
 	}
 	if conf.MaxFileNameLen > 0 {
 		naming.MaxFileNameLen = conf.MaxFileNameLen
@@ -142,7 +142,7 @@ func main() {
 
 	// Server 模式
 	if serverMode {
-		runServer(conf, appRootPath, serverPort, loginOpts)
+		runServer(conf, appRootPath, serverPort, loginOpts, logWriter)
 		return
 	}
 
@@ -242,14 +242,14 @@ func initializeClients(
 	return client, additional, pathHelper, db
 }
 
-func runServer(conf *config.Config, appRootPath string, port int, loginOpts twitter.LoginOptions) {
+func runServer(conf *config.Config, appRootPath string, port int, loginOpts twitter.LoginOptions, logWriter io.Closer) {
 	ctx := context.Background()
 
 	client, additional, _, db := initializeClients(ctx, conf, appRootPath, loginOpts, false)
-	defer db.Close()
 
 	// 创建并启动 API Server
-	server := api.NewServer(client, additional, db, conf, appRootPath)
+	// 注意：不再使用 defer db.Close()，因为 gracefulShutdown 会处理所有资源清理
+	server := api.NewServer(client, additional, db, conf, appRootPath, logWriter)
 	if err := server.Start(port); err != nil {
 		log.Fatalln("failed to start server:", err)
 	}

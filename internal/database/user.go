@@ -121,3 +121,40 @@ func MarkUserInaccessible(db *sqlx.DB, uid uint64, screenName string) {
 		}
 	}
 }
+
+func DelUser(db *sqlx.DB, uid uint64) (err error) {
+	tx, err := db.Beginx()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer func() {
+		if err != nil {
+			tx.Rollback()
+		}
+	}()
+
+	_, err = tx.Exec("DELETE FROM user_links WHERE user_id = ?", uid)
+	if err != nil {
+		return fmt.Errorf("failed to delete user links for user %d: %w", uid, err)
+	}
+
+	_, err = tx.Exec("DELETE FROM user_entities WHERE user_id = ?", uid)
+	if err != nil {
+		return fmt.Errorf("failed to delete user entities for user %d: %w", uid, err)
+	}
+
+	_, err = tx.Exec("DELETE FROM user_previous_names WHERE uid = ?", uid)
+	if err != nil {
+		return fmt.Errorf("failed to delete previous names for user %d: %w", uid, err)
+	}
+
+	_, err = tx.Exec("DELETE FROM users WHERE id = ?", uid)
+	if err != nil {
+		return fmt.Errorf("failed to delete user %d: %w", uid, err)
+	}
+
+	if err = tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+	return nil
+}

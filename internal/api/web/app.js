@@ -55,6 +55,11 @@ const store = {
     _systemTab: 'config',
     configMode: 'form',
     configFields: [],
+    cookiesRaw: '',
+    cookiesExists: false,
+    cookiesSaving: false,
+    cookieItems: [],
+    cookiesMode: 'form',
   },
 
   listeners: [],
@@ -128,6 +133,12 @@ createJsonFolderDownload(data) {
   updateConfigRaw(content) { return this.request('PUT', '/api/v1/config/raw', { content }); },
   getConfigFields() { return this.get('/api/v1/config/fields'); },
   saveConfigFields(fields) { return this.request('PUT', '/api/v1/config/fields', { fields }); },
+  getCookiesRaw()           { return this.get('/api/v1/cookies/raw'); },
+  updateCookiesRaw(content) { return this.request('PUT', '/api/v1/cookies/raw', { content }); },
+  getCookies()              { return this.get('/api/v1/cookies'); },
+  saveCookies(cookies)      { return this.request('PUT', '/api/v1/cookies', { cookies }); },
+  restartServer() { return this.post('/api/v1/server/restart'); },
+  shutdownServer() { return this.post('/api/v1/server/shutdown'); },
 
   // Logs
   getLogs(params = '') { return this.get(`/api/v1/logs${params}`); },
@@ -164,28 +175,35 @@ const sseManager = {
   conn: null,
   reconnectDelay: 2000,
   maxReconnectDelay: 30000,
-  
+  baseReconnectDelay: 2000,
+  reconnectAttempts: 0,
+
   connect() {
     if (this.conn) return;
-    
+
     this.conn = new EventSource('/api/v1/sse/tasks');
-    
+
     this.conn.onmessage = (e) => {
       try {
         const tasks = JSON.parse(e.data);
         store.setState({ tasks });
-        this.reconnectDelay = 2000;
-      } catch (err) {}
+        this.reconnectDelay = this.baseReconnectDelay;
+        this.reconnectAttempts = 0;
+      } catch (err) {
+        console.warn('SSE parse error:', err);
+      }
     };
-    
+
     this.conn.onerror = () => {
       this.conn.close();
       this.conn = null;
       store.setState({ sseConnected: false });
-      setTimeout(() => this.connect(), this.reconnectDelay);
-      this.reconnectDelay = Math.min(this.reconnectDelay * 2, this.maxReconnectDelay);
+      this.reconnectAttempts++;
+      const delay = Math.min(this.baseReconnectDelay * Math.pow(2, this.reconnectAttempts - 1), this.maxReconnectDelay);
+      console.warn(`[SSE] 连接断开，${delay / 1000}s 后重试（第 ${this.reconnectAttempts} 次）`);
+      setTimeout(() => this.connect(), delay);
     };
-    
+
     store.setState({ sseConnected: true });
   },
   
@@ -360,8 +378,8 @@ const pages = {
                 <div class="tab active" data-task-tab="user">用户</div>
                 <div class="tab" data-task-tab="list">列表</div>
                 <div class="tab" data-task-tab="batch">批量</div>
-                <div class="tab" data-task-tab="jsonfile">JSON文件</div>
-                <div class="tab" data-task-tab="jsonfolder">LoongTweet</div>
+                <div class="tab" data-task-tab="jsonfile"><span>JSON</span><span>文件</span></div>
+                <div class="tab" data-task-tab="jsonfolder"><span>JSON</span><span>文件夹</span></div>
               </div>
               
               <div id="taskFormContainer">
@@ -474,13 +492,21 @@ const pages = {
     const { config, configRaw, logs, logLevel, logSearch, logPagination } = store.state;
 
     return `
-      <div class="system-tabs">
-        <div class="tab ${store.state._systemTab === 'config' ? 'active' : ''}" onclick="setSystemTab('config')">⚙️ 配置编辑</div>
-        <div class="tab ${store.state._systemTab === 'logs' ? 'active' : ''}" onclick="setSystemTab('logs')">📋 系统日志</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:var(--space-4)">
+        <div class="system-tabs" style="margin:0">
+          <div class="tab ${store.state._systemTab === 'config' ? 'active' : ''}" onclick="setSystemTab('config')">⚙️ 配置编辑</div>
+          <div class="tab ${store.state._systemTab === 'cookies' ? 'active' : ''}" onclick="setSystemTab('cookies')">🍪 额外账户</div>
+          <div class="tab ${store.state._systemTab === 'logs' ? 'active' : ''}" onclick="setSystemTab('logs')">📋 系统日志</div>
+        </div>
+        <button class="btn btn-danger btn-sm" onclick="shutdownServer()">⏻ 关闭服务器</button>
       </div>
 
       <div id="systemConfigPanel" class="system-panel" style="${store.state._systemTab === 'config' ? '' : 'display:none'}">
         ${renderConfigEditor()}
+      </div>
+
+      <div id="systemCookiesPanel" class="system-panel" style="${store.state._systemTab === 'cookies' ? '' : 'display:none'}">
+        ${renderCookiesEditor()}
       </div>
 
       <div id="systemLogsPanel" class="system-panel" style="${store.state._systemTab === 'logs' ? '' : 'display:none'}">
@@ -526,13 +552,13 @@ function renderTaskItem(task, showCheckbox = false) {
   const target = task.data?.screen_name || task.data?.list_id || 'Unknown';
 
   return `
-    <div class="task-item" onclick="showTaskDetail('${task.task_id}')">
-      ${showCheckbox ? `<div class="task-checkbox"><input type="checkbox" class="form-checkbox" data-task-id="${task.task_id}"></div>` : ''}
+    <div class="task-item" onclick="showTaskDetail('${escapeAttr(task.task_id)}')">
+      ${showCheckbox ? `<div class="task-checkbox"><input type="checkbox" class="form-checkbox" data-task-id="${escapeAttr(task.task_id)}"></div>` : ''}
       <div class="task-info">
         <div class="task-title">${task.type} - ${target}</div>
         <div class="task-meta">
           <span class="tag ${status.tag}">${status.text}</span>
-          <span>ID: ${task.task_id}</span>
+          <span>ID: ${escapeAttr(task.task_id)}</span>
           <span>${new Date(task.created_at).toLocaleString()}</span>
         </div>
       </div>
@@ -544,8 +570,8 @@ function renderTaskItem(task, showCheckbox = false) {
       </div>
       <div class="task-actions" onclick="event.stopPropagation()">
         ${task.status === 'running' || task.status === 'queued' ?
-          `<button class="btn btn-danger btn-sm" onclick="cancelTask('${task.task_id}')">取消</button>` :
-          `<button class="btn btn-ghost btn-sm" onclick="showTaskDetail('${task.task_id}')">详情</button>`
+          `<button class="btn btn-danger btn-sm" onclick="cancelTask('${escapeAttr(task.task_id)}')">取消</button>` :
+          `<button class="btn btn-ghost btn-sm" onclick="showTaskDetail('${escapeAttr(task.task_id)}')">详情</button>`
         }
       </div>
     </div>
@@ -670,7 +696,7 @@ function renderDBTable(type, data, sort) {
   };
 
   const sortableHeader = (field, label) => `
-    <th onclick="sortDB('${field}')" style="cursor: pointer; user-select: none;">
+    <th onclick="sortDB('${escapeAttr(field)}')" style="cursor: pointer; user-select: none;">
       ${label} ${sortIcon(field)}
     </th>
   `;
@@ -692,8 +718,8 @@ function renderDBTable(type, data, sort) {
     const idStr = String(item.id);
     return `
       <div class="flex gap-2">
-        <button class="btn btn-ghost btn-sm" onclick="editDBItem('${type}', '${idStr}')">✏️</button>
-        <button class="btn btn-danger btn-sm" onclick="deleteDBItem('${type}', '${idStr}')">🗑️</button>
+        <button class="btn btn-ghost btn-sm" onclick="editDBItem('${escapeAttr(type)}', '${escapeAttr(idStr)}')">✏️</button>
+        <button class="btn btn-danger btn-sm" onclick="deleteDBItem('${escapeAttr(type)}', '${escapeAttr(idStr)}')">🗑️</button>
       </div>
     `;
   };
@@ -855,7 +881,7 @@ function renderDBTable(type, data, sort) {
   `;
 }
 
-function renderPageNumbers(currentPage, totalPages) {
+function renderPageNumbers(currentPage, totalPages, onClickHandler = 'goToDBPage') {
   if (totalPages <= 1) return `<button class="page-btn active">1</button>`;
 
   let pages = [];
@@ -877,7 +903,7 @@ function renderPageNumbers(currentPage, totalPages) {
 
   return pages.map(p => {
     if (p === '...') return `<span class="page-btn" style="cursor: default;">...</span>`;
-    return `<button class="page-btn ${p === currentPage ? 'active' : ''}" onclick="goToDBPage(${p})">${p}</button>`;
+    return `<button class="page-btn ${p === currentPage ? 'active' : ''}" onclick="${onClickHandler}(${p})">${p}</button>`;
   }).join('');
 }
 
@@ -1048,11 +1074,11 @@ async function editDBItem(type, id) {
         content += `
           <div class="form-group">
             <label class="form-label">Screen Name</label>
-            <input type="text" class="form-input" id="editScreenName" value="${item.screen_name || ''}">
+            <input type="text" class="form-input" id="editScreenName" value="${escapeAttr(item.screen_name || '')}">
           </div>
           <div class="form-group">
             <label class="form-label">Name</label>
-            <input type="text" class="form-input" id="editName" value="${item.name || ''}">
+            <input type="text" class="form-input" id="editName" value="${escapeAttr(item.name || '')}">
           </div>
           <div class="form-group">
             <label class="form-label">Friends Count</label>
@@ -1074,11 +1100,11 @@ async function editDBItem(type, id) {
         content += `
           <div class="form-group">
             <label class="form-label">Name</label>
-            <input type="text" class="form-input" id="editListName" value="${item.name || ''}">
+            <input type="text" class="form-input" id="editListName" value="${escapeAttr(item.name || '')}">
           </div>
           <div class="form-group">
             <label class="form-label">Owner ID</label>
-            <input type="text" class="form-input" id="editListOwnerId" value="${item.owner_uid || ''}">
+            <input type="text" class="form-input" id="editListOwnerId" value="${escapeAttr(item.owner_uid || '')}">
           </div>
         `;
         break;
@@ -1086,15 +1112,15 @@ async function editDBItem(type, id) {
         content += `
           <div class="form-group">
             <label class="form-label">Name</label>
-            <input type="text" class="form-input" id="editEntityName" value="${item.name || ''}">
+            <input type="text" class="form-input" id="editEntityName" value="${escapeAttr(item.name || '')}">
           </div>
           <div class="form-group">
             <label class="form-label">User ID</label>
-            <div class="font-mono text-sm" style="background: var(--bg-primary); padding: var(--space-3); border-radius: var(--radius-md);">${item.user_id}</div>
+            <div class="font-mono text-sm" style="background: var(--bg-primary); padding: var(--space-3); border-radius: var(--radius-md);">${escapeHtml(item.user_id)}</div>
           </div>
           <div class="form-group">
             <label class="form-label">Parent Dir</label>
-            <input type="text" class="form-input" id="editEntityParentDir" value="${item.parent_dir || ''}">
+            <input type="text" class="form-input" id="editEntityParentDir" value="${escapeAttr(item.parent_dir || '')}">
           </div>
           <div class="form-group">
             <label class="form-label">Media Count</label>
@@ -1122,7 +1148,7 @@ async function editDBItem(type, id) {
 
     const footer = `
       <button class="btn btn-secondary" onclick="drawer.close()">取消</button>
-      <button class="btn btn-primary" onclick="saveDBItem('${type}', '${id}')">保存</button>
+      <button class="btn btn-primary" onclick="saveDBItem('${escapeAttr(type)}', '${escapeAttr(id)}')">保存</button>
     `;
 
     drawer.open('编辑 ' + type, content, footer);
@@ -1417,8 +1443,8 @@ function showTaskDetail(id) {
     ` : ''}
   `;
   
-  const footer = task.status === 'running' || task.status === 'queued' ? 
-    `<button class="btn btn-danger" onclick="cancelTask('${task.task_id}'); drawer.close();">取消任务</button>` : 
+  const footer = task.status === 'running' || task.status === 'queued' ?
+    `<button class="btn btn-danger" onclick="cancelTask('${escapeAttr(task.task_id)}'); drawer.close();">取消任务</button>` :
     '<button class="btn btn-secondary" onclick="drawer.close()">关闭</button>';
   
   drawer.open('任务详情', content, footer);
@@ -1436,12 +1462,14 @@ async function refreshTasks() {
 
 function refreshLogs() { loadLogs(); }
 
-function clearLogs() { toast.show('日志清空功能暂未开放', 'warning'); }
-
 function escapeHtml(str) {
   const d = document.createElement('div');
   d.textContent = str;
   return d.innerHTML;
+}
+
+function escapeAttr(str) {
+  return String(str).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
 function stripAnsi(str) { return str.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, ''); }
@@ -1507,18 +1535,6 @@ function renderConfigForm(fields, saving, exists) {
         ` : '').join('')}
       </div>
     </div>
-
-    <div class="card mt-4">
-      <div class="card-header"><div class="card-title">当前生效配置</div></div>
-      <div class="card-body">
-        <div class="stats-grid">
-          <div class="stat-card"><div class="stat-icon">📁</div><div class="stat-content"><div class="stat-value" style="font-size:var(--text-lg)">${escapeHtml(store.state.config?.root_path || '-')}</div><div class="stat-label">存储路径</div></div></div>
-          <div class="stat-card"><div class="stat-icon">⚡</div><div class="stat-content"><div class="stat-value">${store.state.config?.max_download_routine || '-'}</div><div class="stat-label">并发下载数</div></div></div>
-          <div class="stat-card"><div class="stat-icon">📝</div><div class="stat-content"><div class="stat-value">${store.state.config?.max_file_name_len || '-'}</div><div class="stat-label">文件名长度</div></div></div>
-          <div class="stat-card"><div class="stat-icon">🌐</div><div class="stat-content"><div class="stat-value" style="font-size:var(--text-lg)">${escapeHtml(store.state.config?.proxy_url || '未设置')}</div><div class="stat-label">代理地址</div></div></div>
-        </div>
-      </div>
-    </div>
   `;
 }
 
@@ -1528,16 +1544,111 @@ function renderConfigRawEditor(raw, saving, exists) {
       <div class="card-header">
         <div><div class="card-title">conf.yaml 原始编辑器</div><div class="card-subtitle">${exists ? '✅ 文件存在' : '⚠️ 将创建新配置'}</div></div>
         <div class="flex gap-2">
-          <button class="btn btn-ghost btn-sm" onclick="resetConfig()">🔄 重置</button>
           <button class="btn btn-primary btn-sm" onclick="saveConfig()" ${saving ? 'disabled' : ''}>
             ${saving ? '<span class="loading-spinner"></span> 保存中...' : '💾 保存配置'}
           </button>
         </div>
       </div>
       <div class="card-body" style="padding:0;">
-        <textarea id="configEditor" class="form-textarea config-editor"
-          placeholder="# TMD Configuration\nroot_path: ./downloads\ncookie:\n  auth_token: your_auth_token\n  ct0: your_ct0\nmax_download_routine: 35\nmax_file_name_len: 158\nproxy_url:"
-          spellcheck="false">${escapeHtml(raw)}</textarea>
+        <div id="configEditorContainer"></div>
+        <div class="config-hint text-sm text-tertiary p-3 mt-3">
+          ⚠️ 直接编辑 YAML 需要了解语法格式。建议使用简易模式。
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderCookiesEditor() {
+  const { cookiesMode, cookieItems, cookiesSaving, cookiesExists, cookiesRaw } = store.state;
+
+  const modeTabs = `
+    <div class="config-mode-tabs">
+      <button class="mode-tab ${cookiesMode === 'form' ? 'active' : ''}" onclick="setCookiesMode('form')">📝 简易模式</button>
+      <button class="mode-tab ${cookiesMode === 'raw' ? 'active' : ''}" onclick="setCookiesMode('raw')">🔧 高级 (YAML)</button>
+    </div>
+  `;
+
+  if (cookiesMode === 'raw') return modeTabs + renderCookiesRawEditor(cookiesRaw, cookiesSaving, cookiesExists);
+  return modeTabs + renderCookiesForm(cookieItems, cookiesSaving, cookiesExists);
+}
+
+function renderCookiesForm(items, saving, exists) {
+  if (!items || items.length === 0) {
+    return `
+      <div class="card">
+        <div class="card-header">
+          <div><div class="card-title">额外账户管理</div><div class="card-subtitle">${exists ? '✅ 文件存在 · 0 个账户' : '⚠️ 将创建新文件'}</div></div>
+          <div class="flex gap-2">
+            <button class="btn btn-ghost btn-sm" onclick="addCookieAccount()">➕ 添加账户</button>
+            <button class="btn btn-primary btn-sm" onclick="saveCookiesForm()" ${saving ? 'disabled' : ''}>
+              ${saving ? '<span class="loading-spinner"></span> 保存中...' : '💾 保存配置'}
+            </button>
+          </div>
+        </div>
+        <div class="card-body">
+          <div class="empty-state">
+            <div class="empty-icon">🍪</div>
+            <div class="empty-title">暂无额外账户</div>
+            <div class="empty-desc">点击「添加账户」添加额外的 Twitter 账户 Cookie</div>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  const renderItem = (item, idx) => `
+    <div class="config-group">
+      <div class="config-group-title" style="display:flex;justify-content:space-between;align-items:center;">
+        <span>🏷️ 账户 #${idx + 1}</span>
+        <button class="btn btn-danger btn-sm" onclick="removeCookieAccount(${idx})">删除</button>
+      </div>
+      <div class="config-field">
+        <label class="config-label">Auth Token</label>
+        ${item.auth_token ? `<div class="config-mask-hint">当前值: ${escapeHtml(item.auth_token)}</div>` : ''}
+        <input type="password" class="form-input config-input cookie-input" id="cookie_auth_${idx}"
+          name="auth_token_${idx}" value="" placeholder="输入新的 Auth Token 或留空保留原值">
+      </div>
+      <div class="config-field">
+        <label class="config-label">CT0</label>
+        ${item.ct0 ? `<div class="config-mask-hint">当前值: ${escapeHtml(item.ct0)}</div>` : ''}
+        <input type="password" class="form-input config-input cookie-input" id="cookie_ct0_${idx}"
+          name="ct0_${idx}" value="" placeholder="输入新的 CT0 或留空保留原值">
+      </div>
+    </div>
+  `;
+
+  return `
+    <div class="card">
+      <div class="card-header">
+        <div><div class="card-title">额外账户管理</div><div class="card-subtitle">${exists ? '✅ 文件存在' : '⚠️ 将创建新文件'} · 共 ${items.length} 个账户</div></div>
+        <div class="flex gap-2">
+          <button class="btn btn-ghost btn-sm" onclick="addCookieAccount()">➕ 添加账户</button>
+          <button class="btn btn-primary btn-sm" onclick="saveCookiesForm()" ${saving ? 'disabled' : ''}>
+            ${saving ? '<span class="loading-spinner"></span> 保存中...' : '💾 保存配置'}
+          </button>
+        </div>
+      </div>
+      <div class="card-body">
+        ${items.map(renderItem).join('')}
+      </div>
+    </div>
+  `;
+}
+
+function renderCookiesRawEditor(raw, saving, exists) {
+  return `
+    <div class="card">
+      <div class="card-header">
+        <div><div class="card-title">additional_cookies.yaml 原始编辑器</div><div class="card-subtitle">${exists ? '✅ 文件存在' : '⚠️ 将创建新文件'}</div></div>
+        <div class="flex gap-2">
+          <button class="btn btn-primary btn-sm" onclick="saveCookies()" ${saving ? 'disabled' : ''}>
+            ${saving ? '<span class="loading-spinner"></span> 保存中...' : '💾 保存配置'}
+          </button>
+        </div>
+      </div>
+      <div class="card-body" style="padding:0;">
+        <div id="cookiesEditorContainer"></div>
         <div class="config-hint text-sm text-tertiary p-3 mt-3">
           ⚠️ 直接编辑 YAML 需要了解语法格式。建议使用简易模式。
         </div>
@@ -1581,7 +1692,7 @@ function renderLogViewer() {
         <div class="pagination-info">显示 ${logs.length} / ${logPagination.total} 条 (第 ${logPagination.page}/${logPagination.totalPages} 页)</div>
         <div class="pagination-controls">
           <button class="page-btn" onclick="changeLogPage(-1)" ${logPagination.page <= 1 ? 'disabled' : ''}>←</button>
-          ${renderPageNumbers(logPagination.page, logPagination.totalPages)}
+          ${renderPageNumbers(logPagination.page, logPagination.totalPages, 'goToLogPage')}
           <button class="page-btn" onclick="changeLogPage(1)" ${logPagination.page >= logPagination.totalPages ? 'disabled' : ''}>→</button>
         </div>
       </div>
@@ -1600,22 +1711,12 @@ async function loadConfigRaw() {
   try {
     const d = await api.getConfigRaw();
     store.setState({ configRaw: d.content || '', configExists: d.exists || false });
+    setTimeout(() => { if (store.state.configMode === 'raw') initConfigCodeMirror(); }, 50);
   } catch (e) { toast.show('加载配置失败: ' + e.message, 'error'); }
 }
 
-// 保存配置后刷新状态的通用函数
-async function refreshConfigAfterSave(mode) {
-  const cfg = await api.getConfig();
-  store.setState({ config: cfg });
-  if (mode === 'form') {
-    await loadConfigFields();
-  } else {
-    await loadConfigRaw();
-  }
-}
-
 async function saveConfigForm() {
-  const inputs = document.querySelectorAll('.config-input[name]');
+  const inputs = document.querySelectorAll('.config-input:not(.cookie-input)[name]');
   const fields = {};
   for (const el of inputs) {
     if (el.type === 'password' && el.value.trim() === '') { fields[el.name] = '__KEEP_OLD__'; continue; }
@@ -1634,35 +1735,190 @@ async function saveConfigForm() {
   store.setState({ configSaving: true });
   try {
     await api.saveConfigFields(fields);
-    toast.show('✅ 配置保存成功', 'success');
-    await refreshConfigAfterSave('form');
-  } catch (e) { toast.show('❌ 保存失败: ' + e.message, 'error'); }
-  finally { store.setState({ configSaving: false }); }
+    toast.show('✅ 配置已保存，正在重启服务器...', 'success');
+
+    try { await api.restartServer(); } catch (e) { console.log('Restart initiated'); }
+    showRestartingUI();
+  } catch (e) {
+    toast.show('❌ 保存失败: ' + e.message, 'error');
+    store.setState({ configSaving: false });
+  }
 }
 
 async function saveConfig() {
-  const el = document.getElementById('configEditor');
-  const content = el?.value || '';
+  const content = configCodeMirror ? configCodeMirror.getValue() : '';
   if (!content.trim()) return toast.show('配置不能为空', 'error');
   store.setState({ configSaving: true });
   try {
     await api.updateConfigRaw(content);
-    toast.show('✅ 配置保存成功', 'success');
-    await refreshConfigAfterSave('raw');
-  } catch (e) { toast.show('❌ 保存失败: ' + e.message, 'error'); }
-  finally { store.setState({ configSaving: false }); }
+    toast.show('✅ 配置已保存，正在重启服务器...', 'success');
+
+    try { await api.restartServer(); } catch (e) { console.log('Restart initiated'); }
+    showRestartingUI();
+  } catch (e) {
+    toast.show('❌ 保存失败: ' + e.message, 'error');
+    store.setState({ configSaving: false });
+  }
 }
 
-function resetConfig() {
-  if (store.state.configMode === 'form') { loadConfigFields(); }
-  else { loadConfigRaw(); }
-  toast.show('配置已重置', 'info');
+async function loadCookiesItems() {
+  try {
+    const d = await api.getCookies();
+    store.setState({ cookieItems: d.items || [], cookiesExists: d.exists || false });
+  } catch (e) { toast.show('加载额外账户失败: ' + e.message, 'error'); }
+}
+
+async function loadCookiesRaw() {
+  try {
+    const d = await api.getCookiesRaw();
+    store.setState({ cookiesRaw: d.content || '', cookiesExists: d.exists || false });
+    setTimeout(() => { if (store.state.cookiesMode === 'raw') initCookiesCodeMirror(); }, 50);
+  } catch (e) { toast.show('加载额外账户失败: ' + e.message, 'error'); }
+}
+
+async function saveCookiesForm() {
+  const cookies = [];
+  const items = store.state.cookieItems;
+
+  for (let i = 0; i < items.length; i++) {
+    const authInput = document.getElementById(`cookie_auth_${i}`);
+    const ct0Input = document.getElementById(`cookie_ct0_${i}`);
+    const authVal = authInput ? authInput.value.trim() : '';
+    const ct0Val = ct0Input ? ct0Input.value.trim() : '';
+
+    if (!authVal && !ct0Val) {
+      toast.show(`账户 #${i + 1} 的 Auth Token 和 CT0 不能同时为空`, 'error');
+      return;
+    }
+
+    const isNewAccount = !items[i].auth_token && !items[i].ct0;
+    cookies.push({
+      auth_token: (isNewAccount || authVal) ? authVal : '__KEEP_OLD__',
+      ct0: (isNewAccount || ct0Val) ? ct0Val : '__KEEP_OLD__',
+    });
+  }
+
+  store.setState({ cookiesSaving: true });
+  try {
+    await api.saveCookies(cookies);
+    toast.show('✅ 额外账户已保存，正在重启服务器...', 'success');
+    try { await api.restartServer(); } catch (e) { console.log('Restart initiated'); }
+    showRestartingUI();
+  } catch (e) {
+    toast.show('❌ 保存失败: ' + e.message, 'error');
+    store.setState({ cookiesSaving: false });
+  }
+}
+
+async function saveCookies() {
+  const content = cookiesCodeMirror ? cookiesCodeMirror.getValue() : '';
+  if (!content.trim()) return toast.show('内容不能为空', 'error');
+
+  store.setState({ cookiesSaving: true });
+  try {
+    await api.updateCookiesRaw(content);
+    toast.show('✅ 额外账户已保存，正在重启服务器...', 'success');
+    try { await api.restartServer(); } catch (e) { console.log('Restart initiated'); }
+    showRestartingUI();
+  } catch (e) {
+    toast.show('❌ 保存失败: ' + e.message, 'error');
+    store.setState({ cookiesSaving: false });
+  }
+}
+
+function setCookiesMode(mode) {
+  store.setState({ cookiesMode: mode });
+  if (mode === 'form' && (!store.state.cookieItems || store.state.cookieItems.length === 0)) { loadCookiesItems(); }
+  if (mode === 'raw' && !store.state.cookiesRaw) { loadCookiesRaw(); }
+  if (mode === 'raw' && store.state.cookiesRaw) { setTimeout(initCookiesCodeMirror, 50); }
+}
+
+function addCookieAccount() {
+  const items = [...store.state.cookieItems, { index: store.state.cookieItems.length, auth_token: '', ct0: '' }];
+  store.setState({ cookieItems: items });
+}
+
+function removeCookieAccount(index) {
+  const items = store.state.cookieItems.filter((_, i) => i !== index).map((item, i) => ({ ...item, index: i }));
+  store.setState({ cookieItems: items });
+}
+
+function showRestartingUI() {
+    if (restartCheckTimer) { clearInterval(restartCheckTimer); restartCheckTimer = null; }
+
+    document.getElementById('contentContainer').innerHTML = `
+        <div class="empty-state" style="padding: 80px 20px;">
+            <div style="font-size: 48px; margin-bottom: 20px;">🔄</div>
+            <div class="empty-title">服务器正在重启</div>
+            <div class="empty-desc">正在等待服务器恢复...</div>
+            <div style="margin-top: 20px;">
+                <div class="loading-spinner" style="margin: 0 auto;"></div>
+            </div>
+        </div>
+    `;
+
+    let retryCount = 0;
+    const maxRetries = 20;
+    restartCheckTimer = setInterval(async () => {
+        retryCount++;
+        try {
+            const res = await fetch('/api/v1/health', { method: 'GET' });
+            if (res.ok) {
+                clearInterval(restartCheckTimer);
+                restartCheckTimer = null;
+                window.location.reload();
+            }
+        } catch (e) {}
+
+        if (retryCount >= maxRetries) {
+            clearInterval(restartCheckTimer);
+            restartCheckTimer = null;
+            document.getElementById('contentContainer').innerHTML = `
+                <div class="empty-state" style="padding: 80px 20px;">
+                    <div style="font-size: 48px; margin-bottom: 20px;">⚠️</div>
+                    <div class="empty-title">服务器未响应</div>
+                    <div class="empty-desc">请手动刷新页面或检查服务器状态</div>
+                    <button class="btn btn-primary mt-4" onclick="window.location.reload()">刷新页面</button>
+                </div>
+            `;
+        }
+    }, 1000);
+}
+
+function shutdownServer() {
+    if (!confirm('确定要关闭服务器吗？\n\n关闭后需要手动重新启动 TMD 服务。')) {
+        return;
+    }
+
+    toast.show('正在关闭服务器...', 'warning');
+
+    api.shutdownServer()
+        .then(() => {
+            document.getElementById('contentContainer').innerHTML = `
+                <div class="empty-state" style="padding: 80px 20px;">
+                    <div style="font-size: 48px; margin-bottom: 20px;">👋</div>
+                    <div class="empty-title">服务器已关闭</div>
+                    <div class="empty-desc">如需重新启动，请运行 tmd -server</div>
+                </div>
+            `;
+        })
+        .catch((err) => {
+            console.log('Shutdown initiated:', err.message);
+            document.getElementById('contentContainer').innerHTML = `
+                <div class="empty-state" style="padding: 80px 20px;">
+                    <div style="font-size: 48px; margin-bottom: 20px;">👋</div>
+                    <div class="empty-title">服务器已关闭</div>
+                    <div class="empty-desc">如需重新启动，请运行 tmd -server</div>
+                </div>
+            `;
+        });
 }
 
 function setConfigMode(mode) {
   store.setState({ configMode: mode });
   if (mode === 'form' && (!store.state.configFields || store.state.configFields.length === 0)) { loadConfigFields(); }
   if (mode === 'raw' && !store.state.configRaw) { loadConfigRaw(); }
+  if (mode === 'raw' && store.state.configRaw) { setTimeout(initConfigCodeMirror, 50); }
 }
 
 async function loadLogs() {
@@ -1689,7 +1945,53 @@ function changeLogPage(delta) {
   if (np >= 1 && np <= p.totalPages) { store.setState({ logPagination: { ...p, page: np } }); loadLogs(); }
 }
 
+function goToLogPage(page) {
+  const p = store.state.logPagination;
+  if (page >= 1 && page <= p.totalPages) { store.setState({ logPagination: { ...p, page } }); loadLogs(); }
+}
+
 let logAutoRefreshTimer = null;
+let restartCheckTimer = null;
+let configCodeMirror = null;
+let cookiesCodeMirror = null;
+
+function initCodeMirror(containerId, content, mode) {
+  const container = document.getElementById(containerId);
+  if (!container || typeof CodeMirror === 'undefined') {
+    if (container) {
+      const textarea = document.createElement('textarea');
+      textarea.className = 'form-textarea config-editor';
+      textarea.spellcheck = false;
+      textarea.value = content;
+      container.appendChild(textarea);
+      return textarea;
+    }
+    return null;
+  }
+
+  const cm = CodeMirror(container, {
+    value: content,
+    mode: mode || 'yaml',
+    theme: 'material-darker',
+    lineNumbers: true,
+    lineWrapping: true,
+    tabSize: 2,
+    indentWithTabs: false,
+    matchBrackets: true,
+    autoCloseBrackets: true,
+  });
+
+  cm.setSize('100%', 400);
+  return cm;
+}
+
+function initConfigCodeMirror() {
+  configCodeMirror = initCodeMirror('configEditorContainer', store.state.configRaw, 'yaml');
+}
+
+function initCookiesCodeMirror() {
+  cookiesCodeMirror = initCodeMirror('cookiesEditorContainer', store.state.cookiesRaw, 'yaml');
+}
 
 function toggleLogAutoRefresh() {
   const ns = !store.state.logAutoRefresh;
@@ -1703,6 +2005,10 @@ function cleanupSystemTimers() {
     clearInterval(logAutoRefreshTimer);
     logAutoRefreshTimer = null;
   }
+  if (restartCheckTimer) {
+    clearInterval(restartCheckTimer);
+    restartCheckTimer = null;
+  }
   if (store.state.logAutoRefresh) {
     store.setState({ logAutoRefresh: false });
   }
@@ -1713,6 +2019,12 @@ function setSystemTab(tab) {
   if (tab === 'config') {
     if (store.state.configMode === 'form' && (!store.state.configFields || store.state.configFields.length === 0)) { loadConfigFields(); }
     if (store.state.configMode === 'raw' && !store.state.configRaw) { loadConfigRaw(); }
+    if (store.state.configMode === 'raw' && store.state.configRaw) { setTimeout(initConfigCodeMirror, 50); }
+  }
+  if (tab === 'cookies') {
+    if (store.state.cookiesMode === 'form' && (!store.state.cookieItems || store.state.cookieItems.length === 0)) { loadCookiesItems(); }
+    if (store.state.cookiesMode === 'raw' && !store.state.cookiesRaw) { loadCookiesRaw(); }
+    if (store.state.cookiesMode === 'raw' && store.state.cookiesRaw) { setTimeout(initCookiesCodeMirror, 50); }
   }
   if (tab === 'logs' && store.state.logs.length === 0) { loadLogs(); if (!logAutoRefreshTimer && store.state.logAutoRefresh) logAutoRefreshTimer = setInterval(loadLogs, 5000); }
   render();
@@ -1905,30 +2217,6 @@ function filterTasks() {
 // ============================================
 // Initialization
 // ============================================
-// Utility: Format date
-function formatDate(dateStr) {
-  if (!dateStr) return '-';
-  const date = new Date(dateStr);
-  return date.toLocaleString('zh-CN', { 
-    year: 'numeric', 
-    month: '2-digit', 
-    day: '2-digit', 
-    hour: '2-digit', 
-    minute: '2-digit' 
-  });
-}
-
-// Utility: Show loading state on button
-function setButtonLoading(btn, loading) {
-  if (loading) {
-    btn.dataset.originalText = btn.innerHTML;
-    btn.innerHTML = '<span class="loading-spinner"></span> 处理中...';
-    btn.disabled = true;
-  } else {
-    btn.innerHTML = btn.dataset.originalText || btn.innerHTML;
-    btn.disabled = false;
-  }
-}
 
 async function init() {
   // Parse URL route first
@@ -1977,6 +2265,12 @@ async function init() {
 
     // Load database data for current subpage
     await refreshDBData();
+    
+    // Load system page specific data
+    if (page === 'system') {
+      await loadConfigFields();
+      await loadConfigRaw();
+    }
   } catch (err) {
     toast.show('加载数据失败: ' + err.message, 'error');
   }
@@ -2025,6 +2319,10 @@ let lastConfigRaw = store.state.configRaw;
 let lastConfigSaving = store.state.configSaving;
 let lastConfigFieldsJson = JSON.stringify(store.state.configFields);
 let lastConfigMode = store.state.configMode;
+let lastCookiesRaw = store.state.cookiesRaw;
+let lastCookiesSaving = store.state.cookiesSaving;
+let lastCookieItemsJson = JSON.stringify(store.state.cookieItems);
+let lastCookiesMode = store.state.cookiesMode;
 let lastLogsLength = store.state.logs.length;
 store.subscribe((state) => {
   if (state.currentPage !== lastPage) {
@@ -2049,15 +2347,23 @@ store.subscribe((state) => {
       const configSavingChanged = state.configSaving !== lastConfigSaving;
       const configFieldsChanged = JSON.stringify(state.configFields) !== lastConfigFieldsJson;
       const configModeChanged = state.configMode !== lastConfigMode;
+      const cookiesChanged = JSON.stringify(state.cookieItems) !== lastCookieItemsJson;
+      const cookiesModeChanged = state.cookiesMode !== lastCookiesMode;
+      const cookiesRawChanged = state.cookiesRaw !== lastCookiesRaw;
+      const cookiesSavingChanged = state.cookiesSaving !== lastCookiesSaving;
       const logsChanged = state.logs.length !== lastLogsLength;
 
-      if (tabChanged || logPagChanged || configRawChanged || configSavingChanged || logsChanged || configFieldsChanged || configModeChanged) {
+      if (tabChanged || logPagChanged || configRawChanged || configSavingChanged || logsChanged || configFieldsChanged || configModeChanged || cookiesChanged || cookiesModeChanged || cookiesRawChanged || cookiesSavingChanged) {
         lastSystemTab = state._systemTab;
         lastLogPaginationJson = JSON.stringify(state.logPagination);
         lastConfigRaw = state.configRaw;
         lastConfigSaving = state.configSaving;
         lastConfigFieldsJson = JSON.stringify(state.configFields);
         lastConfigMode = state.configMode;
+        lastCookieItemsJson = JSON.stringify(state.cookieItems);
+        lastCookiesMode = state.cookiesMode;
+        lastCookiesRaw = state.cookiesRaw;
+        lastCookiesSaving = state.cookiesSaving;
         lastLogsLength = state.logs.length;
         render();
       }

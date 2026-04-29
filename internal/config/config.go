@@ -11,10 +11,10 @@ import (
 	"strings"
 	"time"
 
+	log "github.com/sirupsen/logrus"
 	"gopkg.in/yaml.v3"
 )
 
-// 配置默认值常量
 const (
 	DefaultMaxDownloadRoutine = 35
 	DefaultMaxFileNameLen     = 158
@@ -27,14 +27,6 @@ type Cookie struct {
 	Ct0       string `yaml:"ct0"`
 }
 
-// FieldDef 字段定义
-type FieldDef struct {
-	Name    string                      // 字段名
-	Prompt  string                      // 提示文本
-	Default string                      // 默认值
-	Setter  func(*Config, string) error // 自定义设置逻辑
-}
-
 type Config struct {
 	RootPath           string `yaml:"root_path"`
 	Cookie             Cookie `yaml:"cookie"`
@@ -43,13 +35,22 @@ type Config struct {
 	ProxyURL           string `yaml:"proxy_url"`
 }
 
-// GetFieldDefs 返回所有字段定义
+// FieldDef 字段定义，包含 getter/setter 实现双向绑定
+type FieldDef struct {
+	Name    string                      // 字段名（用于日志和状态显示）
+	Prompt  string                      // 提示文本
+	Default string                      // 默认值（新配置或零值时使用）
+	Getter  func(*Config) string        // 获取当前值
+	Setter  func(*Config, string) error // 设置值并验证
+}
+
 func GetFieldDefs() []FieldDef {
 	return []FieldDef{
 		{
 			Name:    "root_path",
 			Prompt:  "enter storage dir",
-			Default: "",
+			Default: func() string { return "" }(),
+			Getter:  func(c *Config) string { return c.RootPath },
 			Setter: func(c *Config, v string) error {
 				if strings.TrimSpace(v) == "" {
 					return fmt.Errorf("storage dir cannot be empty")
@@ -68,33 +69,31 @@ func GetFieldDefs() []FieldDef {
 		{
 			Name:    "auth_token",
 			Prompt:  "enter auth_token",
-			Default: "",
-			Setter: func(c *Config, v string) error {
-				c.Cookie.AuthToken = v
-				return nil
-			},
+			Default: func() string { return "" }(),
+			Getter:  func(c *Config) string { return c.Cookie.AuthToken },
+			Setter:  func(c *Config, v string) error { c.Cookie.AuthToken = v; return nil },
 		},
 		{
 			Name:    "ct0",
 			Prompt:  "enter ct0",
-			Default: "",
-			Setter: func(c *Config, v string) error {
-				c.Cookie.Ct0 = v
-				return nil
-			},
+			Default: func() string { return "" }(),
+			Getter:  func(c *Config) string { return c.Cookie.Ct0 },
+			Setter:  func(c *Config, v string) error { c.Cookie.Ct0 = v; return nil },
 		},
 		{
 			Name:    "max_download_routine",
 			Prompt:  "enter max download routine",
 			Default: strconv.Itoa(DefaultMaxDownloadRoutine),
-			Setter: func(c *Config, v string) error {
-				if strings.TrimSpace(v) == "" {
-					c.MaxDownloadRoutine = DefaultMaxDownloadRoutine
-					return nil
+			Getter: func(c *Config) string {
+				if c.MaxDownloadRoutine == 0 {
+					return strconv.Itoa(DefaultMaxDownloadRoutine)
 				}
-				n, err := strconv.Atoi(v)
+				return strconv.Itoa(c.MaxDownloadRoutine)
+			},
+			Setter: func(c *Config, v string) error {
+				n, err := parseIntWithDefault(v, DefaultMaxDownloadRoutine)
 				if err != nil {
-					return fmt.Errorf("invalid number: %v", err)
+					return fmt.Errorf("invalid number: %w", err)
 				}
 				c.MaxDownloadRoutine = n
 				return nil
@@ -104,77 +103,70 @@ func GetFieldDefs() []FieldDef {
 			Name:    "max_file_name_len",
 			Prompt:  fmt.Sprintf("enter max file name length (%d-%d)", MinFileNameLen, MaxFileNameLen),
 			Default: strconv.Itoa(DefaultMaxFileNameLen),
+			Getter: func(c *Config) string {
+				if c.MaxFileNameLen == 0 {
+					return strconv.Itoa(DefaultMaxFileNameLen)
+				}
+				return strconv.Itoa(c.MaxFileNameLen)
+			},
 			Setter: func(c *Config, v string) error {
-				if strings.TrimSpace(v) == "" {
-					c.MaxFileNameLen = DefaultMaxFileNameLen
-					return nil
-				}
-				n, err := strconv.Atoi(v)
+				n, err := parseIntWithDefault(v, DefaultMaxFileNameLen)
 				if err != nil {
-					return fmt.Errorf("invalid number: %v", err)
+					return fmt.Errorf("invalid number: %w", err)
 				}
-				if n < MinFileNameLen {
-					n = MinFileNameLen
-				}
-				if n > MaxFileNameLen {
-					n = MaxFileNameLen
-				}
-				c.MaxFileNameLen = n
+				c.MaxFileNameLen = clampInt(n, MinFileNameLen, MaxFileNameLen)
 				return nil
 			},
 		},
 		{
 			Name:    "proxy_url",
 			Prompt:  "enter proxy url (e.g., http://127.0.0.1:7897, leave empty for system proxy)",
-			Default: "",
-			Setter: func(c *Config, v string) error {
-				c.ProxyURL = v
-				return nil
-			},
+			Default: func() string { return "" }(),
+			Getter:  func(c *Config) string { return c.ProxyURL },
+			Setter:  func(c *Config, v string) error { c.ProxyURL = v; return nil },
 		},
 	}
 }
 
-// getFieldValue 获取字段当前值
+// GetFieldValue 获取字段当前值（通过 FieldDef.Getter）
 func GetFieldValue(conf *Config, field FieldDef) string {
-	switch field.Name {
-	case "root_path":
-		return conf.RootPath
-	case "auth_token":
-		return conf.Cookie.AuthToken
-	case "ct0":
-		return conf.Cookie.Ct0
-	case "max_download_routine":
-		if conf.MaxDownloadRoutine == 0 {
+	if field.Getter != nil {
+		val := field.Getter(conf)
+		if val == "" {
 			return field.Default
 		}
-		return strconv.Itoa(conf.MaxDownloadRoutine)
-	case "max_file_name_len":
-		if conf.MaxFileNameLen == 0 {
-			return field.Default
-		}
-		return strconv.Itoa(conf.MaxFileNameLen)
-	case "proxy_url":
-		return conf.ProxyURL
-	default:
-		return field.Default
+		return val
 	}
+	return field.Default
+}
+
+// parseIntWithDefault 解析整数，空值返回默认值
+func parseIntWithDefault(input string, defaultVal int) (int, error) {
+	v := strings.TrimSpace(input)
+	if v == "" {
+		return defaultVal, nil
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil {
+		return 0, err
+	}
+	return n, nil
+}
+
+// clampInt 将值限制在 [min, max] 范围内
+func clampInt(val, min, max int) int {
+	if val < min {
+		return min
+	}
+	if val > max {
+		return max
+	}
+	return val
 }
 
 func ReadConf(path string) (*Config, error) {
-	file, err := os.OpenFile(path, os.O_RDONLY, 0)
-	if err != nil {
-		return nil, err
-	}
-	defer file.Close()
-
-	data, err := io.ReadAll(file)
-	if err != nil {
-		return nil, err
-	}
-
 	var result Config
-	err = yaml.Unmarshal(data, &result)
+	err := readYAMLFile(path, &result)
 	if err != nil {
 		return nil, err
 	}
@@ -182,93 +174,87 @@ func ReadConf(path string) (*Config, error) {
 }
 
 func WriteConf(path string, conf *Config) error {
-	file, err := os.OpenFile(path, os.O_TRUNC|os.O_WRONLY|os.O_CREATE, 0666)
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-
-	data, err := yaml.Marshal(conf)
-	if err != nil {
-		return err
-	}
-	_, err = io.Copy(file, bytes.NewReader(data))
-	return err
+	return writeYAMLFile(path, conf)
 }
 
-// PromptConfig 统一的配置交互
-// showStatus: 是否显示字段更新状态（"updated"/"unchanged"），重新配置时设为 true
-func PromptConfig(saveto string, showStatus bool) (*Config, error) {
-	conf, err := ReadConf(saveto)
-	if err != nil {
-		if os.IsNotExist(err) {
-			fmt.Println("Config file not found, creating new configuration...")
-		} else {
-			backupPath := saveto + ".backup." + strconv.FormatInt(time.Now().Unix(), 10)
-			if renameErr := os.Rename(saveto, backupPath); renameErr != nil {
-				fmt.Printf("Warning: failed to read existing config (%v)\n", err)
-				fmt.Printf("Failed to backup config file: %v\n", renameErr)
-				fmt.Println("Starting fresh without backup...")
-			} else {
-				fmt.Printf("Warning: existing config file is corrupted (%v)\n", err)
-				fmt.Printf("Original config has been backed up to: %s\n", backupPath)
-				fmt.Println("Creating new configuration...")
-			}
-		}
-		conf = &Config{}
-	}
-
+// PromptConfig 交互式配置（参考 tmd-2.4.4 简化实现）
+func PromptConfig(saveto string) (*Config, error) {
+	conf := &Config{}
 	scan := bufio.NewScanner(os.Stdin)
 
 	for _, field := range GetFieldDefs() {
-		currentValue := GetFieldValue(conf, field)
-
-		fmt.Printf("%s [%s]: ", field.Prompt, currentValue)
+		fmt.Printf("%s: ", field.Prompt)
 		if !scan.Scan() {
 			if err := scan.Err(); err != nil {
 				return nil, fmt.Errorf("failed to read input for %s: %w", field.Name, err)
 			}
-			// EOF reached
 			return nil, fmt.Errorf("unexpected EOF while reading %s", field.Name)
 		}
 		input := scan.Text()
 
-		// 如果用户直接回车，使用当前值
-		if strings.TrimSpace(input) == "" {
-			input = currentValue
-		}
-
-		// 应用设置
 		if err := field.Setter(conf, input); err != nil {
 			return nil, fmt.Errorf("failed to set %s: %w", field.Name, err)
 		}
+	}
 
-		// 显示字段更新状态
-		if showStatus && input != currentValue {
-			fmt.Printf("  -> %s updated\n", field.Name)
-		} else if showStatus {
-			fmt.Printf("  -> %s unchanged\n", field.Name)
-		}
+	if err := backupConf(saveto); err != nil {
+		log.Warnf("Failed to backup config: %v", err)
 	}
 
 	return conf, WriteConf(saveto, conf)
 }
 
+// backupConf 备份现有配置文件（与 API 模式一致）
+func backupConf(confPath string) error {
+	data, err := os.ReadFile(confPath)
+	if err != nil {
+		return nil
+	}
+	backupPath := confPath + ".backup." + strconv.FormatInt(time.Now().Unix(), 10)
+	return os.WriteFile(backupPath, data, 0600)
+}
+
 func ReadAdditionalCookies(path string) ([]*Cookie, error) {
-	file, err := os.OpenFile(path, os.O_RDONLY, 0)
+	res := []*Cookie{}
+	err := readYAMLFile(path, &res)
 	if os.IsNotExist(err) {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
 	}
+	return res, nil
+}
+
+func WriteAdditionalCookies(path string, cookies []*Cookie) error {
+	return writeYAMLFile(path, cookies)
+}
+
+func readYAMLFile(path string, out interface{}) error {
+	file, err := os.OpenFile(path, os.O_RDONLY, 0)
+	if err != nil {
+		return err
+	}
 	defer file.Close()
 
 	data, err := io.ReadAll(file)
 	if err != nil {
-		return nil, err
+		return err
 	}
+	return yaml.Unmarshal(data, out)
+}
 
-	var res []*Cookie
-	return res, yaml.Unmarshal(data, &res)
+func writeYAMLFile(path string, in interface{}) error {
+	file, err := os.OpenFile(path, os.O_TRUNC|os.O_WRONLY|os.O_CREATE, 0600)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	data, err := yaml.Marshal(in)
+	if err != nil {
+		return err
+	}
+	_, err = io.Copy(file, bytes.NewReader(data))
+	return err
 }

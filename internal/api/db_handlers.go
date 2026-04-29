@@ -212,7 +212,7 @@ func (s *Server) handleDBUserDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, err = s.db.Exec("DELETE FROM users WHERE id = ?", id)
+	_, err = s.db.Exec("DELETE FROM lsts WHERE id = ?", id)
 	if err != nil {
 		s.writeError(w, http.StatusInternalServerError, err.Error())
 		return

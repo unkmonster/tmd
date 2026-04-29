@@ -7,6 +7,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ***
 
+## [3.2.1] - 2026-04-26
+
+### Added
+
+#### Web 管理界面增强
+
+| 功能 | 说明 |
+|------|------|
+| **Cookie 管理** | 支持表单和原始格式编辑 Twitter Cookie |
+| **服务器控制** | 支持通过 Web 界面重启和关闭服务器 |
+| **优雅关闭** | 服务器支持优雅关闭，确保资源释放 |
+
+#### API 增强
+
+| 端点 | 功能 |
+|------|------|
+| `GET/PUT /api/v1/cookies` | Cookie 表单管理 |
+| `GET/PUT /api/v1/cookies/raw` | 原始 Cookie 读写 |
+| `POST /api/v1/server/restart` | 服务器重启 |
+| `POST /api/v1/server/shutdown` | 服务器关闭 |
+
+### Changed
+
+| 文件 | 变更 |
+|------|------|
+| `internal/api/server.go` | 新增 Cookie 和服务器控制端点，优雅关闭支持 |
+| `internal/api/web/app.js` | 新增 Cookie 管理和服务器控制页面 |
+| `internal/api/web/styles.css` | 新增样式 |
+| `internal/database/user.go` | 新增用户数据库操作方法 |
+| `internal/database/lst.go` | 新增列表数据库操作方法 |
+
+### Removed
+
+- 删除 `internal/path/coverage` 测试覆盖率文件
+
+### Stats
+
+- **14 个文件变更**
+- **+1,053 行 / -422 行**
+
+***
+
 ## [3.2.0] - 2026-04-26
 
 ### Added

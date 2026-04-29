@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/go-resty/resty/v2"
-	"github.com/gookit/color"
 	log "github.com/sirupsen/logrus"
 	"github.com/unkmonster/tmd/internal/downloader"
 	"github.com/unkmonster/tmd/internal/naming"
@@ -169,10 +168,10 @@ func DownloadThirdPartyTweets(
 
 			// 输出文件级别的成功/失败统计
 			if result.Success {
-				fmt.Printf("%s %s: %d media ✓\n", color.FgCyan.Render("[jsonfile]"), filepath.Base(fp), totalMedia)
+				log.Infof("[jsonfile] %s: %d media ✓", filepath.Base(fp), totalMedia)
 			} else {
 				result.Error = fmt.Sprintf("%d/%d tweets failed", len(failedTweets), len(pts))
-				fmt.Printf("%s %s: %s ✗\n", color.FgCyan.Render("[jsonfile]"), filepath.Base(fp), result.Error)
+				log.Warnf("[jsonfile] %s: %s ✗", filepath.Base(fp), result.Error)
 			}
 
 			mu.Lock()
