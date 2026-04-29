@@ -134,36 +134,33 @@ func TestUserInListEntity(t *testing.T) {
 	}
 
 	t.Run("带leid", func(t *testing.T) {
-		leid := 42
 		uile := userInListEntity{
 			user: user,
-			leid: &leid,
+			leid: 42,
 		}
 
 		assert.Equal(t, user, uile.user)
-		require.NotNil(t, uile.leid)
-		assert.Equal(t, 42, *uile.leid)
+		assert.Equal(t, 42, uile.leid)
 	})
 
-	t.Run("nil leid", func(t *testing.T) {
+	t.Run("zero leid", func(t *testing.T) {
 		uile := userInListEntity{
 			user: user,
-			leid: nil,
+			leid: 0,
 		}
 
 		assert.Equal(t, user, uile.user)
-		assert.Nil(t, uile.leid)
+		assert.Equal(t, 0, uile.leid)
 	})
 
 	t.Run("nil user", func(t *testing.T) {
-		leid := 1
 		uile := userInListEntity{
 			user: nil,
-			leid: &leid,
+			leid: 1,
 		}
 
 		assert.Nil(t, uile.user)
-		assert.NotNil(t, uile.leid)
+		assert.Equal(t, 1, uile.leid)
 	})
 }
 

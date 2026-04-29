@@ -64,9 +64,7 @@ func syncListAndGetMembers(ctx context.Context, client *resty.Client, db *sqlx.D
 
 	entities = make([]userInListEntity, 0, len(members))
 	for _, user := range members {
-		// 为每个用户创建独立的 eid 副本，避免共享局部变量地址
-		leid := eid
-		entities = append(entities, userInListEntity{user: user, leid: &leid})
+		entities = append(entities, userInListEntity{user: user, leid: eid})
 	}
 	return entities, members, nil
 }

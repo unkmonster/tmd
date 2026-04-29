@@ -69,7 +69,6 @@ func TestBatchUserDownload_Empty(t *testing.T) {
 	ctx := context.Background()
 	tempDir := t.TempDir()
 
-	// Test with empty users slice
 	result, err := BatchUserDownload(ctx, nil, db, []userInListEntity{}, tempDir, false, nil, nil, nil)
 
 	if err != nil {
@@ -88,7 +87,6 @@ func TestBatchUserDownload_NilUsers(t *testing.T) {
 	ctx := context.Background()
 	tempDir := t.TempDir()
 
-	// Test with nil users
 	result, err := BatchUserDownload(ctx, nil, db, nil, tempDir, false, nil, nil, nil)
 
 	if err != nil {
@@ -116,12 +114,10 @@ func TestBatchUserDownload_WithUsers(t *testing.T) {
 				MediaCount: 10,
 				IsProtected: false,
 			},
-			leid: nil,
+			leid: 0,
 		},
 	}
 
-	// This will fail because we don't have real dependencies
-	// but it tests the function signature and basic flow
 	defer func() {
 		if r := recover(); r != nil {
 			t.Logf("BatchUserDownload panicked as expected: %v", r)
@@ -148,7 +144,7 @@ func TestBatchUserDownload_ProtectedUnfollowedUsers(t *testing.T) {
 				IsProtected: true,
 				Followstate: twitter.FS_UNFOLLOW,
 			},
-			leid: nil,
+			leid: 0,
 		},
 		{
 			user: &twitter.User{
@@ -159,12 +155,10 @@ func TestBatchUserDownload_ProtectedUnfollowedUsers(t *testing.T) {
 				IsProtected: false,
 				Followstate: twitter.FS_UNFOLLOW,
 			},
-			leid: nil,
+			leid: 0,
 		},
 	}
 
-	// This will fail because we don't have real dependencies
-	// but it verifies the function handles protected users
 	defer func() {
 		if r := recover(); r != nil {
 			t.Logf("BatchUserDownload panicked as expected: %v", r)
@@ -191,11 +185,10 @@ func TestBatchUserDownload_AutoFollow(t *testing.T) {
 				IsProtected: true,
 				Followstate: twitter.FS_UNFOLLOW,
 			},
-			leid: nil,
+			leid: 0,
 		},
 	}
 
-	// Test with autoFollow = true
 	defer func() {
 		if r := recover(); r != nil {
 			t.Logf("BatchUserDownload panicked as expected: %v", r)
@@ -212,8 +205,6 @@ func TestBatchUserDownload_WithListEntity(t *testing.T) {
 	ctx := context.Background()
 	tempDir := t.TempDir()
 
-	// We can't easily create a real ListEntity here, so we test with nil leid
-
 	users := []userInListEntity{
 		{
 			user: &twitter.User{
@@ -222,7 +213,7 @@ func TestBatchUserDownload_WithListEntity(t *testing.T) {
 				ScreenName: "testuser",
 				MediaCount: 10,
 			},
-			leid: nil,
+			leid: 0,
 		},
 	}
 
@@ -240,7 +231,7 @@ func TestBatchUserDownload_CancelledContext(t *testing.T) {
 	defer db.Close()
 
 	ctx, cancel := context.WithCancel(context.Background())
-	cancel() // Cancel immediately
+	cancel()
 
 	tempDir := t.TempDir()
 
@@ -252,7 +243,7 @@ func TestBatchUserDownload_CancelledContext(t *testing.T) {
 				ScreenName: "testuser",
 				MediaCount: 10,
 			},
-			leid: nil,
+			leid: 0,
 		},
 	}
 
@@ -266,11 +257,9 @@ func TestBatchUserDownload_CancelledContext(t *testing.T) {
 }
 
 func TestBatchUserDownload_UserHeap(t *testing.T) {
-	// Test the user entity heap functionality
 	db := setupTestDB(t)
 	defer db.Close()
 
-	// Create test users with different properties
 	users := []userInListEntity{
 		{
 			user: &twitter.User{
@@ -302,12 +291,10 @@ func TestBatchUserDownload_UserHeap(t *testing.T) {
 		},
 	}
 
-	// Verify users are set up correctly
 	if len(users) != 3 {
 		t.Errorf("len(users) = %d, want 3", len(users))
 	}
 
-	// Check protected following user
 	if !users[1].user.IsProtected || users[1].user.Followstate != twitter.FS_FOLLOWING {
 		t.Error("User 2 should be protected and following")
 	}
@@ -329,7 +316,7 @@ func TestBatchUserDownload_IgnoredUsers(t *testing.T) {
 				MediaCount: 10,
 				Blocking:   true,
 			},
-			leid: nil,
+			leid: 0,
 		},
 		{
 			user: &twitter.User{
@@ -339,7 +326,7 @@ func TestBatchUserDownload_IgnoredUsers(t *testing.T) {
 				MediaCount: 10,
 				Muting:     true,
 			},
-			leid: nil,
+			leid: 0,
 		},
 		{
 			user: &twitter.User{
@@ -348,7 +335,7 @@ func TestBatchUserDownload_IgnoredUsers(t *testing.T) {
 				ScreenName: "normal",
 				MediaCount: 10,
 			},
-			leid: nil,
+			leid: 0,
 		},
 	}
 
@@ -368,7 +355,6 @@ func TestBatchUserDownload_DuplicateUsers(t *testing.T) {
 	ctx := context.Background()
 	tempDir := t.TempDir()
 
-	// Same user multiple times
 	users := []userInListEntity{
 		{
 			user: &twitter.User{
@@ -377,16 +363,16 @@ func TestBatchUserDownload_DuplicateUsers(t *testing.T) {
 				ScreenName: "testuser",
 				MediaCount: 10,
 			},
-			leid: nil,
+			leid: 0,
 		},
 		{
 			user: &twitter.User{
-				Id:         1, // Same ID
+				Id:         1,
 				Name:       "Test User",
 				ScreenName: "testuser",
 				MediaCount: 10,
 			},
-			leid: nil,
+			leid: 0,
 		},
 	}
 
@@ -413,7 +399,7 @@ func TestBatchUserDownload_InvalidDirectory(t *testing.T) {
 				ScreenName: "testuser",
 				MediaCount: 10,
 			},
-			leid: nil,
+			leid: 0,
 		},
 	}
 

@@ -38,7 +38,7 @@ func (pt TweetInEntity) GetPath() string {
 
 type userInListEntity struct {
 	user *twitter.User
-	leid *int
+	leid int
 }
 
 var MaxDownloadRoutine int

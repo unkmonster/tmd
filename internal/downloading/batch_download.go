@@ -158,10 +158,10 @@ func BatchUserDownload(ctx context.Context, client *resty.Client, db *sqlx.DB, u
 				pathEntity = pe.(*entity.UserEntity)
 			}
 
-			if leid == nil {
+			if leid == 0 {
 				continue
 			}
-			sl, _ := syncedListUsers.LoadOrStore(*leid, &sync.Map{})
+			sl, _ := syncedListUsers.LoadOrStore(leid, &sync.Map{})
 			syncedList := sl.(*sync.Map)
 			_, loaded = syncedList.LoadOrStore(user.Id, struct{}{})
 			if loaded {
@@ -177,7 +177,7 @@ func BatchUserDownload(ctx context.Context, client *resty.Client, db *sqlx.DB, u
 
 			curlink := &database.UserLink{}
 			curlink.Name = linkname
-			curlink.ParentLstEntityId = int32(*leid)
+			curlink.ParentLstEntityId = int32(leid)
 			curlink.UserId = user.Id
 
 			linkpath, err := curlink.Path(db)

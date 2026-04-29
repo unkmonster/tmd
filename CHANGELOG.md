@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ***
 
+## [3.2.3] - 2026-04-29
+
+### Changed
+
+| 文件 | 变更 |
+|------|------|
+| `internal/downloading/types.go` | `userInListEntity.leid` 从 `*int` 改为 `int`，使用值类型替代指针类型 |
+| `internal/downloading/list_download.go` | 简化赋值逻辑，直接使用值类型 |
+| `internal/downloading/batch_any.go` | 使用 0 替代 nil 作为无效 leid |
+| `internal/downloading/batch_download.go` | 使用 0 替代 nil 作为无效 leid |
+| `*_test.go` | 同步更新测试用例 |
+
+### Fixed
+
+- 彻底解决循环变量地址共享问题，避免潜在的内存共享风险
+- 使用 0 作为无效值替代 nil 检查，代码更简洁安全
+
+### Stats
+
+- **7 个文件变更**
+- **+30 行 / -49 行**
+
+***
+
 ## [3.2.2] - 2026-04-29
 
 ### Fixed

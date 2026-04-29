@@ -122,8 +122,8 @@ func TestSyncListAndGetMembers(t *testing.T) {
 
 	// Verify entities have correct leid
 	for _, e := range entities {
-		if e.leid == nil {
-			t.Error("entity.leid should not be nil")
+		if e.leid == 0 {
+			t.Error("entity.leid should not be 0")
 			continue
 		}
 	}

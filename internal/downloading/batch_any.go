@@ -42,7 +42,7 @@ func BatchDownloadAny(ctx context.Context, client *resty.Client, db *sqlx.DB, li
 	}
 
 	for _, usr := range users {
-		packgedUsers = append(packgedUsers, userInListEntity{user: usr, leid: nil})
+		packgedUsers = append(packgedUsers, userInListEntity{user: usr, leid: 0})
 	}
 
 	log.Debugln("collected users:", len(packgedUsers))
