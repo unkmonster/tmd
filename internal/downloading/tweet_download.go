@@ -22,8 +22,6 @@ import (
 	"github.com/unkmonster/tmd/internal/utils"
 )
 
-var mediaMutex sync.Mutex
-
 func saveTweetJson(cfg *workerConfig, dir string, tweet *twitter.Tweet, namingObj *naming.TweetNaming) {
 	if dir == "" || tweet == nil || cfg.fileWriter == nil {
 		return
@@ -244,14 +242,11 @@ func downloadTweetMedia(cfg *workerConfig, dir string, tweet *twitter.Tweet, ski
 
 		queryParams := utils.GetTwitterImageQualityParams(u)
 
-		mediaMutex.Lock()
 		path, err := tweetNaming.FilePath(dir, ext)
 		if err != nil {
-			mediaMutex.Unlock()
 			failedUrls = append(failedUrls, u)
 			continue
 		}
-		mediaMutex.Unlock()
 
 		req := downloader.DownloadRequest{
 			Context:     cfg.ctx,

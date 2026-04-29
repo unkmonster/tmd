@@ -57,6 +57,7 @@ func (lsm *ListSyncManager) syncListMembersInTx(_ context.Context, tx *sqlx.Tx, 
 		if !memberSet[link.UserId] {
 			if err := lsm.removeUserLinkInTx(tx, link, lstEntityId); err != nil {
 				log.Warnln("failed to remove user link:", link.UserId, err)
+				return err
 			} else {
 				removedCount++
 			}

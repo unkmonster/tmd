@@ -37,7 +37,6 @@ type Server struct {
 	configMu          sync.RWMutex
 	taskManager       *TaskManager
 	downloadService   service.DownloadService
-	sseMgr            *sseManager
 	logWriter         io.Closer
 	httpServer        *http.Server
 }
@@ -52,7 +51,6 @@ func NewServer(client *resty.Client, additionalClients []*resty.Client, db *sqlx
 		appRootPath:       appRootPath,
 		logWriter:         logWriter,
 		taskManager:       NewTaskManager(),
-		sseMgr:            newSSEManager(),
 	}
 
 	// 创建 Service 层
@@ -117,6 +115,9 @@ func (s *Server) Start(port int) error {
 
 	// 数据库查询路由 - User Links（新增）
 	mux.HandleFunc("GET /api/v1/db/user-links", s.handleDBUserLinks)
+	mux.HandleFunc("GET /api/v1/db/user-links/{id}", s.handleDBUserLinkDetail)
+	mux.HandleFunc("PUT /api/v1/db/user-links/{id}", s.handleDBUserLinkUpdate)
+	mux.HandleFunc("DELETE /api/v1/db/user-links/{id}", s.handleDBUserLinkDelete)
 
 	mux.HandleFunc("/api/v1/config", s.handleConfig)
 	mux.HandleFunc("/api/v1/config/raw", s.handleConfigRaw)
@@ -353,6 +354,53 @@ func (s *Server) handleUserMark(w http.ResponseWriter, r *http.Request, screenNa
 	}))
 }
 
+// handleListMark 处理标记列表已下载
+func (s *Server) handleListMark(w http.ResponseWriter, r *http.Request, listID uint64) {
+	if r.Method != http.MethodPost {
+		s.writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+
+	var req ListMarkDownloadedTaskData
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		req = ListMarkDownloadedTaskData{}
+	}
+	req.ListID = listID
+
+	task := s.taskManager.CreateTask(TaskTypeMarkDownloaded, &req)
+
+	var markTime *string
+	if req.Timestamp != nil {
+		t := req.Timestamp.Format("2006-01-02T15:04:05")
+		markTime = &t
+	}
+
+	reporter := NewSSEProgressReporter(s, task.ID)
+
+	go func() {
+		s.taskManager.UpdateTaskStatus(task.ID, TaskStatusRunning)
+
+		list, err := twitter.GetLst(task.Ctx, s.client, listID)
+		if err != nil {
+			s.taskManager.SetTaskError(task.ID, fmt.Errorf("failed to get list %d: %w", listID, err))
+			return
+		}
+
+		err = s.downloadService.MarkDownloaded(task.Ctx, task.ID, nil, []twitter.ListBase{list}, markTime, reporter)
+		if err != nil {
+			s.taskManager.SetTaskError(task.ID, err)
+		}
+	}()
+
+	s.writeJSON(w, http.StatusAccepted, NewSuccessResponse(map[string]interface{}{
+		"task_id":   task.ID,
+		"status":    task.Status,
+		"list_id":   listID,
+		"timestamp": req.Timestamp,
+		"message":   "Mark list downloaded task queued",
+	}))
+}
+
 // handleFollowingDownload 处理关注列表下载
 func (s *Server) handleFollowingDownload(w http.ResponseWriter, r *http.Request, screenName string) {
 	if r.Method != http.MethodPost {
@@ -422,6 +470,8 @@ func (s *Server) handleLists(w http.ResponseWriter, r *http.Request) {
 		s.handleListDownload(w, r, listID)
 	case "profile":
 		s.handleListProfile(w, r, listID)
+	case "mark":
+		s.handleListMark(w, r, listID)
 	default:
 		s.writeError(w, http.StatusNotFound, "Not found")
 	}
@@ -794,7 +844,7 @@ func (s *Server) handleUpdateConfigRaw(w http.ResponseWriter, r *http.Request) {
 
 	log.Infoln("[WebUI] config saved via raw editor")
 
-	s.config = &testConf
+	*s.config = testConf
 
 	s.writeJSON(w, http.StatusOK, NewSuccessResponse(map[string]interface{}{
 		"message":      "Configuration saved successfully",

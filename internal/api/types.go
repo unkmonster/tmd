@@ -37,6 +37,12 @@ type MarkDownloadedTaskData struct {
 	Timestamp  *time.Time `json:"timestamp,omitempty"`
 }
 
+// ListMarkDownloadedTaskData 标记列表已下载任务数据
+type ListMarkDownloadedTaskData struct {
+	ListID    uint64     `json:"list_id"`
+	Timestamp *time.Time `json:"timestamp,omitempty"`
+}
+
 // JsonFileDownloadTaskData 第三方工具JSON下载任务数据（用户资料）
 type JsonFileDownloadTaskData struct {
 	Paths   []string `json:"paths"`

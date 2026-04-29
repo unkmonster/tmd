@@ -275,7 +275,7 @@ func BatchUserDownload(ctx context.Context, client *resty.Client, db *sqlx.DB, u
 
 		if len(tweets) == 0 {
 			if err := database.UpdateUserEntityMediCount(db, eid, user.MediaCount); err != nil {
-				log.Panicln("✗", entityName, "-", "failed to update user medias count:", err)
+				log.Errorln("✗", entityName, "-", "failed to update user medias count:", err)
 			}
 			return
 		}
@@ -290,7 +290,7 @@ func BatchUserDownload(ctx context.Context, client *resty.Client, db *sqlx.DB, u
 		}
 
 		if err := database.UpdateUserEntityTweetStat(db, eid, tweets[0].CreatedAt, user.MediaCount); err != nil {
-			log.Panicln("✗", entityName, "-", "failed to update user tweets stat:", err)
+			log.Errorln("✗", entityName, "-", "failed to update user tweets stat:", err)
 		}
 	}
 

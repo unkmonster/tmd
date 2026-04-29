@@ -8,34 +8,22 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	log "github.com/sirupsen/logrus"
 )
 
-const maxLockCount = 10000
-
 type DefaultFileWriter struct {
 	versionManager VersionManager
-	locks          sync.Map
-	lockCount      atomic.Int32
-	cleaning       atomic.Bool
+	locks          [256]sync.Mutex
 }
 
 func (fw *DefaultFileWriter) getLock(path string) *sync.Mutex {
-	if fw.lockCount.Load() > maxLockCount && fw.cleaning.CompareAndSwap(false, true) {
-		go func() {
-			defer fw.cleaning.Store(false)
-			fw.locks.Clear()
-			fw.lockCount.Store(0)
-		}()
+	var hash uint32
+	for i := 0; i < len(path); i++ {
+		hash = hash*31 + uint32(path[i])
 	}
-	actual, loaded := fw.locks.LoadOrStore(path, &sync.Mutex{})
-	if !loaded {
-		fw.lockCount.Add(1)
-	}
-	return actual.(*sync.Mutex)
+	return &fw.locks[hash%256]
 }
 
 // NewFileWriter 创建文件写入器

@@ -59,7 +59,6 @@ func TestNewServer(t *testing.T) {
 	assert.NotNil(t, server.db)
 	assert.NotNil(t, server.config)
 	assert.NotNil(t, server.taskManager)
-	assert.NotNil(t, server.sseMgr)
 	assert.NotNil(t, server.downloadService)
 	assert.Equal(t, "/app", server.appRootPath)
 }
@@ -889,7 +888,6 @@ func TestServer_Start(t *testing.T) {
 	assert.NotNil(t, server.db)
 	assert.NotNil(t, server.config)
 	assert.NotNil(t, server.taskManager)
-	assert.NotNil(t, server.sseMgr)
 }
 
 func TestServer_TaskCreationAndRetrieval(t *testing.T) {

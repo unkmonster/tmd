@@ -28,9 +28,16 @@ func GetLst(db *sqlx.DB, lid uint64) (*Lst, error) {
 
 func UpdateLst(db *sqlx.DB, lst *Lst) error {
 	stmt := `UPDATE lsts SET name=? WHERE id=?`
-	_, err := db.Exec(stmt, lst.Name, lst.Id)
+	result, err := db.Exec(stmt, lst.Name, lst.Id)
 	if err != nil {
 		return fmt.Errorf("failed to update list %d: %w", lst.Id, err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+	if rows == 0 {
+		return sql.ErrNoRows
 	}
 	return nil
 }

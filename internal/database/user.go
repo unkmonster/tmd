@@ -1,6 +1,7 @@
 package database
 
 import (
+	"database/sql"
 	"fmt"
 	"strings"
 	"time"
@@ -59,9 +60,16 @@ func SetUserAccessibleByScreenName(db *sqlx.DB, screenName string, accessible bo
 
 func UpdateUser(db *sqlx.DB, usr *User) error {
 	stmt := `UPDATE users SET screen_name=:screen_name, name=:name, protected=:protected, friends_count=:friends_count, is_accessible=:is_accessible WHERE id=:id`
-	_, err := db.NamedExec(stmt, usr)
+	res, err := db.NamedExec(stmt, usr)
 	if err != nil {
 		return fmt.Errorf("failed to update user %d: %w", usr.Id, err)
+	}
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+	if rows == 0 {
+		return sql.ErrNoRows
 	}
 	return nil
 }

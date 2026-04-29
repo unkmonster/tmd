@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"sort"
 	"sync"
 	"testing"
 	"time"
@@ -338,81 +337,6 @@ func TestGetExtFromUrl(t *testing.T) {
 			}
 		})
 	}
-}
-
-// ==================== Shuffle 测试 ====================
-
-func TestShuffle(t *testing.T) {
-	t.Run("基本功能", func(t *testing.T) {
-		original := []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}
-		shuffled := make([]int, len(original))
-		copy(shuffled, original)
-
-		Shuffle(shuffled)
-
-		// 验证长度不变
-		assert.Equal(t, len(original), len(shuffled))
-
-		// 验证元素相同（排序后比较）
-		sort.Ints(original)
-		sort.Ints(shuffled)
-		assert.Equal(t, original, shuffled)
-	})
-
-	t.Run("空切片", func(t *testing.T) {
-		empty := []int{}
-		Shuffle(empty)
-		assert.Equal(t, []int{}, empty)
-	})
-
-	t.Run("单元素", func(t *testing.T) {
-		single := []int{42}
-		Shuffle(single)
-		assert.Equal(t, []int{42}, single)
-	})
-
-	t.Run("字符串切片", func(t *testing.T) {
-		original := []string{"a", "b", "c", "d", "e"}
-		shuffled := make([]string, len(original))
-		copy(shuffled, original)
-
-		Shuffle(shuffled)
-
-		assert.Equal(t, len(original), len(shuffled))
-	})
-
-	t.Run("随机性验证", func(t *testing.T) {
-		// 多次打乱，验证结果不完全相同
-		original := []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}
-		different := false
-		first := make([]int, len(original))
-		copy(first, original)
-		Shuffle(first)
-
-		for i := 0; i < 10; i++ {
-			shuffled := make([]int, len(original))
-			copy(shuffled, original)
-			Shuffle(shuffled)
-
-			if !slicesEqual(first, shuffled) {
-				different = true
-				break
-			}
-		}
-		assert.True(t, different, "Shuffle应该产生不同的结果")
-	})
-}
-
-func slicesEqual(a, b []int) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
 }
 
 // ==================== Heap 测试 ====================
@@ -965,20 +889,6 @@ func BenchmarkWinFileNameWithMaxLen(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		WinFileNameWithMaxLen(input, DefaultMaxFileNameLen)
-	}
-}
-
-func BenchmarkShuffle(b *testing.B) {
-	data := make([]int, 1000)
-	for i := range data {
-		data[i] = i
-	}
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		shuffled := make([]int, len(data))
-		copy(shuffled, data)
-		Shuffle(shuffled)
 	}
 }
 

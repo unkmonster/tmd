@@ -45,6 +45,25 @@ func UpdateUserLink(db *sqlx.DB, id int32, name string) error {
 	return nil
 }
 
+func GetUserLinkById(db *sqlx.DB, id int32) (*UserLink, error) {
+	stmt := `SELECT * FROM user_links WHERE id = ?`
+	res := &UserLink{}
+	err := db.Get(res, stmt, id)
+	if err != nil && err != sql.ErrNoRows {
+		return nil, fmt.Errorf("failed to get user link %d: %w", id, err)
+	}
+	return handleGetResult(res, err)
+}
+
+func DelUserLink(db *sqlx.DB, id int32) error {
+	stmt := `DELETE FROM user_links WHERE id=?`
+	_, err := db.Exec(stmt, id)
+	if err != nil {
+		return fmt.Errorf("failed to delete user link %d: %w", id, err)
+	}
+	return nil
+}
+
 func GetUserLinksByLstEntityId(queryer interface {
 	Select(dest interface{}, query string, args ...interface{}) error
 }, lstEntityId int) ([]*UserLink, error) {

@@ -212,8 +212,7 @@ func (s *Server) handleDBUserDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, err = s.db.Exec("DELETE FROM lsts WHERE id = ?", id)
-	if err != nil {
+	if err := database.DelUser(s.db, id); err != nil {
 		s.writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -372,8 +371,7 @@ func (s *Server) handleDBListDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, err = s.db.Exec("DELETE FROM lsts WHERE id = ?", id)
-	if err != nil {
+	if err := database.DelLst(s.db, id); err != nil {
 		s.writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -480,13 +478,18 @@ func (s *Server) handleDBUserEntityUpdate(w http.ResponseWriter, r *http.Request
 	}
 
 	var req struct {
-		Name       string `json:"name"`
-		ParentDir  string `json:"parent_dir"`
-		MediaCount *int32 `json:"media_count,omitempty"`
+		Name       *string `json:"name"`
+		ParentDir  *string `json:"parent_dir"`
+		MediaCount *int32  `json:"media_count,omitempty"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		s.writeError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	if req.ParentDir != nil {
+		s.writeError(w, http.StatusBadRequest, "Modifying parent_dir is not allowed")
 		return
 	}
 
@@ -500,11 +503,8 @@ func (s *Server) handleDBUserEntityUpdate(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	if req.Name != "" {
-		entity.Name = req.Name
-	}
-	if req.ParentDir != "" {
-		entity.ParentDir = req.ParentDir
+	if req.Name != nil {
+		entity.Name = *req.Name
 	}
 	if req.MediaCount != nil {
 		entity.MediaCount = sql.NullInt32{Int32: *req.MediaCount, Valid: true}
@@ -645,12 +645,17 @@ func (s *Server) handleDBListEntityUpdate(w http.ResponseWriter, r *http.Request
 	}
 
 	var req struct {
-		Name      string `json:"name"`
-		ParentDir string `json:"parent_dir"`
+		Name      *string `json:"name"`
+		ParentDir *string `json:"parent_dir"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		s.writeError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	if req.ParentDir != nil {
+		s.writeError(w, http.StatusBadRequest, "Modifying parent_dir is not allowed")
 		return
 	}
 
@@ -664,11 +669,8 @@ func (s *Server) handleDBListEntityUpdate(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	if req.Name != "" {
-		entity.Name = req.Name
-	}
-	if req.ParentDir != "" {
-		entity.ParentDir = req.ParentDir
+	if req.Name != nil {
+		entity.Name = *req.Name
 	}
 
 	if err := database.UpdateLstEntity(s.db, entity); err != nil {
@@ -763,6 +765,105 @@ func (s *Server) handleDBUserLinks(w http.ResponseWriter, r *http.Request) {
 
 	response := pagination.ToResponse(items, total)
 	s.writeJSON(w, http.StatusOK, NewSuccessResponse(response))
+}
+
+func (s *Server) handleDBUserLinkDetail(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 32)
+	if err != nil {
+		s.writeError(w, http.StatusBadRequest, "Invalid user link ID")
+		return
+	}
+
+	link, err := database.GetUserLinkById(s.db, int32(id))
+	if err != nil {
+		s.writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if link == nil {
+		s.writeError(w, http.StatusNotFound, "User link not found")
+		return
+	}
+
+	item := DBUserLinkItem{
+		ID:                strconv.Itoa(int(link.Id)),
+		UserID:            strconv.FormatUint(link.UserId, 10),
+		Name:              link.Name,
+		ParentLstEntityID: strconv.Itoa(int(link.ParentLstEntityId)),
+	}
+
+	s.writeJSON(w, http.StatusOK, NewSuccessResponse(item))
+}
+
+func (s *Server) handleDBUserLinkUpdate(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 32)
+	if err != nil {
+		s.writeError(w, http.StatusBadRequest, "Invalid user link ID")
+		return
+	}
+
+	var req struct {
+		Name *string `json:"name"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.writeError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	link, err := database.GetUserLinkById(s.db, int32(id))
+	if err != nil {
+		s.writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if link == nil {
+		s.writeError(w, http.StatusNotFound, "User link not found")
+		return
+	}
+
+	if req.Name != nil {
+		link.Name = *req.Name
+	}
+
+	if err := database.UpdateUserLink(s.db, link.Id, link.Name); err != nil {
+		s.writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	item := DBUserLinkItem{
+		ID:                strconv.Itoa(int(link.Id)),
+		UserID:            strconv.FormatUint(link.UserId, 10),
+		Name:              link.Name,
+		ParentLstEntityID: strconv.Itoa(int(link.ParentLstEntityId)),
+	}
+
+	s.writeJSON(w, http.StatusOK, NewSuccessResponse(item))
+}
+
+func (s *Server) handleDBUserLinkDelete(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 32)
+	if err != nil {
+		s.writeError(w, http.StatusBadRequest, "Invalid user link ID")
+		return
+	}
+
+	link, err := database.GetUserLinkById(s.db, int32(id))
+	if err != nil {
+		s.writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if link == nil {
+		s.writeError(w, http.StatusNotFound, "User link not found")
+		return
+	}
+
+	if err := database.DelUserLink(s.db, int32(id)); err != nil {
+		s.writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	s.writeJSON(w, http.StatusOK, NewSuccessResponse(map[string]string{
+		"message": "User link deleted successfully",
+	}))
 }
 
 // ============ User Previous Names 查询（新增） ============

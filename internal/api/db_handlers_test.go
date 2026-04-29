@@ -34,7 +34,6 @@ func createTestServer(t *testing.T) (*Server, *sqlx.DB) {
 	server := &Server{
 		db:          db,
 		taskManager: NewTaskManager(),
-		sseMgr:      newSSEManager(),
 	}
 	return server, db
 }

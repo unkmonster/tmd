@@ -2,17 +2,7 @@ package utils
 
 import (
 	"sync"
-
-	"math/rand"
 )
-
-func Shuffle[T any](slice []T) {
-	n := len(slice)
-	for i := n - 1; i > 0; i-- {
-		j := rand.Intn(i + 1)
-		slice[i], slice[j] = slice[j], slice[i]
-	}
-}
 
 type Heap[T any] struct {
 	data []T

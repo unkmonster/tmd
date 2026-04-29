@@ -113,14 +113,35 @@ func (tm *TaskManager) GetTask(id string) (*Task, bool) {
 	return task, ok
 }
 
-// GetAllTasks 获取所有任务
+// GetAllTasks 获取所有任务的深拷贝，避免并发序列化时的数据竞争
 func (tm *TaskManager) GetAllTasks() []*Task {
 	tm.mu.RLock()
 	defer tm.mu.RUnlock()
 
 	tasks := make([]*Task, 0, len(tm.tasks))
 	for _, task := range tm.tasks {
-		tasks = append(tasks, task)
+		// 浅拷贝 Task 本身
+		t := *task
+		
+		// 深拷贝嵌套的指针对象
+		if task.Progress != nil {
+			p := *task.Progress
+			t.Progress = &p
+		}
+		if task.Result != nil {
+			r := *task.Result
+			t.Result = &r
+		}
+		if task.StartedAt != nil {
+			startedAt := *task.StartedAt
+			t.StartedAt = &startedAt
+		}
+		if task.EndedAt != nil {
+			endedAt := *task.EndedAt
+			t.EndedAt = &endedAt
+		}
+		
+		tasks = append(tasks, &t)
 	}
 	return tasks
 }

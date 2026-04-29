@@ -66,9 +66,16 @@ func LocateLstEntity(db *sqlx.DB, lid int64, parentDir string) (*LstEntity, erro
 
 func UpdateLstEntity(db *sqlx.DB, entity *LstEntity) error {
 	stmt := `UPDATE lst_entities SET name=? WHERE id=?`
-	_, err := db.Exec(stmt, entity.Name, entity.Id.Int32)
+	result, err := db.Exec(stmt, entity.Name, entity.Id.Int32)
 	if err != nil {
 		return fmt.Errorf("failed to update list entity %d: %w", entity.Id.Int32, err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+	if rows == 0 {
+		return sql.ErrNoRows
 	}
 	return nil
 }

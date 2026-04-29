@@ -60,27 +60,48 @@ func GetUserEntity(db *sqlx.DB, id int) (*UserEntity, error) {
 
 func UpdateUserEntity(db *sqlx.DB, entity *UserEntity) error {
 	stmt := `UPDATE user_entities SET name=?, latest_release_time=?, media_count=? WHERE id=?`
-	_, err := db.Exec(stmt, entity.Name, entity.LatestReleaseTime, entity.MediaCount, entity.Id)
+	result, err := db.Exec(stmt, entity.Name, entity.LatestReleaseTime, entity.MediaCount, entity.Id)
 	if err != nil {
 		return fmt.Errorf("failed to update user entity %d: %w", entity.Id.Int32, err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+	if rows == 0 {
+		return sql.ErrNoRows
 	}
 	return nil
 }
 
 func UpdateUserEntityMediCount(db *sqlx.DB, eid int, count int) error {
 	stmt := `UPDATE user_entities SET media_count=? WHERE id=?`
-	_, err := db.Exec(stmt, count, eid)
+	result, err := db.Exec(stmt, count, eid)
 	if err != nil {
 		return fmt.Errorf("failed to update media count for user entity %d: %w", eid, err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+	if rows == 0 {
+		return sql.ErrNoRows
 	}
 	return nil
 }
 
 func UpdateUserEntityTweetStat(db *sqlx.DB, eid int, baseline time.Time, count int) error {
 	stmt := `UPDATE user_entities SET latest_release_time=?, media_count=? WHERE id=?`
-	_, err := db.Exec(stmt, baseline, count, eid)
+	result, err := db.Exec(stmt, baseline, count, eid)
 	if err != nil {
 		return fmt.Errorf("failed to update tweet stat for user entity %d: %w", eid, err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+	if rows == 0 {
+		return sql.ErrNoRows
 	}
 	return nil
 }
