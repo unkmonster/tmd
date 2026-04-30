@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -54,7 +53,11 @@ func (s *Server) handleGetConfigRaw(w http.ResponseWriter, _ *http.Request) {
 	if err != nil {
 		if os.IsNotExist(err) {
 			defaultConf := config.Config{}
-			yamlData, _ := yaml.Marshal(defaultConf)
+			yamlData, err := yaml.Marshal(defaultConf)
+			if err != nil {
+				s.writeError(w, http.StatusInternalServerError, "Failed to marshal default config: "+err.Error())
+				return
+			}
 			s.writeJSON(w, http.StatusOK, NewSuccessResponse(ConfigRawResponse{
 				Content: string(yamlData),
 				Path:    confPath,
@@ -120,10 +123,6 @@ func (s *Server) handleUpdateConfigRaw(w http.ResponseWriter, r *http.Request) {
 	}))
 }
 
-var configFieldDefCache []config.FieldDef
-var configFieldMetaCache []configFieldMeta
-var configFieldMetaOnce sync.Once
-
 type configFieldMeta struct {
 	Name        string
 	Label       string
@@ -136,10 +135,8 @@ type configFieldMeta struct {
 	IsSensitive bool
 }
 
-func initConfigFieldMeta() {
-	fieldDefs := config.GetFieldDefs()
-	configFieldDefCache = fieldDefs
-	configFieldMetaCache = make([]configFieldMeta, len(fieldDefs))
+func buildConfigFieldMeta(fieldDefs []config.FieldDef) []configFieldMeta {
+	metaCache := make([]configFieldMeta, len(fieldDefs))
 	for i, fd := range fieldDefs {
 		meta := configFieldMeta{
 			Name:     fd.Name,
@@ -167,15 +164,17 @@ func initConfigFieldMeta() {
 		default:
 			meta.Label, meta.Type, meta.Group = fd.Name, "text", "basic"
 		}
-		configFieldMetaCache[i] = meta
+		metaCache[i] = meta
 	}
+	return metaCache
 }
 
 func buildConfigFieldItems(conf *config.Config) []ConfigFieldItem {
-	configFieldMetaOnce.Do(initConfigFieldMeta)
-	items := make([]ConfigFieldItem, 0, len(configFieldMetaCache))
-	for i, m := range configFieldMetaCache {
-		val := config.GetFieldValue(conf, configFieldDefCache[i])
+	fieldDefs := config.GetFieldDefs()
+	metaCache := buildConfigFieldMeta(fieldDefs)
+	items := make([]ConfigFieldItem, 0, len(metaCache))
+	for i, m := range metaCache {
+		val := config.GetFieldValue(conf, fieldDefs[i])
 		item := ConfigFieldItem{
 			Name:        m.Name,
 			Label:       m.Label,
@@ -283,9 +282,12 @@ func (s *Server) handleSaveConfigFields(w http.ResponseWriter, r *http.Request) 
 
 	log.Infoln("[WebUI] config saved via structured form")
 
-	s.config = newConf
+	*s.config = *newConf
 
-	yamlPreview, _ := yaml.Marshal(newConf)
+	yamlPreview, err := yaml.Marshal(newConf)
+	if err != nil {
+		log.Warnf("Failed to marshal yaml preview: %v", err)
+	}
 
 	s.writeJSON(w, http.StatusOK, NewSuccessResponse(map[string]interface{}{
 		"message":      "Configuration saved successfully",

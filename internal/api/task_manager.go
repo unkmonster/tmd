@@ -122,7 +122,7 @@ func (tm *TaskManager) GetAllTasks() []*Task {
 	for _, task := range tm.tasks {
 		// 浅拷贝 Task 本身
 		t := *task
-		
+
 		// 深拷贝嵌套的指针对象
 		if task.Progress != nil {
 			p := *task.Progress
@@ -140,7 +140,7 @@ func (tm *TaskManager) GetAllTasks() []*Task {
 			endedAt := *task.EndedAt
 			t.EndedAt = &endedAt
 		}
-		
+
 		tasks = append(tasks, &t)
 	}
 	return tasks
@@ -164,6 +164,9 @@ func (tm *TaskManager) UpdateTaskStatus(id string, status TaskStatus) bool {
 		task.StartedAt = &now
 	case TaskStatusCompleted, TaskStatusFailed, TaskStatusCancelled:
 		task.EndedAt = &now
+		if task.Cancel != nil {
+			task.Cancel()
+		}
 	}
 
 	return true
@@ -187,6 +190,9 @@ func (tm *TaskManager) SetTaskError(id string, err error) bool {
 	task.Error = err.Error()
 	now := time.Now()
 	task.EndedAt = &now
+	if task.Cancel != nil {
+		task.Cancel()
+	}
 
 	return true
 }
@@ -202,6 +208,27 @@ func (tm *TaskManager) UpdateTaskProgress(id string, progress *TaskProgress) boo
 	}
 
 	task.Progress = progress
+	return true
+}
+
+// CompleteTask 自动完成任务并设置结果，避免 SSE 竞态条件
+func (tm *TaskManager) CompleteTask(id string, result *TaskResult) bool {
+	tm.mu.Lock()
+	defer tm.mu.Unlock()
+
+	task, ok := tm.tasks[id]
+	if !ok {
+		return false
+	}
+
+	task.Result = result
+	task.Status = TaskStatusCompleted
+	now := time.Now()
+	task.EndedAt = &now
+	if task.Cancel != nil {
+		task.Cancel()
+	}
+
 	return true
 }
 
@@ -239,6 +266,21 @@ func (tm *TaskManager) CancelTask(id string) bool {
 	task.EndedAt = &now
 
 	return true
+}
+
+// CancelAllTasks 取消所有正在运行或排队中的任务
+func (tm *TaskManager) CancelAllTasks() {
+	tm.mu.Lock()
+	defer tm.mu.Unlock()
+
+	now := time.Now()
+	for _, task := range tm.tasks {
+		if task.Status == TaskStatusQueued || task.Status == TaskStatusRunning {
+			task.Status = TaskStatusCancelled
+			task.Cancel()
+			task.EndedAt = &now
+		}
+	}
 }
 
 // cleanupLoop 定期清理过期任务

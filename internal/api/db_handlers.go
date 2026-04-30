@@ -884,8 +884,10 @@ func (s *Server) handleDBUserPreviousNames(w http.ResponseWriter, r *http.Reques
 	}
 
 	// 获取总数
-	var total int
-	err = s.db.Get(&total, "SELECT COUNT(*) FROM user_previous_names WHERE uid = ?", uid)
+	total, err := database.Count(s.db, "user_previous_names", &database.QueryOptions{
+		Where: "uid = ?",
+		Args:  []interface{}{uid},
+	})
 	if err != nil {
 		s.writeError(w, http.StatusInternalServerError, err.Error())
 		return

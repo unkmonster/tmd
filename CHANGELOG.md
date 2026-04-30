@@ -7,6 +7,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ***
 
+## [3.2.8] - 2026-04-29
+
+### Added
+
+#### 输入校验增强
+
+| 校验项 | 规则 | 位置 |
+|--------|------|------|
+| ScreenName 格式 | 1-15字符，只允许字母、数字、下划线 | API + CLI |
+| List ID 有效性 | 必须大于 0 | API + CLI |
+
+#### 启动脚本
+
+| 文件 | 说明 |
+|------|------|
+| `start.bat` | Windows 启动脚本 |
+| `start.sh` | Linux/macOS 启动脚本 |
+
+### Changed
+
+| 文件 | 变更 |
+|------|------|
+| `internal/api/download_handlers.go` | 统一使用 `executeDownloadTask()` 执行下载任务，代码复用 |
+| `internal/api/task_manager.go` | 新增 `executeDownloadTask()` 方法，统一任务执行逻辑 |
+| `internal/api/handlers.go` | 处理器基类增强 |
+| `internal/cli/args.go` | 新增 `isValidScreenName()` 校验函数 |
+| `internal/service/download_service.go` | 下载服务优化 |
+| `main.go` | 主程序优化 |
+
+### Fixed
+
+- API 层移除重复的 HTTP 方法检查（已在路由层统一处理）
+- 批量下载增加参数校验，提前发现无效输入
+
+### Stats
+
+- **15 个文件变更**
+- **+356 行 / -279 行**
+
+***
+
 ## [3.2.7] - 2026-04-29
 
 ### Changed

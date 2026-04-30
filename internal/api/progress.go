@@ -30,15 +30,13 @@ func (r *SSEProgressReporter) OnProgress(taskID string, p service.Progress) {
 }
 
 func (r *SSEProgressReporter) OnComplete(taskID string, result service.Result) {
-	// 更新任务结果
-	r.server.taskManager.SetTaskResult(taskID, &TaskResult{
+	// 自动更新任务结果和状态，避免竞态条件
+	r.server.taskManager.CompleteTask(taskID, &TaskResult{
 		Downloaded: result.Downloaded,
 		Failed:     result.Failed,
 		Versioned:  result.Versioned,
 		Message:    result.Message,
 	})
-	// 更新任务状态为完成
-	r.server.taskManager.UpdateTaskStatus(taskID, TaskStatusCompleted)
 }
 
 func (r *SSEProgressReporter) OnError(taskID string, err error) {

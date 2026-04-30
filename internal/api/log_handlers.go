@@ -23,13 +23,15 @@ func (s *Server) handleGetLogs(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query()
 	levelStr := query.Get("level")
 	search := query.Get("q")
-	page, _ := strconv.Atoi(query.Get("page"))
-	pageSize, _ := strconv.Atoi(query.Get("pageSize"))
-
-	if page < 1 {
+	pageStr := query.Get("page")
+	page, err := strconv.Atoi(pageStr)
+	if err != nil || page < 1 {
 		page = 1
 	}
-	if pageSize < 1 || pageSize > 200 {
+
+	pageSizeStr := query.Get("pageSize")
+	pageSize, err := strconv.Atoi(pageSizeStr)
+	if err != nil || pageSize < 1 || pageSize > 200 {
 		pageSize = 100
 	}
 

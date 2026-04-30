@@ -101,17 +101,14 @@ func Execute(ctx context.Context, args []string, deps *Dependencies) error {
 				log.Warnf("User download failed: %v", err)
 				batchErr = err
 			}
-		} else if len(screenNames) == 0 && len(listIDs) == 1 && len(followingNames) == 0 {
-			if err := deps.DownloadService.ListDownload(ctx, "cli", listIDs[0], opts, reporter); err != nil {
-				log.Warnf("List download failed: %v", err)
-				batchErr = err
-			}
 		} else if len(screenNames) == 0 && len(listIDs) == 0 && len(followingNames) == 1 {
 			if err := deps.DownloadService.FollowingDownload(ctx, "cli", followingNames[0], opts, reporter); err != nil {
 				log.Warnf("Following download failed: %v", err)
 				batchErr = err
 			}
 		} else {
+			// 直接使用 BatchDownload 处理单个列表或多个列表的下载
+			// BatchDownload 在底层处理单个列表时不会产生性能浪费，并且能正确处理各种类型的 ListBase
 			if err := deps.DownloadService.BatchDownload(ctx, "cli", screenNames, listIDs, followingNames, opts, reporter); err != nil {
 				log.Warnf("Batch download failed: %v", err)
 				batchErr = err

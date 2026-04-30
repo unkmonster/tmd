@@ -9,16 +9,51 @@ import (
 	"github.com/unkmonster/tmd/internal/service"
 )
 
+// executeDownloadTask 执行下载任务的通用辅助方法
+func (s *Server) executeDownloadTask(task *Task, downloadFunc func() error) {
+	taskID := task.ID
+	go func() {
+		s.taskManager.UpdateTaskStatus(taskID, TaskStatusRunning)
+		if err := downloadFunc(); err != nil {
+			s.taskManager.SetTaskError(taskID, err)
+		}
+	}()
+}
+
+// isValidScreenName 校验 Twitter screen name 格式
+// 规则：1-15个字符，只允许字母、数字、下划线
+func isValidScreenName(screenName string) bool {
+	if len(screenName) < 1 || len(screenName) > 15 {
+		return false
+	}
+	for _, ch := range screenName {
+		if !((ch >= 'a' && ch <= 'z') ||
+			(ch >= 'A' && ch <= 'Z') ||
+			(ch >= '0' && ch <= '9') ||
+			ch == '_') {
+			return false
+		}
+	}
+	return true
+}
+
 func (s *Server) handleUsers(w http.ResponseWriter, r *http.Request) {
 	path := strings.TrimPrefix(r.URL.Path, "/api/v1/users/")
 	parts := strings.Split(path, "/")
 
 	if len(parts) < 2 {
-		s.writeError(w, http.StatusBadRequest, "Invalid path")
+		s.writeError(w, http.StatusNotFound, "Not found")
 		return
 	}
 
 	screenName := parts[0]
+
+	// 校验 screenName 格式
+	if !isValidScreenName(screenName) {
+		s.writeError(w, http.StatusBadRequest, "Invalid screen name format")
+		return
+	}
+
 	action := parts[1]
 
 	switch action {
@@ -47,11 +82,6 @@ func (s *Server) handleUsers(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleUserDownload(w http.ResponseWriter, r *http.Request, screenName string) {
-	if r.Method != http.MethodPost {
-		s.writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
-		return
-	}
-
 	var req UserDownloadTaskData
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		req = UserDownloadTaskData{}
@@ -67,14 +97,11 @@ func (s *Server) handleUserDownload(w http.ResponseWriter, r *http.Request, scre
 	}
 
 	reporter := NewSSEProgressReporter(s, task.ID)
-
-	go func() {
-		s.taskManager.UpdateTaskStatus(task.ID, TaskStatusRunning)
-		err := s.downloadService.UserDownload(task.Ctx, task.ID, screenName, opts, reporter)
-		if err != nil {
-			s.taskManager.SetTaskError(task.ID, err)
-		}
-	}()
+	taskCtx := task.Ctx
+	taskID := task.ID
+	s.executeDownloadTask(task, func() error {
+		return s.downloadService.UserDownload(taskCtx, taskID, screenName, opts, reporter)
+	})
 
 	s.writeJSON(w, http.StatusAccepted, NewSuccessResponse(map[string]interface{}{
 		"task_id":      task.ID,
@@ -88,24 +115,16 @@ func (s *Server) handleUserDownload(w http.ResponseWriter, r *http.Request, scre
 }
 
 func (s *Server) handleUserProfile(w http.ResponseWriter, r *http.Request, screenName string) {
-	if r.Method != http.MethodPost {
-		s.writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
-		return
-	}
-
 	req := ProfileDownloadTaskData{ScreenName: screenName}
 
 	task := s.taskManager.CreateTask(TaskTypeProfileDownload, &req)
 
 	reporter := NewSSEProgressReporter(s, task.ID)
-
-	go func() {
-		s.taskManager.UpdateTaskStatus(task.ID, TaskStatusRunning)
-		err := s.downloadService.ProfileDownload(task.Ctx, task.ID, []string{screenName}, reporter)
-		if err != nil {
-			s.taskManager.SetTaskError(task.ID, err)
-		}
-	}()
+	taskCtx := task.Ctx
+	taskID := task.ID
+	s.executeDownloadTask(task, func() error {
+		return s.downloadService.ProfileDownload(taskCtx, taskID, []string{screenName}, reporter)
+	})
 
 	s.writeJSON(w, http.StatusAccepted, NewSuccessResponse(map[string]interface{}{
 		"task_id":     task.ID,
@@ -116,11 +135,6 @@ func (s *Server) handleUserProfile(w http.ResponseWriter, r *http.Request, scree
 }
 
 func (s *Server) handleUserMark(w http.ResponseWriter, r *http.Request, screenName string) {
-	if r.Method != http.MethodPost {
-		s.writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
-		return
-	}
-
 	var req MarkDownloadedTaskData
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		req = MarkDownloadedTaskData{}
@@ -136,14 +150,11 @@ func (s *Server) handleUserMark(w http.ResponseWriter, r *http.Request, screenNa
 	}
 
 	reporter := NewSSEProgressReporter(s, task.ID)
-
-	go func() {
-		s.taskManager.UpdateTaskStatus(task.ID, TaskStatusRunning)
-		err := s.downloadService.MarkDownloaded(task.Ctx, task.ID, []string{screenName}, nil, nil, markTime, reporter)
-		if err != nil {
-			s.taskManager.SetTaskError(task.ID, err)
-		}
-	}()
+	taskCtx := task.Ctx
+	taskID := task.ID
+	s.executeDownloadTask(task, func() error {
+		return s.downloadService.MarkDownloaded(taskCtx, taskID, []string{screenName}, nil, nil, markTime, reporter)
+	})
 
 	s.writeJSON(w, http.StatusAccepted, NewSuccessResponse(map[string]interface{}{
 		"task_id":     task.ID,
@@ -155,11 +166,6 @@ func (s *Server) handleUserMark(w http.ResponseWriter, r *http.Request, screenNa
 }
 
 func (s *Server) handleListMark(w http.ResponseWriter, r *http.Request, listID uint64) {
-	if r.Method != http.MethodPost {
-		s.writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
-		return
-	}
-
 	var req ListMarkDownloadedTaskData
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		req = ListMarkDownloadedTaskData{}
@@ -175,14 +181,11 @@ func (s *Server) handleListMark(w http.ResponseWriter, r *http.Request, listID u
 	}
 
 	reporter := NewSSEProgressReporter(s, task.ID)
-
-	go func() {
-		s.taskManager.UpdateTaskStatus(task.ID, TaskStatusRunning)
-		err := s.downloadService.MarkDownloaded(task.Ctx, task.ID, nil, []uint64{listID}, nil, markTime, reporter)
-		if err != nil {
-			s.taskManager.SetTaskError(task.ID, err)
-		}
-	}()
+	taskCtx := task.Ctx
+	taskID := task.ID
+	s.executeDownloadTask(task, func() error {
+		return s.downloadService.MarkDownloaded(taskCtx, taskID, nil, []uint64{listID}, nil, markTime, reporter)
+	})
 
 	s.writeJSON(w, http.StatusAccepted, NewSuccessResponse(map[string]interface{}{
 		"task_id":   task.ID,
@@ -194,11 +197,6 @@ func (s *Server) handleListMark(w http.ResponseWriter, r *http.Request, listID u
 }
 
 func (s *Server) handleFollowingMark(w http.ResponseWriter, r *http.Request, screenName string) {
-	if r.Method != http.MethodPost {
-		s.writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
-		return
-	}
-
 	var req MarkDownloadedTaskData
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		req = MarkDownloadedTaskData{}
@@ -214,14 +212,11 @@ func (s *Server) handleFollowingMark(w http.ResponseWriter, r *http.Request, scr
 	}
 
 	reporter := NewSSEProgressReporter(s, task.ID)
-
-	go func() {
-		s.taskManager.UpdateTaskStatus(task.ID, TaskStatusRunning)
-		err := s.downloadService.MarkDownloaded(task.Ctx, task.ID, nil, nil, []string{screenName}, markTime, reporter)
-		if err != nil {
-			s.taskManager.SetTaskError(task.ID, err)
-		}
-	}()
+	taskCtx := task.Ctx
+	taskID := task.ID
+	s.executeDownloadTask(task, func() error {
+		return s.downloadService.MarkDownloaded(taskCtx, taskID, nil, nil, []string{screenName}, markTime, reporter)
+	})
 
 	s.writeJSON(w, http.StatusAccepted, NewSuccessResponse(map[string]interface{}{
 		"task_id":     task.ID,
@@ -233,11 +228,6 @@ func (s *Server) handleFollowingMark(w http.ResponseWriter, r *http.Request, scr
 }
 
 func (s *Server) handleFollowingDownload(w http.ResponseWriter, r *http.Request, screenName string) {
-	if r.Method != http.MethodPost {
-		s.writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
-		return
-	}
-
 	var req FollowingDownloadTaskData
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		req = FollowingDownloadTaskData{}
@@ -253,14 +243,11 @@ func (s *Server) handleFollowingDownload(w http.ResponseWriter, r *http.Request,
 	}
 
 	reporter := NewSSEProgressReporter(s, task.ID)
-
-	go func() {
-		s.taskManager.UpdateTaskStatus(task.ID, TaskStatusRunning)
-		err := s.downloadService.FollowingDownload(task.Ctx, task.ID, screenName, opts, reporter)
-		if err != nil {
-			s.taskManager.SetTaskError(task.ID, err)
-		}
-	}()
+	taskCtx := task.Ctx
+	taskID := task.ID
+	s.executeDownloadTask(task, func() error {
+		return s.downloadService.FollowingDownload(taskCtx, taskID, screenName, opts, reporter)
+	})
 
 	s.writeJSON(w, http.StatusAccepted, NewSuccessResponse(map[string]interface{}{
 		"task_id":      task.ID,
@@ -278,12 +265,18 @@ func (s *Server) handleLists(w http.ResponseWriter, r *http.Request) {
 	parts := strings.Split(path, "/")
 
 	if len(parts) < 2 {
-		s.writeError(w, http.StatusBadRequest, "Invalid path")
+		s.writeError(w, http.StatusNotFound, "Not found")
 		return
 	}
 
 	listID, err := strconv.ParseUint(parts[0], 10, 64)
 	if err != nil {
+		s.writeError(w, http.StatusBadRequest, "Invalid list ID")
+		return
+	}
+
+	// 校验 listID 有效性（必须大于 0）
+	if listID == 0 {
 		s.writeError(w, http.StatusBadRequest, "Invalid list ID")
 		return
 	}
@@ -303,11 +296,6 @@ func (s *Server) handleLists(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleListDownload(w http.ResponseWriter, r *http.Request, listID uint64) {
-	if r.Method != http.MethodPost {
-		s.writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
-		return
-	}
-
 	var req ListDownloadTaskData
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		req = ListDownloadTaskData{}
@@ -323,14 +311,11 @@ func (s *Server) handleListDownload(w http.ResponseWriter, r *http.Request, list
 	}
 
 	reporter := NewSSEProgressReporter(s, task.ID)
-
-	go func() {
-		s.taskManager.UpdateTaskStatus(task.ID, TaskStatusRunning)
-		err := s.downloadService.ListDownload(task.Ctx, task.ID, listID, opts, reporter)
-		if err != nil {
-			s.taskManager.SetTaskError(task.ID, err)
-		}
-	}()
+	taskCtx := task.Ctx
+	taskID := task.ID
+	s.executeDownloadTask(task, func() error {
+		return s.downloadService.ListDownload(taskCtx, taskID, listID, opts, reporter)
+	})
 
 	s.writeJSON(w, http.StatusAccepted, NewSuccessResponse(map[string]interface{}{
 		"task_id":      task.ID,
@@ -344,24 +329,16 @@ func (s *Server) handleListDownload(w http.ResponseWriter, r *http.Request, list
 }
 
 func (s *Server) handleListProfile(w http.ResponseWriter, r *http.Request, listID uint64) {
-	if r.Method != http.MethodPost {
-		s.writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
-		return
-	}
-
 	req := ListProfileTaskData{ListID: listID}
 
 	task := s.taskManager.CreateTask(TaskTypeListProfile, &req)
 
 	reporter := NewSSEProgressReporter(s, task.ID)
-
-	go func() {
-		s.taskManager.UpdateTaskStatus(task.ID, TaskStatusRunning)
-		err := s.downloadService.ListProfileDownload(task.Ctx, task.ID, listID, reporter)
-		if err != nil {
-			s.taskManager.SetTaskError(task.ID, err)
-		}
-	}()
+	taskCtx := task.Ctx
+	taskID := task.ID
+	s.executeDownloadTask(task, func() error {
+		return s.downloadService.ListProfileDownload(taskCtx, taskID, listID, reporter)
+	})
 
 	s.writeJSON(w, http.StatusAccepted, NewSuccessResponse(map[string]interface{}{
 		"task_id": task.ID,
@@ -372,11 +349,6 @@ func (s *Server) handleListProfile(w http.ResponseWriter, r *http.Request, listI
 }
 
 func (s *Server) handleJsonFileDownload(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		s.writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
-		return
-	}
-
 	var req JsonFileDownloadTaskData
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		s.writeError(w, http.StatusBadRequest, "Invalid request body")
@@ -390,14 +362,11 @@ func (s *Server) handleJsonFileDownload(w http.ResponseWriter, r *http.Request) 
 
 	task := s.taskManager.CreateTask(TaskTypeJsonFileDownload, &req)
 	reporter := NewSSEProgressReporter(s, task.ID)
-
-	go func() {
-		s.taskManager.UpdateTaskStatus(task.ID, TaskStatusRunning)
-		err := s.downloadService.JsonFileDownload(task.Ctx, task.ID, req.Paths, req.NoRetry, reporter)
-		if err != nil {
-			s.taskManager.SetTaskError(task.ID, err)
-		}
-	}()
+	taskCtx := task.Ctx
+	taskID := task.ID
+	s.executeDownloadTask(task, func() error {
+		return s.downloadService.JsonFileDownload(taskCtx, taskID, req.Paths, req.NoRetry, reporter)
+	})
 
 	s.writeJSON(w, http.StatusAccepted, NewSuccessResponse(map[string]interface{}{
 		"task_id":  task.ID,
@@ -409,11 +378,6 @@ func (s *Server) handleJsonFileDownload(w http.ResponseWriter, r *http.Request) 
 }
 
 func (s *Server) handleJsonFolderDownload(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		s.writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
-		return
-	}
-
 	var req JsonFolderDownloadTaskData
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		s.writeError(w, http.StatusBadRequest, "Invalid request body")
@@ -427,14 +391,11 @@ func (s *Server) handleJsonFolderDownload(w http.ResponseWriter, r *http.Request
 
 	task := s.taskManager.CreateTask(TaskTypeJsonFolderDownload, &req)
 	reporter := NewSSEProgressReporter(s, task.ID)
-
-	go func() {
-		s.taskManager.UpdateTaskStatus(task.ID, TaskStatusRunning)
-		err := s.downloadService.JsonFolderDownload(task.Ctx, task.ID, req.Paths, req.NoRetry, reporter)
-		if err != nil {
-			s.taskManager.SetTaskError(task.ID, err)
-		}
-	}()
+	taskCtx := task.Ctx
+	taskID := task.ID
+	s.executeDownloadTask(task, func() error {
+		return s.downloadService.JsonFolderDownload(taskCtx, taskID, req.Paths, req.NoRetry, reporter)
+	})
 
 	s.writeJSON(w, http.StatusAccepted, NewSuccessResponse(map[string]interface{}{
 		"task_id":  task.ID,
@@ -446,11 +407,6 @@ func (s *Server) handleJsonFolderDownload(w http.ResponseWriter, r *http.Request
 }
 
 func (s *Server) handleBatchDownload(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		s.writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
-		return
-	}
-
 	var req BatchDownloadTaskData
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		s.writeError(w, http.StatusBadRequest, "Invalid request body")
@@ -462,6 +418,28 @@ func (s *Server) handleBatchDownload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 校验所有 screenName 格式
+	for _, screenName := range req.Users {
+		if !isValidScreenName(screenName) {
+			s.writeError(w, http.StatusBadRequest, "Invalid screen name format: "+screenName)
+			return
+		}
+	}
+	for _, screenName := range req.FollowingNames {
+		if !isValidScreenName(screenName) {
+			s.writeError(w, http.StatusBadRequest, "Invalid screen name format: "+screenName)
+			return
+		}
+	}
+
+	// 校验所有 listID 有效性
+	for _, listID := range req.Lists {
+		if listID == 0 {
+			s.writeError(w, http.StatusBadRequest, "Invalid list ID: must be greater than 0")
+			return
+		}
+	}
+
 	task := s.taskManager.CreateTask(TaskTypeBatchDownload, &req)
 
 	opts := service.DownloadOptions{
@@ -471,14 +449,11 @@ func (s *Server) handleBatchDownload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	reporter := NewSSEProgressReporter(s, task.ID)
-
-	go func() {
-		s.taskManager.UpdateTaskStatus(task.ID, TaskStatusRunning)
-		err := s.downloadService.BatchDownload(task.Ctx, task.ID, req.Users, req.Lists, req.FollowingNames, opts, reporter)
-		if err != nil {
-			s.taskManager.SetTaskError(task.ID, err)
-		}
-	}()
+	taskCtx := task.Ctx
+	taskID := task.ID
+	s.executeDownloadTask(task, func() error {
+		return s.downloadService.BatchDownload(taskCtx, taskID, req.Users, req.Lists, req.FollowingNames, opts, reporter)
+	})
 
 	s.writeJSON(w, http.StatusAccepted, NewSuccessResponse(map[string]interface{}{
 		"task_id":         task.ID,

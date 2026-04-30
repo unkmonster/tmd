@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"io"
+	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -247,10 +248,33 @@ func runServer(conf *config.Config, appRootPath string, port int, loginOpts twit
 
 	client, additional, _, db := initializeClients(ctx, conf, appRootPath, loginOpts, false)
 
+	// 设置客户端日志
+	cliLogPath := filepath.Join(appRootPath, "client.log")
+	// 注意：Server 模式下通常长久运行，这里使用 O_APPEND 追加模式，而不是 O_TRUNC 截断
+	cliLogFile, err := os.OpenFile(cliLogPath, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0644)
+	if err != nil {
+		log.Fatalln("failed to create log file:", err)
+	}
+	// 在目前的简单实现中，我们把它交给 resty 管理，它会在应用退出时随进程关闭。
+	cli.SetClientLogger(client, cliLogFile)
+	for _, c := range additional {
+		cli.SetClientLogger(c, cliLogFile)
+	}
+
 	// 创建并启动 API Server
-	// 注意：不再使用 defer db.Close()，因为 gracefulShutdown 会处理所有资源清理
+	// 注意：不再使用 defer db.Close()，因为 GracefulShutdown 会处理所有资源清理
 	server := api.NewServer(client, additional, db, conf, appRootPath, logWriter)
-	if err := server.Start(port); err != nil {
+
+	// 信号处理
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
+	go func() {
+		sig := <-sigChan
+		log.Warnln("[server] caught signal:", sig)
+		server.GracefulShutdown("signal")
+	}()
+
+	if err := server.Start(port); err != nil && err != http.ErrServerClosed {
 		log.Fatalln("failed to start server:", err)
 	}
 }

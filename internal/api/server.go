@@ -58,13 +58,13 @@ func NewServer(client *resty.Client, additionalClients []*resty.Client, db *sqlx
 func (s *Server) Start(port int) error {
 	mux := http.NewServeMux()
 
-	mux.HandleFunc("/api/v1/health", s.handleHealth)
-	mux.HandleFunc("/api/v1/users/", s.handleUsers)
-	mux.HandleFunc("/api/v1/lists/", s.handleLists)
-	mux.HandleFunc("/api/v1/json/file/download", s.handleJsonFileDownload)
-	mux.HandleFunc("/api/v1/json/folder/download", s.handleJsonFolderDownload)
-	mux.HandleFunc("/api/v1/batch/download", s.handleBatchDownload)
-	mux.HandleFunc("/api/v1/tasks", s.handleTasks)
+	mux.HandleFunc("GET /api/v1/health", s.handleHealth)
+	mux.HandleFunc("POST /api/v1/users/", s.handleUsers)
+	mux.HandleFunc("POST /api/v1/lists/", s.handleLists)
+	mux.HandleFunc("POST /api/v1/json/file/download", s.handleJsonFileDownload)
+	mux.HandleFunc("POST /api/v1/json/folder/download", s.handleJsonFolderDownload)
+	mux.HandleFunc("POST /api/v1/batch/download", s.handleBatchDownload)
+	mux.HandleFunc("GET /api/v1/tasks", s.handleTasks)
 	mux.HandleFunc("GET /api/v1/tasks/{task_id}", s.handleGetTask)
 	mux.HandleFunc("POST /api/v1/tasks/{task_id}/cancel", s.handleCancelTask)
 
@@ -72,8 +72,8 @@ func (s *Server) Start(port int) error {
 	mux.HandleFunc("GET /tasks", s.handleWeb)
 	mux.HandleFunc("GET /data", s.handleWeb)
 	mux.HandleFunc("GET /system", s.handleWeb)
-	mux.HandleFunc("/static/", s.handleStatic)
-	mux.HandleFunc("/api/v1/sse/tasks", s.handleSSETasks)
+	mux.HandleFunc("GET /static/", s.handleStatic)
+	mux.HandleFunc("GET /api/v1/sse/tasks", s.handleSSETasks)
 
 	mux.HandleFunc("GET /api/v1/db/users", s.handleDBUsers)
 	mux.HandleFunc("GET /api/v1/db/users/{id}", s.handleDBUserDetail)
@@ -101,23 +101,29 @@ func (s *Server) Start(port int) error {
 	mux.HandleFunc("PUT /api/v1/db/user-links/{id}", s.handleDBUserLinkUpdate)
 	mux.HandleFunc("DELETE /api/v1/db/user-links/{id}", s.handleDBUserLinkDelete)
 
-	mux.HandleFunc("/api/v1/config", s.handleConfig)
-	mux.HandleFunc("/api/v1/config/raw", s.handleConfigRaw)
-	mux.HandleFunc("/api/v1/config/fields", s.handleConfigFields)
-	mux.HandleFunc("/api/v1/cookies", s.handleCookies)
-	mux.HandleFunc("/api/v1/cookies/raw", s.handleCookiesRaw)
-	mux.HandleFunc("/api/v1/server/restart", s.handleServerRestart)
-	mux.HandleFunc("/api/v1/server/shutdown", s.handleServerShutdown)
-	mux.HandleFunc("/api/v1/logs", s.handleGetLogs)
-	mux.HandleFunc("/api/v1/logs/stream", s.handleLogStream)
+	mux.HandleFunc("GET /api/v1/config", s.handleConfig)
+	mux.HandleFunc("GET /api/v1/config/raw", s.handleConfigRaw)
+	mux.HandleFunc("PUT /api/v1/config/raw", s.handleUpdateConfigRaw)
+	mux.HandleFunc("GET /api/v1/config/fields", s.handleConfigFields)
+	mux.HandleFunc("GET /api/v1/cookies", s.handleCookies)
+	mux.HandleFunc("GET /api/v1/cookies/raw", s.handleCookiesRaw)
+	mux.HandleFunc("PUT /api/v1/cookies/raw", s.handleUpdateCookiesRaw)
+	mux.HandleFunc("POST /api/v1/server/restart", s.handleServerRestart)
+	mux.HandleFunc("POST /api/v1/server/shutdown", s.handleServerShutdown)
+	mux.HandleFunc("GET /api/v1/logs", s.handleGetLogs)
+	mux.HandleFunc("GET /api/v1/logs/stream", s.handleLogStream)
 
 	var handler http.Handler = mux
-	handler = loggingMiddleware(handler)
+
+	// 注意中间件的包裹顺序：最外层是 Logging，里面一层是 CORS，最里面是 Mux。
+	// 这样 Logging 就能记录到所有请求，包括那些被 CORS 拦截的 OPTIONS 预检请求。
 	handler = cors.New(cors.Options{
 		AllowedOrigins: []string{"*"},
 		AllowedMethods: []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowedHeaders: []string{"Content-Type", "Authorization"},
 	}).Handler(handler)
+
+	handler = loggingMiddleware(handler)
 
 	addr := fmt.Sprintf(":%d", port)
 	log.Infoln("API server starting on", addr)
@@ -134,11 +140,6 @@ func (s *Server) Start(port int) error {
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		s.writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
-		return
-	}
-
 	if err := s.db.Ping(); err != nil {
 		s.writeJSON(w, http.StatusServiceUnavailable, NewErrorResponse("Database unavailable"))
 		return
@@ -164,46 +165,41 @@ func (s *Server) writeError(w http.ResponseWriter, status int, message string) {
 	s.writeJSON(w, status, NewErrorResponse(message))
 }
 
-func (s *Server) handleServerRestart(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		s.writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
-		return
+func (s *Server) handleServerAction(w http.ResponseWriter, action string) {
+	message := "Server shutting down..."
+	if action == "restart" {
+		message = "Server restarting..."
 	}
 
 	s.writeJSON(w, http.StatusOK, NewSuccessResponse(map[string]interface{}{
-		"message": "Server restarting...",
-		"action":  "restart",
+		"message": message,
+		"action":  action,
 	}))
 
-	log.Infoln("[WebUI] received restart request, performing graceful shutdown...")
+	log.Infof("[WebUI] received %s request, performing graceful shutdown...", action)
 
 	go func() {
 		time.Sleep(500 * time.Millisecond)
-		s.gracefulShutdown("restart")
+		s.GracefulShutdown(action)
 	}()
 }
 
-func (s *Server) handleServerShutdown(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		s.writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
-		return
-	}
-
-	s.writeJSON(w, http.StatusOK, NewSuccessResponse(map[string]interface{}{
-		"message": "Server shutting down...",
-		"action":  "shutdown",
-	}))
-
-	log.Infoln("[WebUI] received shutdown request, performing graceful shutdown...")
-
-	go func() {
-		time.Sleep(500 * time.Millisecond)
-		s.gracefulShutdown("shutdown")
-	}()
+func (s *Server) handleServerRestart(w http.ResponseWriter, _ *http.Request) {
+	s.handleServerAction(w, "restart")
 }
 
-func (s *Server) gracefulShutdown(reason string) {
+func (s *Server) handleServerShutdown(w http.ResponseWriter, _ *http.Request) {
+	s.handleServerAction(w, "shutdown")
+}
+
+func (s *Server) GracefulShutdown(reason string) {
 	log.Infof("[WebUI] graceful shutdown started (reason: %s)", reason)
+
+	if s.taskManager != nil {
+		s.taskManager.CancelAllTasks()
+		log.Infoln("[WebUI] all running tasks cancelled")
+		time.Sleep(1 * time.Second)
+	}
 
 	if s.httpServer != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -234,5 +230,10 @@ func (s *Server) gracefulShutdown(reason string) {
 
 	time.Sleep(100 * time.Millisecond)
 	log.Infoln("[WebUI] shutdown complete")
-	os.Exit(0)
+
+	if reason == "restart" {
+		os.Exit(2) // 特殊退出码，通知外部守护进程重启
+	} else {
+		os.Exit(0) // 正常关闭
+	}
 }

@@ -65,6 +65,15 @@ func (s *downloadServiceImpl) resolveFollowings(ctx context.Context, screenNames
 	return lists
 }
 
+// initDownloader 初始化下载器组件，返回 versionManager, fileWriter, downloader
+func (s *downloadServiceImpl) initDownloader() (*downloader.DefaultVersionManager, *downloader.DefaultFileWriter, *downloader.DefaultDownloader) {
+	versionManager := downloader.NewVersionManagerWithWriter(".versions", nil)
+	fileWriter := downloader.NewFileWriter(versionManager)
+	versionManager.SetFileWriter(fileWriter)
+	dwn := downloader.NewDownloader(fileWriter)
+	return versionManager, fileWriter, dwn
+}
+
 // UserDownload 下载用户推文
 func (s *downloadServiceImpl) UserDownload(ctx context.Context, taskID string, screenName string, opts DownloadOptions, reporter ProgressReporter) error {
 	if reporter == nil {
@@ -95,10 +104,7 @@ func (s *downloadServiceImpl) UserDownload(ctx context.Context, taskID string, s
 	}
 
 	// 初始化下载器
-	versionManager := downloader.NewVersionManagerWithWriter(".versions", nil)
-	fileWriter := downloader.NewFileWriter(versionManager)
-	versionManager.SetFileWriter(fileWriter)
-	dwn := downloader.NewDownloader(fileWriter)
+	versionManager, fileWriter, dwn := s.initDownloader()
 
 	// 执行批量下载（单个用户）
 	failedTweets, _, err := downloading.BatchDownloadAny(ctx, s.deps.Client, s.deps.DB, nil, []*twitter.User{user}, pathHelper.Root, pathHelper.Users, opts.AutoFollow, s.deps.AdditionalClients, dwn, fileWriter)
@@ -157,10 +163,7 @@ func (s *downloadServiceImpl) ListDownload(ctx context.Context, taskID string, l
 	reporter.OnProgress(taskID, Progress{Stage: "downloading", Current: fmt.Sprintf("list:%d", listID)})
 
 	// 初始化下载器
-	versionManager := downloader.NewVersionManagerWithWriter(".versions", nil)
-	fileWriter := downloader.NewFileWriter(versionManager)
-	versionManager.SetFileWriter(fileWriter)
-	dwn := downloader.NewDownloader(fileWriter)
+	versionManager, fileWriter, dwn := s.initDownloader()
 
 	// 执行下载 - BatchDownloadAny 会处理列表同步并返回列表成员
 	failedTweets, listMembers, err := downloading.BatchDownloadAny(ctx, s.deps.Client, s.deps.DB, []twitter.ListBase{list}, nil, pathHelper.Root, pathHelper.Users, opts.AutoFollow, s.deps.AdditionalClients, dwn, fileWriter)
@@ -223,10 +226,7 @@ func (s *downloadServiceImpl) FollowingDownload(ctx context.Context, taskID stri
 	following := user.Following()
 
 	// 初始化下载器
-	versionManager := downloader.NewVersionManagerWithWriter(".versions", nil)
-	fileWriter := downloader.NewFileWriter(versionManager)
-	versionManager.SetFileWriter(fileWriter)
-	dwn := downloader.NewDownloader(fileWriter)
+	versionManager, fileWriter, dwn := s.initDownloader()
 
 	// 执行批量下载 - 将 Following 作为 List 传递给 BatchDownloadAny
 	// 这样可以通过 syncListAndGetMembers 同步列表成员，并返回完整 User 对象
@@ -271,10 +271,7 @@ func (s *downloadServiceImpl) ProfileDownload(ctx context.Context, taskID string
 		return err
 	}
 
-	versionManager := downloader.NewVersionManagerWithWriter(".versions", nil)
-	fileWriter := downloader.NewFileWriter(versionManager)
-	versionManager.SetFileWriter(fileWriter)
-	dwn := downloader.NewDownloader(fileWriter)
+	versionManager, fileWriter, dwn := s.initDownloader()
 
 	unique := make([]string, 0)
 	seen := make(map[string]bool)
@@ -381,12 +378,9 @@ func (s *downloadServiceImpl) JsonFileDownload(ctx context.Context, taskID strin
 		return err
 	}
 
-	versionManager := downloader.NewVersionManagerWithWriter(".versions", nil)
-	fileWriter := downloader.NewFileWriter(versionManager)
-	versionManager.SetFileWriter(fileWriter)
-	dwn := downloader.NewDownloader(fileWriter)
+	_, fileWriter, dwn := s.initDownloader()
 
-	// 使用 pathHelper.Users 确保与 profile 下载目录结构一致
+	// 使用 pathHelper.Users 确保与 profile 下载目录一致
 	// 日志已在 downloading 层打印
 	results := downloading.DownloadThirdPartyTweets(ctx, s.deps.Client, pathHelper.Users, dwn, fileWriter, paths...)
 
@@ -423,10 +417,7 @@ func (s *downloadServiceImpl) JsonFolderDownload(ctx context.Context, taskID str
 		return err
 	}
 
-	versionManager := downloader.NewVersionManagerWithWriter(".versions", nil)
-	fileWriter := downloader.NewFileWriter(versionManager)
-	versionManager.SetFileWriter(fileWriter)
-	dwn := downloader.NewDownloader(fileWriter)
+	_, fileWriter, dwn := s.initDownloader()
 
 	// 使用 pathHelper.Users 确保与 profile 下载目录结构一致
 	// 日志已在 downloading 层打印
@@ -482,10 +473,7 @@ func (s *downloadServiceImpl) BatchDownload(ctx context.Context, taskID string, 
 	reporter.OnProgress(taskID, Progress{Stage: "downloading", Total: len(users) + len(lists)})
 
 	// 初始化下载器
-	versionManager := downloader.NewVersionManagerWithWriter(".versions", nil)
-	fileWriter := downloader.NewFileWriter(versionManager)
-	versionManager.SetFileWriter(fileWriter)
-	dwn := downloader.NewDownloader(fileWriter)
+	versionManager, fileWriter, dwn := s.initDownloader()
 
 	// 执行批量下载（返回列表成员用于 Profile 下载）
 	failedTweets, listMembers, err := downloading.BatchDownloadAny(ctx, s.deps.Client, s.deps.DB, lists, users, pathHelper.Root, pathHelper.Users, opts.AutoFollow, s.deps.AdditionalClients, dwn, fileWriter)

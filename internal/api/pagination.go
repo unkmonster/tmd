@@ -26,13 +26,15 @@ type PaginatedResponse struct {
 
 // NewPagination 从请求创建分页参数
 func NewPagination(r *http.Request) *Pagination {
-	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
-	if page < 1 {
+	pageStr := r.URL.Query().Get("page")
+	page, err := strconv.Atoi(pageStr)
+	if err != nil || page < 1 {
 		page = 1
 	}
 
-	pageSize, _ := strconv.Atoi(r.URL.Query().Get("pageSize"))
-	if pageSize < 1 || pageSize > 100 {
+	pageSizeStr := r.URL.Query().Get("pageSize")
+	pageSize, err := strconv.Atoi(pageSizeStr)
+	if err != nil || pageSize < 1 || pageSize > 200 {
 		pageSize = 20
 	}
 
