@@ -182,7 +182,6 @@ func main() {
 			AdditionalClients: additional,
 			DB:                db,
 			Config:            conf,
-			AppRootPath:       appRootPath,
 		},
 	}
 

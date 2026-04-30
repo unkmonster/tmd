@@ -73,7 +73,6 @@ func TestExecute_ParseArgsError(t *testing.T) {
 		Dependencies: service.Dependencies{
 			Client:      resty.New(),
 			Config:      &config.Config{},
-			AppRootPath: "/tmp",
 		},
 	}
 
@@ -100,7 +99,6 @@ func TestExecute_JsonDownload(t *testing.T) {
 		Dependencies: service.Dependencies{
 			Client:      resty.New(),
 			Config:      &config.Config{},
-			AppRootPath: "/tmp",
 		},
 		DownloadService: mockSvc,
 	}
@@ -120,7 +118,6 @@ func TestExecute_JsonDownload_NoRetry(t *testing.T) {
 		Dependencies: service.Dependencies{
 			Client:      resty.New(),
 			Config:      &config.Config{},
-			AppRootPath: "/tmp",
 		},
 		DownloadService: mockSvc,
 	}
@@ -141,7 +138,6 @@ func TestExecute_MarkDownloaded(t *testing.T) {
 		Dependencies: service.Dependencies{
 			Client:      resty.New(),
 			Config:      &config.Config{},
-			AppRootPath: "/tmp",
 		},
 		DownloadService: mockSvc,
 	}
@@ -161,7 +157,6 @@ func TestExecute_ProfileDownload(t *testing.T) {
 		Dependencies: service.Dependencies{
 			Client:      resty.New(),
 			Config:      &config.Config{},
-			AppRootPath: "/tmp",
 		},
 		DownloadService: mockSvc,
 	}
@@ -181,7 +176,6 @@ func TestExecute_ListProfileDownload(t *testing.T) {
 		Dependencies: service.Dependencies{
 			Client:      resty.New(),
 			Config:      &config.Config{},
-			AppRootPath: "/tmp",
 		},
 		DownloadService: mockSvc,
 	}
@@ -198,7 +192,6 @@ func TestExecute_NoArgs(t *testing.T) {
 		Dependencies: service.Dependencies{
 			Client:      resty.New(),
 			Config:      &config.Config{},
-			AppRootPath: "/tmp",
 		},
 		DownloadService: nil,
 	}
@@ -214,7 +207,6 @@ func TestExecute_NoArgs_LogsHint(t *testing.T) {
 		Dependencies: service.Dependencies{
 			Client:      resty.New(),
 			Config:      &config.Config{},
-			AppRootPath: "/tmp",
 		},
 	}
 
@@ -237,7 +229,6 @@ func TestExecute_DefaultServiceCreation(t *testing.T) {
 			AdditionalClients: []*resty.Client{},
 			DB:                &sqlx.DB{},
 			Config:            &config.Config{},
-			AppRootPath:       "/tmp",
 		},
 		DownloadService: nil,
 	}
@@ -263,7 +254,6 @@ func TestDependencies_Struct(t *testing.T) {
 			AdditionalClients: []*resty.Client{client},
 			DB:                db,
 			Config:            cfg,
-			AppRootPath:       "/app/root",
 		},
 		DownloadService: nil,
 	}
@@ -272,7 +262,6 @@ func TestDependencies_Struct(t *testing.T) {
 	assert.Len(t, deps.AdditionalClients, 1)
 	assert.Equal(t, db, deps.DB)
 	assert.Equal(t, cfg, deps.Config)
-	assert.Equal(t, "/app/root", deps.AppRootPath)
 	assert.Nil(t, deps.DownloadService)
 }
 

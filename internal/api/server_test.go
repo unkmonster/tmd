@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -18,6 +19,7 @@ import (
 
 	"github.com/unkmonster/tmd/internal/config"
 	"github.com/unkmonster/tmd/internal/database"
+	"github.com/unkmonster/tmd/internal/service"
 )
 
 // setupTestServer 创建测试服务器
@@ -101,6 +103,67 @@ func TestHandleHealth_DatabaseUnavailable(t *testing.T) {
 	server.handleHealth(rr, req)
 
 	assert.Equal(t, http.StatusServiceUnavailable, rr.Code)
+}
+
+func TestFormatTaskMarkTime(t *testing.T) {
+	assert.Nil(t, formatTaskMarkTime(nil))
+
+	ts := time.Date(2026, 4, 30, 18, 30, 45, 0, time.Local)
+	got := formatTaskMarkTime(&ts)
+	if got == nil {
+		t.Fatal("expected formatted timestamp")
+	}
+	assert.Equal(t, "2026-04-30T18:30:45", *got)
+}
+
+func TestServer_EnqueueTaskPassesTaskContextAndReporter(t *testing.T) {
+	server, db := setupTestServer(t)
+	defer db.Close()
+
+	task := server.taskManager.CreateTask(TaskTypeUserDownload, nil)
+	done := make(chan struct{})
+
+	var gotCtx context.Context
+	var gotTaskID string
+	var gotReporter service.ProgressReporter
+
+	server.enqueueTask(task, func(ctx context.Context, taskID string, reporter service.ProgressReporter) error {
+		gotCtx = ctx
+		gotTaskID = taskID
+		gotReporter = reporter
+		close(done)
+		return nil
+	})
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("enqueueTask did not execute task")
+	}
+
+	assert.Same(t, task.Ctx, gotCtx)
+	assert.Equal(t, task.ID, gotTaskID)
+	assert.NotNil(t, gotReporter)
+}
+
+func TestServer_ExecuteDownloadTaskSkipsCancelledTask(t *testing.T) {
+	server, db := setupTestServer(t)
+	defer db.Close()
+
+	task := server.taskManager.CreateTask(TaskTypeUserDownload, nil)
+	assert.True(t, server.taskManager.CancelTask(task.ID))
+
+	executed := make(chan struct{}, 1)
+	server.executeDownloadTask(task, func() error {
+		executed <- struct{}{}
+		return nil
+	})
+
+	select {
+	case <-executed:
+		t.Fatal("cancelled task should not execute download function")
+	case <-time.After(200 * time.Millisecond):
+	}
 }
 
 func TestHandleConfig_Success(t *testing.T) {

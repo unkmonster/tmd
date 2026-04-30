@@ -18,6 +18,9 @@ type Result struct {
 }
 
 // ProgressReporter 进度报告接口
+//
+// OnError 仅用于最终任务状态上报。
+// 对于 service 层的 fatal error，应直接返回 error，由外层编排代码统一决定是否调用 OnError/SetTaskError。
 type ProgressReporter interface {
 	OnProgress(taskID string, p Progress)
 	OnComplete(taskID string, r Result)

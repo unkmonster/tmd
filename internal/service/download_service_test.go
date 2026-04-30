@@ -86,7 +86,6 @@ func createTestDependencies(t *testing.T) *Dependencies {
 		AdditionalClients: []*resty.Client{},
 		DB:                db,
 		Config:            &config.Config{RootPath: "/test/path"},
-		AppRootPath:       "/app",
 	}
 }
 
@@ -125,6 +124,49 @@ func TestDownloadServiceImpl_ValidReporterHandling(t *testing.T) {
 	mockReporter := NewMockProgressReporter()
 	reporter := impl.getReporterOrDefault(mockReporter)
 	assert.Equal(t, mockReporter, reporter)
+}
+
+func TestDownloadServiceImpl_CompleteProfileTaskWithoutDownloads(t *testing.T) {
+	deps := createTestDependencies(t)
+	service, err := NewDownloadService(deps)
+	require.NoError(t, err)
+	impl := service.(*downloadServiceImpl)
+
+	reporter := NewMockProgressReporter()
+	impl.completeProfileTask("task-1", reporter, nil)
+
+	require.Len(t, reporter.CompleteCalls, 1)
+	assert.Equal(t, "No profile downloads performed", reporter.CompleteCalls[0].Result.Message)
+}
+
+func TestDownloadServiceImpl_CompleteTaskWithProfileWarning(t *testing.T) {
+	deps := createTestDependencies(t)
+	service, err := NewDownloadService(deps)
+	require.NoError(t, err)
+	impl := service.(*downloadServiceImpl)
+
+	reporter := NewMockProgressReporter()
+	stats := &Result{Downloaded: 2, Failed: 1, Versioned: 3}
+	impl.completeTask("task-1", reporter, "User download completed", stats, "with profile warnings")
+
+	require.Len(t, reporter.CompleteCalls, 1)
+	assert.Equal(t, "User download completed (with profile warnings)", reporter.CompleteCalls[0].Result.Message)
+	assert.Equal(t, 2, reporter.CompleteCalls[0].Result.Downloaded)
+	assert.Equal(t, 1, reporter.CompleteCalls[0].Result.Failed)
+	assert.Equal(t, 3, reporter.CompleteCalls[0].Result.Versioned)
+}
+
+func TestDownloadServiceImpl_UserDownloadErrorDoesNotCallReporterOnError(t *testing.T) {
+	impl := &downloadServiceImpl{
+		deps: &Dependencies{
+			Config: &config.Config{RootPath: ""},
+		},
+	}
+	reporter := NewMockProgressReporter()
+
+	err := impl.UserDownload(context.Background(), "task-1", "someone", DownloadOptions{}, reporter)
+	require.Error(t, err)
+	assert.Empty(t, reporter.ErrorCalls)
 }
 
 func TestDownloadOptions_Combinations(t *testing.T) {
@@ -211,9 +253,8 @@ func TestDownloadServiceImpl_WithAdditionalClients(t *testing.T) {
 			resty.New(),
 			resty.New(),
 		},
-		DB:          &sqlx.DB{},
-		Config:      &config.Config{RootPath: "/test"},
-		AppRootPath: "/app",
+		DB:     &sqlx.DB{},
+		Config: &config.Config{RootPath: "/test"},
 	}
 
 	service, err := NewDownloadService(deps)
@@ -289,7 +330,6 @@ func TestDownloadServiceImpl_DependenciesVariations(t *testing.T) {
 				AdditionalClients: []*resty.Client{},
 				DB:                nil,
 				Config:            &config.Config{RootPath: "/test"},
-				AppRootPath:       "/app",
 			},
 		},
 		{
@@ -299,7 +339,6 @@ func TestDownloadServiceImpl_DependenciesVariations(t *testing.T) {
 				AdditionalClients: []*resty.Client{},
 				DB:                &sqlx.DB{},
 				Config:            &config.Config{RootPath: "/test"},
-				AppRootPath:       "/app",
 			},
 		},
 		{
@@ -310,9 +349,8 @@ func TestDownloadServiceImpl_DependenciesVariations(t *testing.T) {
 					resty.New(),
 					resty.New(),
 				},
-				DB:          &sqlx.DB{},
-				Config:      &config.Config{RootPath: "/test"},
-				AppRootPath: "/app",
+				DB:     &sqlx.DB{},
+				Config: &config.Config{RootPath: "/test"},
 			},
 		},
 		{
@@ -322,7 +360,6 @@ func TestDownloadServiceImpl_DependenciesVariations(t *testing.T) {
 				AdditionalClients: []*resty.Client{},
 				DB:                &sqlx.DB{},
 				Config:            nil,
-				AppRootPath:       "/app",
 			},
 		},
 	}
@@ -417,7 +454,7 @@ func TestMockProgressReporter_ErrorVariations(t *testing.T) {
 	assert.Nil(t, reporter.ErrorCalls[2].Err)
 }
 
-func TestDownloadServiceImpl_UserDownload_ReportsError(t *testing.T) {
+func TestDownloadServiceImpl_UserDownload_ReturnsErrorWithoutReporterOnError(t *testing.T) {
 	deps := createTestDependencies(t)
 	tempDir := t.TempDir()
 	rootFile := filepath.Join(tempDir, "root-file")
@@ -432,8 +469,7 @@ func TestDownloadServiceImpl_UserDownload_ReportsError(t *testing.T) {
 	err = impl.UserDownload(context.Background(), "task-1", "elonmusk", DownloadOptions{}, reporter)
 	require.Error(t, err)
 
-	require.Len(t, reporter.ErrorCalls, 1)
-	assert.ErrorIs(t, reporter.ErrorCalls[0].Err, err)
+	assert.Empty(t, reporter.ErrorCalls)
 	assert.Empty(t, reporter.CompleteCalls)
 }
 

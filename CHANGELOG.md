@@ -7,6 +7,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ***
 
+## [3.2.12] - 2026-04-29
+
+### Added
+
+#### 下载处理器优化
+
+| 功能 | 说明 |
+|------|------|
+| `enqueueTask()` | 新增任务队列方法，简化任务创建 |
+| `formatTaskMarkTime()` | 新增时间格式化函数 |
+| 状态检查 | `executeDownloadTask()` 添加终端状态判断 |
+
+### Changed
+
+#### 下载服务优化
+
+| 文件 | 变更 |
+|------|------|
+| `internal/service/download_service.go` | 删除 `returnWithReportedError()`，简化错误处理 |
+| `internal/service/download_service.go` | `completeTask()` 新增 `warning` 参数 |
+| `internal/service/download_service.go` | Profile 下载失败时添加警告而非直接失败 |
+| `internal/service/download_service.go` | 移除冗余的 `DB != nil` 检查 |
+| `internal/api/download_handlers.go` | 所有处理器统一使用 `enqueueTask()` |
+
+#### 代码清理
+
+| 文件 | 变更 |
+|------|------|
+| `internal/api/server.go` | 移除未使用的导入 |
+| `main.go` | 主程序优化 |
+
+### Fixed
+
+- 修复任务状态转换时的竞态条件
+- 修复 Profile 下载失败导致整个任务失败的问题
+
+### Stats
+
+- **12 个文件变更**
+- **+223 行 / -175 行**
+
+***
+
 ## [3.2.11] - 2026-04-29
 
 ### Added

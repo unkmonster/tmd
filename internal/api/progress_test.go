@@ -12,14 +12,13 @@ import (
 
 func TestNewSSEProgressReporter(t *testing.T) {
 	server := &Server{}
-	reporter := NewSSEProgressReporter(server, "task_123")
+	reporter := NewSSEProgressReporter(server)
 
 	assert.NotNil(t, reporter)
 
 	sseReporter, ok := reporter.(*SSEProgressReporter)
 	assert.True(t, ok)
 	assert.Equal(t, server, sseReporter.server)
-	assert.Equal(t, "task_123", sseReporter.taskID)
 }
 
 func TestSSEProgressReporter_OnProgress(t *testing.T) {
@@ -30,7 +29,7 @@ func TestSSEProgressReporter_OnProgress(t *testing.T) {
 
 	task := tm.CreateTask(TaskTypeUserDownload, nil)
 
-	reporter := NewSSEProgressReporter(server, task.ID)
+	reporter := NewSSEProgressReporter(server)
 
 	progress := service.Progress{
 		Stage:     "downloading",
@@ -55,7 +54,7 @@ func TestSSEProgressReporter_OnProgress_NotFound(t *testing.T) {
 		taskManager: NewTaskManager(),
 	}
 
-	reporter := NewSSEProgressReporter(server, "non_existent_task")
+	reporter := NewSSEProgressReporter(server)
 
 	progress := service.Progress{
 		Total:     100,
@@ -74,7 +73,7 @@ func TestSSEProgressReporter_OnComplete(t *testing.T) {
 	task := tm.CreateTask(TaskTypeUserDownload, nil)
 	tm.UpdateTaskStatus(task.ID, TaskStatusRunning)
 
-	reporter := NewSSEProgressReporter(server, task.ID)
+	reporter := NewSSEProgressReporter(server)
 
 	result := service.Result{
 		Downloaded: 95,
@@ -104,7 +103,7 @@ func TestSSEProgressReporter_OnError(t *testing.T) {
 	task := tm.CreateTask(TaskTypeUserDownload, nil)
 	tm.UpdateTaskStatus(task.ID, TaskStatusRunning)
 
-	reporter := NewSSEProgressReporter(server, task.ID)
+	reporter := NewSSEProgressReporter(server)
 
 	testErr := errors.New("download failed: network error")
 
@@ -124,7 +123,7 @@ func TestSSEProgressReporter_MultipleProgressUpdates(t *testing.T) {
 	}
 
 	task := tm.CreateTask(TaskTypeUserDownload, nil)
-	reporter := NewSSEProgressReporter(server, task.ID)
+	reporter := NewSSEProgressReporter(server)
 
 	stages := []struct {
 		progress service.Progress
@@ -192,7 +191,7 @@ func TestSSEProgressReporter_CompleteWorkflow(t *testing.T) {
 
 	task := tm.CreateTask(TaskTypeUserDownload, &UserDownloadTaskData{ScreenName: "testuser"})
 
-	reporter := NewSSEProgressReporter(server, task.ID)
+	reporter := NewSSEProgressReporter(server)
 
 	reporter.OnProgress(task.ID, service.Progress{
 		Stage:     "syncing",
@@ -228,7 +227,7 @@ func TestSSEProgressReporter_ErrorWorkflow(t *testing.T) {
 	}
 
 	task := tm.CreateTask(TaskTypeUserDownload, nil)
-	reporter := NewSSEProgressReporter(server, task.ID)
+	reporter := NewSSEProgressReporter(server)
 
 	reporter.OnProgress(task.ID, service.Progress{
 		Total:     100,

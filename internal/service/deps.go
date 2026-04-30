@@ -15,7 +15,6 @@ type Dependencies struct {
 	AdditionalClients []*resty.Client
 	DB                *sqlx.DB
 	Config            *config.Config
-	AppRootPath       string
 }
 
 // Validate 验证依赖项是否完整

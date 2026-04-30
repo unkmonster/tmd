@@ -16,14 +16,12 @@ func TestDependencies_Struct(t *testing.T) {
 		Client:            resty.New(),
 		AdditionalClients: []*resty.Client{resty.New(), resty.New()},
 		Config:            &config.Config{RootPath: "/test/path"},
-		AppRootPath:       "/app/root",
 	}
 
 	assert.NotNil(t, deps.Client)
 	assert.Len(t, deps.AdditionalClients, 2)
 	assert.NotNil(t, deps.Config)
 	assert.Equal(t, "/test/path", deps.Config.RootPath)
-	assert.Equal(t, "/app/root", deps.AppRootPath)
 }
 
 func TestDependencies_Validate(t *testing.T) {
@@ -39,7 +37,6 @@ func TestDependencies_Validate(t *testing.T) {
 				Client:      resty.New(),
 				DB:          &sqlx.DB{},
 				Config:      &config.Config{RootPath: "/test"},
-				AppRootPath: "/app",
 			},
 			wantErr: false,
 		},
@@ -55,7 +52,6 @@ func TestDependencies_Validate(t *testing.T) {
 				Client:      nil,
 				DB:          &sqlx.DB{},
 				Config:      &config.Config{RootPath: "/test"},
-				AppRootPath: "/app",
 			},
 			wantErr: true,
 			errMsg:  "client is required",
@@ -66,7 +62,6 @@ func TestDependencies_Validate(t *testing.T) {
 				Client:      resty.New(),
 				DB:          &sqlx.DB{},
 				Config:      nil,
-				AppRootPath: "/app",
 			},
 			wantErr: true,
 			errMsg:  "config is required",
@@ -77,7 +72,6 @@ func TestDependencies_Validate(t *testing.T) {
 				Client:      resty.New(),
 				DB:          &sqlx.DB{},
 				Config:      &config.Config{RootPath: ""},
-				AppRootPath: "/app",
 			},
 			wantErr: true,
 			errMsg:  "config.RootPath is required",
@@ -87,7 +81,6 @@ func TestDependencies_Validate(t *testing.T) {
 			deps: &Dependencies{
 				Client:      resty.New(),
 				Config:      &config.Config{RootPath: "/test"},
-				AppRootPath: "/app",
 				DB:          nil,
 			},
 			wantErr: true,
@@ -114,7 +107,6 @@ func TestNewDownloadService(t *testing.T) {
 		AdditionalClients: []*resty.Client{},
 		DB:                &sqlx.DB{},
 		Config:            &config.Config{RootPath: "/test"},
-		AppRootPath:       "/app",
 	}
 
 	service, err := NewDownloadService(deps)
@@ -133,7 +125,6 @@ func TestNewDownloadService_WithNilDB(t *testing.T) {
 		AdditionalClients: []*resty.Client{},
 		DB:                nil,
 		Config:            &config.Config{RootPath: "/test"},
-		AppRootPath:       "/app",
 	}
 
 	service, err := NewDownloadService(deps)
@@ -148,7 +139,6 @@ func TestNewDownloadService_WithNilClient(t *testing.T) {
 		AdditionalClients: []*resty.Client{},
 		DB:                &sqlx.DB{},
 		Config:            &config.Config{RootPath: "/test"},
-		AppRootPath:       "/app",
 	}
 
 	service, err := NewDownloadService(deps)
@@ -163,7 +153,6 @@ func TestNewDownloadService_WithNilConfig(t *testing.T) {
 		AdditionalClients: []*resty.Client{},
 		DB:                &sqlx.DB{},
 		Config:            nil,
-		AppRootPath:       "/app",
 	}
 
 	service, err := NewDownloadService(deps)
@@ -178,7 +167,6 @@ func TestNewDownloadService_WithEmptyRootPath(t *testing.T) {
 		AdditionalClients: []*resty.Client{},
 		DB:                &sqlx.DB{},
 		Config:            &config.Config{RootPath: ""},
-		AppRootPath:       "/app",
 	}
 
 	service, err := NewDownloadService(deps)
@@ -197,7 +185,6 @@ func TestNewDownloadService_WithMultipleAdditionalClients(t *testing.T) {
 		},
 		DB:          &sqlx.DB{},
 		Config:      &config.Config{RootPath: "/test"},
-		AppRootPath: "/app",
 	}
 
 	service, err := NewDownloadService(deps)
@@ -216,7 +203,6 @@ func TestDependencies_EmptyAdditionalClients(t *testing.T) {
 		AdditionalClients: []*resty.Client{},
 		DB:                &sqlx.DB{},
 		Config:            &config.Config{RootPath: "/test"},
-		AppRootPath:       "/app",
 	}
 
 	assert.NotNil(t, deps)

@@ -1,10 +1,12 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/unkmonster/tmd/internal/service"
 )
@@ -13,11 +15,33 @@ import (
 func (s *Server) executeDownloadTask(task *Task, downloadFunc func() error) {
 	taskID := task.ID
 	go func() {
-		s.taskManager.UpdateTaskStatus(taskID, TaskStatusRunning)
+		if !s.taskManager.UpdateTaskStatus(taskID, TaskStatusRunning) {
+			return
+		}
 		if err := downloadFunc(); err != nil {
-			s.taskManager.SetTaskError(taskID, err)
+			taskSnapshot, ok := s.taskManager.GetTask(taskID)
+			if ok && !isTerminalStatus(taskSnapshot.Status) {
+				s.taskManager.SetTaskError(taskID, err)
+			}
 		}
 	}()
+}
+
+func (s *Server) enqueueTask(task *Task, run func(ctx context.Context, taskID string, reporter service.ProgressReporter) error) {
+	reporter := NewSSEProgressReporter(s)
+	taskCtx := task.Ctx
+	taskID := task.ID
+	s.executeDownloadTask(task, func() error {
+		return run(taskCtx, taskID, reporter)
+	})
+}
+
+func formatTaskMarkTime(timestamp *time.Time) *string {
+	if timestamp == nil {
+		return nil
+	}
+	formatted := timestamp.Format("2006-01-02T15:04:05")
+	return &formatted
 }
 
 // isValidScreenName 校验 Twitter screen name 格式
@@ -100,11 +124,8 @@ func (s *Server) handleUserDownload(w http.ResponseWriter, r *http.Request, scre
 		NoRetry:     req.NoRetry,
 	}
 
-	reporter := NewSSEProgressReporter(s, task.ID)
-	taskCtx := task.Ctx
-	taskID := task.ID
-	s.executeDownloadTask(task, func() error {
-		return s.downloadService.UserDownload(taskCtx, taskID, screenName, opts, reporter)
+	s.enqueueTask(task, func(ctx context.Context, taskID string, reporter service.ProgressReporter) error {
+		return s.downloadService.UserDownload(ctx, taskID, screenName, opts, reporter)
 	})
 
 	s.writeJSON(w, http.StatusAccepted, NewSuccessResponse(map[string]interface{}{
@@ -118,16 +139,13 @@ func (s *Server) handleUserDownload(w http.ResponseWriter, r *http.Request, scre
 	}))
 }
 
-func (s *Server) handleUserProfile(w http.ResponseWriter, r *http.Request, screenName string) {
+func (s *Server) handleUserProfile(w http.ResponseWriter, _ *http.Request, screenName string) {
 	req := ProfileDownloadTaskData{ScreenName: screenName}
 
 	task := s.taskManager.CreateTask(TaskTypeProfileDownload, &req)
 
-	reporter := NewSSEProgressReporter(s, task.ID)
-	taskCtx := task.Ctx
-	taskID := task.ID
-	s.executeDownloadTask(task, func() error {
-		return s.downloadService.ProfileDownload(taskCtx, taskID, []string{screenName}, reporter)
+	s.enqueueTask(task, func(ctx context.Context, taskID string, reporter service.ProgressReporter) error {
+		return s.downloadService.ProfileDownload(ctx, taskID, []string{screenName}, reporter)
 	})
 
 	s.writeJSON(w, http.StatusAccepted, NewSuccessResponse(map[string]interface{}{
@@ -147,17 +165,10 @@ func (s *Server) handleUserMark(w http.ResponseWriter, r *http.Request, screenNa
 
 	task := s.taskManager.CreateTask(TaskTypeMarkDownloaded, &req)
 
-	var markTime *string
-	if req.Timestamp != nil {
-		t := req.Timestamp.Format("2006-01-02T15:04:05")
-		markTime = &t
-	}
+	markTime := formatTaskMarkTime(req.Timestamp)
 
-	reporter := NewSSEProgressReporter(s, task.ID)
-	taskCtx := task.Ctx
-	taskID := task.ID
-	s.executeDownloadTask(task, func() error {
-		return s.downloadService.MarkDownloaded(taskCtx, taskID, []string{screenName}, nil, nil, markTime, reporter)
+	s.enqueueTask(task, func(ctx context.Context, taskID string, reporter service.ProgressReporter) error {
+		return s.downloadService.MarkDownloaded(ctx, taskID, []string{screenName}, nil, nil, markTime, reporter)
 	})
 
 	s.writeJSON(w, http.StatusAccepted, NewSuccessResponse(map[string]interface{}{
@@ -178,17 +189,10 @@ func (s *Server) handleListMark(w http.ResponseWriter, r *http.Request, listID u
 
 	task := s.taskManager.CreateTask(TaskTypeMarkDownloaded, &req)
 
-	var markTime *string
-	if req.Timestamp != nil {
-		t := req.Timestamp.Format("2006-01-02T15:04:05")
-		markTime = &t
-	}
+	markTime := formatTaskMarkTime(req.Timestamp)
 
-	reporter := NewSSEProgressReporter(s, task.ID)
-	taskCtx := task.Ctx
-	taskID := task.ID
-	s.executeDownloadTask(task, func() error {
-		return s.downloadService.MarkDownloaded(taskCtx, taskID, nil, []uint64{listID}, nil, markTime, reporter)
+	s.enqueueTask(task, func(ctx context.Context, taskID string, reporter service.ProgressReporter) error {
+		return s.downloadService.MarkDownloaded(ctx, taskID, nil, []uint64{listID}, nil, markTime, reporter)
 	})
 
 	s.writeJSON(w, http.StatusAccepted, NewSuccessResponse(map[string]interface{}{
@@ -209,17 +213,10 @@ func (s *Server) handleFollowingMark(w http.ResponseWriter, r *http.Request, scr
 
 	task := s.taskManager.CreateTask(TaskTypeMarkDownloaded, &req)
 
-	var markTime *string
-	if req.Timestamp != nil {
-		t := req.Timestamp.Format("2006-01-02T15:04:05")
-		markTime = &t
-	}
+	markTime := formatTaskMarkTime(req.Timestamp)
 
-	reporter := NewSSEProgressReporter(s, task.ID)
-	taskCtx := task.Ctx
-	taskID := task.ID
-	s.executeDownloadTask(task, func() error {
-		return s.downloadService.MarkDownloaded(taskCtx, taskID, nil, nil, []string{screenName}, markTime, reporter)
+	s.enqueueTask(task, func(ctx context.Context, taskID string, reporter service.ProgressReporter) error {
+		return s.downloadService.MarkDownloaded(ctx, taskID, nil, nil, []string{screenName}, markTime, reporter)
 	})
 
 	s.writeJSON(w, http.StatusAccepted, NewSuccessResponse(map[string]interface{}{
@@ -246,11 +243,8 @@ func (s *Server) handleFollowingDownload(w http.ResponseWriter, r *http.Request,
 		NoRetry:     req.NoRetry,
 	}
 
-	reporter := NewSSEProgressReporter(s, task.ID)
-	taskCtx := task.Ctx
-	taskID := task.ID
-	s.executeDownloadTask(task, func() error {
-		return s.downloadService.FollowingDownload(taskCtx, taskID, screenName, opts, reporter)
+	s.enqueueTask(task, func(ctx context.Context, taskID string, reporter service.ProgressReporter) error {
+		return s.downloadService.FollowingDownload(ctx, taskID, screenName, opts, reporter)
 	})
 
 	s.writeJSON(w, http.StatusAccepted, NewSuccessResponse(map[string]interface{}{
@@ -314,11 +308,8 @@ func (s *Server) handleListDownload(w http.ResponseWriter, r *http.Request, list
 		NoRetry:     req.NoRetry,
 	}
 
-	reporter := NewSSEProgressReporter(s, task.ID)
-	taskCtx := task.Ctx
-	taskID := task.ID
-	s.executeDownloadTask(task, func() error {
-		return s.downloadService.ListDownload(taskCtx, taskID, listID, opts, reporter)
+	s.enqueueTask(task, func(ctx context.Context, taskID string, reporter service.ProgressReporter) error {
+		return s.downloadService.ListDownload(ctx, taskID, listID, opts, reporter)
 	})
 
 	s.writeJSON(w, http.StatusAccepted, NewSuccessResponse(map[string]interface{}{
@@ -332,16 +323,13 @@ func (s *Server) handleListDownload(w http.ResponseWriter, r *http.Request, list
 	}))
 }
 
-func (s *Server) handleListProfile(w http.ResponseWriter, r *http.Request, listID uint64) {
+func (s *Server) handleListProfile(w http.ResponseWriter, _ *http.Request, listID uint64) {
 	req := ListProfileTaskData{ListID: listID}
 
 	task := s.taskManager.CreateTask(TaskTypeListProfile, &req)
 
-	reporter := NewSSEProgressReporter(s, task.ID)
-	taskCtx := task.Ctx
-	taskID := task.ID
-	s.executeDownloadTask(task, func() error {
-		return s.downloadService.ListProfileDownload(taskCtx, taskID, listID, reporter)
+	s.enqueueTask(task, func(ctx context.Context, taskID string, reporter service.ProgressReporter) error {
+		return s.downloadService.ListProfileDownload(ctx, taskID, listID, reporter)
 	})
 
 	s.writeJSON(w, http.StatusAccepted, NewSuccessResponse(map[string]interface{}{
@@ -365,11 +353,8 @@ func (s *Server) handleJsonFileDownload(w http.ResponseWriter, r *http.Request) 
 	}
 
 	task := s.taskManager.CreateTask(TaskTypeJsonFileDownload, &req)
-	reporter := NewSSEProgressReporter(s, task.ID)
-	taskCtx := task.Ctx
-	taskID := task.ID
-	s.executeDownloadTask(task, func() error {
-		return s.downloadService.JsonFileDownload(taskCtx, taskID, req.Paths, req.NoRetry, reporter)
+	s.enqueueTask(task, func(ctx context.Context, taskID string, reporter service.ProgressReporter) error {
+		return s.downloadService.JsonFileDownload(ctx, taskID, req.Paths, req.NoRetry, reporter)
 	})
 
 	s.writeJSON(w, http.StatusAccepted, NewSuccessResponse(map[string]interface{}{
@@ -394,11 +379,8 @@ func (s *Server) handleJsonFolderDownload(w http.ResponseWriter, r *http.Request
 	}
 
 	task := s.taskManager.CreateTask(TaskTypeJsonFolderDownload, &req)
-	reporter := NewSSEProgressReporter(s, task.ID)
-	taskCtx := task.Ctx
-	taskID := task.ID
-	s.executeDownloadTask(task, func() error {
-		return s.downloadService.JsonFolderDownload(taskCtx, taskID, req.Paths, req.NoRetry, reporter)
+	s.enqueueTask(task, func(ctx context.Context, taskID string, reporter service.ProgressReporter) error {
+		return s.downloadService.JsonFolderDownload(ctx, taskID, req.Paths, req.NoRetry, reporter)
 	})
 
 	s.writeJSON(w, http.StatusAccepted, NewSuccessResponse(map[string]interface{}{
@@ -454,11 +436,8 @@ func (s *Server) handleBatchDownload(w http.ResponseWriter, r *http.Request) {
 		NoRetry:     req.NoRetry,
 	}
 
-	reporter := NewSSEProgressReporter(s, task.ID)
-	taskCtx := task.Ctx
-	taskID := task.ID
-	s.executeDownloadTask(task, func() error {
-		return s.downloadService.BatchDownload(taskCtx, taskID, req.Users, req.Lists, req.FollowingNames, opts, reporter)
+	s.enqueueTask(task, func(ctx context.Context, taskID string, reporter service.ProgressReporter) error {
+		return s.downloadService.BatchDownload(ctx, taskID, req.Users, req.Lists, req.FollowingNames, opts, reporter)
 	})
 
 	s.writeJSON(w, http.StatusAccepted, NewSuccessResponse(map[string]interface{}{

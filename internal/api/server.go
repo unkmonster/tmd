@@ -51,7 +51,6 @@ func NewServer(client *resty.Client, additionalClients []*resty.Client, db *sqlx
 		AdditionalClients: additionalClients,
 		DB:                db,
 		Config:            config,
-		AppRootPath:       appRootPath,
 	})
 	if err != nil {
 		log.Fatalf("failed to create download service: %v", err)

@@ -7,14 +7,12 @@ import (
 // SSEProgressReporter SSE 进度报告器
 type SSEProgressReporter struct {
 	server *Server
-	taskID string
 }
 
 // NewSSEProgressReporter 创建 SSE 进度报告器
-func NewSSEProgressReporter(server *Server, taskID string) service.ProgressReporter {
+func NewSSEProgressReporter(server *Server) service.ProgressReporter {
 	return &SSEProgressReporter{
 		server: server,
-		taskID: taskID,
 	}
 }
 
