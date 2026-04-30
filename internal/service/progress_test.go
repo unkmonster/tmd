@@ -245,8 +245,10 @@ func TestLogReporter_OnProgress_NilLogger(t *testing.T) {
 
 func TestLogReporter_OnComplete_WithStats(t *testing.T) {
 	var loggedMessages []string
+	var loggedArgs []interface{}
 	logger := func(format string, args ...interface{}) {
 		loggedMessages = append(loggedMessages, format)
+		loggedArgs = append(loggedArgs, args...)
 	}
 
 	reporter := NewLogReporter(logger)
@@ -254,10 +256,15 @@ func TestLogReporter_OnComplete_WithStats(t *testing.T) {
 		Downloaded: 100,
 		Failed:     5,
 		Versioned:  10,
+		Message:    "User download completed",
 	})
 
 	assert.Len(t, loggedMessages, 1)
-	assert.Contains(t, loggedMessages[0], "Completed")
+	assert.Equal(t, "[%s] Completed (downloaded=%d, failed=%d, versioned=%d)", loggedMessages[0])
+	assert.Equal(t, "task-123", loggedArgs[0])
+	assert.Equal(t, 100, loggedArgs[1])
+	assert.Equal(t, 5, loggedArgs[2])
+	assert.Equal(t, 10, loggedArgs[3])
 }
 
 func TestLogReporter_OnComplete_WithoutStats(t *testing.T) {

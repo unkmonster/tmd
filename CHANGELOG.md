@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ***
 
+## [3.2.13] - 2026-04-29
+
+### Changed
+
+#### 进度报告增强
+
+| 文件 | 变更 |
+|------|------|
+| `internal/service/progress.go` | `OnComplete()` 新增下载统计信息输出（downloaded/failed/versioned） |
+
+#### 启动日志优化
+
+| 文件 | 变更 |
+|------|------|
+| `main.go` | 新增下载路径输出 |
+| `main.go` | 优化配置日志输出顺序 |
+
+### Stats
+
+- **3 个文件变更**
+- **+21 行 / -3 行**
+
+***
+
 ## [3.2.12] - 2026-04-29
 
 ### Added

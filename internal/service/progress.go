@@ -71,6 +71,16 @@ func (l *LogReporter) OnComplete(taskID string, r Result) {
 	if l.logger == nil {
 		return
 	}
+	if r.Downloaded != 0 || r.Failed != 0 || r.Versioned != 0 {
+		l.logger(
+			"[%s] Completed (downloaded=%d, failed=%d, versioned=%d)",
+			taskID,
+			r.Downloaded,
+			r.Failed,
+			r.Versioned,
+		)
+		return
+	}
 	l.logger("[%s] Completed: %s", taskID, r.Message)
 }
 

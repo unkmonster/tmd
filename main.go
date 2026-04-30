@@ -130,14 +130,15 @@ func main() {
 		return
 	}
 	log.Infoln("config is loaded")
+	log.Infoln("download path:", conf.RootPath)
 	if conf.MaxDownloadRoutine > 0 {
 		downloading.MaxDownloadRoutine = conf.MaxDownloadRoutine
-		log.Infoln("max download routine set to:", downloading.MaxDownloadRoutine)
 	}
+	log.Infoln("max download routine set to:", downloading.MaxDownloadRoutine)
 	if conf.MaxFileNameLen > 0 {
 		naming.MaxFileNameLen = conf.MaxFileNameLen
-		log.Infoln("max file name length set to:", naming.MaxFileNameLen)
 	}
+	log.Infoln("max file name length set to:", naming.MaxFileNameLen)
 
 	loginOpts := twitter.LoginOptions{ProxyURL: conf.ProxyURL}
 
