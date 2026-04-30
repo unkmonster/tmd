@@ -93,16 +93,15 @@ func SetUsersAccessible(db *sqlx.DB, uids []uint64) error {
 	return nil
 }
 
-func MarkListMembersAccessibleByIDs(db *sqlx.DB, uids []uint64) {
+func MarkListMembersAccessibleByIDs(db *sqlx.DB, uids []uint64) error {
 	if len(uids) == 0 || db == nil {
-		return
+		return nil
 	}
 
-	go func() {
-		if err := SetUsersAccessible(db, uids); err != nil {
-			log.Debugln("failed to mark list members as accessible:", err)
-		}
-	}()
+	if err := SetUsersAccessible(db, uids); err != nil {
+		return fmt.Errorf("failed to mark list members as accessible: %w", err)
+	}
+	return nil
 }
 
 func RecordUserPreviousName(db *sqlx.DB, uid uint64, name string, screenName string) error {

@@ -7,6 +7,61 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ***
 
+## [3.2.11] - 2026-04-29
+
+### Added
+
+#### 日志系统重构
+
+| 功能 | 说明 |
+|------|------|
+| `logFollower` 结构体 | 优化日志流式读取，使用 `ReadAt` 替代 `Scanner` |
+| 日志常量定义 | 日志文件名、分页大小、轮询间隔等 |
+| 反向读取算法 | `readLogLinesTail()` 优化大文件读取性能 |
+
+#### 服务依赖验证
+
+| 功能 | 说明 |
+|------|------|
+| `Dependencies.Validate()` | 验证依赖项完整性 |
+| `NewDownloadService()` | 返回错误而非 panic |
+
+### Changed
+
+#### 服务器关闭优化
+
+| 文件 | 变更 |
+|------|------|
+| `internal/api/server.go` | 移除重启功能，简化关闭流程 |
+| `internal/api/server.go` | 新增 `shutdownOnce` 确保关闭只执行一次 |
+| `internal/api/server.go` | 新增 `WaitForShutdown()` 方法 |
+| `internal/api/server.go` | 统一处理器命名规范 |
+
+#### API 处理器优化
+
+| 文件 | 变更 |
+|------|------|
+| `internal/api/config_handlers.go` | 处理器优化 |
+| `internal/api/cookie_handlers.go` | 处理器优化 |
+| `internal/api/download_handlers.go` | 处理器优化 |
+
+### Removed
+
+- 删除 `POST /api/v1/server/restart` 端点
+
+### Fixed
+
+- 修复日志大文件读取时的内存问题
+- 修复服务依赖缺失时的 panic 问题
+- 修复服务器关闭时可能的重复执行问题
+
+### Stats
+
+- **23 个文件变更**
+- **+938 行 / -432 行**
+
+***
+
 ## [3.2.10] - 2026-04-29
 
 ### Added

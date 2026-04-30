@@ -271,8 +271,12 @@ func runServer(conf *config.Config, appRootPath string, port int, loginOpts twit
 	defer signal.Stop(sigChan)
 	startServerSignalHandler(sigChan, server.GracefulShutdown)
 
-	if err := server.Start(port); err != nil && err != http.ErrServerClosed {
+	err = server.Start(port)
+	if err != nil && err != http.ErrServerClosed {
 		log.Fatalln("failed to start server:", err)
+	}
+	if err == http.ErrServerClosed {
+		server.WaitForShutdown()
 	}
 }
 

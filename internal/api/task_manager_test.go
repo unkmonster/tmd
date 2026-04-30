@@ -398,6 +398,33 @@ func TestTaskManager_SetTaskError_DoesNotOverrideCompletedTask(t *testing.T) {
 	assert.Empty(t, got.Error)
 }
 
+func TestTaskManager_CompleteTask_DoesNotOverrideCompletedTask(t *testing.T) {
+	tm := NewTaskManager()
+	task := tm.CreateTask(TaskTypeUserDownload, nil)
+
+	first := &TaskResult{
+		Downloaded: 100,
+		Failed:     1,
+		Versioned:  2,
+		Message:    "detailed result",
+	}
+	second := &TaskResult{
+		Message: "summary only",
+	}
+
+	assert.True(t, tm.CompleteTask(task.ID, first))
+	assert.False(t, tm.CompleteTask(task.ID, second))
+
+	got, ok := tm.GetTask(task.ID)
+	assert.True(t, ok)
+	assert.Equal(t, TaskStatusCompleted, got.Status)
+	assert.NotNil(t, got.Result)
+	assert.Equal(t, 100, got.Result.Downloaded)
+	assert.Equal(t, 1, got.Result.Failed)
+	assert.Equal(t, 2, got.Result.Versioned)
+	assert.Equal(t, "detailed result", got.Result.Message)
+}
+
 func TestTaskManager_UpdateTaskProgress(t *testing.T) {
 	tm := NewTaskManager()
 	task := tm.CreateTask(TaskTypeUserDownload, nil)

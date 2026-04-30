@@ -3,11 +3,10 @@ setlocal enabledelayedexpansion
 
 chcp 65001 >nul
 
-:: TMD Server Windows startup and restart script
+:: TMD Server Windows startup script
 :: Listens to tmd.exe ERRORLEVEL:
 :: 1. Normal shutdown (ERRORLEVEL 0) -> Exit script
-:: 2. Restart requested (ERRORLEVEL 2) -> Restart service immediately
-:: 3. Crash (Other) -> Wait 5 seconds and restart
+:: 2. Crash (Other) -> Wait 5 seconds and start again
 
 set BIN_PATH=.\tmd.exe
 
@@ -29,13 +28,7 @@ if %EXIT_CODE% EQU 0 (
     goto :end
 )
 
-if %EXIT_CODE% EQU 2 (
-    echo Server requested restart. Restarting immediately...
-    timeout /t 1 >nul
-    goto :loop
-)
-
-echo Server crashed or stopped unexpectedly ^(Exit Code %EXIT_CODE%^). Restarting in 5 seconds...
+echo Server crashed or stopped unexpectedly ^(Exit Code %EXIT_CODE%^). Starting again in 5 seconds...
 timeout /t 5 >nul
 goto :loop
 

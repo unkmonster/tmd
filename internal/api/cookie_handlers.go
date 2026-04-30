@@ -16,17 +16,6 @@ import (
 	"github.com/unkmonster/tmd/internal/config"
 )
 
-func (s *Server) handleCookiesRaw(w http.ResponseWriter, r *http.Request) {
-	switch r.Method {
-	case http.MethodGet:
-		s.handleGetCookiesRaw(w, r)
-	case http.MethodPut:
-		s.handleUpdateCookiesRaw(w, r)
-	default:
-		s.writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
-	}
-}
-
 func (s *Server) handleGetCookiesRaw(w http.ResponseWriter, _ *http.Request) {
 	cookiesPath := filepath.Join(s.appRootPath, "additional_cookies.yaml")
 	data, err := os.ReadFile(cookiesPath)
@@ -72,7 +61,7 @@ func (s *Server) handleUpdateCookiesRaw(w http.ResponseWriter, r *http.Request) 
 
 	backupPath := cookiesPath + ".backup." + strconv.FormatInt(time.Now().Unix(), 10)
 	if data, err := os.ReadFile(cookiesPath); err == nil {
-		if writeErr := os.WriteFile(backupPath, data, 0644); writeErr != nil {
+		if writeErr := os.WriteFile(backupPath, data, 0600); writeErr != nil {
 			log.Warnf("Failed to create cookies backup: %v", writeErr)
 		}
 	}
@@ -85,7 +74,7 @@ func (s *Server) handleUpdateCookiesRaw(w http.ResponseWriter, r *http.Request) 
 	log.Infoln("[WebUI] additional cookies saved via raw editor")
 
 	s.writeJSON(w, http.StatusOK, NewSuccessResponse(map[string]interface{}{
-		"message": "Additional cookies saved successfully",
+		"message": "Additional cookies saved successfully. Please restart TMD manually for changes to take effect.",
 		"backup":  filepath.Base(backupPath),
 	}))
 }
@@ -140,7 +129,11 @@ func (s *Server) handleSaveCookies(w http.ResponseWriter, r *http.Request) {
 
 	cookiesPath := filepath.Join(s.appRootPath, "additional_cookies.yaml")
 
-	existingCookies, _ := config.ReadAdditionalCookies(cookiesPath)
+	existingCookies, err := config.ReadAdditionalCookies(cookiesPath)
+	if err != nil {
+		s.writeError(w, http.StatusInternalServerError, "Failed to read existing cookies: "+err.Error())
+		return
+	}
 
 	cookies := make([]*config.Cookie, 0, len(req.Cookies))
 	for i, c := range req.Cookies {
@@ -167,7 +160,7 @@ func (s *Server) handleSaveCookies(w http.ResponseWriter, r *http.Request) {
 
 	backupPath := cookiesPath + ".backup." + strconv.FormatInt(time.Now().Unix(), 10)
 	if data, err := os.ReadFile(cookiesPath); err == nil {
-		if writeErr := os.WriteFile(backupPath, data, 0644); writeErr != nil {
+		if writeErr := os.WriteFile(backupPath, data, 0600); writeErr != nil {
 			log.Warnf("Failed to create cookies backup: %v", writeErr)
 		}
 	}
@@ -180,7 +173,7 @@ func (s *Server) handleSaveCookies(w http.ResponseWriter, r *http.Request) {
 	log.Infoln("[WebUI] additional cookies saved via structured form")
 
 	s.writeJSON(w, http.StatusOK, NewSuccessResponse(map[string]interface{}{
-		"message": "Additional cookies saved successfully",
+		"message": "Additional cookies saved successfully. Please restart TMD manually for changes to take effect.",
 		"backup":  filepath.Base(backupPath),
 	}))
 }

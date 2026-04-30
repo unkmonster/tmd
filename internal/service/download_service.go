@@ -13,11 +13,42 @@ import (
 	"github.com/unkmonster/tmd/internal/downloading/profile"
 	"github.com/unkmonster/tmd/internal/path"
 	"github.com/unkmonster/tmd/internal/twitter"
-	"github.com/unkmonster/tmd/internal/utils"
 )
 
 type downloadServiceImpl struct {
 	deps *Dependencies
+}
+
+func (s *downloadServiceImpl) getReporterOrDefault(reporter ProgressReporter) ProgressReporter {
+	if reporter == nil {
+		return &NopReporter{}
+	}
+	return reporter
+}
+
+func (s *downloadServiceImpl) returnWithReportedError(taskID string, reporter ProgressReporter, err error) error {
+	if err != nil {
+		reporter.OnError(taskID, err)
+	}
+	return err
+}
+
+func (s *downloadServiceImpl) completeTask(taskID string, reporter ProgressReporter, message string, stats *Result) {
+	result := Result{Message: message}
+	if stats != nil {
+		result.Downloaded = stats.Downloaded
+		result.Failed = stats.Failed
+		result.Versioned = stats.Versioned
+	}
+	reporter.OnComplete(taskID, result)
+}
+
+func (s *downloadServiceImpl) completeProfileTask(taskID string, reporter ProgressReporter, result *Result) {
+	if result == nil {
+		reporter.OnComplete(taskID, Result{Message: "Profile download completed"})
+		return
+	}
+	reporter.OnComplete(taskID, *result)
 }
 
 func (s *downloadServiceImpl) resolveUsers(ctx context.Context, screenNames []string) []*twitter.User {
@@ -76,16 +107,14 @@ func (s *downloadServiceImpl) initDownloader() (*downloader.DefaultVersionManage
 
 // UserDownload 下载用户推文
 func (s *downloadServiceImpl) UserDownload(ctx context.Context, taskID string, screenName string, opts DownloadOptions, reporter ProgressReporter) error {
-	if reporter == nil {
-		reporter = &NopReporter{}
-	}
+	reporter = s.getReporterOrDefault(reporter)
 
 	reporter.OnProgress(taskID, Progress{Stage: "downloading", Current: screenName})
 
 	// 获取存储路径
 	pathHelper, err := path.NewStorePath(s.deps.Config.RootPath)
 	if err != nil {
-		return fmt.Errorf("failed to make store dir: %w", err)
+		return s.returnWithReportedError(taskID, reporter, fmt.Errorf("failed to make store dir: %w", err))
 	}
 
 	// 初始化 Dumper
@@ -100,7 +129,7 @@ func (s *downloadServiceImpl) UserDownload(ctx context.Context, taskID string, s
 		if s.deps.DB != nil {
 			database.MarkUserInaccessible(s.deps.DB, uid, screenName)
 		}
-		return err
+		return s.returnWithReportedError(taskID, reporter, err)
 	}
 
 	// 初始化下载器
@@ -109,7 +138,7 @@ func (s *downloadServiceImpl) UserDownload(ctx context.Context, taskID string, s
 	// 执行批量下载（单个用户）
 	failedTweets, _, err := downloading.BatchDownloadAny(ctx, s.deps.Client, s.deps.DB, nil, []*twitter.User{user}, pathHelper.Root, pathHelper.Users, opts.AutoFollow, s.deps.AdditionalClients, dwn, fileWriter)
 	if err != nil {
-		return err
+		return s.returnWithReportedError(taskID, reporter, err)
 	}
 
 	// 收集失败的推文到 Dumper
@@ -123,28 +152,28 @@ func (s *downloadServiceImpl) UserDownload(ctx context.Context, taskID string, s
 	}
 
 	// Profile 下载
+	var profileResult *Result
 	if !opts.SkipProfile {
-		if err := s.downloadProfile(ctx, taskID, []*twitter.User{user}, pathHelper, versionManager, fileWriter, dwn, reporter); err != nil {
+		profileResult, err = s.downloadProfile(ctx, taskID, []*twitter.User{user}, pathHelper, versionManager, fileWriter, dwn, reporter)
+		if err != nil {
 			log.Warnf("Profile download failed for %s: %v", screenName, err)
 			reporter.OnProgress(taskID, Progress{Stage: "profile_warning", Current: fmt.Sprintf("profile failed for %s: %v", screenName, err)})
 		}
 	}
 
-	reporter.OnComplete(taskID, Result{Message: "User download completed"})
+	s.completeTask(taskID, reporter, "User download completed", profileResult)
 	return nil
 }
 
 // ListDownload 下载列表推文
 func (s *downloadServiceImpl) ListDownload(ctx context.Context, taskID string, listID uint64, opts DownloadOptions, reporter ProgressReporter) error {
-	if reporter == nil {
-		reporter = &NopReporter{}
-	}
+	reporter = s.getReporterOrDefault(reporter)
 
 	reporter.OnProgress(taskID, Progress{Stage: "syncing", Current: fmt.Sprintf("list:%d", listID)})
 
 	pathHelper, err := path.NewStorePath(s.deps.Config.RootPath)
 	if err != nil {
-		return err
+		return s.returnWithReportedError(taskID, reporter, err)
 	}
 
 	// 初始化 Dumper
@@ -157,7 +186,7 @@ func (s *downloadServiceImpl) ListDownload(ctx context.Context, taskID string, l
 	// 获取列表信息
 	list, err := twitter.GetLst(ctx, s.deps.Client, listID)
 	if err != nil {
-		return err
+		return s.returnWithReportedError(taskID, reporter, err)
 	}
 
 	reporter.OnProgress(taskID, Progress{Stage: "downloading", Current: fmt.Sprintf("list:%d", listID)})
@@ -168,7 +197,7 @@ func (s *downloadServiceImpl) ListDownload(ctx context.Context, taskID string, l
 	// 执行下载 - BatchDownloadAny 会处理列表同步并返回列表成员
 	failedTweets, listMembers, err := downloading.BatchDownloadAny(ctx, s.deps.Client, s.deps.DB, []twitter.ListBase{list}, nil, pathHelper.Root, pathHelper.Users, opts.AutoFollow, s.deps.AdditionalClients, dwn, fileWriter)
 	if err != nil {
-		return err
+		return s.returnWithReportedError(taskID, reporter, err)
 	}
 
 	// 收集失败的推文到 Dumper
@@ -182,31 +211,28 @@ func (s *downloadServiceImpl) ListDownload(ctx context.Context, taskID string, l
 	}
 
 	// Profile 下载（复用 BatchDownloadAny 返回的 listMembers）
+	var profileResult *Result
 	if !opts.SkipProfile && len(listMembers) > 0 {
-		memberIDs := utils.ExtractIDs(listMembers, func(u *twitter.User) uint64 { return u.Id })
-		database.MarkListMembersAccessibleByIDs(s.deps.DB, memberIDs)
-
-		if err := s.downloadProfile(ctx, taskID, listMembers, pathHelper, versionManager, fileWriter, dwn, reporter); err != nil {
+		profileResult, err = s.downloadProfile(ctx, taskID, listMembers, pathHelper, versionManager, fileWriter, dwn, reporter)
+		if err != nil {
 			log.Warnf("Profile download failed for list %d: %v", listID, err)
 			reporter.OnProgress(taskID, Progress{Stage: "profile_warning", Current: fmt.Sprintf("profile failed for list %d: %v", listID, err)})
 		}
 	}
 
-	reporter.OnComplete(taskID, Result{Message: "List download completed"})
+	s.completeTask(taskID, reporter, "List download completed", profileResult)
 	return nil
 }
 
 // FollowingDownload 下载关注列表
 func (s *downloadServiceImpl) FollowingDownload(ctx context.Context, taskID string, screenName string, opts DownloadOptions, reporter ProgressReporter) error {
-	if reporter == nil {
-		reporter = &NopReporter{}
-	}
+	reporter = s.getReporterOrDefault(reporter)
 
 	reporter.OnProgress(taskID, Progress{Stage: "downloading", Current: screenName})
 
 	pathHelper, err := path.NewStorePath(s.deps.Config.RootPath)
 	if err != nil {
-		return err
+		return s.returnWithReportedError(taskID, reporter, err)
 	}
 
 	// 初始化 Dumper
@@ -221,7 +247,7 @@ func (s *downloadServiceImpl) FollowingDownload(ctx context.Context, taskID stri
 		if s.deps.DB != nil {
 			database.MarkUserInaccessible(s.deps.DB, uid, screenName)
 		}
-		return err
+		return s.returnWithReportedError(taskID, reporter, err)
 	}
 	following := user.Following()
 
@@ -232,7 +258,7 @@ func (s *downloadServiceImpl) FollowingDownload(ctx context.Context, taskID stri
 	// 这样可以通过 syncListAndGetMembers 同步列表成员，并返回完整 User 对象
 	failedTweets, listMembers, err := downloading.BatchDownloadAny(ctx, s.deps.Client, s.deps.DB, []twitter.ListBase{following}, nil, pathHelper.Root, pathHelper.Users, opts.AutoFollow, s.deps.AdditionalClients, dwn, fileWriter)
 	if err != nil {
-		return err
+		return s.returnWithReportedError(taskID, reporter, err)
 	}
 
 	// 收集失败的推文到 Dumper
@@ -246,29 +272,26 @@ func (s *downloadServiceImpl) FollowingDownload(ctx context.Context, taskID stri
 	}
 
 	// Profile 下载（复用 BatchDownloadAny 返回的 listMembers）
+	var profileResult *Result
 	if !opts.SkipProfile && len(listMembers) > 0 {
-		memberIDs := utils.ExtractIDs(listMembers, func(u *twitter.User) uint64 { return u.Id })
-		database.MarkListMembersAccessibleByIDs(s.deps.DB, memberIDs)
-
-		if err := s.downloadProfile(ctx, taskID, listMembers, pathHelper, versionManager, fileWriter, dwn, reporter); err != nil {
+		profileResult, err = s.downloadProfile(ctx, taskID, listMembers, pathHelper, versionManager, fileWriter, dwn, reporter)
+		if err != nil {
 			log.Warnf("Profile download failed for following %s: %v", screenName, err)
 			reporter.OnProgress(taskID, Progress{Stage: "profile_warning", Current: fmt.Sprintf("profile failed for following %s: %v", screenName, err)})
 		}
 	}
 
-	reporter.OnComplete(taskID, Result{Message: "Following download completed"})
+	s.completeTask(taskID, reporter, "Following download completed", profileResult)
 	return nil
 }
 
 // ProfileDownload 下载用户资料
 func (s *downloadServiceImpl) ProfileDownload(ctx context.Context, taskID string, screenNames []string, reporter ProgressReporter) error {
-	if reporter == nil {
-		reporter = &NopReporter{}
-	}
+	reporter = s.getReporterOrDefault(reporter)
 
 	pathHelper, err := path.NewStorePath(s.deps.Config.RootPath)
 	if err != nil {
-		return err
+		return s.returnWithReportedError(taskID, reporter, err)
 	}
 
 	versionManager, fileWriter, dwn := s.initDownloader()
@@ -283,50 +306,61 @@ func (s *downloadServiceImpl) ProfileDownload(ctx context.Context, taskID string
 	}
 	users := s.resolveUsers(ctx, unique)
 
-	if err := s.downloadProfile(ctx, taskID, users, pathHelper, versionManager, fileWriter, dwn, reporter); err != nil {
-		return err
+	profileResult, err := s.downloadProfile(ctx, taskID, users, pathHelper, versionManager, fileWriter, dwn, reporter)
+	if err != nil {
+		return s.returnWithReportedError(taskID, reporter, err)
 	}
 
-	reporter.OnComplete(taskID, Result{Message: "Profile download completed"})
+	s.completeProfileTask(taskID, reporter, profileResult)
 	return nil
 }
 
 // ListProfileDownload 下载列表用户资料
 func (s *downloadServiceImpl) ListProfileDownload(ctx context.Context, taskID string, listID uint64, reporter ProgressReporter) error {
-	if reporter == nil {
-		reporter = &NopReporter{}
-	}
+	reporter = s.getReporterOrDefault(reporter)
 
 	reporter.OnProgress(taskID, Progress{Stage: "syncing", Current: fmt.Sprintf("list:%d", listID)})
 
 	// 获取列表成员
 	list, err := twitter.GetLst(ctx, s.deps.Client, listID)
 	if err != nil {
-		return err
+		return s.returnWithReportedError(taskID, reporter, err)
 	}
 
 	membersResult, err := list.GetMembers(ctx, s.deps.Client)
 	if err != nil {
-		return err
+		return s.returnWithReportedError(taskID, reporter, err)
 	}
 
-	var screenNames []string
+	pathHelper, err := path.NewStorePath(s.deps.Config.RootPath)
+	if err != nil {
+		return s.returnWithReportedError(taskID, reporter, err)
+	}
+
+	versionManager, fileWriter, dwn := s.initDownloader()
+
+	users := make([]*twitter.User, 0, len(membersResult.Users))
 	seen := make(map[string]bool)
-	for _, u := range membersResult.Users {
-		if !seen[u.ScreenName] {
-			seen[u.ScreenName] = true
-			screenNames = append(screenNames, u.ScreenName)
+	for _, user := range membersResult.Users {
+		if !seen[user.ScreenName] {
+			seen[user.ScreenName] = true
+			users = append(users, user)
 		}
 	}
 
-	return s.ProfileDownload(ctx, taskID, screenNames, reporter)
+	profileResult, err := s.downloadProfile(ctx, taskID, users, pathHelper, versionManager, fileWriter, dwn, reporter)
+	if err != nil {
+		return s.returnWithReportedError(taskID, reporter, err)
+	}
+
+	s.completeProfileTask(taskID, reporter, profileResult)
+
+	return nil
 }
 
 // MarkDownloaded 标记已下载
 func (s *downloadServiceImpl) MarkDownloaded(ctx context.Context, taskID string, screenNames []string, listIDs []uint64, followingNames []string, markTime *string, reporter ProgressReporter) error {
-	if reporter == nil {
-		reporter = &NopReporter{}
-	}
+	reporter = s.getReporterOrDefault(reporter)
 
 	reporter.OnProgress(taskID, Progress{Stage: "resolving"})
 
@@ -335,7 +369,7 @@ func (s *downloadServiceImpl) MarkDownloaded(ctx context.Context, taskID string,
 	lists = append(lists, s.resolveFollowings(ctx, followingNames)...)
 
 	if len(users) == 0 && len(lists) == 0 {
-		return fmt.Errorf("no users or lists to mark (all failed to resolve)")
+		return s.returnWithReportedError(taskID, reporter, fmt.Errorf("no users or lists to mark (all failed to resolve)"))
 	}
 
 	reporter.OnProgress(taskID, Progress{Stage: "marking", Total: len(users) + len(lists), Current: fmt.Sprintf("%d users, %d lists", len(users), len(lists))})
@@ -350,12 +384,12 @@ func (s *downloadServiceImpl) MarkDownloaded(ctx context.Context, taskID string,
 	// 注意：MarkUsersAsDownloaded 内部会自动获取列表成员并标记
 	pathHelper, err := path.NewStorePath(s.deps.Config.RootPath)
 	if err != nil {
-		return err
+		return s.returnWithReportedError(taskID, reporter, err)
 	}
 	results, err := downloading.MarkUsersAsDownloaded(ctx, s.deps.Client, s.deps.DB, lists, users, pathHelper.Users, markTimeStr)
 
 	if err != nil {
-		return err
+		return s.returnWithReportedError(taskID, reporter, err)
 	}
 
 	reporter.OnComplete(taskID, Result{Message: fmt.Sprintf("Marked %d users as downloaded", len(results))})
@@ -367,15 +401,13 @@ func (s *downloadServiceImpl) MarkDownloaded(ctx context.Context, taskID string,
 // 注意：noRetry 参数设计如此，第三方 JSON 文件下载不涉及 TweetDumper 机制，
 // 失败项不会进入 error.json，因此无需重试逻辑
 func (s *downloadServiceImpl) JsonFileDownload(ctx context.Context, taskID string, paths []string, noRetry bool, reporter ProgressReporter) error {
-	if reporter == nil {
-		reporter = &NopReporter{}
-	}
+	reporter = s.getReporterOrDefault(reporter)
 
 	reporter.OnProgress(taskID, Progress{Stage: "downloading", Total: len(paths), Current: fmt.Sprintf("%d JSON files", len(paths))})
 
 	pathHelper, err := path.NewStorePath(s.deps.Config.RootPath)
 	if err != nil {
-		return err
+		return s.returnWithReportedError(taskID, reporter, err)
 	}
 
 	_, fileWriter, dwn := s.initDownloader()
@@ -406,15 +438,13 @@ func (s *downloadServiceImpl) JsonFileDownload(ctx context.Context, taskID strin
 // 注意：noRetry 参数设计如此，loongtweet 文件夹下载不涉及 TweetDumper 机制，
 // 失败项不会进入 error.json，因此无需重试逻辑
 func (s *downloadServiceImpl) JsonFolderDownload(ctx context.Context, taskID string, paths []string, noRetry bool, reporter ProgressReporter) error {
-	if reporter == nil {
-		reporter = &NopReporter{}
-	}
+	reporter = s.getReporterOrDefault(reporter)
 
 	reporter.OnProgress(taskID, Progress{Stage: "downloading", Total: len(paths), Current: fmt.Sprintf("%d loongtweet folders", len(paths))})
 
 	pathHelper, err := path.NewStorePath(s.deps.Config.RootPath)
 	if err != nil {
-		return err
+		return s.returnWithReportedError(taskID, reporter, err)
 	}
 
 	_, fileWriter, dwn := s.initDownloader()
@@ -442,9 +472,7 @@ func (s *downloadServiceImpl) JsonFolderDownload(ctx context.Context, taskID str
 
 // BatchDownload 批量下载
 func (s *downloadServiceImpl) BatchDownload(ctx context.Context, taskID string, screenNames []string, listIDs []uint64, followingNames []string, opts DownloadOptions, reporter ProgressReporter) error {
-	if reporter == nil {
-		reporter = &NopReporter{}
-	}
+	reporter = s.getReporterOrDefault(reporter)
 
 	reporter.OnProgress(taskID, Progress{Stage: "resolving"})
 
@@ -453,14 +481,14 @@ func (s *downloadServiceImpl) BatchDownload(ctx context.Context, taskID string, 
 	lists = append(lists, s.resolveFollowings(ctx, followingNames)...)
 
 	if len(users) == 0 && len(lists) == 0 {
-		return fmt.Errorf("all users and lists failed to resolve")
+		return s.returnWithReportedError(taskID, reporter, fmt.Errorf("all users and lists failed to resolve"))
 	}
 
 	reporter.OnProgress(taskID, Progress{Stage: "preparing"})
 
 	pathHelper, err := path.NewStorePath(s.deps.Config.RootPath)
 	if err != nil {
-		return err
+		return s.returnWithReportedError(taskID, reporter, err)
 	}
 
 	// 初始化 Dumper
@@ -478,7 +506,7 @@ func (s *downloadServiceImpl) BatchDownload(ctx context.Context, taskID string, 
 	// 执行批量下载（返回列表成员用于 Profile 下载）
 	failedTweets, listMembers, err := downloading.BatchDownloadAny(ctx, s.deps.Client, s.deps.DB, lists, users, pathHelper.Root, pathHelper.Users, opts.AutoFollow, s.deps.AdditionalClients, dwn, fileWriter)
 	if err != nil {
-		return err
+		return s.returnWithReportedError(taskID, reporter, err)
 	}
 
 	// 收集失败的推文到 Dumper
@@ -492,6 +520,7 @@ func (s *downloadServiceImpl) BatchDownload(ctx context.Context, taskID string, 
 	}
 
 	// Profile 下载（复用 BatchDownloadAny 返回的 listMembers，避免重复 API 调用）
+	var profileResult *Result
 	if !opts.SkipProfile && (len(users) > 0 || len(listMembers) > 0) {
 		profileUsers := make([]*twitter.User, 0)
 		seen := make(map[string]bool) // 使用 screenName 去重（与稳定版一致）
@@ -513,14 +542,15 @@ func (s *downloadServiceImpl) BatchDownload(ctx context.Context, taskID string, 
 		}
 
 		if len(profileUsers) > 0 {
-			if err := s.downloadProfile(ctx, taskID, profileUsers, pathHelper, versionManager, fileWriter, dwn, reporter); err != nil {
+			profileResult, err = s.downloadProfile(ctx, taskID, profileUsers, pathHelper, versionManager, fileWriter, dwn, reporter)
+			if err != nil {
 				log.Warnf("Profile download failed for batch: %v", err)
 				reporter.OnProgress(taskID, Progress{Stage: "profile_warning", Current: fmt.Sprintf("profile failed for batch: %v", err)})
 			}
 		}
 	}
 
-	reporter.OnComplete(taskID, Result{Message: "Batch download completed"})
+	s.completeTask(taskID, reporter, "Batch download completed", profileResult)
 	return nil
 }
 
@@ -547,9 +577,9 @@ func (s *downloadServiceImpl) collectFailedTweets(dumper *downloading.TweetDumpe
 }
 
 // 内部辅助方法：下载 Profile
-func (s *downloadServiceImpl) downloadProfile(ctx context.Context, taskID string, users []*twitter.User, pathHelper *path.StorePath, versionManager downloader.VersionManager, fileWriter downloader.FileWriter, dwn downloader.Downloader, reporter ProgressReporter) error {
+func (s *downloadServiceImpl) downloadProfile(ctx context.Context, taskID string, users []*twitter.User, pathHelper *path.StorePath, versionManager downloader.VersionManager, fileWriter downloader.FileWriter, dwn downloader.Downloader, reporter ProgressReporter) (*Result, error) {
 	if len(users) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	reporter.OnProgress(taskID, Progress{Stage: "profile", Total: len(users), Current: users[0].ScreenName})
@@ -558,7 +588,7 @@ func (s *downloadServiceImpl) downloadProfile(ctx context.Context, taskID string
 	storage, err := profile.NewFileStorageManager(pathHelper.Users)
 	if err != nil {
 		log.Errorf("Failed to create file storage manager: %v", err)
-		return fmt.Errorf("failed to create profile storage: %w", err)
+		return nil, fmt.Errorf("failed to create profile storage: %w", err)
 	}
 	storage.SetVersionManager(versionManager)
 
@@ -596,9 +626,20 @@ func (s *downloadServiceImpl) downloadProfile(ctx context.Context, taskID string
 
 	// 统计结果
 	var successCount, failCount, versionedFileCount int
+	var firstErr error
 	for _, result := range results {
+		if result == nil {
+			failCount++
+			if firstErr == nil {
+				firstErr = fmt.Errorf("profile download returned nil result")
+			}
+			continue
+		}
 		if result.Error != nil {
 			failCount++
+			if firstErr == nil {
+				firstErr = result.Error
+			}
 		} else if result.Success {
 			successCount++
 			// 统计被版本化的文件数
@@ -610,11 +651,14 @@ func (s *downloadServiceImpl) downloadProfile(ctx context.Context, taskID string
 		}
 	}
 
-	reporter.OnComplete(taskID, Result{
+	if successCount == 0 && failCount > 0 {
+		return nil, fmt.Errorf("profile download failed for all %d users: %w", failCount, firstErr)
+	}
+
+	return &Result{
 		Downloaded: successCount,
 		Failed:     failCount,
 		Versioned:  versionedFileCount,
 		Message:    fmt.Sprintf("Profile download completed: %d success, %d failed, %d versioned files", successCount, failCount, versionedFileCount),
-	})
-	return nil
+	}, nil
 }

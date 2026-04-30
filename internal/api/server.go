@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"sync"
 	"time"
 
@@ -31,6 +30,8 @@ type Server struct {
 	downloadService   service.DownloadService
 	logWriter         io.Closer
 	httpServer        *http.Server
+	shutdownOnce      sync.Once
+	shutdownDone      chan struct{}
 }
 
 func NewServer(client *resty.Client, additionalClients []*resty.Client, db *sqlx.DB, config *config.Config, appRootPath string, logWriter io.Closer) *Server {
@@ -42,15 +43,20 @@ func NewServer(client *resty.Client, additionalClients []*resty.Client, db *sqlx
 		appRootPath:       appRootPath,
 		logWriter:         logWriter,
 		taskManager:       NewTaskManager(),
+		shutdownDone:      make(chan struct{}),
 	}
 
-	s.downloadService = service.NewDownloadService(&service.Dependencies{
+	downloadService, err := service.NewDownloadService(&service.Dependencies{
 		Client:            client,
 		AdditionalClients: additionalClients,
 		DB:                db,
 		Config:            config,
 		AppRootPath:       appRootPath,
 	})
+	if err != nil {
+		log.Fatalf("failed to create download service: %v", err)
+	}
+	s.downloadService = downloadService
 
 	return s
 }
@@ -102,15 +108,14 @@ func (s *Server) buildHandler() http.Handler {
 	mux.HandleFunc("DELETE /api/v1/db/user-links/{id}", s.handleDBUserLinkDelete)
 
 	mux.HandleFunc("GET /api/v1/config", s.handleConfig)
-	mux.HandleFunc("GET /api/v1/config/raw", s.handleConfigRaw)
+	mux.HandleFunc("GET /api/v1/config/raw", s.handleGetConfigRaw)
 	mux.HandleFunc("PUT /api/v1/config/raw", s.handleUpdateConfigRaw)
-	mux.HandleFunc("GET /api/v1/config/fields", s.handleConfigFields)
+	mux.HandleFunc("GET /api/v1/config/fields", s.handleGetConfigFields)
 	mux.HandleFunc("PUT /api/v1/config/fields", s.handleSaveConfigFields)
 	mux.HandleFunc("GET /api/v1/cookies", s.handleCookies)
 	mux.HandleFunc("PUT /api/v1/cookies", s.handleSaveCookies)
-	mux.HandleFunc("GET /api/v1/cookies/raw", s.handleCookiesRaw)
+	mux.HandleFunc("GET /api/v1/cookies/raw", s.handleGetCookiesRaw)
 	mux.HandleFunc("PUT /api/v1/cookies/raw", s.handleUpdateCookiesRaw)
-	mux.HandleFunc("POST /api/v1/server/restart", s.handleServerRestart)
 	mux.HandleFunc("POST /api/v1/server/shutdown", s.handleServerShutdown)
 	mux.HandleFunc("GET /api/v1/logs", s.handleGetLogs)
 	mux.HandleFunc("GET /api/v1/logs/stream", s.handleLogStream)
@@ -172,76 +177,68 @@ func (s *Server) writeError(w http.ResponseWriter, status int, message string) {
 	s.writeJSON(w, status, NewErrorResponse(message))
 }
 
-func (s *Server) handleServerAction(w http.ResponseWriter, action string) {
-	message := "Server shutting down..."
-	if action == "restart" {
-		message = "Server restarting..."
-	}
-
+func (s *Server) handleServerAction(w http.ResponseWriter) {
 	s.writeJSON(w, http.StatusOK, NewSuccessResponse(map[string]interface{}{
-		"message": message,
-		"action":  action,
+		"message": "Server shutting down...",
+		"action":  "shutdown",
 	}))
 
-	log.Infof("[server] received %s request, performing graceful shutdown...", action)
+	log.Infoln("[server] received shutdown request, performing graceful shutdown...")
 
 	go func() {
 		time.Sleep(500 * time.Millisecond)
-		s.GracefulShutdown(action)
+		s.GracefulShutdown("shutdown")
 	}()
 }
 
-func (s *Server) handleServerRestart(w http.ResponseWriter, _ *http.Request) {
-	s.handleServerAction(w, "restart")
+func (s *Server) handleServerShutdown(w http.ResponseWriter, _ *http.Request) {
+	s.handleServerAction(w)
 }
 
-func (s *Server) handleServerShutdown(w http.ResponseWriter, _ *http.Request) {
-	s.handleServerAction(w, "shutdown")
+func (s *Server) WaitForShutdown() {
+	<-s.shutdownDone
 }
 
 func (s *Server) GracefulShutdown(reason string) {
-	log.Infof("[server] graceful shutdown started (reason: %s)", reason)
+	s.shutdownOnce.Do(func() {
+		log.Infof("[server] graceful shutdown started (reason: %s)", reason)
 
-	if s.taskManager != nil {
-		s.taskManager.CancelAllTasks()
-		s.taskManager.Close()
-		log.Infoln("[server] all running tasks cancelled")
-		time.Sleep(1 * time.Second)
-	}
-
-	if s.httpServer != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-
-		if err := s.httpServer.Shutdown(ctx); err != nil {
-			log.Warnf("[server] http server shutdown error: %v", err)
-		} else {
-			log.Infoln("[server] http server stopped gracefully")
+		if s.taskManager != nil {
+			s.taskManager.CancelAllTasks()
+			s.taskManager.Close()
+			log.Infoln("[server] all running tasks cancelled")
+			time.Sleep(1 * time.Second)
 		}
-	}
 
-	if s.db != nil {
-		if err := s.db.Close(); err != nil {
-			log.Warnf("[server] failed to close database: %v", err)
-		} else {
-			log.Infoln("[server] database connection closed")
+		if s.httpServer != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+
+			if err := s.httpServer.Shutdown(ctx); err != nil {
+				log.Warnf("[server] http server shutdown error: %v", err)
+			} else {
+				log.Infoln("[server] http server stopped gracefully")
+			}
 		}
-	}
 
-	if s.logWriter != nil {
-		if err := s.logWriter.Close(); err != nil {
-			log.Warnf("[server] failed to close log writer: %v", err)
-		} else {
-			log.Infoln("[server] log writer closed")
+		if s.db != nil {
+			if err := s.db.Close(); err != nil {
+				log.Warnf("[server] failed to close database: %v", err)
+			} else {
+				log.Infoln("[server] database connection closed")
+			}
 		}
-	}
 
-	time.Sleep(100 * time.Millisecond)
-	log.Infoln("[server] shutdown complete")
+		if s.logWriter != nil {
+			if err := s.logWriter.Close(); err != nil {
+				log.Warnf("[server] failed to close log writer: %v", err)
+			} else {
+				log.Infoln("[server] log writer closed")
+			}
+		}
 
-	if reason == "restart" {
-		os.Exit(2) // 特殊退出码，通知外部守护进程重启
-	} else {
-		os.Exit(0) // 正常关闭
-	}
+		time.Sleep(100 * time.Millisecond)
+		log.Infoln("[server] shutdown complete")
+		close(s.shutdownDone)
+	})
 }

@@ -252,7 +252,7 @@ func isTerminalStatus(status TaskStatus) bool {
 
 func canTransitionStatus(from, to TaskStatus) bool {
 	if from == to {
-		return true
+		return !isTerminalStatus(from)
 	}
 
 	if isTerminalStatus(from) {

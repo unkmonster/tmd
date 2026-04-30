@@ -38,7 +38,11 @@ func Execute(ctx context.Context, args []string, deps *Dependencies) error {
 
 	// 如果没有提供 Service，创建一个默认的
 	if deps.DownloadService == nil {
-		deps.DownloadService = service.NewDownloadService(&deps.Dependencies)
+		downloadService, err := service.NewDownloadService(&deps.Dependencies)
+		if err != nil {
+			return fmt.Errorf("failed to create download service: %w", err)
+		}
+		deps.DownloadService = downloadService
 	}
 
 	// 创建进度报告器

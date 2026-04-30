@@ -17,11 +17,6 @@ import (
 )
 
 func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		s.writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
-		return
-	}
-
 	s.configMu.RLock()
 	defer s.configMu.RUnlock()
 
@@ -31,17 +26,6 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 		MaxFileNameLen:     s.config.MaxFileNameLen,
 	}
 	s.writeJSON(w, http.StatusOK, NewSuccessResponse(resp))
-}
-
-func (s *Server) handleConfigRaw(w http.ResponseWriter, r *http.Request) {
-	switch r.Method {
-	case http.MethodGet:
-		s.handleGetConfigRaw(w, r)
-	case http.MethodPut:
-		s.handleUpdateConfigRaw(w, r)
-	default:
-		s.writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
-	}
 }
 
 func (s *Server) handleGetConfigRaw(w http.ResponseWriter, _ *http.Request) {
@@ -101,7 +85,7 @@ func (s *Server) handleUpdateConfigRaw(w http.ResponseWriter, r *http.Request) {
 
 	backupPath := confPath + ".backup." + strconv.FormatInt(time.Now().Unix(), 10)
 	if data, err := os.ReadFile(confPath); err == nil {
-		if writeErr := os.WriteFile(backupPath, data, 0644); writeErr != nil {
+		if writeErr := os.WriteFile(backupPath, data, 0600); writeErr != nil {
 			log.Warnf("Failed to create config backup: %v", writeErr)
 		}
 	}
@@ -116,9 +100,8 @@ func (s *Server) handleUpdateConfigRaw(w http.ResponseWriter, r *http.Request) {
 	*s.config = testConf
 
 	s.writeJSON(w, http.StatusOK, NewSuccessResponse(map[string]interface{}{
-		"message":      "Configuration saved successfully",
+		"message":      "Configuration saved successfully. Please restart TMD manually for changes to take effect.",
 		"backup":       filepath.Base(backupPath),
-		"applied":      true,
 		"yaml_preview": req.Content,
 	}))
 }
@@ -194,17 +177,6 @@ func buildConfigFieldItems(conf *config.Config) []ConfigFieldItem {
 	return items
 }
 
-func (s *Server) handleConfigFields(w http.ResponseWriter, r *http.Request) {
-	switch r.Method {
-	case http.MethodGet:
-		s.handleGetConfigFields(w, r)
-	case http.MethodPut:
-		s.handleSaveConfigFields(w, r)
-	default:
-		s.writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
-	}
-}
-
 func (s *Server) handleGetConfigFields(w http.ResponseWriter, _ *http.Request) {
 	s.configMu.RLock()
 	defer s.configMu.RUnlock()
@@ -270,7 +242,7 @@ func (s *Server) handleSaveConfigFields(w http.ResponseWriter, r *http.Request) 
 
 	backupPath := confPath + ".backup." + strconv.FormatInt(time.Now().Unix(), 10)
 	if data, err := os.ReadFile(confPath); err == nil {
-		if writeErr := os.WriteFile(backupPath, data, 0644); writeErr != nil {
+		if writeErr := os.WriteFile(backupPath, data, 0600); writeErr != nil {
 			log.Warnf("Failed to create config backup: %v", writeErr)
 		}
 	}
@@ -290,9 +262,8 @@ func (s *Server) handleSaveConfigFields(w http.ResponseWriter, r *http.Request) 
 	}
 
 	s.writeJSON(w, http.StatusOK, NewSuccessResponse(map[string]interface{}{
-		"message":      "Configuration saved successfully",
+		"message":      "Configuration saved successfully. Please restart TMD manually for changes to take effect.",
 		"backup":       filepath.Base(backupPath),
-		"applied":      true,
 		"yaml_preview": string(yamlPreview),
 		"fields":       buildConfigFieldItems(newConf),
 	}))

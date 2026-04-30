@@ -151,6 +151,13 @@ func TestServer_PutRoutesForConfigFieldsAndCookies(t *testing.T) {
 	handler.ServeHTTP(configRR, configReq)
 
 	assert.Equal(t, http.StatusOK, configRR.Code)
+	var configResp APIResponse
+	assert.NoError(t, json.Unmarshal(configRR.Body.Bytes(), &configResp))
+	configData, ok := configResp.Data.(map[string]interface{})
+	assert.True(t, ok)
+	assert.Contains(t, configData["message"], "restart TMD manually")
+	_, hasApplied := configData["applied"]
+	assert.False(t, hasApplied)
 	if _, err := os.Stat(filepath.Join(appRoot, "conf.yaml")); err != nil {
 		t.Fatalf("expected conf.yaml to be written: %v", err)
 	}
@@ -162,9 +169,43 @@ func TestServer_PutRoutesForConfigFieldsAndCookies(t *testing.T) {
 	handler.ServeHTTP(cookiesRR, cookiesReq)
 
 	assert.Equal(t, http.StatusOK, cookiesRR.Code)
+	var cookiesResp APIResponse
+	assert.NoError(t, json.Unmarshal(cookiesRR.Body.Bytes(), &cookiesResp))
+	cookiesData, ok := cookiesResp.Data.(map[string]interface{})
+	assert.True(t, ok)
+	assert.Contains(t, cookiesData["message"], "restart TMD manually")
 	if _, err := os.Stat(filepath.Join(appRoot, "additional_cookies.yaml")); err != nil {
 		t.Fatalf("expected additional_cookies.yaml to be written: %v", err)
 	}
+}
+
+func TestServer_SaveCookiesFailsWhenExistingCookiesUnreadable(t *testing.T) {
+	db, err := sqlx.Connect("sqlite3", ":memory:")
+	assert.NoError(t, err)
+	defer db.Close()
+	database.CreateTables(db)
+
+	appRoot := t.TempDir()
+	cfg := &config.Config{
+		RootPath:           appRoot,
+		MaxDownloadRoutine: 5,
+		MaxFileNameLen:     100,
+	}
+
+	server := NewServer(resty.New(), []*resty.Client{}, db, cfg, appRoot, nil)
+	defer server.taskManager.Close()
+	handler := server.buildHandler()
+
+	cookiesPath := filepath.Join(appRoot, "additional_cookies.yaml")
+	assert.NoError(t, os.WriteFile(cookiesPath, []byte(":\n  - invalid"), 0600))
+
+	cookiesBody := `{"cookies":[{"auth_token":"cookie-auth","ct0":"cookie-ct0"}]}`
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/cookies", bytes.NewBufferString(cookiesBody))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	assert.Equal(t, http.StatusInternalServerError, rr.Code)
 }
 
 func TestHandleUsers_InvalidPath(t *testing.T) {
@@ -224,6 +265,28 @@ func TestHandleUserDownload_Success(t *testing.T) {
 	assert.NotNil(t, data["task_id"])
 	assert.Equal(t, "testuser", data["screen_name"])
 	assert.Equal(t, true, data["auto_follow"])
+}
+
+func TestHandleUserDownload_AllowsAtPrefixedScreenName(t *testing.T) {
+	server, db := setupTestServer(t)
+	defer db.Close()
+
+	reqData := UserDownloadTaskData{
+		ScreenName: "testuser",
+	}
+	body, _ := json.Marshal(reqData)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/users/@testuser/download", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+
+	server.handleUsers(rr, req)
+
+	assert.Equal(t, http.StatusAccepted, rr.Code)
+
+	tasks := server.taskManager.GetAllTasks()
+	assert.Len(t, tasks, 1)
+	assert.Equal(t, "testuser", tasks[0].Data.(*UserDownloadTaskData).ScreenName)
 }
 
 func TestHandleUserDownload_EmptyBody(t *testing.T) {
@@ -642,6 +705,31 @@ func TestHandleBatchDownload_BothUsersAndLists(t *testing.T) {
 	assert.Equal(t, true, data["no_retry"])
 }
 
+func TestHandleBatchDownload_NormalizesAtPrefixedScreenNames(t *testing.T) {
+	server, db := setupTestServer(t)
+	defer db.Close()
+
+	reqData := BatchDownloadTaskData{
+		Users:          []string{"@user1"},
+		FollowingNames: []string{"@user2"},
+	}
+	body, _ := json.Marshal(reqData)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/batch/download", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+
+	server.handleBatchDownload(rr, req)
+
+	assert.Equal(t, http.StatusAccepted, rr.Code)
+
+	tasks := server.taskManager.GetAllTasks()
+	assert.Len(t, tasks, 1)
+	data := tasks[0].Data.(*BatchDownloadTaskData)
+	assert.Equal(t, []string{"user1"}, data.Users)
+	assert.Equal(t, []string{"user2"}, data.FollowingNames)
+}
+
 func TestHandleTasks_Success(t *testing.T) {
 	server, db := setupTestServer(t)
 	defer db.Close()
@@ -826,6 +914,25 @@ func TestServer_Start(t *testing.T) {
 	assert.NotNil(t, server.db)
 	assert.NotNil(t, server.config)
 	assert.NotNil(t, server.taskManager)
+}
+
+func TestServer_GracefulShutdownCompletes(t *testing.T) {
+	server, _ := setupTestServer(t)
+	server.GracefulShutdown("shutdown")
+	server.WaitForShutdown()
+}
+
+func TestServer_RestartRouteRemoved(t *testing.T) {
+	server, db := setupTestServer(t)
+	defer db.Close()
+
+	handler := server.buildHandler()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/server/restart", nil)
+	rr := httptest.NewRecorder()
+
+	handler.ServeHTTP(rr, req)
+
+	assert.Equal(t, http.StatusNotFound, rr.Code)
 }
 
 func TestServer_TaskCreationAndRetrieval(t *testing.T) {

@@ -37,6 +37,10 @@ func isValidScreenName(screenName string) bool {
 	return true
 }
 
+func normalizeScreenName(screenName string) string {
+	return strings.TrimPrefix(screenName, "@")
+}
+
 func (s *Server) handleUsers(w http.ResponseWriter, r *http.Request) {
 	path := strings.TrimPrefix(r.URL.Path, "/api/v1/users/")
 	parts := strings.Split(path, "/")
@@ -46,7 +50,7 @@ func (s *Server) handleUsers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	screenName := parts[0]
+	screenName := normalizeScreenName(parts[0])
 
 	// 校验 screenName 格式
 	if !isValidScreenName(screenName) {
@@ -419,14 +423,16 @@ func (s *Server) handleBatchDownload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 校验所有 screenName 格式
-	for _, screenName := range req.Users {
-		if !isValidScreenName(screenName) {
+	for i, screenName := range req.Users {
+		req.Users[i] = normalizeScreenName(screenName)
+		if !isValidScreenName(req.Users[i]) {
 			s.writeError(w, http.StatusBadRequest, "Invalid screen name format: "+screenName)
 			return
 		}
 	}
-	for _, screenName := range req.FollowingNames {
-		if !isValidScreenName(screenName) {
+	for i, screenName := range req.FollowingNames {
+		req.FollowingNames[i] = normalizeScreenName(screenName)
+		if !isValidScreenName(req.FollowingNames[i]) {
 			s.writeError(w, http.StatusBadRequest, "Invalid screen name format: "+screenName)
 			return
 		}
@@ -472,11 +478,6 @@ func (s *Server) handleBatchDownload(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleTasks(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		s.writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
-		return
-	}
-
 	tasks := s.taskManager.GetAllTasks()
 	s.writeJSON(w, http.StatusOK, NewSuccessResponse(TaskListResponse{
 		Tasks: tasks,

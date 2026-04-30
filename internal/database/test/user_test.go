@@ -2,7 +2,6 @@ package database_test
 
 import (
 	"testing"
-	"time"
 
 	"github.com/jmoiron/sqlx"
 	_ "github.com/mattn/go-sqlite3"
@@ -294,9 +293,8 @@ func TestMarkListMembersAccessibleByIDs(t *testing.T) {
 
 	t.Run("mark_members_accessible", func(t *testing.T) {
 		uids := []uint64{1, 2, 3}
-		database.MarkListMembersAccessibleByIDs(db, uids)
-
-		time.Sleep(100 * time.Millisecond)
+		err := database.MarkListMembersAccessibleByIDs(db, uids)
+		require.NoError(t, err)
 
 		for i := 1; i <= 3; i++ {
 			retrieved, _ := database.GetUserById(db, uint64(i))
@@ -305,13 +303,14 @@ func TestMarkListMembersAccessibleByIDs(t *testing.T) {
 	})
 
 	t.Run("empty_uid_list", func(t *testing.T) {
-		database.MarkListMembersAccessibleByIDs(db, []uint64{})
-		time.Sleep(50 * time.Millisecond)
+		err := database.MarkListMembersAccessibleByIDs(db, []uint64{})
+		require.NoError(t, err)
 	})
 
 	t.Run("nil_db", func(t *testing.T) {
 		uids := []uint64{1, 2, 3}
-		database.MarkListMembersAccessibleByIDs(nil, uids)
+		err := database.MarkListMembersAccessibleByIDs(nil, uids)
+		require.NoError(t, err)
 	})
 }
 

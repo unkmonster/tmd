@@ -32,11 +32,18 @@ func TestUserArgs_Set(t *testing.T) {
 			expectError:        false,
 		},
 		{
-			name:               "带特殊字符的screenName",
+			name:               "带连字符的screenName",
 			input:              "@user_name-123",
-			expectedScreens:    []string{"user_name-123"},
+			expectedScreens:    nil,
+			expectEmptyScreens: true,
+			expectError:        true, // 连字符 - 不被允许
+		},
+		{
+			name:               "带下划线的screenName",
+			input:              "@user_name_123",
+			expectedScreens:    []string{"user_name_123"},
 			expectEmptyScreens: false,
-			expectError:        false,
+			expectError:        false, // 下划线 _ 是允许的
 		},
 	}
 
@@ -119,8 +126,8 @@ func TestIntArgs_Set(t *testing.T) {
 		{
 			name:        "零",
 			input:       "0",
-			expectedIDs: []uint64{0},
-			expectError: false,
+			expectedIDs: nil,
+			expectError: true, // 0 是无效ID，必须大于0
 		},
 		{
 			name:        "大数字",

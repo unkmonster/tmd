@@ -1,10 +1,9 @@
 #!/bin/bash
 
-# TMD Server 启动与自动重启脚本
+# TMD Server 启动脚本
 # 该脚本通过监听 tmd 进程的退出码来实现：
 # 1. 正常关闭 (Exit 0) -> 退出脚本
-# 2. 请求重启 (Exit 2) -> 立即重新拉起服务
-# 3. 异常崩溃 (非 0/2) -> 等待 5 秒后自动拉起
+# 2. 异常崩溃 (非 0) -> 等待 5 秒后自动拉起
 
 # 确保执行的是编译后的二进制文件
 BIN_PATH="./tmd"
@@ -28,11 +27,8 @@ while true; do
     if [ $EXIT_CODE -eq 0 ]; then
         echo "Server shut down gracefully (Exit Code 0). Stopping script."
         break
-    elif [ $EXIT_CODE -eq 2 ]; then
-        echo "Server requested restart (Exit Code 2). Restarting immediately..."
-        sleep 1
     else
-        echo "Server crashed or stopped unexpectedly (Exit Code $EXIT_CODE). Restarting in 5 seconds..."
+        echo "Server crashed or stopped unexpectedly (Exit Code $EXIT_CODE). Starting again in 5 seconds..."
         sleep 5
     fi
 done

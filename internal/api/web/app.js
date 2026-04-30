@@ -149,7 +149,6 @@ createJsonFolderDownload(data) {
   updateCookiesRaw(content) { return this.request('PUT', '/api/v1/cookies/raw', { content }); },
   getCookies()              { return this.get('/api/v1/cookies'); },
   saveCookies(cookies)      { return this.request('PUT', '/api/v1/cookies', { cookies }); },
-  restartServer() { return this.post('/api/v1/server/restart'); },
   shutdownServer() { return this.post('/api/v1/server/shutdown'); },
 
   // Logs
@@ -185,12 +184,15 @@ createJsonFolderDownload(data) {
 // ============================================
 const sseManager = {
   conn: null,
+  reconnectTimer: null,
   reconnectDelay: 2000,
   maxReconnectDelay: 30000,
   baseReconnectDelay: 2000,
   reconnectAttempts: 0,
+  reconnectDisabled: false,
 
   connect() {
+    this.reconnectDisabled = false;
     if (this.conn) return;
 
     this.conn = new EventSource('/api/v1/sse/tasks');
@@ -210,21 +212,36 @@ const sseManager = {
       this.conn.close();
       this.conn = null;
       store.setState({ sseConnected: false });
+      if (this.reconnectDisabled) return;
       this.reconnectAttempts++;
       const delay = Math.min(this.baseReconnectDelay * Math.pow(2, this.reconnectAttempts - 1), this.maxReconnectDelay);
       console.warn(`[SSE] 连接断开，${delay / 1000}s 后重试（第 ${this.reconnectAttempts} 次）`);
-      setTimeout(() => this.connect(), delay);
+      this.reconnectTimer = setTimeout(() => {
+        this.reconnectTimer = null;
+        this.connect();
+      }, delay);
     };
 
     store.setState({ sseConnected: true });
   },
   
   disconnect() {
+    this.reconnectDisabled = true;
+    this.reconnectAttempts = 0;
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
     if (this.conn) {
       this.conn.close();
       this.conn = null;
     }
     store.setState({ sseConnected: false });
+  },
+
+  resume() {
+    this.reconnectDisabled = false;
+    this.connect();
   }
 };
 
@@ -1216,10 +1233,6 @@ async function editDBItem(type, id) {
             <div class="font-mono text-sm" style="background: var(--bg-primary); padding: var(--space-3); border-radius: var(--radius-md);">${escapeHtml(item.user_id)}</div>
           </div>
           <div class="form-group">
-            <label class="form-label">Parent Dir</label>
-            <input type="text" class="form-input" id="editEntityParentDir" value="${escapeAttr(item.parent_dir || '')}">
-          </div>
-          <div class="form-group">
             <label class="form-label">Media Count</label>
             <input type="number" class="form-input" id="editEntityMediaCount" value="${escapeAttr(item.media_count || 0)}">
           </div>
@@ -1234,10 +1247,6 @@ async function editDBItem(type, id) {
           <div class="form-group">
             <label class="form-label">List ID</label>
             <div class="font-mono text-sm" style="background: var(--bg-primary); padding: var(--space-3); border-radius: var(--radius-md);">${escapeHtml(item.lst_id)}</div>
-          </div>
-          <div class="form-group">
-            <label class="form-label">Parent Dir</label>
-            <input type="text" class="form-input" id="editListEntityParentDir" value="${escapeAttr(item.parent_dir || '')}">
           </div>
         `;
         break;
@@ -1274,13 +1283,11 @@ async function saveDBItem(type, id) {
       break;
     case 'entities':
       data.name = document.getElementById('editEntityName').value.trim();
-      data.parent_dir = document.getElementById('editEntityParentDir').value.trim();
       data.media_count = parseInt(document.getElementById('editEntityMediaCount').value) || 0;
       if (!data.name) return toast.show('Name is required', 'error');
       break;
     case 'listEntities':
       data.name = document.getElementById('editListEntityName').value.trim();
-      data.parent_dir = document.getElementById('editListEntityParentDir').value.trim();
       if (!data.name) return toast.show('Name is required', 'error');
       break;
   }
@@ -1879,6 +1886,36 @@ async function loadConfigRaw() {
   } catch (e) { toast.show('加载配置失败: ' + e.message, 'error'); }
 }
 
+function showManualRestartNotice(subject) {
+  toast.show(`✅ ${subject}已保存，需要手动重启服务后生效`, 'success');
+}
+
+function renderServerClosedState() {
+  document.getElementById('contentContainer').innerHTML = `
+    <div class="empty-state" style="padding: 80px 20px;">
+      <div style="font-size: 48px; margin-bottom: 20px;">👋</div>
+      <div class="empty-title">服务器已关闭</div>
+      <div class="empty-desc">如需重新启动，请运行 tmd -server</div>
+    </div>
+  `;
+}
+
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function waitForServerShutdown(maxAttempts = 8, intervalMs = 300) {
+  for (let i = 0; i < maxAttempts; i++) {
+    await sleep(intervalMs);
+    try {
+      await api.getHealth();
+    } catch (_) {
+      return true;
+    }
+  }
+  return false;
+}
+
 async function saveConfigForm() {
   const inputs = document.querySelectorAll('.config-input:not(.cookie-input)[name]');
   const fields = {};
@@ -1898,11 +1935,13 @@ async function saveConfigForm() {
 
   store.setState({ configSaving: true });
   try {
-    await api.saveConfigFields(fields);
-    toast.show('✅ 配置已保存，正在重启服务器...', 'success');
-
-    try { await api.restartServer(); } catch (e) { console.log('Restart initiated'); }
-    showRestartingUI();
+    const data = await api.saveConfigFields(fields);
+    store.setState({
+      configSaving: false,
+      configFields: data.fields || store.state.configFields,
+      configRaw: data.yaml_preview || store.state.configRaw
+    });
+    showManualRestartNotice('配置');
   } catch (e) {
     toast.show('❌ 保存失败: ' + e.message, 'error');
     store.setState({ configSaving: false });
@@ -1914,11 +1953,12 @@ async function saveConfig() {
   if (!content.trim()) return toast.show('配置不能为空', 'error');
   store.setState({ configSaving: true });
   try {
-    await api.updateConfigRaw(content);
-    toast.show('✅ 配置已保存，正在重启服务器...', 'success');
-
-    try { await api.restartServer(); } catch (e) { console.log('Restart initiated'); }
-    showRestartingUI();
+    const data = await api.updateConfigRaw(content);
+    store.setState({
+      configSaving: false,
+      configRaw: data.yaml_preview || content
+    });
+    showManualRestartNotice('配置');
   } catch (e) {
     toast.show('❌ 保存失败: ' + e.message, 'error');
     store.setState({ configSaving: false });
@@ -1965,9 +2005,8 @@ async function saveCookiesForm() {
   store.setState({ cookiesSaving: true });
   try {
     await api.saveCookies(cookies);
-    toast.show('✅ 额外账户已保存，正在重启服务器...', 'success');
-    try { await api.restartServer(); } catch (e) { console.log('Restart initiated'); }
-    showRestartingUI();
+    store.setState({ cookiesSaving: false });
+    showManualRestartNotice('额外账户');
   } catch (e) {
     toast.show('❌ 保存失败: ' + e.message, 'error');
     store.setState({ cookiesSaving: false });
@@ -1981,9 +2020,8 @@ async function saveCookies() {
   store.setState({ cookiesSaving: true });
   try {
     await api.updateCookiesRaw(content);
-    toast.show('✅ 额外账户已保存，正在重启服务器...', 'success');
-    try { await api.restartServer(); } catch (e) { console.log('Restart initiated'); }
-    showRestartingUI();
+    store.setState({ cookiesSaving: false, cookiesRaw: content });
+    showManualRestartNotice('额外账户');
   } catch (e) {
     toast.show('❌ 保存失败: ' + e.message, 'error');
     store.setState({ cookiesSaving: false });
@@ -2007,75 +2045,34 @@ function removeCookieAccount(index) {
   store.setState({ cookieItems: items });
 }
 
-function showRestartingUI() {
-    if (restartCheckTimer) { clearInterval(restartCheckTimer); restartCheckTimer = null; }
+async function shutdownServer() {
+  if (!confirm('确定要关闭服务器吗？\n\n关闭后需要手动重新启动 TMD 服务。')) {
+    return;
+  }
 
-    document.getElementById('contentContainer').innerHTML = `
-        <div class="empty-state" style="padding: 80px 20px;">
-            <div style="font-size: 48px; margin-bottom: 20px;">🔄</div>
-            <div class="empty-title">服务器正在重启</div>
-            <div class="empty-desc">正在等待服务器恢复...</div>
-            <div style="margin-top: 20px;">
-                <div class="loading-spinner" style="margin: 0 auto;"></div>
-            </div>
-        </div>
-    `;
+  toast.show('正在关闭服务器...', 'warning');
 
-    let retryCount = 0;
-    const maxRetries = 20;
-    restartCheckTimer = setInterval(async () => {
-        retryCount++;
-        try {
-            const res = await fetch('/api/v1/health', { method: 'GET' });
-            if (res.ok) {
-                clearInterval(restartCheckTimer);
-                restartCheckTimer = null;
-                window.location.reload();
-            }
-        } catch (e) {}
+  const shouldRestoreLogAutoRefresh = store.state.logAutoRefresh;
+  cleanupSystemTimers();
+  sseManager.disconnect();
 
-        if (retryCount >= maxRetries) {
-            clearInterval(restartCheckTimer);
-            restartCheckTimer = null;
-            document.getElementById('contentContainer').innerHTML = `
-                <div class="empty-state" style="padding: 80px 20px;">
-                    <div style="font-size: 48px; margin-bottom: 20px;">⚠️</div>
-                    <div class="empty-title">服务器未响应</div>
-                    <div class="empty-desc">请手动刷新页面或检查服务器状态</div>
-                    <button class="btn btn-primary mt-4" onclick="window.location.reload()">刷新页面</button>
-                </div>
-            `;
-        }
-    }, 1000);
-}
-
-function shutdownServer() {
-    if (!confirm('确定要关闭服务器吗？\n\n关闭后需要手动重新启动 TMD 服务。')) {
-        return;
+  try {
+    await api.shutdownServer();
+    renderServerClosedState();
+  } catch (err) {
+    const stopped = await waitForServerShutdown();
+    if (stopped) {
+      renderServerClosedState();
+      return;
     }
 
-    toast.show('正在关闭服务器...', 'warning');
-
-    api.shutdownServer()
-        .then(() => {
-            document.getElementById('contentContainer').innerHTML = `
-                <div class="empty-state" style="padding: 80px 20px;">
-                    <div style="font-size: 48px; margin-bottom: 20px;">👋</div>
-                    <div class="empty-title">服务器已关闭</div>
-                    <div class="empty-desc">如需重新启动，请运行 tmd -server</div>
-                </div>
-            `;
-        })
-        .catch((err) => {
-            console.log('Shutdown initiated:', err.message);
-            document.getElementById('contentContainer').innerHTML = `
-                <div class="empty-state" style="padding: 80px 20px;">
-                    <div style="font-size: 48px; margin-bottom: 20px;">👋</div>
-                    <div class="empty-title">服务器已关闭</div>
-                    <div class="empty-desc">如需重新启动，请运行 tmd -server</div>
-                </div>
-            `;
-        });
+    if (shouldRestoreLogAutoRefresh && !logAutoRefreshTimer) {
+      store.setState({ logAutoRefresh: true });
+      logAutoRefreshTimer = setInterval(loadLogs, 5000);
+    }
+    sseManager.resume();
+    toast.show('关闭失败: ' + err.message, 'error');
+  }
 }
 
 function setConfigMode(mode) {
@@ -2115,7 +2112,6 @@ function goToLogPage(page) {
 }
 
 let logAutoRefreshTimer = null;
-let restartCheckTimer = null;
 let configCodeMirror = null;
 let cookiesCodeMirror = null;
 
@@ -2168,10 +2164,6 @@ function cleanupSystemTimers() {
   if (logAutoRefreshTimer) {
     clearInterval(logAutoRefreshTimer);
     logAutoRefreshTimer = null;
-  }
-  if (restartCheckTimer) {
-    clearInterval(restartCheckTimer);
-    restartCheckTimer = null;
   }
   if (store.state.logAutoRefresh) {
     store.setState({ logAutoRefresh: false });

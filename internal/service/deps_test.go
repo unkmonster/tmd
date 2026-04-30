@@ -6,6 +6,7 @@ import (
 	"github.com/go-resty/resty/v2"
 	"github.com/jmoiron/sqlx"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/unkmonster/tmd/internal/config"
 )
@@ -25,6 +26,88 @@ func TestDependencies_Struct(t *testing.T) {
 	assert.Equal(t, "/app/root", deps.AppRootPath)
 }
 
+func TestDependencies_Validate(t *testing.T) {
+	tests := []struct {
+		name    string
+		deps    *Dependencies
+		wantErr bool
+		errMsg  string
+	}{
+		{
+			name: "valid dependencies",
+			deps: &Dependencies{
+				Client:      resty.New(),
+				DB:          &sqlx.DB{},
+				Config:      &config.Config{RootPath: "/test"},
+				AppRootPath: "/app",
+			},
+			wantErr: false,
+		},
+		{
+			name:    "nil dependencies",
+			deps:    nil,
+			wantErr: true,
+			errMsg:  "dependencies is nil",
+		},
+		{
+			name: "nil client",
+			deps: &Dependencies{
+				Client:      nil,
+				DB:          &sqlx.DB{},
+				Config:      &config.Config{RootPath: "/test"},
+				AppRootPath: "/app",
+			},
+			wantErr: true,
+			errMsg:  "client is required",
+		},
+		{
+			name: "nil config",
+			deps: &Dependencies{
+				Client:      resty.New(),
+				DB:          &sqlx.DB{},
+				Config:      nil,
+				AppRootPath: "/app",
+			},
+			wantErr: true,
+			errMsg:  "config is required",
+		},
+		{
+			name: "empty root path",
+			deps: &Dependencies{
+				Client:      resty.New(),
+				DB:          &sqlx.DB{},
+				Config:      &config.Config{RootPath: ""},
+				AppRootPath: "/app",
+			},
+			wantErr: true,
+			errMsg:  "config.RootPath is required",
+		},
+		{
+			name: "nil db",
+			deps: &Dependencies{
+				Client:      resty.New(),
+				Config:      &config.Config{RootPath: "/test"},
+				AppRootPath: "/app",
+				DB:          nil,
+			},
+			wantErr: true,
+			errMsg:  "db is required",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.deps.Validate()
+			if tt.wantErr {
+				assert.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errMsg)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
 func TestNewDownloadService(t *testing.T) {
 	deps := &Dependencies{
 		Client:            resty.New(),
@@ -34,8 +117,8 @@ func TestNewDownloadService(t *testing.T) {
 		AppRootPath:       "/app",
 	}
 
-	service := NewDownloadService(deps)
-
+	service, err := NewDownloadService(deps)
+	require.NoError(t, err)
 	assert.NotNil(t, service)
 
 	impl, ok := service.(*downloadServiceImpl)
@@ -53,13 +136,55 @@ func TestNewDownloadService_WithNilDB(t *testing.T) {
 		AppRootPath:       "/app",
 	}
 
-	service := NewDownloadService(deps)
+	service, err := NewDownloadService(deps)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "db is required")
+	assert.Nil(t, service)
+}
 
-	assert.NotNil(t, service)
+func TestNewDownloadService_WithNilClient(t *testing.T) {
+	deps := &Dependencies{
+		Client:            nil,
+		AdditionalClients: []*resty.Client{},
+		DB:                &sqlx.DB{},
+		Config:            &config.Config{RootPath: "/test"},
+		AppRootPath:       "/app",
+	}
 
-	impl, ok := service.(*downloadServiceImpl)
-	assert.True(t, ok)
-	assert.NotNil(t, impl)
+	service, err := NewDownloadService(deps)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "client is required")
+	assert.Nil(t, service)
+}
+
+func TestNewDownloadService_WithNilConfig(t *testing.T) {
+	deps := &Dependencies{
+		Client:            resty.New(),
+		AdditionalClients: []*resty.Client{},
+		DB:                &sqlx.DB{},
+		Config:            nil,
+		AppRootPath:       "/app",
+	}
+
+	service, err := NewDownloadService(deps)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "config is required")
+	assert.Nil(t, service)
+}
+
+func TestNewDownloadService_WithEmptyRootPath(t *testing.T) {
+	deps := &Dependencies{
+		Client:            resty.New(),
+		AdditionalClients: []*resty.Client{},
+		DB:                &sqlx.DB{},
+		Config:            &config.Config{RootPath: ""},
+		AppRootPath:       "/app",
+	}
+
+	service, err := NewDownloadService(deps)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "config.RootPath is required")
+	assert.Nil(t, service)
 }
 
 func TestNewDownloadService_WithMultipleAdditionalClients(t *testing.T) {
@@ -75,8 +200,8 @@ func TestNewDownloadService_WithMultipleAdditionalClients(t *testing.T) {
 		AppRootPath: "/app",
 	}
 
-	service := NewDownloadService(deps)
-
+	service, err := NewDownloadService(deps)
+	require.NoError(t, err)
 	assert.NotNil(t, service)
 
 	impl, ok := service.(*downloadServiceImpl)
