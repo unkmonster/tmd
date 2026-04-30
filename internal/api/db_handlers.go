@@ -237,8 +237,13 @@ func (s *Server) handleDBLists(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if ownerID := r.URL.Query().Get("ownerId"); ownerID != "" {
+		ownerUID, err := strconv.ParseUint(ownerID, 10, 64)
+		if err != nil {
+			s.writeError(w, http.StatusBadRequest, "Invalid owner ID")
+			return
+		}
 		whereConditions = append(whereConditions, "owner_uid = ?")
-		args = append(args, ownerID)
+		args = append(args, ownerUID)
 	}
 
 	whereClause := ""

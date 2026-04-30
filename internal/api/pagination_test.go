@@ -219,9 +219,9 @@ func TestPagination_BuildOrderBy_MissingDefault(t *testing.T) {
 		SortOrder: "asc",
 	}
 
-	// 当 "id" 不在 allowedFields 中时，应该返回空字符串
+	// 当 "id" 不在 allowedFields 中时，应该返回空字符串，避免生成无效 SQL
 	got := p.BuildOrderBy(allowedFields)
-	assert.Equal(t, "ORDER BY  asc", got)
+	assert.Equal(t, "", got)
 }
 
 func TestPagination_ToResponse(t *testing.T) {

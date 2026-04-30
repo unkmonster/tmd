@@ -176,7 +176,7 @@ func (s *Server) handleServerAction(w http.ResponseWriter, action string) {
 		"action":  action,
 	}))
 
-	log.Infof("[WebUI] received %s request, performing graceful shutdown...", action)
+	log.Infof("[server] received %s request, performing graceful shutdown...", action)
 
 	go func() {
 		time.Sleep(500 * time.Millisecond)
@@ -193,11 +193,12 @@ func (s *Server) handleServerShutdown(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *Server) GracefulShutdown(reason string) {
-	log.Infof("[WebUI] graceful shutdown started (reason: %s)", reason)
+	log.Infof("[server] graceful shutdown started (reason: %s)", reason)
 
 	if s.taskManager != nil {
 		s.taskManager.CancelAllTasks()
-		log.Infoln("[WebUI] all running tasks cancelled")
+		s.taskManager.Close()
+		log.Infoln("[server] all running tasks cancelled")
 		time.Sleep(1 * time.Second)
 	}
 
@@ -206,30 +207,30 @@ func (s *Server) GracefulShutdown(reason string) {
 		defer cancel()
 
 		if err := s.httpServer.Shutdown(ctx); err != nil {
-			log.Warnf("[WebUI] http server shutdown error: %v", err)
+			log.Warnf("[server] http server shutdown error: %v", err)
 		} else {
-			log.Infoln("[WebUI] http server stopped gracefully")
+			log.Infoln("[server] http server stopped gracefully")
 		}
 	}
 
 	if s.db != nil {
 		if err := s.db.Close(); err != nil {
-			log.Warnf("[WebUI] failed to close database: %v", err)
+			log.Warnf("[server] failed to close database: %v", err)
 		} else {
-			log.Infoln("[WebUI] database connection closed")
+			log.Infoln("[server] database connection closed")
 		}
 	}
 
 	if s.logWriter != nil {
 		if err := s.logWriter.Close(); err != nil {
-			log.Warnf("[WebUI] failed to close log writer: %v", err)
+			log.Warnf("[server] failed to close log writer: %v", err)
 		} else {
-			log.Infoln("[WebUI] log writer closed")
+			log.Infoln("[server] log writer closed")
 		}
 	}
 
 	time.Sleep(100 * time.Millisecond)
-	log.Infoln("[WebUI] shutdown complete")
+	log.Infoln("[server] shutdown complete")
 
 	if reason == "restart" {
 		os.Exit(2) // 特殊退出码，通知外部守护进程重启

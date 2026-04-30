@@ -35,6 +35,7 @@ func createTestServer(t *testing.T) (*Server, *sqlx.DB) {
 		db:          db,
 		taskManager: NewTaskManager(),
 	}
+	t.Cleanup(server.taskManager.Close)
 	return server, db
 }
 
@@ -392,6 +393,18 @@ func TestHandleDBLists_WithOwnerFilter(t *testing.T) {
 	server.handleDBLists(rr, req)
 
 	assert.Equal(t, http.StatusOK, rr.Code)
+}
+
+func TestHandleDBLists_WithInvalidOwnerFilter(t *testing.T) {
+	server, db := createTestServer(t)
+	defer db.Close()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/db/lists?ownerId=invalid", nil)
+	rr := httptest.NewRecorder()
+
+	server.handleDBLists(rr, req)
+
+	assert.Equal(t, http.StatusBadRequest, rr.Code)
 }
 
 func TestHandleDBListDetail_Success(t *testing.T) {

@@ -8,6 +8,7 @@ import (
 
 	"github.com/go-resty/resty/v2"
 	"github.com/jmoiron/sqlx"
+	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 
@@ -82,6 +83,13 @@ func TestExecute_ParseArgsError(t *testing.T) {
 
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "parse args failed")
+}
+
+func TestExecute_NilDependencies(t *testing.T) {
+	err := Execute(context.Background(), []string{"-user", "testuser"}, nil)
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "dependencies is nil")
 }
 
 func TestExecute_JsonDownload(t *testing.T) {
@@ -199,6 +207,26 @@ func TestExecute_NoArgs(t *testing.T) {
 	err := Execute(context.Background(), args, deps)
 
 	assert.NoError(t, err)
+}
+
+func TestExecute_NoArgs_LogsHint(t *testing.T) {
+	deps := &Dependencies{
+		Dependencies: service.Dependencies{
+			Client:      resty.New(),
+			Config:      &config.Config{},
+			AppRootPath: "/tmp",
+		},
+	}
+
+	var buf bytes.Buffer
+	originalOutput := log.StandardLogger().Out
+	log.SetOutput(&buf)
+	defer log.SetOutput(originalOutput)
+
+	err := Execute(context.Background(), nil, deps)
+
+	assert.NoError(t, err)
+	assert.Contains(t, buf.String(), "no download tasks specified")
 }
 
 func TestExecute_DefaultServiceCreation(t *testing.T) {

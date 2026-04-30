@@ -19,11 +19,22 @@ type Dependencies struct {
 
 // Execute 执行 CLI 命令
 func Execute(ctx context.Context, args []string, deps *Dependencies) error {
+	if deps == nil {
+		return fmt.Errorf("dependencies is nil")
+	}
+
 	// 解析参数
 	_, cfg, err := ParseArgs(args)
 	if err != nil {
 		return fmt.Errorf("parse args failed: %w", err)
 	}
+
+	if !hasAnyTasks(cfg) {
+		log.Infoln("no download tasks specified")
+		return nil
+	}
+
+	log.Infoln("start working for...")
 
 	// 如果没有提供 Service，创建一个默认的
 	if deps.DownloadService == nil {
@@ -52,8 +63,6 @@ func Execute(ctx context.Context, args []string, deps *Dependencies) error {
 	// 3. -mark-downloaded : 标记已下载 - 完全独占
 	// 4. -user/-list/-foll : 批量下载推文 - 可与 -profile-user/-profile-list 组合
 	// 5. -profile-user/-profile-list : Profile下载 - 可与批量下载组合执行
-
-	log.Infoln("start working for...")
 
 	// 1. 第三方工具JSON文件下载（-jsonfile）- 最高优先级，独占执行
 	if len(cfg.JsonFileArgs.GetPaths()) > 0 {
@@ -154,6 +163,17 @@ func Execute(ctx context.Context, args []string, deps *Dependencies) error {
 	}
 
 	return nil
+}
+
+func hasAnyTasks(cfg *CLIConfig) bool {
+	return len(cfg.JsonFileArgs.GetPaths()) > 0 ||
+		len(cfg.JsonFolderArgs.GetPaths()) > 0 ||
+		cfg.MarkDownloaded ||
+		len(cfg.UsrArgs.ScreenName) > 0 ||
+		len(cfg.ListArgs.ID) > 0 ||
+		len(cfg.FollArgs.ScreenName) > 0 ||
+		len(cfg.ProfileUsers.ScreenName) > 0 ||
+		len(cfg.ProfileList.ID) > 0
 }
 
 // hasOtherParams 检查是否有其他下载参数被忽略（用于独占参数警告）

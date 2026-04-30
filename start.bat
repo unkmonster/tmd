@@ -9,13 +9,13 @@ chcp 65001 >nul
 :: 2. Restart requested (ERRORLEVEL 2) -> Restart service immediately
 :: 3. Crash (Other) -> Wait 5 seconds and restart
 
-set BIN_PATH=.\bin\tmd.exe
+set BIN_PATH=.\tmd.exe
 
 if not exist "%BIN_PATH%" (
-    echo Error: Executable not found at %BIN_PATH%
-    echo Please build the project first using: go build -o bin\tmd.exe .\main.go
-    pause
-    exit /b 1
+	echo Error: Executable not found at %BIN_PATH%
+	echo Please build the project first using: go build -o tmd.exe .\main.go
+	pause
+	exit /b 1
 )
 
 echo Starting TMD Server...

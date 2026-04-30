@@ -7,12 +7,12 @@
 # 3. 异常崩溃 (非 0/2) -> 等待 5 秒后自动拉起
 
 # 确保执行的是编译后的二进制文件
-BIN_PATH="./bin/tmd"
+BIN_PATH="./tmd"
 
 # 检查二进制文件是否存在
 if [ ! -f "$BIN_PATH" ]; then
     echo "Error: Executable not found at $BIN_PATH"
-    echo "Please build the project first using 'go build -o bin/tmd ./main.go'"
+    echo "Please build the project first using 'go build -o tmd ./main.go'"
     exit 1
 fi
 

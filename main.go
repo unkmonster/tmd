@@ -268,13 +268,19 @@ func runServer(conf *config.Config, appRootPath string, port int, loginOpts twit
 	// 信号处理
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
-	go func() {
-		sig := <-sigChan
-		log.Warnln("[server] caught signal:", sig)
-		server.GracefulShutdown("signal")
-	}()
+	defer signal.Stop(sigChan)
+	startServerSignalHandler(sigChan, server.GracefulShutdown)
 
 	if err := server.Start(port); err != nil && err != http.ErrServerClosed {
 		log.Fatalln("failed to start server:", err)
 	}
+}
+
+func startServerSignalHandler(sigChan <-chan os.Signal, shutdown func(string)) {
+	go func() {
+		sig := <-sigChan
+		log.Warnln("[server] caught signal:", sig)
+		// SIGKILL 无法捕获；这里只处理可拦截的退出信号，确保数据库等资源优雅关闭。
+		shutdown("signal:" + sig.String())
+	}()
 }

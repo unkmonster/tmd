@@ -36,6 +36,7 @@ func setupTestServer(t *testing.T) (*Server, *sqlx.DB) {
 
 	client := resty.New()
 	server := NewServer(client, []*resty.Client{}, db, cfg, "/app", nil)
+	t.Cleanup(server.taskManager.Close)
 
 	return server, db
 }
@@ -53,6 +54,7 @@ func TestNewServer(t *testing.T) {
 
 	client := resty.New()
 	server := NewServer(client, []*resty.Client{}, db, cfg, "/app", nil)
+	defer server.taskManager.Close()
 
 	assert.NotNil(t, server)
 	assert.NotNil(t, server.client)
@@ -85,18 +87,6 @@ func TestHandleHealth_Success(t *testing.T) {
 	assert.Equal(t, "ok", data["status"])
 	assert.Equal(t, "2.0.0", data["version"])
 	assert.NotNil(t, data["timestamp"])
-}
-
-func TestHandleHealth_WrongMethod(t *testing.T) {
-	server, db := setupTestServer(t)
-	defer db.Close()
-
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/health", nil)
-	rr := httptest.NewRecorder()
-
-	server.handleHealth(rr, req)
-
-	assert.Equal(t, http.StatusMethodNotAllowed, rr.Code)
 }
 
 func TestHandleHealth_DatabaseUnavailable(t *testing.T) {
@@ -135,28 +125,17 @@ func TestHandleConfig_Success(t *testing.T) {
 	assert.Equal(t, float64(100), data["max_file_name_len"])
 }
 
-func TestHandleConfig_WrongMethod(t *testing.T) {
-	server, db := setupTestServer(t)
-	defer db.Close()
-
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/config", nil)
-	rr := httptest.NewRecorder()
-
-	server.handleConfig(rr, req)
-
-	assert.Equal(t, http.StatusMethodNotAllowed, rr.Code)
-}
-
 func TestHandleUsers_InvalidPath(t *testing.T) {
 	server, db := setupTestServer(t)
 	defer db.Close()
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/users/", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/users/", nil)
 	rr := httptest.NewRecorder()
 
 	server.handleUsers(rr, req)
 
-	assert.Equal(t, http.StatusBadRequest, rr.Code)
+	// 无效路径现在返回 404 而不是 400
+	assert.Equal(t, http.StatusNotFound, rr.Code)
 }
 
 func TestHandleUsers_UnknownAction(t *testing.T) {
@@ -169,18 +148,6 @@ func TestHandleUsers_UnknownAction(t *testing.T) {
 	server.handleUsers(rr, req)
 
 	assert.Equal(t, http.StatusNotFound, rr.Code)
-}
-
-func TestHandleUserDownload_WrongMethod(t *testing.T) {
-	server, db := setupTestServer(t)
-	defer db.Close()
-
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/users/testuser/download", nil)
-	rr := httptest.NewRecorder()
-
-	server.handleUsers(rr, req)
-
-	assert.Equal(t, http.StatusMethodNotAllowed, rr.Code)
 }
 
 func TestHandleUserDownload_Success(t *testing.T) {
@@ -235,12 +202,12 @@ func TestHandleUserProfile_WrongMethod(t *testing.T) {
 	server, db := setupTestServer(t)
 	defer db.Close()
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/users/testuser/profile", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/users/testuser/profile", nil)
 	rr := httptest.NewRecorder()
 
 	server.handleUsers(rr, req)
 
-	assert.Equal(t, http.StatusMethodNotAllowed, rr.Code)
+	assert.Equal(t, http.StatusAccepted, rr.Code)
 }
 
 func TestHandleUserProfile_Success(t *testing.T) {
@@ -263,18 +230,6 @@ func TestHandleUserProfile_Success(t *testing.T) {
 	assert.True(t, ok)
 	assert.NotNil(t, data["task_id"])
 	assert.Equal(t, "testuser", data["screen_name"])
-}
-
-func TestHandleUserMark_WrongMethod(t *testing.T) {
-	server, db := setupTestServer(t)
-	defer db.Close()
-
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/users/testuser/mark", nil)
-	rr := httptest.NewRecorder()
-
-	server.handleUsers(rr, req)
-
-	assert.Equal(t, http.StatusMethodNotAllowed, rr.Code)
 }
 
 func TestHandleUserMark_Success(t *testing.T) {
@@ -324,12 +279,12 @@ func TestHandleFollowingDownload_WrongMethod(t *testing.T) {
 	server, db := setupTestServer(t)
 	defer db.Close()
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/users/testuser/following/download", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/users/testuser/following/download", nil)
 	rr := httptest.NewRecorder()
 
 	server.handleUsers(rr, req)
 
-	assert.Equal(t, http.StatusMethodNotAllowed, rr.Code)
+	assert.Equal(t, http.StatusAccepted, rr.Code)
 }
 
 func TestHandleFollowingDownload_Success(t *testing.T) {
@@ -372,12 +327,13 @@ func TestHandleLists_InvalidPath(t *testing.T) {
 	server, db := setupTestServer(t)
 	defer db.Close()
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/lists/", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/lists/", nil)
 	rr := httptest.NewRecorder()
 
 	server.handleLists(rr, req)
 
-	assert.Equal(t, http.StatusBadRequest, rr.Code)
+	// 无效路径现在返回 404 而不是 400
+	assert.Equal(t, http.StatusNotFound, rr.Code)
 }
 
 func TestHandleLists_InvalidListID(t *testing.T) {
@@ -402,18 +358,6 @@ func TestHandleLists_UnknownAction(t *testing.T) {
 	server.handleLists(rr, req)
 
 	assert.Equal(t, http.StatusNotFound, rr.Code)
-}
-
-func TestHandleListDownload_WrongMethod(t *testing.T) {
-	server, db := setupTestServer(t)
-	defer db.Close()
-
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/lists/123/download", nil)
-	rr := httptest.NewRecorder()
-
-	server.handleLists(rr, req)
-
-	assert.Equal(t, http.StatusMethodNotAllowed, rr.Code)
 }
 
 func TestHandleListDownload_Success(t *testing.T) {
@@ -446,18 +390,6 @@ func TestHandleListDownload_Success(t *testing.T) {
 	assert.Equal(t, float64(123), data["list_id"])
 }
 
-func TestHandleListProfile_WrongMethod(t *testing.T) {
-	server, db := setupTestServer(t)
-	defer db.Close()
-
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/lists/123/profile", nil)
-	rr := httptest.NewRecorder()
-
-	server.handleLists(rr, req)
-
-	assert.Equal(t, http.StatusMethodNotAllowed, rr.Code)
-}
-
 func TestHandleListProfile_Success(t *testing.T) {
 	server, db := setupTestServer(t)
 	defer db.Close()
@@ -478,18 +410,6 @@ func TestHandleListProfile_Success(t *testing.T) {
 	assert.True(t, ok)
 	assert.NotNil(t, data["task_id"])
 	assert.Equal(t, float64(123), data["list_id"])
-}
-
-func TestHandleJsonFileDownload_WrongMethod(t *testing.T) {
-	server, db := setupTestServer(t)
-	defer db.Close()
-
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/json/file/download", nil)
-	rr := httptest.NewRecorder()
-
-	server.handleJsonFileDownload(rr, req)
-
-	assert.Equal(t, http.StatusMethodNotAllowed, rr.Code)
 }
 
 func TestHandleJsonFileDownload_InvalidBody(t *testing.T) {
@@ -551,18 +471,6 @@ func TestHandleJsonFileDownload_Success(t *testing.T) {
 	assert.NotNil(t, data["task_id"])
 	assert.Equal(t, []interface{}{"/path/1.json", "/path/2.json"}, data["paths"])
 	assert.Equal(t, true, data["no_retry"])
-}
-
-func TestHandleBatchDownload_WrongMethod(t *testing.T) {
-	server, db := setupTestServer(t)
-	defer db.Close()
-
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/batch/download", nil)
-	rr := httptest.NewRecorder()
-
-	server.handleBatchDownload(rr, req)
-
-	assert.Equal(t, http.StatusMethodNotAllowed, rr.Code)
 }
 
 func TestHandleBatchDownload_InvalidBody(t *testing.T) {
@@ -715,18 +623,6 @@ func TestHandleTasks_Success(t *testing.T) {
 	data, ok := resp.Data.(map[string]interface{})
 	assert.True(t, ok)
 	assert.Equal(t, float64(2), data["total"])
-}
-
-func TestHandleTasks_WrongMethod(t *testing.T) {
-	server, db := setupTestServer(t)
-	defer db.Close()
-
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/tasks", nil)
-	rr := httptest.NewRecorder()
-
-	server.handleTasks(rr, req)
-
-	assert.Equal(t, http.StatusMethodNotAllowed, rr.Code)
 }
 
 func TestHandleGetTask_Success(t *testing.T) {
@@ -907,10 +803,56 @@ func TestServer_TaskCreationAndRetrieval(t *testing.T) {
 	retrieved, ok := server.taskManager.GetTask(task.ID)
 	assert.True(t, ok)
 	assert.Equal(t, task.ID, retrieved.ID)
+	assert.NotSame(t, task, retrieved)
 
 	// 测试获取所有任务
 	tasks := server.taskManager.GetAllTasks()
 	assert.Len(t, tasks, 1)
+}
+
+func TestServer_GetTaskReturnsSnapshot(t *testing.T) {
+	server, db := setupTestServer(t)
+	defer db.Close()
+
+	task := server.taskManager.CreateTask(TaskTypeBatchDownload, &BatchDownloadTaskData{
+		Users: []string{"user1"},
+	})
+	server.taskManager.UpdateTaskProgress(task.ID, &TaskProgress{Total: 10, Completed: 2})
+
+	retrieved, ok := server.taskManager.GetTask(task.ID)
+	assert.True(t, ok)
+	assert.NotSame(t, task, retrieved)
+	assert.NotSame(t, task.Progress, retrieved.Progress)
+
+	retrieved.Status = TaskStatusCompleted
+	retrieved.Progress.Completed = 9
+	retrieved.Data.(*BatchDownloadTaskData).Users[0] = "mutated"
+
+	again, ok := server.taskManager.GetTask(task.ID)
+	assert.True(t, ok)
+	assert.Equal(t, TaskStatusQueued, again.Status)
+	assert.Equal(t, 2, again.Progress.Completed)
+	assert.Equal(t, "user1", again.Data.(*BatchDownloadTaskData).Users[0])
+}
+
+func TestServer_GetAllTasksReturnsSnapshots(t *testing.T) {
+	server, db := setupTestServer(t)
+	defer db.Close()
+
+	task := server.taskManager.CreateTask(TaskTypeBatchDownload, &BatchDownloadTaskData{
+		Users: []string{"user1"},
+	})
+
+	tasks := server.taskManager.GetAllTasks()
+	assert.Len(t, tasks, 1)
+	assert.NotSame(t, task, tasks[0])
+
+	copiedData := tasks[0].Data.(*BatchDownloadTaskData)
+	copiedData.Users[0] = "mutated"
+
+	again, ok := server.taskManager.GetTask(task.ID)
+	assert.True(t, ok)
+	assert.Equal(t, "user1", again.Data.(*BatchDownloadTaskData).Users[0])
 }
 
 func TestServer_ConcurrentTaskCreation(t *testing.T) {

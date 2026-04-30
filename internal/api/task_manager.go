@@ -69,14 +69,17 @@ type TaskResult struct {
 
 // TaskManager 任务管理器
 type TaskManager struct {
-	tasks map[string]*Task
-	mu    sync.RWMutex
+	tasks     map[string]*Task
+	mu        sync.RWMutex
+	stopCh    chan struct{}
+	closeOnce sync.Once
 }
 
 // NewTaskManager 创建任务管理器
 func NewTaskManager() *TaskManager {
 	tm := &TaskManager{
-		tasks: make(map[string]*Task),
+		tasks:  make(map[string]*Task),
+		stopCh: make(chan struct{}),
 	}
 	// 启动清理 goroutine
 	go tm.cleanupLoop()
@@ -93,7 +96,7 @@ func (tm *TaskManager) CreateTask(taskType TaskType, data interface{}) *Task {
 		ID:        generateTaskID(),
 		Type:      taskType,
 		Status:    TaskStatusQueued,
-		Data:      data,
+		Data:      cloneTaskData(data),
 		Progress:  &TaskProgress{},
 		CreatedAt: time.Now(),
 		Ctx:       ctx,
@@ -110,7 +113,11 @@ func (tm *TaskManager) GetTask(id string) (*Task, bool) {
 	defer tm.mu.RUnlock()
 
 	task, ok := tm.tasks[id]
-	return task, ok
+	if !ok {
+		return nil, false
+	}
+
+	return cloneTask(task), true
 }
 
 // GetAllTasks 获取所有任务的深拷贝，避免并发序列化时的数据竞争
@@ -120,30 +127,146 @@ func (tm *TaskManager) GetAllTasks() []*Task {
 
 	tasks := make([]*Task, 0, len(tm.tasks))
 	for _, task := range tm.tasks {
-		// 浅拷贝 Task 本身
-		t := *task
-
-		// 深拷贝嵌套的指针对象
-		if task.Progress != nil {
-			p := *task.Progress
-			t.Progress = &p
-		}
-		if task.Result != nil {
-			r := *task.Result
-			t.Result = &r
-		}
-		if task.StartedAt != nil {
-			startedAt := *task.StartedAt
-			t.StartedAt = &startedAt
-		}
-		if task.EndedAt != nil {
-			endedAt := *task.EndedAt
-			t.EndedAt = &endedAt
-		}
-
-		tasks = append(tasks, &t)
+		tasks = append(tasks, cloneTask(task))
 	}
 	return tasks
+}
+
+func cloneTask(task *Task) *Task {
+	if task == nil {
+		return nil
+	}
+
+	t := *task
+	t.Data = cloneTaskData(task.Data)
+
+	if task.Progress != nil {
+		p := *task.Progress
+		t.Progress = &p
+	}
+	if task.Result != nil {
+		r := *task.Result
+		t.Result = &r
+	}
+	if task.StartedAt != nil {
+		startedAt := *task.StartedAt
+		t.StartedAt = &startedAt
+	}
+	if task.EndedAt != nil {
+		endedAt := *task.EndedAt
+		t.EndedAt = &endedAt
+	}
+
+	return &t
+}
+
+func cloneTaskData(data interface{}) interface{} {
+	switch v := data.(type) {
+	case nil:
+		return nil
+	case *UserDownloadTaskData:
+		if v == nil {
+			return (*UserDownloadTaskData)(nil)
+		}
+		copied := *v
+		return &copied
+	case *ListDownloadTaskData:
+		if v == nil {
+			return (*ListDownloadTaskData)(nil)
+		}
+		copied := *v
+		return &copied
+	case *FollowingDownloadTaskData:
+		if v == nil {
+			return (*FollowingDownloadTaskData)(nil)
+		}
+		copied := *v
+		return &copied
+	case *ProfileDownloadTaskData:
+		if v == nil {
+			return (*ProfileDownloadTaskData)(nil)
+		}
+		copied := *v
+		return &copied
+	case *MarkDownloadedTaskData:
+		if v == nil {
+			return (*MarkDownloadedTaskData)(nil)
+		}
+		copied := *v
+		copied.Timestamp = cloneTimePtr(v.Timestamp)
+		return &copied
+	case *ListMarkDownloadedTaskData:
+		if v == nil {
+			return (*ListMarkDownloadedTaskData)(nil)
+		}
+		copied := *v
+		copied.Timestamp = cloneTimePtr(v.Timestamp)
+		return &copied
+	case *JsonFileDownloadTaskData:
+		if v == nil {
+			return (*JsonFileDownloadTaskData)(nil)
+		}
+		copied := *v
+		copied.Paths = append([]string(nil), v.Paths...)
+		return &copied
+	case *JsonFolderDownloadTaskData:
+		if v == nil {
+			return (*JsonFolderDownloadTaskData)(nil)
+		}
+		copied := *v
+		copied.Paths = append([]string(nil), v.Paths...)
+		return &copied
+	case *BatchDownloadTaskData:
+		if v == nil {
+			return (*BatchDownloadTaskData)(nil)
+		}
+		copied := *v
+		copied.Users = append([]string(nil), v.Users...)
+		copied.Lists = append([]uint64(nil), v.Lists...)
+		copied.FollowingNames = append([]string(nil), v.FollowingNames...)
+		return &copied
+	case *ListProfileTaskData:
+		if v == nil {
+			return (*ListProfileTaskData)(nil)
+		}
+		copied := *v
+		return &copied
+	default:
+		// 未知类型暂时回退为浅拷贝；调用方需要保证这类 Data 在任务创建后只读。
+		return data
+	}
+}
+
+func cloneTimePtr(t *time.Time) *time.Time {
+	if t == nil {
+		return nil
+	}
+
+	copied := *t
+	return &copied
+}
+
+func isTerminalStatus(status TaskStatus) bool {
+	return status == TaskStatusCompleted || status == TaskStatusFailed || status == TaskStatusCancelled
+}
+
+func canTransitionStatus(from, to TaskStatus) bool {
+	if from == to {
+		return true
+	}
+
+	if isTerminalStatus(from) {
+		return false
+	}
+
+	switch from {
+	case TaskStatusQueued:
+		return to == TaskStatusRunning || to == TaskStatusCompleted || to == TaskStatusFailed || to == TaskStatusCancelled
+	case TaskStatusRunning:
+		return to == TaskStatusCompleted || to == TaskStatusFailed || to == TaskStatusCancelled
+	default:
+		return false
+	}
 }
 
 // UpdateTaskStatus 更新任务状态
@@ -153,6 +276,10 @@ func (tm *TaskManager) UpdateTaskStatus(id string, status TaskStatus) bool {
 
 	task, ok := tm.tasks[id]
 	if !ok {
+		return false
+	}
+
+	if !canTransitionStatus(task.Status, status) {
 		return false
 	}
 
@@ -182,7 +309,7 @@ func (tm *TaskManager) SetTaskError(id string, err error) bool {
 		return false
 	}
 
-	if task.Status == TaskStatusCompleted || task.Status == TaskStatusFailed || task.Status == TaskStatusCancelled {
+	if isTerminalStatus(task.Status) {
 		return false
 	}
 
@@ -218,6 +345,10 @@ func (tm *TaskManager) CompleteTask(id string, result *TaskResult) bool {
 
 	task, ok := tm.tasks[id]
 	if !ok {
+		return false
+	}
+
+	if !canTransitionStatus(task.Status, TaskStatusCompleted) {
 		return false
 	}
 
@@ -283,13 +414,25 @@ func (tm *TaskManager) CancelAllTasks() {
 	}
 }
 
+// Close 停止后台清理 goroutine
+func (tm *TaskManager) Close() {
+	tm.closeOnce.Do(func() {
+		close(tm.stopCh)
+	})
+}
+
 // cleanupLoop 定期清理过期任务
 func (tm *TaskManager) cleanupLoop() {
 	ticker := time.NewTicker(time.Hour)
 	defer ticker.Stop()
 
-	for range ticker.C {
-		tm.cleanup()
+	for {
+		select {
+		case <-ticker.C:
+			tm.cleanup()
+		case <-tm.stopCh:
+			return
+		}
 	}
 }
 

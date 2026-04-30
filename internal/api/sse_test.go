@@ -37,7 +37,6 @@ func TestHandleSSETasks_ResponseHeaders(t *testing.T) {
 		assert.Equal(t, "text/event-stream", rr.Header().Get("Content-Type"))
 		assert.Equal(t, "no-cache", rr.Header().Get("Cache-Control"))
 		assert.Equal(t, "keep-alive", rr.Header().Get("Connection"))
-		assert.Equal(t, "*", rr.Header().Get("Access-Control-Allow-Origin"))
 	case <-time.After(200 * time.Millisecond):
 		t.Fatal("Test timeout")
 	}

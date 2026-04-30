@@ -61,7 +61,10 @@ func NewPagination(r *http.Request) *Pagination {
 func (p *Pagination) BuildOrderBy(allowedFields map[string]string) string {
 	field, ok := allowedFields[p.SortBy]
 	if !ok {
-		field = allowedFields["id"]
+		field, ok = allowedFields["id"]
+		if !ok || field == "" {
+			return ""
+		}
 	}
 	return fmt.Sprintf("ORDER BY %s %s", field, p.SortOrder)
 }

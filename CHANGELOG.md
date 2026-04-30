@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ***
 
+## [3.2.9] - 2026-04-29
+
+### Changed
+
+#### 任务管理器重构
+
+| 文件 | 变更 |
+|------|------|
+| `internal/api/task_manager.go` | 新增完整的深拷贝机制，避免并发数据竞争 |
+| `internal/api/task_manager.go` | 新增状态转换检查，防止非法状态变更 |
+| `internal/api/task_manager.go` | 新增 `Close()` 方法，支持优雅停止清理 goroutine |
+| `internal/api/task_manager.go` | 改进 `cleanupLoop()`，支持通过 channel 停止 |
+| `internal/api/server.go` | 服务器关闭时调用 `taskManager.Close()` |
+| `internal/api/server.go` | 日志前缀从 `[WebUI]` 统一改为 `[server]` |
+
+### Fixed
+
+- 修复任务数据在并发访问时的数据竞争问题
+- 修复任务状态可能被非法转换的问题
+- 修复服务器关闭时任务管理器 goroutine 泄漏问题
+
+### Stats
+
+- **15 个文件变更**
+- **+518 行 / -172 行**
+
+***
+
 ## [3.2.8] - 2026-04-29
 
 ### Added

@@ -88,6 +88,44 @@ func TestTaskManager_CreateTask(t *testing.T) {
 	}
 }
 
+func TestTaskManager_CreateTask_ClonesTaskData(t *testing.T) {
+	tm := NewTaskManager()
+	now := time.Now()
+	data := &BatchDownloadTaskData{
+		Users:          []string{"user1"},
+		Lists:          []uint64{1},
+		FollowingNames: []string{"following1"},
+		AutoFollow:     true,
+	}
+	markData := &MarkDownloadedTaskData{
+		ScreenName: "testuser",
+		Timestamp:  &now,
+	}
+
+	task := tm.CreateTask(TaskTypeBatchDownload, data)
+	markTask := tm.CreateTask(TaskTypeMarkDownloaded, markData)
+
+	createdData, ok := task.Data.(*BatchDownloadTaskData)
+	assert.True(t, ok)
+	assert.NotSame(t, data, createdData)
+
+	data.Users[0] = "mutated"
+	data.Lists[0] = 99
+	data.FollowingNames[0] = "changed"
+	assert.Equal(t, "user1", createdData.Users[0])
+	assert.Equal(t, uint64(1), createdData.Lists[0])
+	assert.Equal(t, "following1", createdData.FollowingNames[0])
+
+	createdMarkData, ok := markTask.Data.(*MarkDownloadedTaskData)
+	assert.True(t, ok)
+	assert.NotSame(t, markData, createdMarkData)
+	assert.NotSame(t, markData.Timestamp, createdMarkData.Timestamp)
+
+	expectedTimestamp := *createdMarkData.Timestamp
+	*markData.Timestamp = markData.Timestamp.Add(time.Hour)
+	assert.WithinDuration(t, expectedTimestamp, *createdMarkData.Timestamp, 0)
+}
+
 func TestTaskManager_GetTask(t *testing.T) {
 	tm := NewTaskManager()
 
@@ -97,12 +135,39 @@ func TestTaskManager_GetTask(t *testing.T) {
 	// 获取存在的任务
 	got, ok := tm.GetTask(task.ID)
 	assert.True(t, ok)
-	assert.Equal(t, task, got)
+	assert.Equal(t, task.ID, got.ID)
+	assert.Equal(t, task.Type, got.Type)
+	assert.Equal(t, task.Status, got.Status)
+	assert.NotSame(t, task, got)
 
 	// 获取不存在的任务
 	got, ok = tm.GetTask("non_existent_task")
 	assert.False(t, ok)
 	assert.Nil(t, got)
+}
+
+func TestTaskManager_GetTask_ReturnsClone(t *testing.T) {
+	tm := NewTaskManager()
+	task := tm.CreateTask(TaskTypeBatchDownload, &BatchDownloadTaskData{
+		Users: []string{"user1"},
+	})
+	tm.UpdateTaskProgress(task.ID, &TaskProgress{Total: 10, Completed: 1})
+
+	got, ok := tm.GetTask(task.ID)
+	assert.True(t, ok)
+	assert.NotSame(t, task, got)
+	assert.NotSame(t, task.Progress, got.Progress)
+
+	got.Status = TaskStatusCompleted
+	got.Progress.Completed = 9
+	gotData := got.Data.(*BatchDownloadTaskData)
+	gotData.Users[0] = "mutated"
+
+	again, ok := tm.GetTask(task.ID)
+	assert.True(t, ok)
+	assert.Equal(t, TaskStatusQueued, again.Status)
+	assert.Equal(t, 1, again.Progress.Completed)
+	assert.Equal(t, "user1", again.Data.(*BatchDownloadTaskData).Users[0])
 }
 
 func TestTaskManager_GetAllTasks(t *testing.T) {
@@ -128,6 +193,61 @@ func TestTaskManager_GetAllTasks(t *testing.T) {
 	assert.True(t, taskIDs[task1.ID])
 	assert.True(t, taskIDs[task2.ID])
 	assert.True(t, taskIDs[task3.ID])
+}
+
+func TestTaskManager_GetAllTasks_DeepCopiesTaskData(t *testing.T) {
+	tm := NewTaskManager()
+	now := time.Now()
+
+	task := tm.CreateTask(TaskTypeBatchDownload, &BatchDownloadTaskData{
+		Users:          []string{"user1"},
+		Lists:          []uint64{42},
+		FollowingNames: []string{"following1"},
+	})
+	markTask := tm.CreateTask(TaskTypeMarkDownloaded, &MarkDownloadedTaskData{
+		ScreenName: "testuser",
+		Timestamp:  &now,
+	})
+
+	tasks := tm.GetAllTasks()
+	assert.Len(t, tasks, 2)
+
+	var batchCopy *Task
+	var markCopy *Task
+	for _, copiedTask := range tasks {
+		switch copiedTask.ID {
+		case task.ID:
+			batchCopy = copiedTask
+		case markTask.ID:
+			markCopy = copiedTask
+		}
+	}
+
+	if assert.NotNil(t, batchCopy) {
+		copiedData := batchCopy.Data.(*BatchDownloadTaskData)
+		assert.NotSame(t, task, batchCopy)
+		assert.NotSame(t, task.Data, copiedData)
+		copiedData.Users[0] = "mutated"
+		copiedData.Lists[0] = 99
+		copiedData.FollowingNames[0] = "changed"
+
+		original, _ := tm.GetTask(task.ID)
+		originalData := original.Data.(*BatchDownloadTaskData)
+		assert.Equal(t, "user1", originalData.Users[0])
+		assert.Equal(t, uint64(42), originalData.Lists[0])
+		assert.Equal(t, "following1", originalData.FollowingNames[0])
+	}
+
+	if assert.NotNil(t, markCopy) {
+		copiedData := markCopy.Data.(*MarkDownloadedTaskData)
+		assert.NotSame(t, markTask.Data, copiedData)
+		assert.NotSame(t, markTask.Data.(*MarkDownloadedTaskData).Timestamp, copiedData.Timestamp)
+		*copiedData.Timestamp = copiedData.Timestamp.Add(2 * time.Hour)
+
+		original, _ := tm.GetTask(markTask.ID)
+		originalData := original.Data.(*MarkDownloadedTaskData)
+		assert.WithinDuration(t, now, *originalData.Timestamp, 0)
+	}
 }
 
 func TestTaskManager_UpdateTaskStatus(t *testing.T) {
@@ -210,6 +330,18 @@ func TestTaskManager_UpdateTaskStatus_NotFound(t *testing.T) {
 	assert.False(t, ok)
 }
 
+func TestTaskManager_UpdateTaskStatus_RejectsInvalidTransition(t *testing.T) {
+	tm := NewTaskManager()
+	task := tm.CreateTask(TaskTypeUserDownload, nil)
+
+	assert.True(t, tm.UpdateTaskStatus(task.ID, TaskStatusCompleted))
+	assert.False(t, tm.UpdateTaskStatus(task.ID, TaskStatusRunning))
+
+	got, ok := tm.GetTask(task.ID)
+	assert.True(t, ok)
+	assert.Equal(t, TaskStatusCompleted, got.Status)
+}
+
 func TestTaskManager_SetTaskError(t *testing.T) {
 	tm := NewTaskManager()
 	task := tm.CreateTask(TaskTypeUserDownload, nil)
@@ -226,6 +358,44 @@ func TestTaskManager_SetTaskError(t *testing.T) {
 	// 测试不存在的任务
 	ok = tm.SetTaskError("non_existent", err)
 	assert.False(t, ok)
+}
+
+func TestTaskManager_CompleteTask_DoesNotOverrideFailedTask(t *testing.T) {
+	tm := NewTaskManager()
+	task := tm.CreateTask(TaskTypeUserDownload, nil)
+
+	assert.True(t, tm.SetTaskError(task.ID, assert.AnError))
+
+	result := &TaskResult{
+		Downloaded: 100,
+		Message:    "should not override failed task",
+	}
+	assert.False(t, tm.CompleteTask(task.ID, result))
+
+	got, ok := tm.GetTask(task.ID)
+	assert.True(t, ok)
+	assert.Equal(t, TaskStatusFailed, got.Status)
+	assert.Equal(t, assert.AnError.Error(), got.Error)
+	assert.Nil(t, got.Result)
+}
+
+func TestTaskManager_SetTaskError_DoesNotOverrideCompletedTask(t *testing.T) {
+	tm := NewTaskManager()
+	task := tm.CreateTask(TaskTypeUserDownload, nil)
+
+	result := &TaskResult{
+		Downloaded: 100,
+		Message:    "completed",
+	}
+	assert.True(t, tm.CompleteTask(task.ID, result))
+	assert.False(t, tm.SetTaskError(task.ID, assert.AnError))
+
+	got, ok := tm.GetTask(task.ID)
+	assert.True(t, ok)
+	assert.Equal(t, TaskStatusCompleted, got.Status)
+	assert.NotNil(t, got.Result)
+	assert.Equal(t, 100, got.Result.Downloaded)
+	assert.Empty(t, got.Error)
 }
 
 func TestTaskManager_UpdateTaskProgress(t *testing.T) {
@@ -476,4 +646,21 @@ func TestTaskManager_Cleanup(t *testing.T) {
 	// 验证任务存在
 	tasks := tm.GetAllTasks()
 	assert.Len(t, tasks, 5)
+}
+
+func TestTaskManager_Close(t *testing.T) {
+	tm := NewTaskManager()
+
+	done := make(chan struct{})
+	go func() {
+		tm.Close()
+		tm.Close()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("TaskManager.Close should not block")
+	}
 }
