@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ***
 
+## [3.2.7] - 2026-04-29
+
+### Changed
+
+#### API 代码重构
+
+| 变更 | 说明 |
+|------|------|
+| 拆分 `internal/api/server.go` | 将 1246 行的 monolithic 文件拆分为多个处理器文件 |
+| 新增 `config_handlers.go` | 配置管理相关处理器（配置读取、更新、表单） |
+| 新增 `cookie_handlers.go` | Cookie 管理相关处理器（读取、保存、原始编辑） |
+| 新增 `download_handlers.go` | 下载相关处理器（用户/列表/关注/批量下载） |
+| 新增 `log_handlers.go` | 日志管理相关处理器（日志查看、实时流） |
+
+### Fixed
+
+- `internal/api/task_manager.go` 新增互斥锁，修复并发安全问题
+- `internal/service/download_service.go` 优化错误处理逻辑
+- `internal/cli/executor.go` CLI 执行器优化
+
+### Stats
+
+- **9 个文件变更**
+- **+15 行 / -1252 行**（server.go 大幅精简）
+
+***
+
 ## [3.2.6] - 2026-04-29
 
 ### Added

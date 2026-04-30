@@ -119,8 +119,8 @@ func (s *downloadServiceImpl) UserDownload(ctx context.Context, taskID string, s
 	// Profile 下载
 	if !opts.SkipProfile {
 		if err := s.downloadProfile(ctx, taskID, []*twitter.User{user}, pathHelper, versionManager, fileWriter, dwn, reporter); err != nil {
-			// Profile 下载失败，但主任务继续
 			log.Warnf("Profile download failed for %s: %v", screenName, err)
+			reporter.OnProgress(taskID, Progress{Stage: "profile_warning", Current: fmt.Sprintf("profile failed for %s: %v", screenName, err)})
 		}
 	}
 
@@ -185,6 +185,7 @@ func (s *downloadServiceImpl) ListDownload(ctx context.Context, taskID string, l
 
 		if err := s.downloadProfile(ctx, taskID, listMembers, pathHelper, versionManager, fileWriter, dwn, reporter); err != nil {
 			log.Warnf("Profile download failed for list %d: %v", listID, err)
+			reporter.OnProgress(taskID, Progress{Stage: "profile_warning", Current: fmt.Sprintf("profile failed for list %d: %v", listID, err)})
 		}
 	}
 
@@ -251,6 +252,7 @@ func (s *downloadServiceImpl) FollowingDownload(ctx context.Context, taskID stri
 
 		if err := s.downloadProfile(ctx, taskID, listMembers, pathHelper, versionManager, fileWriter, dwn, reporter); err != nil {
 			log.Warnf("Profile download failed for following %s: %v", screenName, err)
+			reporter.OnProgress(taskID, Progress{Stage: "profile_warning", Current: fmt.Sprintf("profile failed for following %s: %v", screenName, err)})
 		}
 	}
 
@@ -285,7 +287,7 @@ func (s *downloadServiceImpl) ProfileDownload(ctx context.Context, taskID string
 	users := s.resolveUsers(ctx, unique)
 
 	if err := s.downloadProfile(ctx, taskID, users, pathHelper, versionManager, fileWriter, dwn, reporter); err != nil {
-		log.Warnf("Profile download failed: %v", err)
+		return err
 	}
 
 	reporter.OnComplete(taskID, Result{Message: "Profile download completed"})
@@ -525,6 +527,7 @@ func (s *downloadServiceImpl) BatchDownload(ctx context.Context, taskID string, 
 		if len(profileUsers) > 0 {
 			if err := s.downloadProfile(ctx, taskID, profileUsers, pathHelper, versionManager, fileWriter, dwn, reporter); err != nil {
 				log.Warnf("Profile download failed for batch: %v", err)
+				reporter.OnProgress(taskID, Progress{Stage: "profile_warning", Current: fmt.Sprintf("profile failed for batch: %v", err)})
 			}
 		}
 	}

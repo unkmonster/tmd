@@ -179,6 +179,10 @@ func (tm *TaskManager) SetTaskError(id string, err error) bool {
 		return false
 	}
 
+	if task.Status == TaskStatusCompleted || task.Status == TaskStatusFailed || task.Status == TaskStatusCancelled {
+		return false
+	}
+
 	task.Status = TaskStatusFailed
 	task.Error = err.Error()
 	now := time.Now()

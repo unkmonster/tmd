@@ -130,11 +130,13 @@ func Execute(ctx context.Context, args []string, deps *Dependencies) error {
 	hasProfileLists := len(cfg.ProfileList.ID) > 0
 
 	if hasProfileUsers || hasProfileLists {
+		var profileErr error
 		// 先处理用户 Profile
 		if hasProfileUsers {
 			log.Infof("profile users: %d", len(cfg.ProfileUsers.ScreenName))
 			if err := deps.DownloadService.ProfileDownload(ctx, "cli", cfg.ProfileUsers.ScreenName, reporter); err != nil {
 				log.Warnf("Profile download failed for users: %v", err)
+				profileErr = err
 			}
 		}
 
@@ -144,8 +146,12 @@ func Execute(ctx context.Context, args []string, deps *Dependencies) error {
 			for _, listID := range cfg.ProfileList.ID {
 				if err := deps.DownloadService.ListProfileDownload(ctx, "cli", listID, reporter); err != nil {
 					log.Warnf("Failed to download profile for list %d: %v", listID, err)
+					profileErr = err
 				}
 			}
+		}
+		if profileErr != nil {
+			return profileErr
 		}
 		return nil
 	}

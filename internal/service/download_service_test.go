@@ -383,10 +383,6 @@ func TestMockProgressReporter_ErrorVariations(t *testing.T) {
 	assert.Nil(t, reporter.ErrorCalls[2].Err)
 }
 
-func strPtr(s string) *string {
-	return &s
-}
-
 // getReporterOrDefault 辅助方法（在 download_service.go 中实际存在）
 func (s *downloadServiceImpl) getReporterOrDefault(reporter ProgressReporter) ProgressReporter {
 	if reporter == nil {
