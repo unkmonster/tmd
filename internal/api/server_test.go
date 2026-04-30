@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -123,6 +125,46 @@ func TestHandleConfig_Success(t *testing.T) {
 	assert.Equal(t, "/test/path", data["root_path"])
 	assert.Equal(t, float64(5), data["max_download_routine"])
 	assert.Equal(t, float64(100), data["max_file_name_len"])
+}
+
+func TestServer_PutRoutesForConfigFieldsAndCookies(t *testing.T) {
+	db, err := sqlx.Connect("sqlite3", ":memory:")
+	assert.NoError(t, err)
+	defer db.Close()
+	database.CreateTables(db)
+
+	appRoot := t.TempDir()
+	cfg := &config.Config{
+		RootPath:           appRoot,
+		MaxDownloadRoutine: 5,
+		MaxFileNameLen:     100,
+	}
+
+	server := NewServer(resty.New(), []*resty.Client{}, db, cfg, appRoot, nil)
+	defer server.taskManager.Close()
+	handler := server.buildHandler()
+
+	configBody := `{"fields":{"root_path":"` + strings.ReplaceAll(appRoot, `\`, `\\`) + `","auth_token":"new-auth","ct0":"new-ct0","max_download_routine":"6","max_file_name_len":"120","proxy_url":""}}`
+	configReq := httptest.NewRequest(http.MethodPut, "/api/v1/config/fields", bytes.NewBufferString(configBody))
+	configReq.Header.Set("Content-Type", "application/json")
+	configRR := httptest.NewRecorder()
+	handler.ServeHTTP(configRR, configReq)
+
+	assert.Equal(t, http.StatusOK, configRR.Code)
+	if _, err := os.Stat(filepath.Join(appRoot, "conf.yaml")); err != nil {
+		t.Fatalf("expected conf.yaml to be written: %v", err)
+	}
+
+	cookiesBody := `{"cookies":[{"auth_token":"cookie-auth","ct0":"cookie-ct0"}]}`
+	cookiesReq := httptest.NewRequest(http.MethodPut, "/api/v1/cookies", bytes.NewBufferString(cookiesBody))
+	cookiesReq.Header.Set("Content-Type", "application/json")
+	cookiesRR := httptest.NewRecorder()
+	handler.ServeHTTP(cookiesRR, cookiesReq)
+
+	assert.Equal(t, http.StatusOK, cookiesRR.Code)
+	if _, err := os.Stat(filepath.Join(appRoot, "additional_cookies.yaml")); err != nil {
+		t.Fatalf("expected additional_cookies.yaml to be written: %v", err)
+	}
 }
 
 func TestHandleUsers_InvalidPath(t *testing.T) {

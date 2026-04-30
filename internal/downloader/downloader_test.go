@@ -2,6 +2,7 @@ package downloader
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -681,7 +682,7 @@ func TestVersionManager_WithoutFileWriter_Fallback(t *testing.T) {
 
 	versionPath, err := vm.CreateVersion(sourcePath)
 	if err != nil {
-		t.Fatalf("创建版本失败(回退路径): %v", err)
+		t.Fatalf("创建版本失败(内部 fallback writer): %v", err)
 	}
 
 	versionContent, err := os.ReadFile(versionPath)
@@ -689,44 +690,9 @@ func TestVersionManager_WithoutFileWriter_Fallback(t *testing.T) {
 		t.Fatalf("读取版本文件失败: %v", err)
 	}
 	if string(versionContent) != string(sourceData) {
-		t.Errorf("回退路径版本文件内容不匹配\n期望: %s\n实际: %s", string(sourceData), string(versionContent))
+		t.Errorf("fallback writer 版本文件内容不匹配\n期望: %s\n实际: %s", string(sourceData), string(versionContent))
 	}
-	t.Log("无 FileWriter 注入时回退到 os.WriteFile 成功")
-}
-
-// =============================================================================
-// Phase 3.1 验证: ExtractImageExtFromURL 工具函数
-// =============================================================================
-
-func TestExtractImageExtFromURL(t *testing.T) {
-	tests := []struct {
-		name     string
-		url      string
-		expected string
-	}{
-		{"标准 jpg URL", "https://pbs.twimg.com/media/photo.jpg", ".jpg"},
-		{"大写 JPG URL", "https://example.com/IMAGE.JPG", ".jpg"},
-		{"混合大小写 JPEG", "https://cdn.example.com/photo.JPEG", ".jpeg"},
-		{"PNG 图片", "https://example.com/icon.PNG", ".png"},
-		{"GIF 动图", "https://media.example.com/anim.GIF", ".gif"},
-		{"WebP 格式", "https://cdn.example.com/img.webp", ".webp"},
-		{"带查询参数的 jpg", "https://pbs.twimg.com/media/photo.jpg?name=4096x4096", ".jpg"},
-		{"带路径段的 png", "https://cdn.example.com/a/b/c/image.png", ".png"},
-		{"无扩展名默认 jpg", "https://pbs.twimg.com/media/noext", ".jpg"},
-		{"空字符串默认 jpg", "", ".jpg"},
-		{"未知扩展名默认 jpg", "https://example.com/file.xyz", ".jpg"},
-		{"视频 URL 默认 jpg", "https://video.twimg.com/tweet_video/123.mp4", ".jpg"},
-		{"tweet_video 路径", "https://tweet_video/abc.mp4", ".jpg"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := ExtractImageExtFromURL(tt.url)
-			if result != tt.expected {
-				t.Errorf("ExtractImageExtFromURL(%q) = %q, 期望 %q", tt.url, result, tt.expected)
-			}
-		})
-	}
+	t.Log("无 FileWriter 注入时回退到内部 fallback writer 成功")
 }
 
 // =============================================================================
@@ -1546,6 +1512,77 @@ func TestDownloader_Download_ContextCancel(t *testing.T) {
 	// 由于 HEAD 请求在取消前完成，可能会返回结果或错误
 	// 这里主要验证不会 panic
 	t.Logf("上下文取消后的结果: err=%v", err)
+}
+
+func TestWaitRetryDelay_ContextCanceled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	start := time.Now()
+	err := waitRetryDelay(ctx, 2*time.Second)
+	elapsed := time.Since(start)
+
+	if err == nil {
+		t.Fatal("expected cancellation error")
+	}
+	if elapsed > 200*time.Millisecond {
+		t.Fatalf("waitRetryDelay should return quickly after cancellation, elapsed=%v", elapsed)
+	}
+}
+
+func TestDownloader_DownloadStream_CancelDuringRetryDelay(t *testing.T) {
+	attemptCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "HEAD" {
+			w.Header().Set("Content-Length", fmt.Sprintf("%d", 11*1024*1024))
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		attemptCount++
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer server.Close()
+
+	tempDir, err := os.MkdirTemp("", "downloader_retry_cancel_test")
+	if err != nil {
+		t.Fatalf("创建临时目录失败: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	fw := NewFileWriter(nil)
+	dl := NewDownloader(fw)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	time.AfterFunc(100*time.Millisecond, cancel)
+
+	destPath := filepath.Join(tempDir, "retry-cancel.bin")
+	req := DownloadRequest{
+		Context:     ctx,
+		Client:      resty.New(),
+		URL:         server.URL + "/retry-cancel",
+		Destination: destPath,
+		Options:     DownloadOptions{},
+	}
+
+	start := time.Now()
+	result, err := dl.Download(req)
+	elapsed := time.Since(start)
+
+	if err == nil {
+		t.Fatal("expected cancellation error")
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected context.Canceled, got %v", err)
+	}
+	if result == nil || !errors.Is(result.Error, context.Canceled) {
+		t.Fatalf("expected result.Error to be context.Canceled, got %#v", result)
+	}
+	if elapsed >= retryDelay {
+		t.Fatalf("expected cancellation before full retry delay, elapsed=%v", elapsed)
+	}
+	if attemptCount != 1 {
+		t.Fatalf("expected only one GET attempt before cancellation, got %d", attemptCount)
+	}
 }
 
 func TestDownloader_Download_NetworkError(t *testing.T) {

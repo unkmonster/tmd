@@ -1,6 +1,7 @@
 package downloader
 
 import (
+	"bytes"
 	"crypto/md5"
 	"encoding/hex"
 	"fmt"
@@ -37,7 +38,7 @@ func NewFileWriter(versionManager VersionManager) *DefaultFileWriter {
 func (fw *DefaultFileWriter) Write(req WriteRequest) (WriteResult, error) {
 	// 如果提供了 Reader，使用流式模式
 	if req.IsStream() {
-		return fw.WriteStream(req.Path, req.Reader, req.Size, req.Options)
+		return fw.writeStream(req.Path, req.Reader, req.Size, req.Options)
 	}
 
 	result := WriteResult{NewSize: int64(len(req.Data))}
@@ -82,9 +83,11 @@ func (fw *DefaultFileWriter) Write(req WriteRequest) (WriteResult, error) {
 	}
 
 	// 3. 原子写入
-	if err := fw.atomicWrite(req.Path, req.Data); err != nil {
+	written, err := fw.atomicWriteFromReader(req.Path, bytes.NewReader(req.Data))
+	if err != nil {
 		return result, err
 	}
+	result.NewSize = written
 
 	// 4. 设置修改时间
 	if req.Options.ModTime != nil {
@@ -97,8 +100,8 @@ func (fw *DefaultFileWriter) Write(req WriteRequest) (WriteResult, error) {
 	return result, nil
 }
 
-// WriteStream 流式写入文件
-func (fw *DefaultFileWriter) WriteStream(path string, reader io.Reader, size int64, options WriteOptions) (WriteResult, error) {
+// writeStream 流式写入文件
+func (fw *DefaultFileWriter) writeStream(path string, reader io.Reader, size int64, options WriteOptions) (WriteResult, error) {
 	result := WriteResult{NewSize: size}
 
 	lock := fw.getLock(path)
@@ -132,7 +135,7 @@ func (fw *DefaultFileWriter) WriteStream(path string, reader io.Reader, size int
 	}
 
 	// 原子流式写入
-	written, err := fw.atomicWriteStream(path, reader)
+	written, err := fw.atomicWriteFromReader(path, reader)
 	if err != nil {
 		return result, err
 	}
@@ -151,8 +154,8 @@ func (fw *DefaultFileWriter) WriteStream(path string, reader io.Reader, size int
 	return result, nil
 }
 
-// atomicWriteStream 流式原子写入
-func (fw *DefaultFileWriter) atomicWriteStream(path string, reader io.Reader) (int64, error) {
+// atomicWriteFromReader 原子写入 reader 内容
+func (fw *DefaultFileWriter) atomicWriteFromReader(path string, reader io.Reader) (int64, error) {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return 0, fmt.Errorf("failed to create directory %s: %w", dir, err)
@@ -176,7 +179,7 @@ func (fw *DefaultFileWriter) atomicWriteStream(path string, reader io.Reader) (i
 		return 0, fmt.Errorf("failed to close temp file: %w", err)
 	}
 
-	log.Debugf("atomicWriteStream: written %d bytes to %s", written, path)
+	log.Debugf("atomicWriteFromReader: written %d bytes to %s", written, path)
 
 	if err := os.Rename(tempPath, path); err != nil {
 		return 0, fmt.Errorf("failed to rename temp file: %w", err)
@@ -210,29 +213,4 @@ func (fw *DefaultFileWriter) computeFileHash(path string) (string, error) {
 func (fw *DefaultFileWriter) computeDataHash(data []byte) string {
 	hash := md5.Sum(data)
 	return hex.EncodeToString(hash[:])
-}
-
-// atomicWrite 原子写入
-func (fw *DefaultFileWriter) atomicWrite(path string, data []byte) error {
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return err
-	}
-	tempFile, err := os.CreateTemp(dir, ".tmp_*")
-	if err != nil {
-		return err
-	}
-	tempPath := tempFile.Name()
-
-	defer os.Remove(tempPath)
-
-	if _, err := tempFile.Write(data); err != nil {
-		tempFile.Close()
-		return err
-	}
-	if err := tempFile.Close(); err != nil {
-		return err
-	}
-
-	return os.Rename(tempPath, path)
 }

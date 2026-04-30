@@ -8,6 +8,8 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	pathpkg "path"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -29,6 +31,26 @@ const (
 )
 
 var MaxDownloadRoutine = 20
+
+var validImageExts = map[string]bool{
+	".jpg":  true,
+	".jpeg": true,
+	".png":  true,
+	".gif":  true,
+	".webp": true,
+}
+
+func imageExtFromURL(rawURL string) string {
+	ext, err := utils.GetExtFromUrl(rawURL)
+	if err != nil {
+		ext = pathpkg.Ext(rawURL)
+	}
+	ext = strings.ToLower(ext)
+	if validImageExts[ext] {
+		return ext
+	}
+	return ".jpg"
+}
 
 func ensureProfileDirs(userDir string) (string, error) {
 	profileDir := filepath.Join(userDir, profileDirName, profileSubDirName)
@@ -376,7 +398,7 @@ func (pd *ProfileDownloader) profileDownloader(
 }
 
 func (pd *ProfileDownloader) downloadAvatar(ctx context.Context, userTitle, screenName, url string, fetchedAt time.Time) FileResult {
-	ext := downloader.ExtractImageExtFromURL(url)
+	ext := imageExtFromURL(url)
 	return pd.downloadFile(ctx, userTitle, screenName, FileTypeAvatar,
 		GetHighResAvatarURL(url, pd.config.AvatarQuality), ext, fetchedAt, "avatar")
 }

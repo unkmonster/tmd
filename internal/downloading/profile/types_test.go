@@ -46,54 +46,6 @@ func TestFileStatus_String(t *testing.T) {
 	}
 }
 
-func TestProfileError(t *testing.T) {
-	tests := []struct {
-		name     string
-		err      *ProfileError
-		expected string
-	}{
-		{
-			name: "with user",
-			err: &ProfileError{
-				Op:   "download",
-				User: "testuser",
-			},
-			expected: "profile download failed for user testuser: <nil>",
-		},
-		{
-			name: "without user",
-			err: &ProfileError{
-				Op:   "parse",
-				User: "",
-			},
-			expected: "profile parse failed: <nil>",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := tt.err.Error()
-			if got != tt.expected {
-				t.Errorf("ProfileError.Error() = %s, want %s", got, tt.expected)
-			}
-		})
-	}
-}
-
-func TestProfileError_Unwrap(t *testing.T) {
-	innerErr := fmt.Errorf("test error")
-	err := &ProfileError{
-		Op:   "test",
-		User: "user",
-		Err:  innerErr,
-	}
-
-	unwrapped := err.Unwrap()
-	if unwrapped != innerErr {
-		t.Error("Unwrap() should return the inner error")
-	}
-}
-
 func TestFileResult(t *testing.T) {
 	result := FileResult{
 		FileType: FileTypeAvatar,

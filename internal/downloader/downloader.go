@@ -1,6 +1,7 @@
 package downloader
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"time"
@@ -11,6 +12,23 @@ import (
 const streamThreshold = 10 * 1024 * 1024 // 10MB
 const maxDownloadRetries = 2             // 最大重试次数
 const retryDelay = 2 * time.Second       // 重试间隔
+
+func waitRetryDelay(ctx context.Context, delay time.Duration) error {
+	if ctx == nil {
+		time.Sleep(delay)
+		return nil
+	}
+
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
 
 // DefaultDownloader 默认下载器实现
 type DefaultDownloader struct {
@@ -135,6 +153,7 @@ func (d *DefaultDownloader) downloadBuffer(req DownloadRequest) (*DownloadResult
 	result.FilePath = req.Destination
 	result.FileSize = writeResult.NewSize
 	result.OldSize = writeResult.OldSize
+	result.Versioned = writeResult.Versioned
 
 	return result, nil
 }
@@ -179,9 +198,12 @@ func (d *DefaultDownloader) downloadStream(req DownloadRequest, contentLength in
 			}).Warn("download failed, retrying...")
 
 			// 等待一段时间后重试
-			time.Sleep(retryDelay * time.Duration(attempt))
+			if err := waitRetryDelay(req.Context, retryDelay*time.Duration(attempt)); err != nil {
+				result.Error = err
+				return result, err
+			}
 		} else {
-			// 其他错误（如网络错误），直接返回
+			// 其他错误（如网络错误），直接返回，等会会记录到error.json
 			return result, err
 		}
 	}
@@ -267,6 +289,9 @@ func (d *DefaultDownloader) doDownloadStream(req DownloadRequest, contentLength 
 	result.FilePath = req.Destination
 	result.FileSize = writeResult.NewSize
 	result.OldSize = writeResult.OldSize
+	result.Versioned = writeResult.Versioned
 
 	return result, nil
 }
+
+// fileExists 检查文件是否存在

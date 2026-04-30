@@ -11,6 +11,7 @@ import (
 type DefaultVersionManager struct {
 	versionsDirName string
 	fileWriter      FileWriter
+	fallbackWriter  FileWriter
 }
 
 func NewVersionManagerWithWriter(versionsDirName string, fw FileWriter) *DefaultVersionManager {
@@ -20,6 +21,7 @@ func NewVersionManagerWithWriter(versionsDirName string, fw FileWriter) *Default
 	return &DefaultVersionManager{
 		versionsDirName: versionsDirName,
 		fileWriter:      fw,
+		fallbackWriter:  NewFileWriter(nil),
 	}
 }
 
@@ -58,16 +60,14 @@ func (vm *DefaultVersionManager) CreateVersion(sourcePath string) (string, error
 	}
 
 	if vm.fileWriter != nil {
-		_, err := vm.fileWriter.Write(WriteRequest{
-			Path: versionPath,
-			Data: data,
-		})
+		_, err = vm.fileWriter.Write(WriteRequest{Path: versionPath, Data: data})
 		return versionPath, err
 	}
 
-	if err := os.WriteFile(versionPath, data, 0644); err != nil {
-		return "", err
+	if vm.fallbackWriter == nil {
+		vm.fallbackWriter = NewFileWriter(nil)
 	}
 
-	return versionPath, nil
+	_, err = vm.fallbackWriter.Write(WriteRequest{Path: versionPath, Data: data})
+	return versionPath, err
 }

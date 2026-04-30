@@ -332,6 +332,37 @@ func TestGetHighResAvatarURL(t *testing.T) {
 	}
 }
 
+func TestImageExtFromURL(t *testing.T) {
+	tests := []struct {
+		name     string
+		url      string
+		expected string
+	}{
+		{"标准 jpg URL", "https://pbs.twimg.com/media/photo.jpg", ".jpg"},
+		{"大写 JPG URL", "https://example.com/IMAGE.JPG", ".jpg"},
+		{"混合大小写 JPEG", "https://cdn.example.com/photo.JPEG", ".jpeg"},
+		{"PNG 图片", "https://example.com/icon.PNG", ".png"},
+		{"GIF 动图", "https://media.example.com/anim.GIF", ".gif"},
+		{"WebP 格式", "https://cdn.example.com/img.webp", ".webp"},
+		{"带查询参数的 jpg", "https://pbs.twimg.com/media/photo.jpg?name=4096x4096", ".jpg"},
+		{"带路径段的 png", "https://cdn.example.com/a/b/c/image.png", ".png"},
+		{"无扩展名默认 jpg", "https://pbs.twimg.com/media/noext", ".jpg"},
+		{"空字符串默认 jpg", "", ".jpg"},
+		{"未知扩展名默认 jpg", "https://example.com/file.xyz", ".jpg"},
+		{"视频 URL 默认 jpg", "https://video.twimg.com/tweet_video/123.mp4", ".jpg"},
+		{"tweet_video 路径", "https://tweet_video/abc.mp4", ".jpg"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := imageExtFromURL(tt.url)
+			if result != tt.expected {
+				t.Errorf("imageExtFromURL(%q) = %q, 期望 %q", tt.url, result, tt.expected)
+			}
+		})
+	}
+}
+
 func TestProfileToJSON(t *testing.T) {
 	profile := &ProfileInfo{
 		ID:         12345,

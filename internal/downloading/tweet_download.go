@@ -22,6 +22,21 @@ import (
 	"github.com/unkmonster/tmd/internal/utils"
 )
 
+func writeAuxiliaryTweetFile(fileWriter downloader.FileWriter, writeReq downloader.WriteRequest, fileType string) {
+	result, err := fileWriter.Write(writeReq)
+	if err != nil {
+		log.Warnf("failed to write %s: %v", fileType, err)
+		return
+	}
+	if !result.Success {
+		log.Warnf("%s write reported unsuccessful result: %s", fileType, writeReq.Path)
+		return
+	}
+	if result.Versioned {
+		log.Debugf("%s write created version backup: %s", fileType, writeReq.Path)
+	}
+}
+
 func saveTweetJson(cfg *workerConfig, dir string, tweet *twitter.Tweet, namingObj *naming.TweetNaming) {
 	if dir == "" || tweet == nil || cfg.fileWriter == nil {
 		return
@@ -55,9 +70,7 @@ func saveTweetJson(cfg *workerConfig, dir string, tweet *twitter.Tweet, namingOb
 			},
 		}
 
-		if _, err := cfg.fileWriter.Write(writeReq); err != nil {
-			log.Warnf("failed to write tweet json: %v", err)
-		}
+		writeAuxiliaryTweetFile(cfg.fileWriter, writeReq, "tweet json")
 	}()
 }
 
@@ -127,9 +140,7 @@ func saveLoongTweet(cfg *workerConfig, dir string, tweet *twitter.Tweet, namingO
 			},
 		}
 
-		if _, err := cfg.fileWriter.Write(writeReq); err != nil {
-			log.Warnf("failed to write loongtweet txt: %v", err)
-		}
+		writeAuxiliaryTweetFile(cfg.fileWriter, writeReq, "loongtweet txt")
 	}()
 }
 

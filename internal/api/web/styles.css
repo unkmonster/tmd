@@ -1063,7 +1063,7 @@ ul, ol {
 /* Grid Layout for Tasks Page */
 .tasks-layout {
   display: grid;
-  grid-template-columns: 380px 1fr;
+  grid-template-columns: 480px 1fr;
   gap: var(--space-6);
   align-items: stretch;  /* 让两列高度相同 */
 }

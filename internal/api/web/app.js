@@ -111,11 +111,23 @@ const api = {
   createProfileDownload(screenName) { 
     return this.post(`/api/v1/users/${encodeURIComponent(screenName)}/profile`, {}); 
   },
+  createUserMark(screenName, timestamp) {
+    return this.post(`/api/v1/users/${encodeURIComponent(screenName)}/mark`, timestamp ? { timestamp } : {});
+  },
+  createFollowingDownload(screenName, opts) {
+    return this.post(`/api/v1/users/${encodeURIComponent(screenName)}/following/download`, opts);
+  },
+  createFollowingMark(screenName, timestamp) {
+    return this.post(`/api/v1/users/${encodeURIComponent(screenName)}/following/mark`, timestamp ? { timestamp } : {});
+  },
   createListDownload(listId, opts) { 
     return this.post(`/api/v1/lists/${encodeURIComponent(listId)}/download`, opts); 
   },
   createListProfile(listId) { 
     return this.post(`/api/v1/lists/${encodeURIComponent(listId)}/profile`, {}); 
+  },
+  createListMark(listId, timestamp) {
+    return this.post(`/api/v1/lists/${encodeURIComponent(listId)}/mark`, timestamp ? { timestamp } : {});
   },
   createBatchDownload(data) { 
     return this.post('/api/v1/batch/download', data); 
@@ -236,12 +248,14 @@ const toast = {
     
     const icons = { success: '✓', error: '✕', warning: '⚠' };
     const titles = { success: '成功', error: '错误', warning: '警告' };
+    const safeTitle = escapeHtml(title || titles[type] || '');
+    const safeMessage = escapeHtml(message || '');
     
     el.innerHTML = `
       <span class="toast-icon">${icons[type]}</span>
       <div class="toast-content">
-        <div class="toast-title">${title || titles[type]}</div>
-        <div class="toast-message">${message}</div>
+        <div class="toast-title">${safeTitle}</div>
+        <div class="toast-message">${safeMessage}</div>
       </div>
       <span class="toast-close">✕</span>
     `;
@@ -377,9 +391,11 @@ const pages = {
               <div class="tabs">
                 <div class="tab active" data-task-tab="user">用户</div>
                 <div class="tab" data-task-tab="list">列表</div>
+                <div class="tab" data-task-tab="following">关注</div>
                 <div class="tab" data-task-tab="batch">批量</div>
                 <div class="tab" data-task-tab="jsonfile"><span>JSON</span><span>文件</span></div>
                 <div class="tab" data-task-tab="jsonfolder"><span>JSON</span><span>文件夹</span></div>
+                <div class="tab" data-task-tab="mark">标记</div>
               </div>
               
               <div id="taskFormContainer">
@@ -533,6 +549,42 @@ function getStageText(stage) {
   return stageMap[stage] || (stage ? ` · ${stage}` : '');
 }
 
+function getTaskTarget(task) {
+  const data = task.data || {};
+
+  if (data.screen_name) {
+    return `@${data.screen_name}`;
+  }
+  if (data.list_id) {
+    return `List ${data.list_id}`;
+  }
+
+  const parts = [];
+  if (Array.isArray(data.users) && data.users.length) {
+    parts.push(`${data.users.length} 用户`);
+  }
+  if (Array.isArray(data.lists) && data.lists.length) {
+    parts.push(`${data.lists.length} 列表`);
+  }
+  if (Array.isArray(data.following_names) && data.following_names.length) {
+    parts.push(`${data.following_names.length} 关注源`);
+  }
+
+  return parts.length ? parts.join(' · ') : 'Unknown';
+}
+
+function getOptionalTimestamp(inputId) {
+  const input = document.getElementById(inputId);
+  const value = input?.value.trim() || '';
+  if (!value) return null;
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    throw new Error('请输入有效的标记时间');
+  }
+  return date.toISOString();
+}
+
 function renderTaskItem(task, showCheckbox = false) {
   const statusMap = {
     queued: { tag: 'tag-queued', text: '排队' },
@@ -546,16 +598,16 @@ function renderTaskItem(task, showCheckbox = false) {
   const pct = task.progress && task.progress.total ?
     Math.round((task.progress.completed || 0) / task.progress.total * 100) : 0;
 
-  const stageText = task.progress?.stage ? getStageText(task.progress.stage) : '';
-  const currentText = task.progress?.current ? ` · ${task.progress.current}` : '';
+  const stageText = task.progress?.stage ? escapeHtml(getStageText(task.progress.stage)) : '';
+  const currentText = task.progress?.current ? ` · ${escapeHtml(task.progress.current)}` : '';
 
-  const target = task.data?.screen_name || task.data?.list_id || 'Unknown';
+  const target = escapeHtml(getTaskTarget(task));
 
   return `
     <div class="task-item" onclick="showTaskDetail('${escapeAttr(task.task_id)}')">
       ${showCheckbox ? `<div class="task-checkbox"><input type="checkbox" class="form-checkbox" data-task-id="${escapeAttr(task.task_id)}"></div>` : ''}
       <div class="task-info">
-        <div class="task-title">${task.type} - ${target}</div>
+        <div class="task-title">${escapeHtml(task.type)} - ${target}</div>
         <div class="task-meta">
           <span class="tag ${status.tag}">${status.text}</span>
           <span>ID: ${escapeAttr(task.task_id)}</span>
@@ -622,6 +674,46 @@ function renderTaskForm(type) {
         <button class="btn btn-secondary" onclick="createListProfileTask()">仅下载 Profile</button>
       </div>
     `,
+    following: `
+      <div class="form-group">
+        <label class="form-label">Screen Name</label>
+        <input type="text" class="form-input" id="followingScreenName" placeholder="例如: elonmusk">
+      </div>
+      <div class="form-group">
+        <label class="form-checkbox">
+          <input type="checkbox" id="followingAutoFollow"> AutoFollow
+        </label>
+        <label class="form-checkbox">
+          <input type="checkbox" id="followingSkipProfile"> SkipProfile
+        </label>
+        <label class="form-checkbox">
+          <input type="checkbox" id="followingNoRetry"> NoRetry
+        </label>
+      </div>
+      <div class="flex gap-3">
+        <button class="btn btn-primary" onclick="createFollowingTask()">创建关注下载任务</button>
+      </div>
+    `,
+    mark: `
+      <div class="form-group">
+        <label class="form-label">用户 Screen Name（每行一个）</label>
+        <textarea class="form-textarea" id="markUsers" placeholder="elonmusk\njack" rows="3"></textarea>
+      </div>
+      <div class="form-group">
+        <label class="form-label">List IDs（每行一个）</label>
+        <textarea class="form-textarea" id="markLists" placeholder="123456789\n987654321" rows="3"></textarea>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Following 用户（每行一个）</label>
+        <textarea class="form-textarea" id="markFollowingNames" placeholder="user_a\nuser_b" rows="3"></textarea>
+      </div>
+      <div class="form-group">
+        <label class="form-label">标记时间（可选）</label>
+        <input type="datetime-local" class="form-input" id="markTimestamp">
+        <div class="text-sm text-tertiary mt-2">留空则使用服务器当前时间。每个输入目标会创建独立标记任务。</div>
+      </div>
+      <button class="btn btn-primary" onclick="createMarkTask()">创建标记任务</button>
+    `,
     batch: `
       <div class="form-group">
         <label class="form-label">用户列表（每行一个）</label>
@@ -630,6 +722,11 @@ function renderTaskForm(type) {
       <div class="form-group">
         <label class="form-label">List IDs（每行一个）</label>
         <textarea class="form-textarea" id="batchLists" placeholder="123\n456\n789" rows="3"></textarea>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Following 用户（每行一个）</label>
+        <textarea class="form-textarea" id="batchFollowingNames" placeholder="user_a\nuser_b" rows="3"></textarea>
+        <div class="text-sm text-tertiary mt-2">将这些用户的 Following 加入批量下载目标</div>
       </div>
       <div class="form-group">
         <label class="form-checkbox">
@@ -727,44 +824,44 @@ function renderDBTable(type, data, sort) {
   const rows = data.map(item => {
     if (type === 'users') {
       return `<tr>
-        <td>${item.id}</td>
-        <td>@${item.screen_name}</td>
-        <td>${item.name}</td>
+        <td>${escapeHtml(item.id)}</td>
+        <td>@${escapeHtml(item.screen_name)}</td>
+        <td>${escapeHtml(item.name)}</td>
         <td>${item.protected ? '🔒' : '🔓'}</td>
         <td>${item.is_accessible ? '✅' : '❌'}</td>
-        <td>${item.friends_count}</td>
+        <td>${escapeHtml(item.friends_count)}</td>
         <td>${renderActionButtons(type, item)}</td>
       </tr>`;
     } else if (type === 'lists') {
       return `<tr>
-        <td>${item.id}</td>
-        <td>${item.name}</td>
-        <td>${item.owner_uid}</td>
+        <td>${escapeHtml(item.id)}</td>
+        <td>${escapeHtml(item.name)}</td>
+        <td>${escapeHtml(item.owner_uid)}</td>
         <td>${renderActionButtons(type, item)}</td>
       </tr>`;
     } else if (type === 'entities') {
       return `<tr>
-        <td>${item.id}</td>
-        <td>${item.user_id}</td>
-        <td>${item.name}</td>
-        <td>${item.latest_release_time || '-'}</td>
-        <td>${item.media_count || '-'}</td>
+        <td>${escapeHtml(item.id)}</td>
+        <td>${escapeHtml(item.user_id)}</td>
+        <td>${escapeHtml(item.name)}</td>
+        <td>${escapeHtml(item.latest_release_time || '-')}</td>
+        <td>${escapeHtml(item.media_count || '-')}</td>
         <td>${renderActionButtons(type, item)}</td>
       </tr>`;
     } else if (type === 'listEntities') {
       return `<tr>
-        <td>${item.id}</td>
-        <td>${item.lst_id}</td>
-        <td>${item.name}</td>
-        <td>${item.parent_dir}</td>
+        <td>${escapeHtml(item.id)}</td>
+        <td>${escapeHtml(item.lst_id)}</td>
+        <td>${escapeHtml(item.name)}</td>
+        <td>${escapeHtml(item.parent_dir)}</td>
         <td>${renderActionButtons(type, item)}</td>
       </tr>`;
     } else {
       return `<tr>
-        <td>${item.id}</td>
-        <td>${item.user_id}</td>
-        <td>${item.name}</td>
-        <td>${item.parent_lst_entity_id}</td>
+        <td>${escapeHtml(item.id)}</td>
+        <td>${escapeHtml(item.user_id)}</td>
+        <td>${escapeHtml(item.name)}</td>
+        <td>${escapeHtml(item.parent_lst_entity_id)}</td>
         <td>${renderActionButtons(type, item)}</td>
       </tr>`;
     }
@@ -775,23 +872,23 @@ function renderDBTable(type, data, sort) {
     if (type === 'users') {
       return `
         <div class="mobile-card">
-          <div style="font-weight: var(--font-semibold); margin-bottom: var(--space-2);">@${item.screen_name}</div>
-          <div style="color: var(--text-secondary); font-size: var(--text-sm); margin-bottom: var(--space-2);">${item.name}</div>
+          <div style="font-weight: var(--font-semibold); margin-bottom: var(--space-2);">@${escapeHtml(item.screen_name)}</div>
+          <div style="color: var(--text-secondary); font-size: var(--text-sm); margin-bottom: var(--space-2);">${escapeHtml(item.name)}</div>
           <div style="display: flex; gap: var(--space-4); font-size: var(--text-sm); margin-bottom: var(--space-2);">
             <span>${item.protected ? '🔒 Protected' : '🔓 Public'}</span>
             <span>${item.is_accessible ? '✅ Accessible' : '❌ Not Accessible'}</span>
           </div>
-          <div style="font-size: var(--text-sm); margin-bottom: var(--space-2);">Friends: ${item.friends_count}</div>
+          <div style="font-size: var(--text-sm); margin-bottom: var(--space-2);">Friends: ${escapeHtml(item.friends_count)}</div>
           <div>${renderActionButtons(type, item)}</div>
         </div>
       `;
     } else if (type === 'lists') {
       return `
         <div class="mobile-card">
-          <div style="font-weight: var(--font-semibold); margin-bottom: var(--space-2);">${item.name}</div>
+          <div style="font-weight: var(--font-semibold); margin-bottom: var(--space-2);">${escapeHtml(item.name)}</div>
           <div style="color: var(--text-secondary); font-size: var(--text-sm); margin-bottom: var(--space-2);">
-            <div>ID: ${item.id}</div>
-            <div>Owner: ${item.owner_uid}</div>
+            <div>ID: ${escapeHtml(item.id)}</div>
+            <div>Owner: ${escapeHtml(item.owner_uid)}</div>
           </div>
           <div>${renderActionButtons(type, item)}</div>
         </div>
@@ -799,11 +896,11 @@ function renderDBTable(type, data, sort) {
     } else if (type === 'entities') {
       return `
         <div class="mobile-card">
-          <div style="font-weight: var(--font-semibold); margin-bottom: var(--space-2);">${item.name}</div>
+          <div style="font-weight: var(--font-semibold); margin-bottom: var(--space-2);">${escapeHtml(item.name)}</div>
           <div style="color: var(--text-secondary); font-size: var(--text-sm); margin-bottom: var(--space-2);">
-            <div>ID: ${item.id}</div>
-            <div>User ID: ${item.user_id}</div>
-            <div>Media: ${item.media_count || 0}</div>
+            <div>ID: ${escapeHtml(item.id)}</div>
+            <div>User ID: ${escapeHtml(item.user_id)}</div>
+            <div>Media: ${escapeHtml(item.media_count || 0)}</div>
           </div>
           <div>${renderActionButtons(type, item)}</div>
         </div>
@@ -811,11 +908,11 @@ function renderDBTable(type, data, sort) {
     } else if (type === 'listEntities') {
       return `
         <div class="mobile-card">
-          <div style="font-weight: var(--font-semibold); margin-bottom: var(--space-2);">${item.name}</div>
+          <div style="font-weight: var(--font-semibold); margin-bottom: var(--space-2);">${escapeHtml(item.name)}</div>
           <div style="color: var(--text-secondary); font-size: var(--text-sm); margin-bottom: var(--space-2);">
-            <div>ID: ${item.id}</div>
-            <div>List ID: ${item.lst_id}</div>
-            <div>Dir: ${item.parent_dir}</div>
+            <div>ID: ${escapeHtml(item.id)}</div>
+            <div>List ID: ${escapeHtml(item.lst_id)}</div>
+            <div>Dir: ${escapeHtml(item.parent_dir)}</div>
           </div>
           <div>${renderActionButtons(type, item)}</div>
         </div>
@@ -823,11 +920,11 @@ function renderDBTable(type, data, sort) {
     } else {
       return `
         <div class="mobile-card">
-          <div style="font-weight: var(--font-semibold); margin-bottom: var(--space-2);">${item.name}</div>
+          <div style="font-weight: var(--font-semibold); margin-bottom: var(--space-2);">${escapeHtml(item.name)}</div>
           <div style="color: var(--text-secondary); font-size: var(--text-sm); margin-bottom: var(--space-2);">
-            <div>ID: ${item.id}</div>
-            <div>User ID: ${item.user_id}</div>
-            <div>Entity: ${item.parent_lst_entity_id}</div>
+            <div>ID: ${escapeHtml(item.id)}</div>
+            <div>User ID: ${escapeHtml(item.user_id)}</div>
+            <div>Entity: ${escapeHtml(item.parent_lst_entity_id)}</div>
           </div>
         </div>
       `;
@@ -1065,7 +1162,7 @@ async function editDBItem(type, id) {
     let content = `
       <div class="form-group">
         <label class="form-label">ID</label>
-        <div class="font-mono text-sm" style="background: var(--bg-primary); padding: var(--space-3); border-radius: var(--radius-md);">${item.id}</div>
+        <div class="font-mono text-sm" style="background: var(--bg-primary); padding: var(--space-3); border-radius: var(--radius-md);">${escapeHtml(item.id)}</div>
       </div>
     `;
 
@@ -1082,7 +1179,7 @@ async function editDBItem(type, id) {
           </div>
           <div class="form-group">
             <label class="form-label">Friends Count</label>
-            <input type="number" class="form-input" id="editFriendsCount" value="${item.friends_count || 0}">
+            <input type="number" class="form-input" id="editFriendsCount" value="${escapeAttr(item.friends_count || 0)}">
           </div>
           <div class="form-group">
             <label class="form-checkbox">
@@ -1124,7 +1221,7 @@ async function editDBItem(type, id) {
           </div>
           <div class="form-group">
             <label class="form-label">Media Count</label>
-            <input type="number" class="form-input" id="editEntityMediaCount" value="${item.media_count || 0}">
+            <input type="number" class="form-input" id="editEntityMediaCount" value="${escapeAttr(item.media_count || 0)}">
           </div>
         `;
         break;
@@ -1132,15 +1229,15 @@ async function editDBItem(type, id) {
         content += `
           <div class="form-group">
             <label class="form-label">Name</label>
-            <input type="text" class="form-input" id="editListEntityName" value="${item.name || ''}">
+            <input type="text" class="form-input" id="editListEntityName" value="${escapeAttr(item.name || '')}">
           </div>
           <div class="form-group">
             <label class="form-label">List ID</label>
-            <div class="font-mono text-sm" style="background: var(--bg-primary); padding: var(--space-3); border-radius: var(--radius-md);">${item.lst_id}</div>
+            <div class="font-mono text-sm" style="background: var(--bg-primary); padding: var(--space-3); border-radius: var(--radius-md);">${escapeHtml(item.lst_id)}</div>
           </div>
           <div class="form-group">
             <label class="form-label">Parent Dir</label>
-            <input type="text" class="form-input" id="editListEntityParentDir" value="${item.parent_dir || ''}">
+            <input type="text" class="form-input" id="editListEntityParentDir" value="${escapeAttr(item.parent_dir || '')}">
           </div>
         `;
         break;
@@ -1328,21 +1425,88 @@ async function createListProfileTask() {
   }
 }
 
+async function createFollowingTask() {
+  const screenName = document.getElementById('followingScreenName').value.trim();
+  if (!screenName) return toast.show('请输入 Screen Name', 'error');
+
+  try {
+    await api.createFollowingDownload(screenName, {
+      auto_follow: document.getElementById('followingAutoFollow').checked,
+      skip_profile: document.getElementById('followingSkipProfile').checked,
+      no_retry: document.getElementById('followingNoRetry').checked
+    });
+    toast.show('关注下载任务已创建');
+    document.getElementById('followingScreenName').value = '';
+    refreshTasks();
+  } catch (err) {
+    toast.show(err.message, 'error');
+  }
+}
+
+async function createMarkTask() {
+  const users = document.getElementById('markUsers').value.split('\n').map(s => s.trim()).filter(Boolean);
+  const listIDs = document.getElementById('markLists').value.split('\n').map(s => parseInt(s.trim(), 10)).filter(id => !isNaN(id));
+  const followingNames = document.getElementById('markFollowingNames').value.split('\n').map(s => s.trim()).filter(Boolean);
+
+  if (!users.length && !listIDs.length && !followingNames.length) {
+    return toast.show('请输入至少一个用户、列表或 Following 用户', 'error');
+  }
+
+  try {
+    const timestamp = getOptionalTimestamp('markTimestamp');
+    const requests = [
+      ...users.map(screenName => () => api.createUserMark(screenName, timestamp)),
+      ...listIDs.map(listID => () => api.createListMark(listID, timestamp)),
+      ...followingNames.map(screenName => () => api.createFollowingMark(screenName, timestamp))
+    ];
+
+    const results = await Promise.allSettled(requests.map(run => run()));
+    const successCount = results.filter(result => result.status === 'fulfilled').length;
+    const failedResults = results.filter(result => result.status === 'rejected');
+
+    if (successCount === 0) {
+      throw failedResults[0]?.reason || new Error('创建标记任务失败');
+    }
+
+    document.getElementById('markUsers').value = '';
+    document.getElementById('markLists').value = '';
+    document.getElementById('markFollowingNames').value = '';
+    document.getElementById('markTimestamp').value = '';
+    refreshTasks();
+
+    if (failedResults.length > 0) {
+      toast.show(`已创建 ${successCount} 个标记任务，${failedResults.length} 个失败`, 'warning');
+      return;
+    }
+
+    toast.show(`已创建 ${successCount} 个标记任务`);
+  } catch (err) {
+    toast.show(err.message, 'error');
+  }
+}
+
 async function createBatchTask() {
   const users = document.getElementById('batchUsers').value.split('\n').map(s => s.trim()).filter(Boolean);
-  const lists = document.getElementById('batchLists').value.split('\n').map(s => parseInt(s.trim())).filter(id => !isNaN(id));
+  const lists = document.getElementById('batchLists').value.split('\n').map(s => parseInt(s.trim(), 10)).filter(id => !isNaN(id));
+  const followingNames = document.getElementById('batchFollowingNames').value.split('\n').map(s => s.trim()).filter(Boolean);
   
-  if (!users.length && !lists.length) return toast.show('请输入至少一个用户或列表', 'error');
+  if (!users.length && !lists.length && !followingNames.length) {
+    return toast.show('请输入至少一个用户、列表或 Following 用户', 'error');
+  }
   
   try {
     await api.createBatchDownload({
       users,
       lists,
+      following_names: followingNames,
       auto_follow: document.getElementById('batchAutoFollow').checked,
       skip_profile: document.getElementById('batchSkipProfile').checked,
       no_retry: document.getElementById('batchNoRetry').checked
     });
-    toast.show(`批量任务已创建 (${users.length} 用户, ${lists.length} 列表)`);
+    toast.show(`批量任务已创建 (${users.length} 用户, ${lists.length} 列表, ${followingNames.length} 关注源)`);
+    document.getElementById('batchUsers').value = '';
+    document.getElementById('batchLists').value = '';
+    document.getElementById('batchFollowingNames').value = '';
     refreshTasks();
   } catch (err) {
     toast.show(err.message, 'error');
@@ -1407,17 +1571,17 @@ function showTaskDetail(id) {
   const pct = task.progress && task.progress.total ?
     Math.round((task.progress.completed || 0) / task.progress.total * 100) : 0;
 
-  const stageText = task.progress?.stage ? getStageText(task.progress.stage) : '';
-  const currentText = task.progress?.current ? ` · ${task.progress.current}` : '';
+  const stageText = task.progress?.stage ? escapeHtml(getStageText(task.progress.stage)) : '';
+  const currentText = task.progress?.current ? ` · ${escapeHtml(task.progress.current)}` : '';
 
   const content = `
     <div class="form-group">
       <label class="form-label">任务 ID</label>
-      <div class="font-mono text-sm" style="background: var(--bg-primary); padding: var(--space-3); border-radius: var(--radius-md);">${task.task_id}</div>
+      <div class="font-mono text-sm" style="background: var(--bg-primary); padding: var(--space-3); border-radius: var(--radius-md);">${escapeHtml(task.task_id)}</div>
     </div>
     <div class="form-group">
       <label class="form-label">类型</label>
-      <div>${task.type}</div>
+      <div>${escapeHtml(task.type)}</div>
     </div>
     <div class="form-group">
       <label class="form-label">状态</label>
@@ -1429,7 +1593,7 @@ function showTaskDetail(id) {
         <div class="progress-fill" style="width: ${pct}%"></div>
       </div>
       <div class="text-sm text-secondary">${task.progress?.completed || 0} / ${task.progress?.total || 0} (${pct}%)${stageText}${currentText}</div>
-      ${task.progress?.failed ? `<div class="text-sm" style="color: var(--danger); margin-top: 4px;">失败: ${task.progress.failed}</div>` : ''}
+      ${task.progress?.failed ? `<div class="text-sm" style="color: var(--danger); margin-top: 4px;">失败: ${escapeHtml(task.progress.failed)}</div>` : ''}
     </div>
     <div class="form-group">
       <label class="form-label">创建时间</label>
@@ -1438,7 +1602,7 @@ function showTaskDetail(id) {
     ${task.error ? `
       <div class="form-group">
         <label class="form-label" style="color: var(--danger);">错误信息</label>
-        <div style="color: var(--danger); background: var(--danger-bg); padding: var(--space-3); border-radius: var(--radius-md);">${task.error}</div>
+        <div style="color: var(--danger); background: var(--danger-bg); padding: var(--space-3); border-radius: var(--radius-md);">${escapeHtml(task.error)}</div>
       </div>
     ` : ''}
   `;
@@ -1505,11 +1669,11 @@ function renderConfigForm(fields, saving, exists) {
     const inputType = f.type === 'password' ? 'password' : (f.type === 'number' ? 'number' : 'text');
     return `
       <div class="config-field">
-        <label class="config-label">${f.label}</label>
+        <label class="config-label">${escapeHtml(f.label)}</label>
         ${f.type === 'password' ? `<div class="config-mask-hint">当前值: ${escapeHtml(f.value)}</div>` : ''}
-        <input type="${inputType}" class="form-input config-input" id="cf_${f.name}"
-          name="${f.name}" value="${escapeHtml(f.type === 'password' ? '' : f.value)}"
-          placeholder="${escapeHtml(f.placeholder || f.prompt)}"
+        <input type="${inputType}" class="form-input config-input" id="cf_${escapeAttr(f.name)}"
+          name="${escapeAttr(f.name)}" value="${escapeAttr(f.type === 'password' ? '' : f.value)}"
+          placeholder="${escapeAttr(f.placeholder || f.prompt)}"
           ${f.type === 'number' ? `min="1" max="${f.name.includes('routine') ? '100' : '250'}"` : ''}>
       </div>
     `;

@@ -547,7 +547,7 @@ func (s *downloadServiceImpl) collectFailedTweets(dumper *downloading.TweetDumpe
 }
 
 // 内部辅助方法：下载 Profile
-func (s *downloadServiceImpl) downloadProfile(ctx context.Context, taskID string, users []*twitter.User, pathHelper *path.StorePath, versionManager *downloader.DefaultVersionManager, fileWriter *downloader.DefaultFileWriter, dwn *downloader.DefaultDownloader, reporter ProgressReporter) error {
+func (s *downloadServiceImpl) downloadProfile(ctx context.Context, taskID string, users []*twitter.User, pathHelper *path.StorePath, versionManager downloader.VersionManager, fileWriter downloader.FileWriter, dwn downloader.Downloader, reporter ProgressReporter) error {
 	if len(users) == 0 {
 		return nil
 	}

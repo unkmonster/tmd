@@ -55,7 +55,7 @@ func NewServer(client *resty.Client, additionalClients []*resty.Client, db *sqlx
 	return s
 }
 
-func (s *Server) Start(port int) error {
+func (s *Server) buildHandler() http.Handler {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /api/v1/health", s.handleHealth)
@@ -105,7 +105,9 @@ func (s *Server) Start(port int) error {
 	mux.HandleFunc("GET /api/v1/config/raw", s.handleConfigRaw)
 	mux.HandleFunc("PUT /api/v1/config/raw", s.handleUpdateConfigRaw)
 	mux.HandleFunc("GET /api/v1/config/fields", s.handleConfigFields)
+	mux.HandleFunc("PUT /api/v1/config/fields", s.handleSaveConfigFields)
 	mux.HandleFunc("GET /api/v1/cookies", s.handleCookies)
+	mux.HandleFunc("PUT /api/v1/cookies", s.handleSaveCookies)
 	mux.HandleFunc("GET /api/v1/cookies/raw", s.handleCookiesRaw)
 	mux.HandleFunc("PUT /api/v1/cookies/raw", s.handleUpdateCookiesRaw)
 	mux.HandleFunc("POST /api/v1/server/restart", s.handleServerRestart)
@@ -124,6 +126,11 @@ func (s *Server) Start(port int) error {
 	}).Handler(handler)
 
 	handler = loggingMiddleware(handler)
+	return handler
+}
+
+func (s *Server) Start(port int) error {
+	handler := s.buildHandler()
 
 	addr := fmt.Sprintf(":%d", port)
 	log.Infoln("API server starting on", addr)

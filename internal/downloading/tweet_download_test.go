@@ -6,8 +6,18 @@ import (
 	"testing"
 	"time"
 
+	"github.com/unkmonster/tmd/internal/downloader"
 	"github.com/unkmonster/tmd/internal/twitter"
 )
+
+type mockTweetFileWriter struct {
+	result downloader.WriteResult
+	err    error
+}
+
+func (m *mockTweetFileWriter) Write(req downloader.WriteRequest) (downloader.WriteResult, error) {
+	return m.result, m.err
+}
 
 func TestCleanTweetJson(t *testing.T) {
 	tests := []struct {

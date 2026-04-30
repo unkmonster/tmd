@@ -7,6 +7,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ***
 
+## [3.2.10] - 2026-04-29
+
+### Added
+
+#### Web 界面功能增强
+
+| 功能 | 说明 |
+|------|------|
+| `createFollowingTask()` | 新增关注下载任务创建功能 |
+| `createMarkTask()` | 新增批量标记任务创建功能 |
+| `escapeHtml()` / `escapeAttr()` | 新增 HTML/属性转义函数，防止 XSS |
+
+### Changed
+
+#### 文件写入优化
+
+| 文件 | 变更 |
+|------|------|
+| `internal/downloader/file_writer.go` | 统一原子写入方法，合并 `atomicWrite` 和 `atomicWriteStream` 为 `atomicWriteFromReader` |
+| `internal/downloader/file_writer.go` | 删除重复的 `atomicWrite` 函数 |
+| `internal/downloader/downloader.go` | 新增 `waitRetryDelay()` 支持 context 取消 |
+| `internal/downloader/downloader.go` | 下载结果新增 `Versioned` 字段 |
+
+#### Web 界面安全增强
+
+| 文件 | 变更 |
+|------|------|
+| `internal/api/web/app.js` | 全面添加 HTML/属性转义，防止 XSS 攻击 |
+| `internal/api/web/app.js` | 批量下载支持 `following_names` 参数 |
+
+### Removed
+
+- 删除 `internal/downloader/helpers.go`（功能已合并到 file_writer.go）
+
+### Fixed
+
+- 修复下载重试时无法响应 context 取消的问题
+- 修复 Web 界面潜在的 XSS 安全风险
+
+### Stats
+
+- **16 个文件变更**
+- **+482 行 / -245 行**
+
+***
+
 ## [3.2.9] - 2026-04-29
 
 ### Changed

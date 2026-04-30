@@ -1,7 +1,6 @@
 package profile
 
 import (
-	"fmt"
 	"time"
 )
 
@@ -89,20 +88,3 @@ func DefaultConfig() *Config {
 	}
 }
 
-// ProfileError 自定义错误类型
-type ProfileError struct {
-	Op   string
-	User string
-	Err  error
-}
-
-func (e *ProfileError) Error() string {
-	if e.User != "" {
-		return fmt.Sprintf("profile %s failed for user %s: %v", e.Op, e.User, e.Err)
-	}
-	return fmt.Sprintf("profile %s failed: %v", e.Op, e.Err)
-}
-
-func (e *ProfileError) Unwrap() error {
-	return e.Err
-}
