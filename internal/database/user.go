@@ -1,7 +1,6 @@
 package database
 
 import (
-	"database/sql"
 	"fmt"
 	"strings"
 	"time"
@@ -64,12 +63,9 @@ func UpdateUser(db *sqlx.DB, usr *User) error {
 	if err != nil {
 		return fmt.Errorf("failed to update user %d: %w", usr.Id, err)
 	}
-	rows, err := res.RowsAffected()
+	_, err = res.RowsAffected()
 	if err != nil {
 		return fmt.Errorf("failed to get rows affected: %w", err)
-	}
-	if rows == 0 {
-		return sql.ErrNoRows
 	}
 	return nil
 }

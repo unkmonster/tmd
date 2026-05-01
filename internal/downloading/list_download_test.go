@@ -270,30 +270,6 @@ func TestSyncList_InvalidDB(t *testing.T) {
 	_ = syncList(nil, list)
 }
 
-func TestSyncListAndGetMembers_InvalidDir(t *testing.T) {
-	db := setupTestDB(t)
-	defer db.Close()
-
-	ctx := context.Background()
-
-	members := []*twitter.User{
-		{Id: 1, Name: "User 1", ScreenName: "user1"},
-	}
-
-	mockList := &MockList{
-		id:      12345,
-		name:    "Test List",
-		members: members,
-	}
-
-	// Test with invalid directory - on Windows this path format is valid but non-existent
-	// The function may or may not return error depending on implementation
-	invalidDir := "Z:\\nonexistent\\path"
-	_, _, err := syncListAndGetMembers(ctx, nil, db, mockList, invalidDir)
-	// Just log the result, don't assert since behavior may vary
-	t.Logf("syncListAndGetMembers() with invalid dir: err=%v", err)
-}
-
 func TestSyncListAndGetMembers_CancelledContext(t *testing.T) {
 	db := setupTestDB(t)
 	defer db.Close()

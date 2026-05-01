@@ -70,12 +70,9 @@ func UpdateLstEntity(db *sqlx.DB, entity *LstEntity) error {
 	if err != nil {
 		return fmt.Errorf("failed to update list entity %d: %w", entity.Id.Int32, err)
 	}
-	rows, err := result.RowsAffected()
+	_, err = result.RowsAffected()
 	if err != nil {
 		return fmt.Errorf("failed to get rows affected: %w", err)
-	}
-	if rows == 0 {
-		return sql.ErrNoRows
 	}
 	return nil
 }

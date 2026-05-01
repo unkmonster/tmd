@@ -79,17 +79,6 @@ func (s *Server) handleUpdateCookiesRaw(w http.ResponseWriter, r *http.Request) 
 	}))
 }
 
-func (s *Server) handleCookies(w http.ResponseWriter, r *http.Request) {
-	switch r.Method {
-	case http.MethodGet:
-		s.handleGetCookies(w, r)
-	case http.MethodPut:
-		s.handleSaveCookies(w, r)
-	default:
-		s.writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
-	}
-}
-
 func (s *Server) handleGetCookies(w http.ResponseWriter, _ *http.Request) {
 	cookiesPath := filepath.Join(s.appRootPath, "additional_cookies.yaml")
 	exists := true

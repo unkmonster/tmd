@@ -28,7 +28,11 @@ func (s *Server) handleWeb(w http.ResponseWriter, r *http.Request) {
 
 // handleStatic 静态文件服务
 func (s *Server) handleStatic(w http.ResponseWriter, r *http.Request) {
-	reqPath := strings.TrimPrefix(r.URL.Path, "/static/")
+	reqPath := r.PathValue("path")
+	if reqPath == "" {
+		http.NotFound(w, r)
+		return
+	}
 
 	// 使用 path.Clean 来规范化路径，自动处理掉所有的 "." 和 ".." 以及多余的斜杠
 	cleanPath := path.Clean("/" + reqPath)

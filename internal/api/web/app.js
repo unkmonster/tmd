@@ -47,6 +47,7 @@ const store = {
     configRaw: '',
     configExists: false,
     configSaving: false,
+    configFieldsLoading: false,
     logs: [],
     logLevel: 'all',
     logSearch: '',
@@ -566,6 +567,36 @@ function getStageText(stage) {
   return stageMap[stage] || (stage ? ` · ${stage}` : '');
 }
 
+function getTaskProgressPercent(task) {
+  if (task.status === 'completed') return 100;
+
+  const progress = task.progress || {};
+  const total = progress.total || 0;
+  const completed = progress.completed || 0;
+  const ratio = total > 0 ? Math.min(completed / total, 1) : 0;
+
+  if (task.status === 'failed' || task.status === 'cancelled') {
+    return total > 0 ? Math.round(ratio * 100) : 0;
+  }
+
+  switch (progress.stage) {
+    case 'syncing':
+      return 5;
+    case 'preparing':
+      return 10;
+    case 'downloading':
+      return Math.round(10 + ratio * 70);
+    case 'retrying':
+      return Math.round(80 + ratio * 10);
+    case 'profile':
+      return total > 0 ? Math.round(90 + ratio * 9) : 90;
+    case 'marking':
+      return total > 0 ? Math.round(10 + ratio * 85) : 10;
+    default:
+      return 0;
+  }
+}
+
 function getTaskTarget(task) {
   const data = task.data || {};
 
@@ -612,8 +643,7 @@ function renderTaskItem(task, showCheckbox = false) {
   };
   
   const status = statusMap[task.status] || statusMap.queued;
-  const pct = task.progress && task.progress.total ?
-    Math.round((task.progress.completed || 0) / task.progress.total * 100) : 0;
+  const pct = getTaskProgressPercent(task);
 
   const stageText = task.progress?.stage ? escapeHtml(getStageText(task.progress.stage)) : '';
   const currentText = task.progress?.current ? ` · ${escapeHtml(task.progress.current)}` : '';
@@ -1575,8 +1605,7 @@ function showTaskDetail(id) {
     cancelled: '已取消'
   };
   
-  const pct = task.progress && task.progress.total ?
-    Math.round((task.progress.completed || 0) / task.progress.total * 100) : 0;
+  const pct = getTaskProgressPercent(task);
 
   const stageText = task.progress?.stage ? escapeHtml(getStageText(task.progress.stage)) : '';
   const currentText = task.progress?.current ? ` · ${escapeHtml(task.progress.current)}` : '';
@@ -1646,7 +1675,7 @@ function escapeAttr(str) {
 function stripAnsi(str) { return str.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, ''); }
 
 function renderConfigEditor() {
-  const { configMode, configFields, configSaving, configExists, configRaw } = store.state;
+  const { configMode, configFields, configSaving, configExists, configRaw, configFieldsLoading } = store.state;
 
   const modeTabs = `
     <div class="config-mode-tabs">
@@ -1656,11 +1685,11 @@ function renderConfigEditor() {
   `;
 
   if (configMode === 'raw') return modeTabs + renderConfigRawEditor(configRaw, configSaving, configExists);
-  return modeTabs + renderConfigForm(configFields, configSaving, configExists);
+  return modeTabs + renderConfigForm(configFields, configSaving, configExists, configFieldsLoading);
 }
 
-function renderConfigForm(fields, saving, exists) {
-  if (!fields || fields.length === 0) {
+function renderConfigForm(fields, saving, exists, loading = false) {
+  if (loading || !fields || fields.length === 0) {
     return `
       <div class="card">
         <div class="card-body"><div class="empty-state"><div class="empty-icon">⏳</div><div class="empty-title">加载中...</div></div></div>
@@ -1872,10 +1901,15 @@ function renderLogViewer() {
 }
 
 async function loadConfigFields() {
+  if (store.state.configFieldsLoading) return;
+  store.setState({ configFieldsLoading: true });
   try {
     const d = await api.getConfigFields();
-    store.setState({ configFields: d.fields || [], configExists: d.exists || false });
-  } catch (e) { toast.show('加载配置失败: ' + e.message, 'error'); }
+    store.setState({ configFields: d.fields || [], configExists: d.exists || false, configFieldsLoading: false });
+  } catch (e) {
+    toast.show('加载配置失败: ' + e.message, 'error');
+    store.setState({ configFieldsLoading: false });
+  }
 }
 
 async function loadConfigRaw() {
@@ -1989,13 +2023,13 @@ async function saveCookiesForm() {
     const ct0Input = document.getElementById(`cookie_ct0_${i}`);
     const authVal = authInput ? authInput.value.trim() : '';
     const ct0Val = ct0Input ? ct0Input.value.trim() : '';
+    const isNewAccount = !items[i].auth_token && !items[i].ct0;
 
-    if (!authVal && !ct0Val) {
+    if (isNewAccount && !authVal && !ct0Val) {
       toast.show(`账户 #${i + 1} 的 Auth Token 和 CT0 不能同时为空`, 'error');
       return;
     }
 
-    const isNewAccount = !items[i].auth_token && !items[i].ct0;
     cookies.push({
       auth_token: (isNewAccount || authVal) ? authVal : '__KEEP_OLD__',
       ct0: (isNewAccount || ct0Val) ? ct0Val : '__KEEP_OLD__',
@@ -2030,9 +2064,6 @@ async function saveCookies() {
 
 function setCookiesMode(mode) {
   store.setState({ cookiesMode: mode });
-  if (mode === 'form' && (!store.state.cookieItems || store.state.cookieItems.length === 0)) { loadCookiesItems(); }
-  if (mode === 'raw' && !store.state.cookiesRaw) { loadCookiesRaw(); }
-  if (mode === 'raw' && store.state.cookiesRaw) { setTimeout(initCookiesCodeMirror, 50); }
 }
 
 function addCookieAccount() {
@@ -2077,9 +2108,6 @@ async function shutdownServer() {
 
 function setConfigMode(mode) {
   store.setState({ configMode: mode });
-  if (mode === 'form' && (!store.state.configFields || store.state.configFields.length === 0)) { loadConfigFields(); }
-  if (mode === 'raw' && !store.state.configRaw) { loadConfigRaw(); }
-  if (mode === 'raw' && store.state.configRaw) { setTimeout(initConfigCodeMirror, 50); }
 }
 
 async function loadLogs() {
@@ -2170,20 +2198,35 @@ function cleanupSystemTimers() {
   }
 }
 
+function syncConfigTabView() {
+  if (store.state.configMode === 'form' && (!store.state.configFields || store.state.configFields.length === 0)) { loadConfigFields(); }
+  if (store.state.configMode === 'raw' && !store.state.configRaw) { loadConfigRaw(); }
+  if (store.state.configMode === 'raw' && store.state.configRaw) { setTimeout(initConfigCodeMirror, 50); }
+}
+
+function syncCookiesTabView() {
+  if (store.state.cookiesMode === 'form' && (!store.state.cookieItems || store.state.cookieItems.length === 0)) { loadCookiesItems(); }
+  if (store.state.cookiesMode === 'raw' && !store.state.cookiesRaw) { loadCookiesRaw(); }
+  if (store.state.cookiesMode === 'raw' && store.state.cookiesRaw) { setTimeout(initCookiesCodeMirror, 50); }
+}
+
+function syncLogsTabView() {
+  if (store.state.logs.length === 0) {
+    loadLogs();
+    if (!logAutoRefreshTimer && store.state.logAutoRefresh) logAutoRefreshTimer = setInterval(loadLogs, 5000);
+  }
+}
+
+function syncSystemTabView() {
+  if (store.state.currentPage !== 'system') return;
+
+  if (store.state._systemTab === 'config') syncConfigTabView();
+  if (store.state._systemTab === 'cookies') syncCookiesTabView();
+  if (store.state._systemTab === 'logs') syncLogsTabView();
+}
+
 function setSystemTab(tab) {
   store.setState({ _systemTab: tab });
-  if (tab === 'config') {
-    if (store.state.configMode === 'form' && (!store.state.configFields || store.state.configFields.length === 0)) { loadConfigFields(); }
-    if (store.state.configMode === 'raw' && !store.state.configRaw) { loadConfigRaw(); }
-    if (store.state.configMode === 'raw' && store.state.configRaw) { setTimeout(initConfigCodeMirror, 50); }
-  }
-  if (tab === 'cookies') {
-    if (store.state.cookiesMode === 'form' && (!store.state.cookieItems || store.state.cookieItems.length === 0)) { loadCookiesItems(); }
-    if (store.state.cookiesMode === 'raw' && !store.state.cookiesRaw) { loadCookiesRaw(); }
-    if (store.state.cookiesMode === 'raw' && store.state.cookiesRaw) { setTimeout(initCookiesCodeMirror, 50); }
-  }
-  if (tab === 'logs' && store.state.logs.length === 0) { loadLogs(); if (!logAutoRefreshTimer && store.state.logAutoRefresh) logAutoRefreshTimer = setInterval(loadLogs, 5000); }
-  render();
 }
 
 // ============================================
@@ -2279,6 +2322,7 @@ function navigateTo(page) {
 // Handle browser back/forward buttons
 window.onpopstate = (event) => {
   const { page, dataSubPage } = parseRoute();
+  if (lastPage === 'system' && page !== 'system') cleanupSystemTimers();
   
   if (page === 'data' && dataSubPage !== store.state.dataSubPage) {
     store.setState({ 
@@ -2330,6 +2374,9 @@ function render() {
   
   if (pages[page]) {
     container.innerHTML = pages[page]();
+    if (page === 'system') {
+      syncSystemTabView();
+    }
     
     // Re-attach tab listeners for tasks page
     if (page === 'tasks') {
@@ -2439,11 +2486,6 @@ async function init() {
     // Load database data for current subpage
     await refreshDBData();
     
-    // Load system page specific data
-    if (page === 'system') {
-      await loadConfigFields();
-      await loadConfigRaw();
-    }
   } catch (err) {
     toast.show('加载数据失败: ' + err.message, 'error');
   }
@@ -2491,6 +2533,7 @@ let lastLogPaginationJson = JSON.stringify(store.state.logPagination);
 let lastConfigRaw = store.state.configRaw;
 let lastConfigSaving = store.state.configSaving;
 let lastConfigFieldsJson = JSON.stringify(store.state.configFields);
+let lastConfigFieldsLoading = store.state.configFieldsLoading;
 let lastConfigMode = store.state.configMode;
 let lastCookiesRaw = store.state.cookiesRaw;
 let lastCookiesSaving = store.state.cookiesSaving;
@@ -2519,6 +2562,7 @@ store.subscribe((state) => {
       const configRawChanged = state.configRaw !== lastConfigRaw;
       const configSavingChanged = state.configSaving !== lastConfigSaving;
       const configFieldsChanged = JSON.stringify(state.configFields) !== lastConfigFieldsJson;
+      const configFieldsLoadingChanged = state.configFieldsLoading !== lastConfigFieldsLoading;
       const configModeChanged = state.configMode !== lastConfigMode;
       const cookiesChanged = JSON.stringify(state.cookieItems) !== lastCookieItemsJson;
       const cookiesModeChanged = state.cookiesMode !== lastCookiesMode;
@@ -2526,12 +2570,13 @@ store.subscribe((state) => {
       const cookiesSavingChanged = state.cookiesSaving !== lastCookiesSaving;
       const logsChanged = state.logs.length !== lastLogsLength;
 
-      if (tabChanged || logPagChanged || configRawChanged || configSavingChanged || logsChanged || configFieldsChanged || configModeChanged || cookiesChanged || cookiesModeChanged || cookiesRawChanged || cookiesSavingChanged) {
+      if (tabChanged || logPagChanged || configRawChanged || configSavingChanged || logsChanged || configFieldsChanged || configFieldsLoadingChanged || configModeChanged || cookiesChanged || cookiesModeChanged || cookiesRawChanged || cookiesSavingChanged) {
         lastSystemTab = state._systemTab;
         lastLogPaginationJson = JSON.stringify(state.logPagination);
         lastConfigRaw = state.configRaw;
         lastConfigSaving = state.configSaving;
         lastConfigFieldsJson = JSON.stringify(state.configFields);
+        lastConfigFieldsLoading = state.configFieldsLoading;
         lastConfigMode = state.configMode;
         lastCookieItemsJson = JSON.stringify(state.cookieItems);
         lastCookiesMode = state.cookiesMode;

@@ -100,3 +100,32 @@ func TestHandleGetLogs_FiltersAndPaginatesTail(t *testing.T) {
 	assert.Equal(t, 2, resp.Data.PageSize)
 	assert.Equal(t, 2, resp.Data.TotalPages)
 }
+
+func TestHandleGetLogs_UsesLogPaginationDefaults(t *testing.T) {
+	server, db := setupTestServer(t)
+	defer db.Close()
+
+	appRoot := t.TempDir()
+	server.appRootPath = appRoot
+
+	logPath := filepath.Join(appRoot, "tmd2.log")
+	content := "line1\nline2\nline3\n"
+	require.NoError(t, os.WriteFile(logPath, []byte(content), 0600))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/logs", nil)
+	rr := httptest.NewRecorder()
+	server.buildHandler().ServeHTTP(rr, req)
+
+	require.Equal(t, http.StatusOK, rr.Code)
+
+	var resp struct {
+		Success bool         `json:"success"`
+		Data    LogsResponse `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &resp))
+	assert.True(t, resp.Success)
+	assert.Equal(t, 1, resp.Data.Page)
+	assert.Equal(t, 100, resp.Data.PageSize)
+	assert.Equal(t, 1, resp.Data.TotalPages)
+	assert.Len(t, resp.Data.Logs, 3)
+}

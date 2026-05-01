@@ -14,6 +14,93 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// ==================== ScreenName 测试 ====================
+
+func TestNormalizeScreenName(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "带@前缀",
+			input:    "@twitteruser",
+			expected: "twitteruser",
+		},
+		{
+			name:     "不带@前缀",
+			input:    "twitteruser",
+			expected: "twitteruser",
+		},
+		{
+			name:     "仅一个@被剥离",
+			input:    "@@twitteruser",
+			expected: "@twitteruser",
+		},
+		{
+			name:     "空字符串",
+			input:    "",
+			expected: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, NormalizeScreenName(tt.input))
+		})
+	}
+}
+
+func TestIsValidScreenName(t *testing.T) {
+	tests := []struct {
+		name       string
+		screenName string
+		expected   bool
+	}{
+		{
+			name:       "普通用户名",
+			screenName: "twitteruser",
+			expected:   true,
+		},
+		{
+			name:       "带下划线",
+			screenName: "user_name_123",
+			expected:   true,
+		},
+		{
+			name:       "15字符边界",
+			screenName: "user_name_1234",
+			expected:   true,
+		},
+		{
+			name:       "空字符串",
+			screenName: "",
+			expected:   false,
+		},
+		{
+			name:       "超过15字符",
+			screenName: "user_name_123456",
+			expected:   false,
+		},
+		{
+			name:       "带连字符",
+			screenName: "user-name",
+			expected:   false,
+		},
+		{
+			name:       "带@前缀",
+			screenName: "@twitteruser",
+			expected:   false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, IsValidScreenName(tt.screenName))
+		})
+	}
+}
+
 // ==================== PathExists 测试 ====================
 
 func TestPathExists(t *testing.T) {

@@ -69,7 +69,7 @@ func TestBatchUserDownload_Empty(t *testing.T) {
 	ctx := context.Background()
 	tempDir := t.TempDir()
 
-	result, err := BatchUserDownload(ctx, nil, db, []userInListEntity{}, tempDir, false, nil, nil, nil)
+	result, _, err := BatchUserDownload(ctx, nil, db, []userInListEntity{}, tempDir, false, nil, nil, nil, nil)
 
 	if err != nil {
 		t.Errorf("BatchUserDownload() error = %v", err)
@@ -87,7 +87,7 @@ func TestBatchUserDownload_NilUsers(t *testing.T) {
 	ctx := context.Background()
 	tempDir := t.TempDir()
 
-	result, err := BatchUserDownload(ctx, nil, db, nil, tempDir, false, nil, nil, nil)
+	result, _, err := BatchUserDownload(ctx, nil, db, nil, tempDir, false, nil, nil, nil, nil)
 
 	if err != nil {
 		t.Errorf("BatchUserDownload() error = %v", err)
@@ -108,10 +108,10 @@ func TestBatchUserDownload_WithUsers(t *testing.T) {
 	users := []userInListEntity{
 		{
 			user: &twitter.User{
-				Id:         12345,
-				Name:       "Test User",
-				ScreenName: "testuser",
-				MediaCount: 10,
+				Id:          12345,
+				Name:        "Test User",
+				ScreenName:  "testuser",
+				MediaCount:  10,
 				IsProtected: false,
 			},
 			leid: 0,
@@ -124,7 +124,7 @@ func TestBatchUserDownload_WithUsers(t *testing.T) {
 		}
 	}()
 
-	_, _ = BatchUserDownload(ctx, nil, db, users, tempDir, false, nil, nil, nil)
+	_, _, _ = BatchUserDownload(ctx, nil, db, users, tempDir, false, nil, nil, nil, nil)
 }
 
 func TestBatchUserDownload_ProtectedUnfollowedUsers(t *testing.T) {
@@ -165,7 +165,7 @@ func TestBatchUserDownload_ProtectedUnfollowedUsers(t *testing.T) {
 		}
 	}()
 
-	_, _ = BatchUserDownload(ctx, nil, db, users, tempDir, false, nil, nil, nil)
+	_, _, _ = BatchUserDownload(ctx, nil, db, users, tempDir, false, nil, nil, nil, nil)
 }
 
 func TestBatchUserDownload_AutoFollow(t *testing.T) {
@@ -195,7 +195,7 @@ func TestBatchUserDownload_AutoFollow(t *testing.T) {
 		}
 	}()
 
-	_, _ = BatchUserDownload(ctx, nil, db, users, tempDir, true, nil, nil, nil)
+	_, _, _ = BatchUserDownload(ctx, nil, db, users, tempDir, true, nil, nil, nil, nil)
 }
 
 func TestBatchUserDownload_WithListEntity(t *testing.T) {
@@ -223,7 +223,7 @@ func TestBatchUserDownload_WithListEntity(t *testing.T) {
 		}
 	}()
 
-	_, _ = BatchUserDownload(ctx, nil, db, users, tempDir, false, nil, nil, nil)
+	_, _, _ = BatchUserDownload(ctx, nil, db, users, tempDir, false, nil, nil, nil, nil)
 }
 
 func TestBatchUserDownload_CancelledContext(t *testing.T) {
@@ -253,7 +253,7 @@ func TestBatchUserDownload_CancelledContext(t *testing.T) {
 		}
 	}()
 
-	_, _ = BatchUserDownload(ctx, nil, db, users, tempDir, false, nil, nil, nil)
+	_, _, _ = BatchUserDownload(ctx, nil, db, users, tempDir, false, nil, nil, nil, nil)
 }
 
 func TestBatchUserDownload_UserHeap(t *testing.T) {
@@ -345,7 +345,7 @@ func TestBatchUserDownload_IgnoredUsers(t *testing.T) {
 		}
 	}()
 
-	_, _ = BatchUserDownload(ctx, nil, db, users, tempDir, false, nil, nil, nil)
+	_, _, _ = BatchUserDownload(ctx, nil, db, users, tempDir, false, nil, nil, nil, nil)
 }
 
 func TestBatchUserDownload_DuplicateUsers(t *testing.T) {
@@ -382,34 +382,5 @@ func TestBatchUserDownload_DuplicateUsers(t *testing.T) {
 		}
 	}()
 
-	_, _ = BatchUserDownload(ctx, nil, db, users, tempDir, false, nil, nil, nil)
-}
-
-func TestBatchUserDownload_InvalidDirectory(t *testing.T) {
-	db := setupTestDB(t)
-	defer db.Close()
-
-	ctx := context.Background()
-
-	users := []userInListEntity{
-		{
-			user: &twitter.User{
-				Id:         1,
-				Name:       "Test User",
-				ScreenName: "testuser",
-				MediaCount: 10,
-			},
-			leid: 0,
-		},
-	}
-
-	invalidDir := "/nonexistent/path/that/cannot/be/created"
-
-	defer func() {
-		if r := recover(); r != nil {
-			t.Logf("BatchUserDownload panicked as expected: %v", r)
-		}
-	}()
-
-	_, _ = BatchUserDownload(ctx, nil, db, users, invalidDir, false, nil, nil, nil)
+	_, _, _ = BatchUserDownload(ctx, nil, db, users, tempDir, false, nil, nil, nil, nil)
 }

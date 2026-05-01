@@ -9,14 +9,12 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"strconv"
 	"strings"
 	"time"
 )
 
 const (
 	logFileName                 = "tmd2.log"
-	defaultLogsPage             = 1
 	defaultLogsPageSize         = 100
 	maxLogsPageSize             = 200
 	logTailLineLimit            = 5000
@@ -28,17 +26,7 @@ func (s *Server) handleGetLogs(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query()
 	levelStr := query.Get("level")
 	search := query.Get("q")
-	pageStr := query.Get("page")
-	page, err := strconv.Atoi(pageStr)
-	if err != nil || page < 1 {
-		page = defaultLogsPage
-	}
-
-	pageSizeStr := query.Get("pageSize")
-	pageSize, err := strconv.Atoi(pageSizeStr)
-	if err != nil || pageSize < 1 || pageSize > maxLogsPageSize {
-		pageSize = defaultLogsPageSize
-	}
+	pagination := NewPaginationWithDefaults(r, defaultLogsPageSize, maxLogsPageSize, defaultPaginationSort, defaultSortOrder)
 
 	logPath := filepath.Join(s.appRootPath, logFileName)
 	lines, err := readLogLinesTail(logPath, logTailLineLimit)
@@ -50,8 +38,8 @@ func (s *Server) handleGetLogs(w http.ResponseWriter, r *http.Request) {
 	filtered := filterLogLines(lines, levelStr, search)
 
 	total := len(filtered)
-	start := (page - 1) * pageSize
-	end := start + pageSize
+	start := pagination.Offset
+	end := start + pagination.PageSize
 	if start >= total {
 		filtered = []string{}
 	} else if end > total {
@@ -63,9 +51,9 @@ func (s *Server) handleGetLogs(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, http.StatusOK, NewSuccessResponse(LogsResponse{
 		Logs:       filtered,
 		Total:      total,
-		Page:       page,
-		PageSize:   pageSize,
-		TotalPages: (total + pageSize - 1) / pageSize,
+		Page:       pagination.Page,
+		PageSize:   pagination.PageSize,
+		TotalPages: (total + pagination.PageSize - 1) / pagination.PageSize,
 	}))
 }
 

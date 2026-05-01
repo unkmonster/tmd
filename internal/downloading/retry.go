@@ -2,22 +2,38 @@ package downloading
 
 import (
 	"context"
+	"sync/atomic"
 
 	"github.com/go-resty/resty/v2"
 	"github.com/jmoiron/sqlx"
 	log "github.com/sirupsen/logrus"
 	"github.com/unkmonster/tmd/internal/downloader"
+	"github.com/unkmonster/tmd/internal/twitter"
 )
 
-func RetryFailedTweets(ctx context.Context, dumper *TweetDumper, db *sqlx.DB, client *resty.Client, dwn downloader.Downloader, fileWriter downloader.FileWriter) error {
+type RetryProgress struct {
+	Total     int
+	Completed int
+	Failed    int
+}
+
+type RetryProgressFunc func(progress RetryProgress)
+
+type RetrySummary struct {
+	TotalEntities     int
+	RemainingEntities int
+}
+
+func RetryFailedTweets(ctx context.Context, dumper *TweetDumper, db *sqlx.DB, client *resty.Client, dwn downloader.Downloader, fileWriter downloader.FileWriter, progress RetryProgressFunc) (RetrySummary, error) {
 	if dumper.Count() == 0 {
-		return nil
+		return RetrySummary{}, nil
 	}
+	totalEntities := dumper.EntityCount()
 
 	log.Infoln("starting to retry failed tweets")
 	legacy, err := dumper.GetTotal(db)
 	if err != nil {
-		return err
+		return RetrySummary{}, err
 	}
 
 	toretry := make([]PackagedTweet, 0, len(legacy))
@@ -31,12 +47,40 @@ func RetryFailedTweets(ctx context.Context, dumper *TweetDumper, db *sqlx.DB, cl
 	if len(toretry) == 0 {
 		log.Infoln("no tweets need to be retried")
 		dumper.Clear()
-		return nil
+		return RetrySummary{}, nil
 	}
 
 	log.Infof("retrying %d tweets with %d total media(s)", len(toretry), countTotalUrls(toretry))
+	totalTweets := len(toretry)
+	if progress != nil {
+		progress(RetryProgress{
+			Total:     totalTweets,
+			Completed: 0,
+			Failed:    totalTweets,
+		})
+	}
 
-	newFails := BatchDownloadTweet(ctx, client, true, dwn, fileWriter, toretry...)
+	var completedTweets atomic.Int64
+	var remainingTweets atomic.Int64
+	remainingTweets.Store(int64(totalTweets))
+
+	newFails := BatchDownloadTweet(ctx, client, true, dwn, fileWriter, func(tweet *twitter.Tweet, failed bool) {
+		if progress == nil {
+			return
+		}
+
+		completed := int(completedTweets.Add(1))
+		remaining := int(remainingTweets.Load())
+		if !failed {
+			remaining = int(remainingTweets.Add(-1))
+		}
+
+		progress(RetryProgress{
+			Total:     totalTweets,
+			Completed: completed,
+			Failed:    remaining,
+		})
+	}, toretry...)
 	dumper.Clear()
 	for _, pt := range newFails {
 		te := pt.(*TweetInEntity)
@@ -55,7 +99,18 @@ func RetryFailedTweets(ctx context.Context, dumper *TweetDumper, db *sqlx.DB, cl
 		}
 	}
 
-	return nil
+	summary := RetrySummary{
+		TotalEntities:     totalEntities,
+		RemainingEntities: dumper.EntityCount(),
+	}
+	if progress != nil {
+		progress(RetryProgress{
+			Total:     totalTweets,
+			Completed: totalTweets,
+			Failed:    len(newFails),
+		})
+	}
+	return summary, nil
 }
 
 // countTotalUrls 统计所有推文中需要下载的URL总数

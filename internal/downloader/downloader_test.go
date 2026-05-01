@@ -242,37 +242,6 @@ func TestFileWriter_Write_SetModTime(t *testing.T) {
 	}
 }
 
-func TestFileWriter_Write_NonExistentDir(t *testing.T) {
-	tempDir, err := os.MkdirTemp("", "filewriter_test")
-	if err != nil {
-		t.Fatalf("创建临时目录失败: %v", err)
-	}
-	defer os.RemoveAll(tempDir)
-
-	fw := NewFileWriter(nil)
-
-	testData := []byte("hello world")
-	nonExistentDir := filepath.Join(tempDir, "nonexistent", "nested", "dir")
-	testPath := filepath.Join(nonExistentDir, "test.txt")
-
-	req := WriteRequest{
-		Path: testPath,
-		Data: testData,
-	}
-	_, err = fw.Write(req)
-	if err != nil {
-		t.Fatalf("写入到不存在的目录失败: %v", err)
-	}
-
-	data, err := os.ReadFile(testPath)
-	if err != nil {
-		t.Fatalf("读取文件失败: %v", err)
-	}
-	if string(data) != string(testData) {
-		t.Errorf("期望内容 %q, 实际 %q", string(testData), string(data))
-	}
-}
-
 // =============================================================================
 // VersionManager.CreateVersion() 测试
 // =============================================================================

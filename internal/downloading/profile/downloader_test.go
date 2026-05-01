@@ -279,16 +279,6 @@ func TestEnsureProfileDirs(t *testing.T) {
 	}
 }
 
-func TestEnsureProfileDirs_InvalidPath(t *testing.T) {
-	// Test with a path that cannot be created
-	// On Windows, use a path with invalid characters or a drive that doesn't exist
-	invalidPath := "Z:\\nonexistent\\path"
-	_, err := ensureProfileDirs(invalidPath)
-	// On Windows, this may or may not error depending on the drive
-	// Just log the result
-	t.Logf("ensureProfileDirs() with invalid path: err=%v", err)
-}
-
 func TestGetHighResAvatarURL(t *testing.T) {
 	tests := []struct {
 		name    string

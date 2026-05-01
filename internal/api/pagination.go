@@ -6,6 +6,14 @@ import (
 	"strconv"
 )
 
+const (
+	defaultPageNumber     = 1
+	defaultPageSize       = 20
+	defaultMaxPageSize    = 200
+	defaultPaginationSort = "id"
+	defaultSortOrder      = "desc"
+)
+
 // Pagination 分页参数
 type Pagination struct {
 	Page      int    `json:"page"`
@@ -26,26 +34,31 @@ type PaginatedResponse struct {
 
 // NewPagination 从请求创建分页参数
 func NewPagination(r *http.Request) *Pagination {
+	return NewPaginationWithDefaults(r, defaultPageSize, defaultMaxPageSize, defaultPaginationSort, defaultSortOrder)
+}
+
+// NewPaginationWithDefaults 从请求创建分页参数，允许调用方覆盖默认 pageSize/maxPageSize/sort 配置。
+func NewPaginationWithDefaults(r *http.Request, fallbackPageSize, maxPageSize int, fallbackSortBy, fallbackSortOrder string) *Pagination {
 	pageStr := r.URL.Query().Get("page")
 	page, err := strconv.Atoi(pageStr)
 	if err != nil || page < 1 {
-		page = 1
+		page = defaultPageNumber
 	}
 
 	pageSizeStr := r.URL.Query().Get("pageSize")
 	pageSize, err := strconv.Atoi(pageSizeStr)
-	if err != nil || pageSize < 1 || pageSize > 200 {
-		pageSize = 20
+	if err != nil || pageSize < 1 || pageSize > maxPageSize {
+		pageSize = fallbackPageSize
 	}
 
 	sortBy := r.URL.Query().Get("sortBy")
 	if sortBy == "" {
-		sortBy = "id"
+		sortBy = fallbackSortBy
 	}
 
 	sortOrder := r.URL.Query().Get("sortOrder")
 	if sortOrder != "asc" && sortOrder != "desc" {
-		sortOrder = "desc"
+		sortOrder = fallbackSortOrder
 	}
 
 	return &Pagination{

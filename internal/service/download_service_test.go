@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/go-resty/resty/v2"
 	"github.com/jmoiron/sqlx"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/unkmonster/tmd/internal/config"
 	"github.com/unkmonster/tmd/internal/database"
+	"github.com/unkmonster/tmd/internal/downloading"
 	"github.com/unkmonster/tmd/internal/path"
 	"github.com/unkmonster/tmd/internal/twitter"
 )
@@ -124,6 +126,65 @@ func TestDownloadServiceImpl_ValidReporterHandling(t *testing.T) {
 	mockReporter := NewMockProgressReporter()
 	reporter := impl.getReporterOrDefault(mockReporter)
 	assert.Equal(t, mockReporter, reporter)
+}
+
+func TestDownloadServiceImpl_NewBatchProgressCallback(t *testing.T) {
+	deps := createTestDependencies(t)
+	service, err := NewDownloadService(deps)
+	require.NoError(t, err)
+	impl := service.(*downloadServiceImpl)
+
+	reporter := NewMockProgressReporter()
+	callback := impl.newBatchProgressCallback("task-1", reporter)
+	callback(downloading.BatchProgress{Total: 5, Completed: 2, Failed: 1, Current: "user1"})
+
+	require.Len(t, reporter.ProgressCalls, 1)
+	assert.Equal(t, "task-1", reporter.ProgressCalls[0].TaskID)
+	assert.Equal(t, "downloading", reporter.ProgressCalls[0].Progress.Stage)
+	assert.Equal(t, 5, reporter.ProgressCalls[0].Progress.Total)
+	assert.Equal(t, 2, reporter.ProgressCalls[0].Progress.Completed)
+	assert.Equal(t, 1, reporter.ProgressCalls[0].Progress.Failed)
+	assert.Equal(t, "user1", reporter.ProgressCalls[0].Progress.Current)
+}
+
+func TestDownloadServiceImpl_NewRetryProgressCallback(t *testing.T) {
+	deps := createTestDependencies(t)
+	service, err := NewDownloadService(deps)
+	require.NoError(t, err)
+	impl := service.(*downloadServiceImpl)
+
+	reporter := NewMockProgressReporter()
+	callback := impl.newRetryProgressCallback("task-1", reporter)
+	callback(downloading.RetryProgress{Total: 5, Completed: 3, Failed: 2})
+
+	require.Len(t, reporter.ProgressCalls, 1)
+	assert.Equal(t, "task-1", reporter.ProgressCalls[0].TaskID)
+	assert.Equal(t, "retrying", reporter.ProgressCalls[0].Progress.Stage)
+	assert.Equal(t, 5, reporter.ProgressCalls[0].Progress.Total)
+	assert.Equal(t, 3, reporter.ProgressCalls[0].Progress.Completed)
+	assert.Equal(t, 2, reporter.ProgressCalls[0].Progress.Failed)
+}
+
+func TestDownloadServiceImpl_BuildMainDownloadResultUsesMainDownloadStats(t *testing.T) {
+	dumper := downloading.NewDumper()
+	now := time.Now()
+	dumper.Push(1, &twitter.Tweet{Id: 1, CreatedAt: now})
+	dumper.Push(2, &twitter.Tweet{Id: 2, CreatedAt: now})
+	profileResult := &Result{Downloaded: 5, Failed: 1, Versioned: 3}
+
+	result := (&downloadServiceImpl{}).buildMainDownloadResult(downloading.BatchDownloadSummary{TotalEntities: 5}, dumper, profileResult)
+	require.NotNil(t, result)
+	assert.Equal(t, 3, result.Downloaded)
+	assert.Equal(t, 2, result.Failed)
+	assert.Equal(t, 3, result.Versioned)
+}
+
+func TestDownloadServiceImpl_BuildMainDownloadResultFallsBackToProfileStats(t *testing.T) {
+	profileResult := &Result{Downloaded: 1, Failed: 0, Versioned: 2, Message: "Profile download completed"}
+
+	result := (&downloadServiceImpl{}).buildMainDownloadResult(downloading.BatchDownloadSummary{}, nil, profileResult)
+	require.NotNil(t, result)
+	assert.Equal(t, *profileResult, *result)
 }
 
 func TestDownloadServiceImpl_CompleteProfileTaskWithoutDownloads(t *testing.T) {

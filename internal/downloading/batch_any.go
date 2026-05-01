@@ -11,7 +11,20 @@ import (
 	"github.com/unkmonster/tmd/internal/twitter"
 )
 
-func BatchDownloadAny(ctx context.Context, client *resty.Client, db *sqlx.DB, lists []twitter.ListBase, users []*twitter.User, dir string, realDir string, autoFollow bool, additional []*resty.Client, dwn downloader.Downloader, fileWriter downloader.FileWriter) (failedTweets []*TweetInEntity, listMembers []*twitter.User, err error) {
+type BatchProgress struct {
+	Total     int
+	Completed int
+	Failed    int
+	Current   string
+}
+
+type BatchProgressFunc func(progress BatchProgress)
+
+type BatchDownloadSummary struct {
+	TotalEntities int
+}
+
+func BatchDownloadAny(ctx context.Context, client *resty.Client, db *sqlx.DB, lists []twitter.ListBase, users []*twitter.User, dir string, realDir string, autoFollow bool, additional []*resty.Client, dwn downloader.Downloader, fileWriter downloader.FileWriter, progress BatchProgressFunc) (failedTweets []*TweetInEntity, listMembers []*twitter.User, summary BatchDownloadSummary, err error) {
 	log.Debugln("start collecting users")
 	packgedUsers := make([]userInListEntity, 0)
 	listMembers = make([]*twitter.User, 0)
@@ -38,7 +51,7 @@ func BatchDownloadAny(ctx context.Context, client *resty.Client, db *sqlx.DB, li
 	}
 	wg.Wait()
 	if err = context.Cause(ctx); err != nil {
-		return nil, nil, err
+		return nil, nil, BatchDownloadSummary{}, err
 	}
 
 	for _, usr := range users {
@@ -46,6 +59,6 @@ func BatchDownloadAny(ctx context.Context, client *resty.Client, db *sqlx.DB, li
 	}
 
 	log.Debugln("collected users:", len(packgedUsers))
-	failedTweets, err = BatchUserDownload(ctx, client, db, packgedUsers, realDir, autoFollow, additional, dwn, fileWriter)
-	return failedTweets, listMembers, err
+	failedTweets, summary, err = BatchUserDownload(ctx, client, db, packgedUsers, realDir, autoFollow, additional, dwn, fileWriter, progress)
+	return failedTweets, listMembers, summary, err
 }

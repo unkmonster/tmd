@@ -109,3 +109,7 @@ func (td *TweetDumper) GetTotal(db *sqlx.DB) ([]*TweetInEntity, error) {
 func (td *TweetDumper) Count() int {
 	return td.count
 }
+
+func (td *TweetDumper) EntityCount() int {
+	return len(td.data)
+}

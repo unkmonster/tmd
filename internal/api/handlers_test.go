@@ -9,6 +9,16 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+func serveStatic(server *Server, req *http.Request) *httptest.ResponseRecorder {
+	if strings.HasPrefix(req.URL.Path, "/static/") {
+		req.SetPathValue("path", strings.TrimPrefix(req.URL.Path, "/static/"))
+	}
+
+	rr := httptest.NewRecorder()
+	server.handleStatic(rr, req)
+	return rr
+}
+
 func TestHandleWeb_Success(t *testing.T) {
 	server := &Server{}
 
@@ -35,9 +45,7 @@ func TestHandleStatic_CSS(t *testing.T) {
 	server := &Server{}
 
 	req := httptest.NewRequest(http.MethodGet, "/static/style.css", nil)
-	rr := httptest.NewRecorder()
-
-	server.handleStatic(rr, req)
+	rr := serveStatic(server, req)
 
 	// 由于实际文件可能不存在，可能返回 404
 	// 这里主要测试不会 panic
@@ -51,9 +59,7 @@ func TestHandleStatic_JS(t *testing.T) {
 	server := &Server{}
 
 	req := httptest.NewRequest(http.MethodGet, "/static/app.js", nil)
-	rr := httptest.NewRecorder()
-
-	server.handleStatic(rr, req)
+	rr := serveStatic(server, req)
 
 	contentType := rr.Header().Get("Content-Type")
 	if rr.Code == http.StatusOK {
@@ -65,9 +71,7 @@ func TestHandleStatic_PNG(t *testing.T) {
 	server := &Server{}
 
 	req := httptest.NewRequest(http.MethodGet, "/static/image.png", nil)
-	rr := httptest.NewRecorder()
-
-	server.handleStatic(rr, req)
+	rr := serveStatic(server, req)
 
 	contentType := rr.Header().Get("Content-Type")
 	if rr.Code == http.StatusOK {
@@ -79,9 +83,7 @@ func TestHandleStatic_JPG(t *testing.T) {
 	server := &Server{}
 
 	req := httptest.NewRequest(http.MethodGet, "/static/image.jpg", nil)
-	rr := httptest.NewRecorder()
-
-	server.handleStatic(rr, req)
+	rr := serveStatic(server, req)
 
 	contentType := rr.Header().Get("Content-Type")
 	if rr.Code == http.StatusOK {
@@ -93,9 +95,7 @@ func TestHandleStatic_SVG(t *testing.T) {
 	server := &Server{}
 
 	req := httptest.NewRequest(http.MethodGet, "/static/icon.svg", nil)
-	rr := httptest.NewRecorder()
-
-	server.handleStatic(rr, req)
+	rr := serveStatic(server, req)
 
 	contentType := rr.Header().Get("Content-Type")
 	if rr.Code == http.StatusOK {
@@ -107,9 +107,7 @@ func TestHandleStatic_JSON(t *testing.T) {
 	server := &Server{}
 
 	req := httptest.NewRequest(http.MethodGet, "/static/data.json", nil)
-	rr := httptest.NewRecorder()
-
-	server.handleStatic(rr, req)
+	rr := serveStatic(server, req)
 
 	contentType := rr.Header().Get("Content-Type")
 	if rr.Code == http.StatusOK {
@@ -121,9 +119,7 @@ func TestHandleStatic_HTML(t *testing.T) {
 	server := &Server{}
 
 	req := httptest.NewRequest(http.MethodGet, "/static/page.html", nil)
-	rr := httptest.NewRecorder()
-
-	server.handleStatic(rr, req)
+	rr := serveStatic(server, req)
 
 	contentType := rr.Header().Get("Content-Type")
 	if rr.Code == http.StatusOK {
@@ -135,9 +131,7 @@ func TestHandleStatic_UnknownExtension(t *testing.T) {
 	server := &Server{}
 
 	req := httptest.NewRequest(http.MethodGet, "/static/file.unknown", nil)
-	rr := httptest.NewRecorder()
-
-	server.handleStatic(rr, req)
+	rr := serveStatic(server, req)
 
 	// 未知扩展名应该使用默认的 content type
 	contentType := rr.Header().Get("Content-Type")
@@ -170,9 +164,7 @@ func TestHandleStatic_PathTraversal(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			req := httptest.NewRequest(http.MethodGet, tt.path, nil)
-			rr := httptest.NewRecorder()
-
-			server.handleStatic(rr, req)
+			rr := serveStatic(server, req)
 
 			// 路径遍历应该被阻止，返回 404
 			assert.Equal(t, http.StatusNotFound, rr.Code)
@@ -184,9 +176,7 @@ func TestHandleStatic_NotFound(t *testing.T) {
 	server := &Server{}
 
 	req := httptest.NewRequest(http.MethodGet, "/static/nonexistent.file", nil)
-	rr := httptest.NewRecorder()
-
-	server.handleStatic(rr, req)
+	rr := serveStatic(server, req)
 
 	// 不存在的文件应该返回 404
 	assert.Equal(t, http.StatusNotFound, rr.Code)
@@ -196,9 +186,7 @@ func TestHandleStatic_CacheHeaders(t *testing.T) {
 	server := &Server{}
 
 	req := httptest.NewRequest(http.MethodGet, "/static/style.css", nil)
-	rr := httptest.NewRecorder()
-
-	server.handleStatic(rr, req)
+	rr := serveStatic(server, req)
 
 	// 验证缓存头
 	if rr.Code == http.StatusOK {
@@ -211,9 +199,7 @@ func TestHandleStatic_EmptyPath(t *testing.T) {
 	server := &Server{}
 
 	req := httptest.NewRequest(http.MethodGet, "/static/", nil)
-	rr := httptest.NewRecorder()
-
-	server.handleStatic(rr, req)
+	rr := serveStatic(server, req)
 
 	// 空路径应该返回 404
 	assert.Equal(t, http.StatusNotFound, rr.Code)
@@ -223,9 +209,7 @@ func TestHandleStatic_RootPath(t *testing.T) {
 	server := &Server{}
 
 	req := httptest.NewRequest(http.MethodGet, "/static", nil)
-	rr := httptest.NewRecorder()
-
-	server.handleStatic(rr, req)
+	serveStatic(server, req)
 
 	// 没有尾部斜杠的路径应该被处理
 	// 实际行为取决于实现
@@ -295,9 +279,7 @@ func TestHandleStatic_PathCleaning(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			req := httptest.NewRequest(http.MethodGet, tt.path, nil)
-			rr := httptest.NewRecorder()
-
-			server.handleStatic(rr, req)
+			serveStatic(server, req)
 
 			// 主要验证不会 panic
 		})
@@ -319,9 +301,7 @@ func TestHandleStatic_MultipleDotsInFilename(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.filename, func(t *testing.T) {
 			req := httptest.NewRequest(http.MethodGet, "/static/"+tt.filename, nil)
-			rr := httptest.NewRecorder()
-
-			server.handleStatic(rr, req)
+			rr := serveStatic(server, req)
 
 			if rr.Code == http.StatusOK {
 				assert.Equal(t, tt.expected, rr.Header().Get("Content-Type"))
@@ -344,9 +324,7 @@ func TestHandleStatic_CaseSensitivity(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.path, func(t *testing.T) {
 			req := httptest.NewRequest(http.MethodGet, tt.path, nil)
-			rr := httptest.NewRecorder()
-
-			server.handleStatic(rr, req)
+			serveStatic(server, req)
 
 			// 验证不会 panic
 		})
@@ -384,9 +362,7 @@ func TestHandleStatic_LongPath(t *testing.T) {
 	longPath := "/static/" + strings.Repeat("a/", 100) + "file.css"
 
 	req := httptest.NewRequest(http.MethodGet, longPath, nil)
-	rr := httptest.NewRecorder()
-
-	server.handleStatic(rr, req)
+	serveStatic(server, req)
 
 	// 验证不会 panic
 }
@@ -415,9 +391,7 @@ func TestHandleStatic_SpecialCharacters(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			req := httptest.NewRequest(http.MethodGet, tt.path, nil)
-			rr := httptest.NewRecorder()
-
-			server.handleStatic(rr, req)
+			serveStatic(server, req)
 
 			// 验证不会 panic
 		})
@@ -450,9 +424,7 @@ func TestHandleStatic_Methods(t *testing.T) {
 	for _, method := range methods {
 		t.Run(method, func(t *testing.T) {
 			req := httptest.NewRequest(method, "/static/style.css", nil)
-			rr := httptest.NewRecorder()
-
-			server.handleStatic(rr, req)
+			serveStatic(server, req)
 
 			// 验证不会 panic
 		})

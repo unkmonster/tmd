@@ -45,6 +45,12 @@ func setupTestServer(t *testing.T) (*Server, *sqlx.DB) {
 	return server, db
 }
 
+func serveAPI(server *Server, req *http.Request) *httptest.ResponseRecorder {
+	rr := httptest.NewRecorder()
+	server.buildHandler().ServeHTTP(rr, req)
+	return rr
+}
+
 func TestNewServer(t *testing.T) {
 	db, err := sqlx.Connect("sqlite3", ":memory:")
 	assert.NoError(t, err)
@@ -276,9 +282,7 @@ func TestHandleUsers_InvalidPath(t *testing.T) {
 	defer db.Close()
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/users/", nil)
-	rr := httptest.NewRecorder()
-
-	server.handleUsers(rr, req)
+	rr := serveAPI(server, req)
 
 	// 无效路径现在返回 404 而不是 400
 	assert.Equal(t, http.StatusNotFound, rr.Code)
@@ -288,10 +292,8 @@ func TestHandleUsers_UnknownAction(t *testing.T) {
 	server, db := setupTestServer(t)
 	defer db.Close()
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/users/testuser/unknown", nil)
-	rr := httptest.NewRecorder()
-
-	server.handleUsers(rr, req)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/users/testuser/unknown", nil)
+	rr := serveAPI(server, req)
 
 	assert.Equal(t, http.StatusNotFound, rr.Code)
 }
@@ -310,9 +312,7 @@ func TestHandleUserDownload_Success(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/users/testuser/download", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
-	rr := httptest.NewRecorder()
-
-	server.handleUsers(rr, req)
+	rr := serveAPI(server, req)
 
 	// 由于使用了 goroutine，可能返回 Accepted
 	assert.Equal(t, http.StatusAccepted, rr.Code)
@@ -341,9 +341,7 @@ func TestHandleUserDownload_AllowsAtPrefixedScreenName(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/users/@testuser/download", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
-	rr := httptest.NewRecorder()
-
-	server.handleUsers(rr, req)
+	rr := serveAPI(server, req)
 
 	assert.Equal(t, http.StatusAccepted, rr.Code)
 
@@ -358,9 +356,7 @@ func TestHandleUserDownload_EmptyBody(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/users/testuser/download", bytes.NewReader([]byte{}))
 	req.Header.Set("Content-Type", "application/json")
-	rr := httptest.NewRecorder()
-
-	server.handleUsers(rr, req)
+	rr := serveAPI(server, req)
 
 	// 空 body 应该使用默认值
 	assert.Equal(t, http.StatusAccepted, rr.Code)
@@ -371,9 +367,7 @@ func TestHandleUserProfile_WrongMethod(t *testing.T) {
 	defer db.Close()
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/users/testuser/profile", nil)
-	rr := httptest.NewRecorder()
-
-	server.handleUsers(rr, req)
+	rr := serveAPI(server, req)
 
 	assert.Equal(t, http.StatusAccepted, rr.Code)
 }
@@ -383,9 +377,7 @@ func TestHandleUserProfile_Success(t *testing.T) {
 	defer db.Close()
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/users/testuser/profile", nil)
-	rr := httptest.NewRecorder()
-
-	server.handleUsers(rr, req)
+	rr := serveAPI(server, req)
 
 	assert.Equal(t, http.StatusAccepted, rr.Code)
 
@@ -411,9 +403,7 @@ func TestHandleUserMark_Success(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/users/testuser/mark", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
-	rr := httptest.NewRecorder()
-
-	server.handleUsers(rr, req)
+	rr := serveAPI(server, req)
 
 	assert.Equal(t, http.StatusAccepted, rr.Code)
 
@@ -436,9 +426,7 @@ func TestHandleUserMark_WithTimestamp(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/users/testuser/mark", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
-	rr := httptest.NewRecorder()
-
-	server.handleUsers(rr, req)
+	rr := serveAPI(server, req)
 
 	assert.Equal(t, http.StatusAccepted, rr.Code)
 }
@@ -448,9 +436,7 @@ func TestHandleFollowingDownload_WrongMethod(t *testing.T) {
 	defer db.Close()
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/users/testuser/following/download", nil)
-	rr := httptest.NewRecorder()
-
-	server.handleUsers(rr, req)
+	rr := serveAPI(server, req)
 
 	assert.Equal(t, http.StatusAccepted, rr.Code)
 }
@@ -467,9 +453,7 @@ func TestHandleFollowingDownload_Success(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/users/testuser/following/download", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
-	rr := httptest.NewRecorder()
-
-	server.handleUsers(rr, req)
+	rr := serveAPI(server, req)
 
 	assert.Equal(t, http.StatusAccepted, rr.Code)
 
@@ -483,10 +467,8 @@ func TestHandleFollowingDownload_InvalidPath(t *testing.T) {
 	server, db := setupTestServer(t)
 	defer db.Close()
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/users/testuser/following", nil)
-	rr := httptest.NewRecorder()
-
-	server.handleUsers(rr, req)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/users/testuser/following", nil)
+	rr := serveAPI(server, req)
 
 	assert.Equal(t, http.StatusNotFound, rr.Code)
 }
@@ -496,9 +478,7 @@ func TestHandleLists_InvalidPath(t *testing.T) {
 	defer db.Close()
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/lists/", nil)
-	rr := httptest.NewRecorder()
-
-	server.handleLists(rr, req)
+	rr := serveAPI(server, req)
 
 	// 无效路径现在返回 404 而不是 400
 	assert.Equal(t, http.StatusNotFound, rr.Code)
@@ -508,10 +488,8 @@ func TestHandleLists_InvalidListID(t *testing.T) {
 	server, db := setupTestServer(t)
 	defer db.Close()
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/lists/invalid/download", nil)
-	rr := httptest.NewRecorder()
-
-	server.handleLists(rr, req)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/lists/invalid/download", nil)
+	rr := serveAPI(server, req)
 
 	assert.Equal(t, http.StatusBadRequest, rr.Code)
 }
@@ -520,10 +498,8 @@ func TestHandleLists_UnknownAction(t *testing.T) {
 	server, db := setupTestServer(t)
 	defer db.Close()
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/lists/123/unknown", nil)
-	rr := httptest.NewRecorder()
-
-	server.handleLists(rr, req)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/lists/123/unknown", nil)
+	rr := serveAPI(server, req)
 
 	assert.Equal(t, http.StatusNotFound, rr.Code)
 }
@@ -541,9 +517,7 @@ func TestHandleListDownload_Success(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/lists/123/download", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
-	rr := httptest.NewRecorder()
-
-	server.handleLists(rr, req)
+	rr := serveAPI(server, req)
 
 	assert.Equal(t, http.StatusAccepted, rr.Code)
 
@@ -563,9 +537,7 @@ func TestHandleListProfile_Success(t *testing.T) {
 	defer db.Close()
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/lists/123/profile", nil)
-	rr := httptest.NewRecorder()
-
-	server.handleLists(rr, req)
+	rr := serveAPI(server, req)
 
 	assert.Equal(t, http.StatusAccepted, rr.Code)
 

@@ -296,7 +296,7 @@ func DownloadFromLoongTweetFolder(ctx context.Context, client *resty.Client, use
 
 			// 使用 BatchDownloadTweet 统一处理下载
 			// skipLoongTweet=true：不保存 txt/json（这些文件已存在）
-			failedTweets := BatchDownloadTweet(ctx, client, true, dwn, fileWriter, packged...)
+			failedTweets := BatchDownloadTweet(ctx, client, true, dwn, fileWriter, nil, packged...)
 
 			result.Success = len(failedTweets) == 0
 			result.Duration = time.Since(start)

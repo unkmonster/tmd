@@ -47,14 +47,17 @@ func (l *LogReporter) OnProgress(taskID string, p Progress) {
 	if l.logger == nil {
 		return
 	}
+	if p.Stage == "downloading" {
+		return
+	}
 	switch p.Stage {
 	case "syncing":
 		l.logger("[%s] Syncing: %s", taskID, p.Current)
-	case "downloading":
+	case "retrying":
 		if p.Total > 0 {
-			l.logger("[%s] Downloading: %s (%d/%d)", taskID, p.Current, p.Completed, p.Total)
+			l.logger("[%s] Retrying failed tweets (%d/%d, remaining=%d)", taskID, p.Completed, p.Total, p.Failed)
 		} else {
-			l.logger("[%s] Downloading: %s", taskID, p.Current)
+			l.logger("[%s] Retrying failed tweets...", taskID)
 		}
 	case "profile":
 		l.logger("[%s] Downloading profiles...", taskID)

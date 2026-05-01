@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/unkmonster/tmd/internal/database"
@@ -247,6 +248,9 @@ func TestListSyncManager_removeUserLinkInTx(t *testing.T) {
 	linkPath := filepath.Join(linkDir, "TestUser")
 	err = os.Symlink(userEntity.ParentDir, linkPath)
 	if err != nil {
+		if strings.Contains(err.Error(), "A required privilege is not held") {
+			t.Skip("Skipping symlink test due to lack of privileges on Windows")
+		}
 		t.Fatalf("Failed to create symlink: %v", err)
 	}
 

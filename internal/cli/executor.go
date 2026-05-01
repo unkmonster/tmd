@@ -17,6 +17,86 @@ type Dependencies struct {
 	DownloadService service.DownloadService // 可选：Service 层实例
 }
 
+type cliTaskMode int
+
+const (
+	cliTaskModeNone cliTaskMode = iota
+	cliTaskModeJSONFile
+	cliTaskModeJSONFolder
+	cliTaskModeMarkDownloaded
+	cliTaskModeBatch
+	cliTaskModeProfile
+)
+
+type cliTaskSelection struct {
+	cfg *CLIConfig
+}
+
+func newCLITaskSelection(cfg *CLIConfig) cliTaskSelection {
+	return cliTaskSelection{cfg: cfg}
+}
+
+func (s cliTaskSelection) hasJSONFile() bool {
+	return len(s.cfg.JsonFileArgs.GetPaths()) > 0
+}
+
+func (s cliTaskSelection) hasJSONFolder() bool {
+	return len(s.cfg.JsonFolderArgs.GetPaths()) > 0
+}
+
+func (s cliTaskSelection) hasMarkDownloaded() bool {
+	return s.cfg.MarkDownloaded
+}
+
+func (s cliTaskSelection) hasBatchDownload() bool {
+	return len(s.cfg.UsrArgs.ScreenName) > 0 ||
+		len(s.cfg.ListArgs.ID) > 0 ||
+		len(s.cfg.FollArgs.ScreenName) > 0
+}
+
+func (s cliTaskSelection) hasProfileDownload() bool {
+	return len(s.cfg.ProfileUsers.ScreenName) > 0 ||
+		len(s.cfg.ProfileList.ID) > 0
+}
+
+func (s cliTaskSelection) hasAnyTasks() bool {
+	return s.hasJSONFile() ||
+		s.hasJSONFolder() ||
+		s.hasMarkDownloaded() ||
+		s.hasBatchDownload() ||
+		s.hasProfileDownload()
+}
+
+func (s cliTaskSelection) primaryMode() cliTaskMode {
+	switch {
+	case s.hasJSONFile():
+		return cliTaskModeJSONFile
+	case s.hasJSONFolder():
+		return cliTaskModeJSONFolder
+	case s.hasMarkDownloaded():
+		return cliTaskModeMarkDownloaded
+	case s.hasBatchDownload():
+		return cliTaskModeBatch
+	case s.hasProfileDownload():
+		return cliTaskModeProfile
+	default:
+		return cliTaskModeNone
+	}
+}
+
+func (s cliTaskSelection) hasIgnoredForExclusiveMode(mode cliTaskMode) bool {
+	switch mode {
+	case cliTaskModeJSONFile:
+		return s.hasJSONFolder() || s.hasMarkDownloaded() || s.hasBatchDownload() || s.hasProfileDownload()
+	case cliTaskModeJSONFolder:
+		return s.hasJSONFile() || s.hasMarkDownloaded() || s.hasBatchDownload() || s.hasProfileDownload()
+	case cliTaskModeMarkDownloaded:
+		return s.hasProfileDownload()
+	default:
+		return false
+	}
+}
+
 // Execute 执行 CLI 命令
 func Execute(ctx context.Context, args []string, deps *Dependencies) error {
 	if deps == nil {
@@ -29,7 +109,8 @@ func Execute(ctx context.Context, args []string, deps *Dependencies) error {
 		return fmt.Errorf("parse args failed: %w", err)
 	}
 
-	if !hasAnyTasks(cfg) {
+	selection := newCLITaskSelection(cfg)
+	if !selection.hasAnyTasks() {
 		log.Infoln("no download tasks specified")
 		return nil
 	}
@@ -68,28 +149,22 @@ func Execute(ctx context.Context, args []string, deps *Dependencies) error {
 	// 4. -user/-list/-foll : 批量下载推文 - 可与 -profile-user/-profile-list 组合
 	// 5. -profile-user/-profile-list : Profile下载 - 可与批量下载组合执行
 
-	// 1. 第三方工具JSON文件下载（-jsonfile）- 最高优先级，独占执行
-	if len(cfg.JsonFileArgs.GetPaths()) > 0 {
+	switch selection.primaryMode() {
+	case cliTaskModeJSONFile:
 		log.Infof("jsonfile: %d files", len(cfg.JsonFileArgs.GetPaths()))
-		if hasOtherParams(cfg, "jsonfile") {
+		if selection.hasIgnoredForExclusiveMode(cliTaskModeJSONFile) {
 			log.Warn("-jsonfile is exclusive, other download parameters will be ignored")
 		}
 		return deps.DownloadService.JsonFileDownload(ctx, "cli", cfg.JsonFileArgs.GetPaths(), cfg.NoRetry, reporter)
-	}
-
-	// 2. TMD loongtweet文件夹下载（-jsonfolder）- 第二优先级，独占执行
-	if len(cfg.JsonFolderArgs.GetPaths()) > 0 {
+	case cliTaskModeJSONFolder:
 		log.Infof("jsonfolder: %d folders", len(cfg.JsonFolderArgs.GetPaths()))
-		if hasOtherParams(cfg, "jsonfolder") {
+		if selection.hasIgnoredForExclusiveMode(cliTaskModeJSONFolder) {
 			log.Warn("-jsonfolder is exclusive, other download parameters will be ignored")
 		}
 		return deps.DownloadService.JsonFolderDownload(ctx, "cli", cfg.JsonFolderArgs.GetPaths(), cfg.NoRetry, reporter)
-	}
-
-	// 3. 标记已下载（-mark-downloaded）- 第三优先级，独占执行
-	if cfg.MarkDownloaded {
+	case cliTaskModeMarkDownloaded:
 		log.Infoln("mark downloaded mode")
-		if hasOtherParams(cfg, "mark") {
+		if selection.hasIgnoredForExclusiveMode(cliTaskModeMarkDownloaded) {
 			log.Warn("-mark-downloaded is exclusive, other download parameters will be ignored")
 		}
 		log.Infof("mark downloaded: users: %d, lists: %d, following: %d",
@@ -103,9 +178,8 @@ func Execute(ctx context.Context, args []string, deps *Dependencies) error {
 	screenNames := cfg.UsrArgs.ScreenName
 	listIDs := cfg.ListArgs.ID
 	followingNames := cfg.FollArgs.ScreenName
-	hasBatchDownload := len(screenNames) > 0 || len(listIDs) > 0 || len(followingNames) > 0
 
-	if hasBatchDownload {
+	if selection.hasBatchDownload() {
 		log.Infof("users: %d, lists: %d, following: %d", len(screenNames), len(listIDs), len(followingNames))
 
 		var batchErr error
@@ -139,7 +213,7 @@ func Execute(ctx context.Context, args []string, deps *Dependencies) error {
 	hasProfileUsers := len(cfg.ProfileUsers.ScreenName) > 0
 	hasProfileLists := len(cfg.ProfileList.ID) > 0
 
-	if hasProfileUsers || hasProfileLists {
+	if selection.hasProfileDownload() {
 		var profileErr error
 		// 先处理用户 Profile
 		if hasProfileUsers {
@@ -167,46 +241,6 @@ func Execute(ctx context.Context, args []string, deps *Dependencies) error {
 	}
 
 	return nil
-}
-
-func hasAnyTasks(cfg *CLIConfig) bool {
-	return len(cfg.JsonFileArgs.GetPaths()) > 0 ||
-		len(cfg.JsonFolderArgs.GetPaths()) > 0 ||
-		cfg.MarkDownloaded ||
-		len(cfg.UsrArgs.ScreenName) > 0 ||
-		len(cfg.ListArgs.ID) > 0 ||
-		len(cfg.FollArgs.ScreenName) > 0 ||
-		len(cfg.ProfileUsers.ScreenName) > 0 ||
-		len(cfg.ProfileList.ID) > 0
-}
-
-// hasOtherParams 检查是否有其他下载参数被忽略（用于独占参数警告）
-func hasOtherParams(cfg *CLIConfig, current string) bool {
-	switch current {
-	case "jsonfile":
-		// -jsonfile 独占时，检查其他参数
-		return len(cfg.JsonFolderArgs.GetPaths()) > 0 ||
-			cfg.MarkDownloaded ||
-			len(cfg.UsrArgs.ScreenName) > 0 ||
-			len(cfg.ListArgs.ID) > 0 ||
-			len(cfg.FollArgs.ScreenName) > 0 ||
-			len(cfg.ProfileUsers.ScreenName) > 0 ||
-			len(cfg.ProfileList.ID) > 0
-	case "jsonfolder":
-		// -jsonfolder 独占时，检查其他参数
-		return len(cfg.JsonFileArgs.GetPaths()) > 0 ||
-			cfg.MarkDownloaded ||
-			len(cfg.UsrArgs.ScreenName) > 0 ||
-			len(cfg.ListArgs.ID) > 0 ||
-			len(cfg.FollArgs.ScreenName) > 0 ||
-			len(cfg.ProfileUsers.ScreenName) > 0 ||
-			len(cfg.ProfileList.ID) > 0
-	case "mark":
-		// -mark-downloaded 独占时，检查其他参数（除了自身需要的 -user/-list/-foll）
-		return len(cfg.ProfileUsers.ScreenName) > 0 ||
-			len(cfg.ProfileList.ID) > 0
-	}
-	return false
 }
 
 // SetClientLogger 设置客户端日志

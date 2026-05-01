@@ -309,19 +309,4 @@ func TestSyncUser_NilDB(t *testing.T) {
 	_ = syncUser(nil, user, true)
 }
 
-func TestSyncUserAndEntity_InvalidDir(t *testing.T) {
-	db := setupTestDB(t)
-	defer db.Close()
 
-	user := &twitter.User{
-		Id:         12345,
-		Name:       "Test",
-		ScreenName: "test",
-	}
-
-	// Test with invalid directory - on Windows this may or may not error
-	invalidDir := "Z:\\nonexistent\\path"
-	_, err := syncUserAndEntity(db, user, invalidDir)
-	// Just log the result, don't assert since behavior may vary by OS
-	t.Logf("syncUserAndEntity() with invalid dir: err=%v", err)
-}

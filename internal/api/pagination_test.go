@@ -156,6 +156,57 @@ func TestNewPagination_EdgeCases(t *testing.T) {
 	}
 }
 
+func TestNewPaginationWithDefaults(t *testing.T) {
+	tests := []struct {
+		name         string
+		query        string
+		wantPage     int
+		wantPageSize int
+		wantSortBy   string
+		wantOrder    string
+	}{
+		{
+			name:         "使用自定义默认页大小",
+			query:        "",
+			wantPage:     1,
+			wantPageSize: 100,
+			wantSortBy:   "created_at",
+			wantOrder:    "asc",
+		},
+		{
+			name:         "沿用请求中的page和pageSize",
+			query:        "page=2&pageSize=50&sortBy=name&sortOrder=desc",
+			wantPage:     2,
+			wantPageSize: 50,
+			wantSortBy:   "name",
+			wantOrder:    "desc",
+		},
+		{
+			name:         "超过自定义最大值时回退",
+			query:        "pageSize=999",
+			wantPage:     1,
+			wantPageSize: 100,
+			wantSortBy:   "created_at",
+			wantOrder:    "asc",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := &http.Request{
+				URL: &url.URL{RawQuery: tt.query},
+			}
+
+			p := NewPaginationWithDefaults(req, 100, 200, "created_at", "asc")
+
+			assert.Equal(t, tt.wantPage, p.Page)
+			assert.Equal(t, tt.wantPageSize, p.PageSize)
+			assert.Equal(t, tt.wantSortBy, p.SortBy)
+			assert.Equal(t, tt.wantOrder, p.SortOrder)
+		})
+	}
+}
+
 func TestPagination_BuildOrderBy(t *testing.T) {
 	allowedFields := map[string]string{
 		"id":   "id",
@@ -226,15 +277,15 @@ func TestPagination_BuildOrderBy_MissingDefault(t *testing.T) {
 
 func TestPagination_ToResponse(t *testing.T) {
 	tests := []struct {
-		name       string
-		page       int
-		pageSize   int
-		total      int
-		data       interface{}
-		wantPages  int
-		wantTotal  int
-		wantPage   int
-		wantSize   int
+		name      string
+		page      int
+		pageSize  int
+		total     int
+		data      interface{}
+		wantPages int
+		wantTotal int
+		wantPage  int
+		wantSize  int
 	}{
 		{
 			name:      "整除",

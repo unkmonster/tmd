@@ -34,16 +34,6 @@ func TestNewFileStorageManager_EmptyPath(t *testing.T) {
 	}
 }
 
-func TestNewFileStorageManager_InvalidPath(t *testing.T) {
-	// Test with a path that cannot be created
-	// On Windows, use a path with invalid characters or a drive that doesn't exist
-	invalidPath := "Z:\\nonexistent\\path"
-	fsm, err := NewFileStorageManager(invalidPath)
-	// On Windows, this may or may not error depending on the drive
-	// Just log the result
-	t.Logf("NewFileStorageManager() with invalid path: err=%v, fsm=%v", err, fsm)
-}
-
 func TestFileStorageManager_EnsureDirectory(t *testing.T) {
 	tempDir := t.TempDir()
 

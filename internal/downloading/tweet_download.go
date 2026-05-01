@@ -354,11 +354,18 @@ func tweetDownloader(config *workerConfig, errch chan<- PackagedTweet, twech <-c
 				}
 			}
 			errch <- pt
+			if config.onTweetDone != nil {
+				config.onTweetDone(pt.GetTweet(), true)
+			}
 			continue
 		}
 		err := downloadTweetMedia(config, path, pt.GetTweet(), config.skipLoongTweet)
-		if err != nil && !utils.IsStatusCode(err, 404) && !utils.IsStatusCode(err, 403) {
+		failed := err != nil && !utils.IsStatusCode(err, 404) && !utils.IsStatusCode(err, 403)
+		if failed {
 			errch <- pt
+		}
+		if config.onTweetDone != nil {
+			config.onTweetDone(pt.GetTweet(), failed)
 		}
 
 		if errors.Is(err, syscall.ENOSPC) {
@@ -367,7 +374,7 @@ func tweetDownloader(config *workerConfig, errch chan<- PackagedTweet, twech <-c
 	}
 }
 
-func BatchDownloadTweet(ctx context.Context, client *resty.Client, skipLoongTweet bool, dwn downloader.Downloader, fileWriter downloader.FileWriter, pts ...PackagedTweet) []PackagedTweet {
+func BatchDownloadTweet(ctx context.Context, client *resty.Client, skipLoongTweet bool, dwn downloader.Downloader, fileWriter downloader.FileWriter, onTweetDone func(tweet *twitter.Tweet, failed bool), pts ...PackagedTweet) []PackagedTweet {
 	if len(pts) == 0 {
 		return nil
 	}
@@ -392,6 +399,7 @@ func BatchDownloadTweet(ctx context.Context, client *resty.Client, skipLoongTwee
 		downloader:     dwn,
 		fileWriter:     fileWriter,
 		client:         client,
+		onTweetDone:    onTweetDone,
 	}
 	for i := 0; i < numRoutine; i++ {
 		wg.Add(1)

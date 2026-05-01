@@ -47,6 +47,50 @@ func (s *downloadServiceImpl) completeProfileTask(taskID string, reporter Progre
 	reporter.OnComplete(taskID, *result)
 }
 
+func (s *downloadServiceImpl) newBatchProgressCallback(taskID string, reporter ProgressReporter) downloading.BatchProgressFunc {
+	return func(progress downloading.BatchProgress) {
+		reporter.OnProgress(taskID, Progress{
+			Stage:     "downloading",
+			Total:     progress.Total,
+			Completed: progress.Completed,
+			Failed:    progress.Failed,
+			Current:   progress.Current,
+		})
+	}
+}
+
+func (s *downloadServiceImpl) newRetryProgressCallback(taskID string, reporter ProgressReporter) downloading.RetryProgressFunc {
+	return func(progress downloading.RetryProgress) {
+		reporter.OnProgress(taskID, Progress{
+			Stage:     "retrying",
+			Total:     progress.Total,
+			Completed: progress.Completed,
+			Failed:    progress.Failed,
+		})
+	}
+}
+
+func (s *downloadServiceImpl) buildMainDownloadResult(summary downloading.BatchDownloadSummary, dumper *downloading.TweetDumper, profileResult *Result) *Result {
+	if summary.TotalEntities == 0 && profileResult != nil {
+		clone := *profileResult
+		return &clone
+	}
+
+	failed := 0
+	if dumper != nil {
+		failed = dumper.EntityCount()
+	}
+
+	result := &Result{
+		Downloaded: max(0, summary.TotalEntities-failed),
+		Failed:     failed,
+	}
+	if profileResult != nil {
+		result.Versioned = profileResult.Versioned
+	}
+	return result
+}
+
 func (s *downloadServiceImpl) resolveUsers(ctx context.Context, screenNames []string) []*twitter.User {
 	var users []*twitter.User
 	for _, name := range screenNames {
@@ -125,8 +169,11 @@ func (s *downloadServiceImpl) UserDownload(ctx context.Context, taskID string, s
 	// 初始化下载器
 	versionManager, fileWriter, dwn := s.initDownloader()
 
+	progress := s.newBatchProgressCallback(taskID, reporter)
+	retryProgress := s.newRetryProgressCallback(taskID, reporter)
+
 	// 执行批量下载（单个用户）
-	failedTweets, _, err := downloading.BatchDownloadAny(ctx, s.deps.Client, s.deps.DB, nil, []*twitter.User{user}, pathHelper.Root, pathHelper.Users, opts.AutoFollow, s.deps.AdditionalClients, dwn, fileWriter)
+	failedTweets, _, summary, err := downloading.BatchDownloadAny(ctx, s.deps.Client, s.deps.DB, nil, []*twitter.User{user}, pathHelper.Root, pathHelper.Users, opts.AutoFollow, s.deps.AdditionalClients, dwn, fileWriter, progress)
 	if err != nil {
 		return err
 	}
@@ -136,7 +183,7 @@ func (s *downloadServiceImpl) UserDownload(ctx context.Context, taskID string, s
 
 	// 重试失败的推文
 	if !opts.NoRetry {
-		if err := downloading.RetryFailedTweets(ctx, dumper, s.deps.DB, s.deps.Client, dwn, fileWriter); err != nil {
+		if _, err := downloading.RetryFailedTweets(ctx, dumper, s.deps.DB, s.deps.Client, dwn, fileWriter, retryProgress); err != nil {
 			log.Warnf("Retry failed tweets error: %v", err)
 		}
 	}
@@ -153,7 +200,7 @@ func (s *downloadServiceImpl) UserDownload(ctx context.Context, taskID string, s
 		}
 	}
 
-	s.completeTask(taskID, reporter, "User download completed", profileResult, profileWarning)
+	s.completeTask(taskID, reporter, "User download completed", s.buildMainDownloadResult(summary, dumper, profileResult), profileWarning)
 	return nil
 }
 
@@ -186,8 +233,11 @@ func (s *downloadServiceImpl) ListDownload(ctx context.Context, taskID string, l
 	// 初始化下载器
 	versionManager, fileWriter, dwn := s.initDownloader()
 
+	progress := s.newBatchProgressCallback(taskID, reporter)
+	retryProgress := s.newRetryProgressCallback(taskID, reporter)
+
 	// 执行下载 - BatchDownloadAny 会处理列表同步并返回列表成员
-	failedTweets, listMembers, err := downloading.BatchDownloadAny(ctx, s.deps.Client, s.deps.DB, []twitter.ListBase{list}, nil, pathHelper.Root, pathHelper.Users, opts.AutoFollow, s.deps.AdditionalClients, dwn, fileWriter)
+	failedTweets, listMembers, summary, err := downloading.BatchDownloadAny(ctx, s.deps.Client, s.deps.DB, []twitter.ListBase{list}, nil, pathHelper.Root, pathHelper.Users, opts.AutoFollow, s.deps.AdditionalClients, dwn, fileWriter, progress)
 	if err != nil {
 		return err
 	}
@@ -197,7 +247,7 @@ func (s *downloadServiceImpl) ListDownload(ctx context.Context, taskID string, l
 
 	// 重试失败的推文
 	if !opts.NoRetry {
-		if err := downloading.RetryFailedTweets(ctx, dumper, s.deps.DB, s.deps.Client, dwn, fileWriter); err != nil {
+		if _, err := downloading.RetryFailedTweets(ctx, dumper, s.deps.DB, s.deps.Client, dwn, fileWriter, retryProgress); err != nil {
 			log.Warnf("Retry failed tweets error: %v", err)
 		}
 	}
@@ -214,7 +264,7 @@ func (s *downloadServiceImpl) ListDownload(ctx context.Context, taskID string, l
 		}
 	}
 
-	s.completeTask(taskID, reporter, "List download completed", profileResult, profileWarning)
+	s.completeTask(taskID, reporter, "List download completed", s.buildMainDownloadResult(summary, dumper, profileResult), profileWarning)
 	return nil
 }
 
@@ -246,9 +296,12 @@ func (s *downloadServiceImpl) FollowingDownload(ctx context.Context, taskID stri
 	// 初始化下载器
 	versionManager, fileWriter, dwn := s.initDownloader()
 
+	progress := s.newBatchProgressCallback(taskID, reporter)
+	retryProgress := s.newRetryProgressCallback(taskID, reporter)
+
 	// 执行批量下载 - 将 Following 作为 List 传递给 BatchDownloadAny
 	// 这样可以通过 syncListAndGetMembers 同步列表成员，并返回完整 User 对象
-	failedTweets, listMembers, err := downloading.BatchDownloadAny(ctx, s.deps.Client, s.deps.DB, []twitter.ListBase{following}, nil, pathHelper.Root, pathHelper.Users, opts.AutoFollow, s.deps.AdditionalClients, dwn, fileWriter)
+	failedTweets, listMembers, summary, err := downloading.BatchDownloadAny(ctx, s.deps.Client, s.deps.DB, []twitter.ListBase{following}, nil, pathHelper.Root, pathHelper.Users, opts.AutoFollow, s.deps.AdditionalClients, dwn, fileWriter, progress)
 	if err != nil {
 		return err
 	}
@@ -258,7 +311,7 @@ func (s *downloadServiceImpl) FollowingDownload(ctx context.Context, taskID stri
 
 	// 重试失败的推文
 	if !opts.NoRetry {
-		if err := downloading.RetryFailedTweets(ctx, dumper, s.deps.DB, s.deps.Client, dwn, fileWriter); err != nil {
+		if _, err := downloading.RetryFailedTweets(ctx, dumper, s.deps.DB, s.deps.Client, dwn, fileWriter, retryProgress); err != nil {
 			log.Warnf("Retry failed tweets error: %v", err)
 		}
 	}
@@ -275,7 +328,7 @@ func (s *downloadServiceImpl) FollowingDownload(ctx context.Context, taskID stri
 		}
 	}
 
-	s.completeTask(taskID, reporter, "Following download completed", profileResult, profileWarning)
+	s.completeTask(taskID, reporter, "Following download completed", s.buildMainDownloadResult(summary, dumper, profileResult), profileWarning)
 	return nil
 }
 
@@ -494,13 +547,15 @@ func (s *downloadServiceImpl) BatchDownload(ctx context.Context, taskID string, 
 	}
 	defer s.saveDumper(dumper, pathHelper.ErrorJ)
 
-	reporter.OnProgress(taskID, Progress{Stage: "downloading", Total: len(users) + len(lists)})
+	reporter.OnProgress(taskID, Progress{Stage: "downloading"})
 
 	// 初始化下载器
 	versionManager, fileWriter, dwn := s.initDownloader()
+	progress := s.newBatchProgressCallback(taskID, reporter)
+	retryProgress := s.newRetryProgressCallback(taskID, reporter)
 
 	// 执行批量下载（返回列表成员用于 Profile 下载）
-	failedTweets, listMembers, err := downloading.BatchDownloadAny(ctx, s.deps.Client, s.deps.DB, lists, users, pathHelper.Root, pathHelper.Users, opts.AutoFollow, s.deps.AdditionalClients, dwn, fileWriter)
+	failedTweets, listMembers, summary, err := downloading.BatchDownloadAny(ctx, s.deps.Client, s.deps.DB, lists, users, pathHelper.Root, pathHelper.Users, opts.AutoFollow, s.deps.AdditionalClients, dwn, fileWriter, progress)
 	if err != nil {
 		return err
 	}
@@ -510,7 +565,7 @@ func (s *downloadServiceImpl) BatchDownload(ctx context.Context, taskID string, 
 
 	// 重试失败的推文
 	if !opts.NoRetry {
-		if err := downloading.RetryFailedTweets(ctx, dumper, s.deps.DB, s.deps.Client, dwn, fileWriter); err != nil {
+		if _, err := downloading.RetryFailedTweets(ctx, dumper, s.deps.DB, s.deps.Client, dwn, fileWriter, retryProgress); err != nil {
 			log.Warnf("Retry failed tweets error: %v", err)
 		}
 	}
@@ -548,7 +603,7 @@ func (s *downloadServiceImpl) BatchDownload(ctx context.Context, taskID string, 
 		}
 	}
 
-	s.completeTask(taskID, reporter, "Batch download completed", profileResult, profileWarning)
+	s.completeTask(taskID, reporter, "Batch download completed", s.buildMainDownloadResult(summary, dumper, profileResult), profileWarning)
 	return nil
 }
 

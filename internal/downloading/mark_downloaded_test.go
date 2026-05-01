@@ -91,27 +91,6 @@ func TestMarkSingleUserWithInfo_NilUser(t *testing.T) {
 	}
 }
 
-func TestMarkSingleUserWithInfo_InvalidDir(t *testing.T) {
-	db := setupTestDB(t)
-	defer db.Close()
-
-	user := &twitter.User{
-		Id:           12345,
-		Name:         "Test User",
-		ScreenName:   "testuser",
-		IsProtected:  false,
-		FriendsCount: 100,
-	}
-
-	timestamp := time.Date(2024, 1, 15, 10, 30, 0, 0, time.Local)
-	invalidDir := "Z:\\nonexistent\\path"
-
-	info := markSingleUserWithInfo(db, user, invalidDir, &timestamp)
-
-	// On Windows, the behavior may vary - just log the result
-	t.Logf("markSingleUserWithInfo() with invalid dir: Success=%v, Error=%s", info.Success, info.Error)
-}
-
 func TestMarkUsersAsDownloaded(t *testing.T) {
 	db := setupTestDB(t)
 	defer db.Close()

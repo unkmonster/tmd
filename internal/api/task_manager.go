@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"sort"
 	"sync"
 	"time"
 
@@ -129,6 +130,9 @@ func (tm *TaskManager) GetAllTasks() []*Task {
 	for _, task := range tm.tasks {
 		tasks = append(tasks, cloneTask(task))
 	}
+	sort.Slice(tasks, func(i, j int) bool {
+		return tasks[i].CreatedAt.After(tasks[j].CreatedAt)
+	})
 	return tasks
 }
 
@@ -269,6 +273,27 @@ func canTransitionStatus(from, to TaskStatus) bool {
 	}
 }
 
+func applyTerminalProgress(task *Task, status TaskStatus, result *TaskResult) {
+	if task.Progress == nil {
+		task.Progress = &TaskProgress{}
+	}
+
+	switch status {
+	case TaskStatusCompleted:
+		task.Progress.Stage = "completed"
+		task.Progress.Current = ""
+		if task.Progress.Total > 0 {
+			task.Progress.Completed = task.Progress.Total
+		}
+		if result != nil && result.Failed > task.Progress.Failed {
+			task.Progress.Failed = result.Failed
+		}
+	case TaskStatusFailed, TaskStatusCancelled:
+		task.Progress.Stage = ""
+		task.Progress.Current = ""
+	}
+}
+
 // UpdateTaskStatus 更新任务状态
 func (tm *TaskManager) UpdateTaskStatus(id string, status TaskStatus) bool {
 	tm.mu.Lock()
@@ -290,6 +315,7 @@ func (tm *TaskManager) UpdateTaskStatus(id string, status TaskStatus) bool {
 	case TaskStatusRunning:
 		task.StartedAt = &now
 	case TaskStatusCompleted, TaskStatusFailed, TaskStatusCancelled:
+		applyTerminalProgress(task, status, task.Result)
 		task.EndedAt = &now
 		if task.Cancel != nil {
 			task.Cancel()
@@ -315,6 +341,7 @@ func (tm *TaskManager) SetTaskError(id string, err error) bool {
 
 	task.Status = TaskStatusFailed
 	task.Error = err.Error()
+	applyTerminalProgress(task, TaskStatusFailed, nil)
 	now := time.Now()
 	task.EndedAt = &now
 	if task.Cancel != nil {
@@ -354,6 +381,7 @@ func (tm *TaskManager) CompleteTask(id string, result *TaskResult) bool {
 
 	task.Result = result
 	task.Status = TaskStatusCompleted
+	applyTerminalProgress(task, TaskStatusCompleted, result)
 	now := time.Now()
 	task.EndedAt = &now
 	if task.Cancel != nil {
@@ -392,6 +420,7 @@ func (tm *TaskManager) CancelTask(id string) bool {
 	}
 
 	task.Status = TaskStatusCancelled
+	applyTerminalProgress(task, TaskStatusCancelled, nil)
 	task.Cancel()
 	now := time.Now()
 	task.EndedAt = &now
@@ -408,6 +437,7 @@ func (tm *TaskManager) CancelAllTasks() {
 	for _, task := range tm.tasks {
 		if task.Status == TaskStatusQueued || task.Status == TaskStatusRunning {
 			task.Status = TaskStatusCancelled
+			applyTerminalProgress(task, TaskStatusCancelled, nil)
 			task.Cancel()
 			task.EndedAt = &now
 		}

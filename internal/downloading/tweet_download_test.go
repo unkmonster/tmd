@@ -192,7 +192,7 @@ func TestBatchDownloadTweet_Empty(t *testing.T) {
 	ctx := context.Background()
 
 	// Test with empty input
-	result := BatchDownloadTweet(ctx, nil, false, nil, nil)
+	result := BatchDownloadTweet(ctx, nil, false, nil, nil, nil)
 
 	if result != nil {
 		t.Errorf("BatchDownloadTweet() with empty input = %v, want nil", result)
@@ -222,7 +222,47 @@ func TestBatchDownloadTweet_WithTweets(t *testing.T) {
 		}
 	}()
 
-	_ = BatchDownloadTweet(ctx, nil, false, nil, nil, tweets...)
+	_ = BatchDownloadTweet(ctx, nil, false, nil, nil, nil, tweets...)
+}
+
+func TestBatchDownloadTweet_ReportsFailedTweet(t *testing.T) {
+	ctx := context.Background()
+	var called bool
+	var gotFailed bool
+	var gotTweetID uint64
+
+	tweets := []PackagedTweet{
+		&TweetInEntity{
+			Tweet: &twitter.Tweet{
+				Id: 1,
+				Creator: &twitter.User{
+					ScreenName: "alice",
+				},
+			},
+			Entity: nil,
+		},
+	}
+
+	result := BatchDownloadTweet(ctx, nil, false, nil, nil, func(tweet *twitter.Tweet, failed bool) {
+		called = true
+		gotFailed = failed
+		if tweet != nil {
+			gotTweetID = tweet.Id
+		}
+	}, tweets...)
+
+	if len(result) != 1 {
+		t.Fatalf("BatchDownloadTweet() returned %d failed tweets, want 1", len(result))
+	}
+	if !called {
+		t.Fatal("BatchDownloadTweet() should call progress callback")
+	}
+	if !gotFailed {
+		t.Fatal("BatchDownloadTweet() should report failed tweet when path is empty")
+	}
+	if gotTweetID != 1 {
+		t.Fatalf("BatchDownloadTweet() reported tweet id %d, want 1", gotTweetID)
+	}
 }
 
 func TestWorkerConfig(t *testing.T) {

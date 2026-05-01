@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-resty/resty/v2"
@@ -37,9 +38,9 @@ func calcUserDepth(exist int, total int) int {
 	return depth
 }
 
-func BatchUserDownload(ctx context.Context, client *resty.Client, db *sqlx.DB, users []userInListEntity, dir string, autoFollow bool, additional []*resty.Client, dwn downloader.Downloader, fileWriter downloader.FileWriter) ([]*TweetInEntity, error) {
+func BatchUserDownload(ctx context.Context, client *resty.Client, db *sqlx.DB, users []userInListEntity, dir string, autoFollow bool, additional []*resty.Client, dwn downloader.Downloader, fileWriter downloader.FileWriter, progress BatchProgressFunc) ([]*TweetInEntity, BatchDownloadSummary, error) {
 	if len(users) == 0 {
-		return nil, nil
+		return nil, BatchDownloadSummary{}, nil
 	}
 
 	uidToUser := make(map[uint64]*twitter.User)
@@ -203,7 +204,7 @@ func BatchUserDownload(ctx context.Context, client *resty.Client, db *sqlx.DB, u
 	}()
 
 	if userEntityHeap.Empty() {
-		return nil, nil
+		return nil, BatchDownloadSummary{}, nil
 	}
 	log.Debugln("preprocessing finish, elapsed:", time.Since(start))
 	log.Debugln("real members:", userEntityHeap.Size())
@@ -211,6 +212,12 @@ func BatchUserDownload(ctx context.Context, client *resty.Client, db *sqlx.DB, u
 	if symlinkWarnCount > 0 {
 		log.Warnf("symlink permission denied: %d errors suppressed (run as admin to enable symlinks)", symlinkWarnCount)
 	}
+
+	totalUsers := userEntityHeap.Size()
+	summary := BatchDownloadSummary{TotalEntities: totalUsers}
+	var totalTweets atomic.Int64
+	var completedTweets atomic.Int64
+	var failedTweets atomic.Int64
 
 	producer := func(ent *entity.UserEntity) {
 		defer prodwg.Done()
@@ -279,6 +286,14 @@ func BatchUserDownload(ctx context.Context, client *resty.Client, db *sqlx.DB, u
 			}
 			return
 		}
+		if progress != nil {
+			progress(BatchProgress{
+				Total:     int(totalTweets.Add(int64(len(tweets)))),
+				Completed: int(completedTweets.Load()),
+				Failed:    int(failedTweets.Load()),
+				Current:   user.ScreenName,
+			})
+		}
 
 		for _, tw := range tweets {
 			pt := TweetInEntity{Tweet: tw, Entity: ent}
@@ -302,6 +317,27 @@ func BatchUserDownload(ctx context.Context, client *resty.Client, db *sqlx.DB, u
 		fileWriter: fileWriter,
 		client:     client,
 	}
+	if progress != nil {
+		config.onTweetDone = func(tweet *twitter.Tweet, failed bool) {
+			current := ""
+			if tweet != nil && tweet.Creator != nil {
+				current = tweet.Creator.ScreenName
+			}
+
+			completed := int(completedTweets.Add(1))
+			failedCount := int(failedTweets.Load())
+			if failed {
+				failedCount = int(failedTweets.Add(1))
+			}
+
+			progress(BatchProgress{
+				Total:     int(totalTweets.Load()),
+				Completed: completed,
+				Failed:    failedCount,
+				Current:   current,
+			})
+		}
+	}
 	for i := 0; i < MaxDownloadRoutine; i++ {
 		conswg.Add(1)
 		go tweetDownloader(&config, errChan, tweetChan)
@@ -309,7 +345,7 @@ func BatchUserDownload(ctx context.Context, client *resty.Client, db *sqlx.DB, u
 
 	producerPool, err := ants.NewPool(min(userTweetMaxConcurrent, userEntityHeap.Size()))
 	if err != nil {
-		return nil, err
+		return nil, summary, err
 	}
 	defer producerPool.Release()
 
@@ -361,5 +397,5 @@ func BatchUserDownload(ctx context.Context, client *resty.Client, db *sqlx.DB, u
 		fails = append(fails, pt.(*TweetInEntity))
 	}
 	log.Debugf("%d users unable to start", userEntityHeap.Size())
-	return fails, context.Cause(ctx)
+	return fails, summary, context.Cause(ctx)
 }

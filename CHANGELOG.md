@@ -7,6 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ***
 
+## [3.2.14] - 2026-04-29
+
+### Added
+
+#### 实时进度报告
+
+| 功能 | 说明 |
+|------|------|
+| `BatchProgress` / `RetryProgress` | 新增进度结构体，包含 total/completed/failed/current |
+| `BatchProgressFunc` / `RetryProgressFunc` | 新增进度回调类型 |
+| `BatchDownloadSummary` / `RetrySummary` | 新增下载摘要返回类型 |
+
+### Changed
+
+#### 下载进度实时报告
+
+| 文件 | 变更 |
+|------|------|
+| `internal/downloading/batch_any.go` | `BatchDownloadAny()` 支持进度回调和摘要返回 |
+| `internal/downloading/batch_download.go` | `BatchUserDownload()` 支持实时进度报告 |
+| `internal/downloading/retry.go` | `RetryFailedTweets()` 支持进度回调和摘要返回 |
+| `internal/service/download_service.go` | 新增 `newBatchProgressCallback()` 和 `newRetryProgressCallback()` |
+| `internal/service/download_service.go` | 新增 `buildMainDownloadResult()` 构建下载结果 |
+| `internal/service/download_service.go` | 所有下载方法统一使用进度回调 |
+
+#### 其他优化
+
+| 文件 | 变更 |
+|------|------|
+| `internal/api/web/app.js` | Web 界面优化 |
+| `internal/cli/executor.go` | CLI 执行器增强 |
+| `internal/api/handlers.go` | 处理器优化 |
+
+### Stats
+
+- **47 个文件变更**
+- **+1062 行 / -648 行**
+
+***
+
 ## [3.2.13] - 2026-04-29
 
 ### Changed

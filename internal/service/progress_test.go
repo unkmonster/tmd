@@ -165,7 +165,7 @@ func TestLogReporter_OnProgress_Syncing(t *testing.T) {
 	assert.Contains(t, loggedMessages[0], "Syncing")
 }
 
-func TestLogReporter_OnProgress_DownloadingWithTotal(t *testing.T) {
+func TestLogReporter_OnProgress_DownloadingIsSuppressed(t *testing.T) {
 	var loggedMessages []string
 	logger := func(format string, args ...interface{}) {
 		loggedMessages = append(loggedMessages, format)
@@ -179,24 +179,7 @@ func TestLogReporter_OnProgress_DownloadingWithTotal(t *testing.T) {
 		Current:   "user1",
 	})
 
-	assert.Len(t, loggedMessages, 1)
-	assert.Contains(t, loggedMessages[0], "Downloading")
-}
-
-func TestLogReporter_OnProgress_DownloadingWithoutTotal(t *testing.T) {
-	var loggedMessages []string
-	logger := func(format string, args ...interface{}) {
-		loggedMessages = append(loggedMessages, format)
-	}
-
-	reporter := NewLogReporter(logger)
-	reporter.OnProgress("task-123", Progress{
-		Stage:   "downloading",
-		Current: "user1",
-	})
-
-	assert.Len(t, loggedMessages, 1)
-	assert.Contains(t, loggedMessages[0], "Downloading")
+	assert.Len(t, loggedMessages, 0)
 }
 
 func TestLogReporter_OnProgress_Profile(t *testing.T) {

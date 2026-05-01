@@ -15,7 +15,7 @@ func TestBatchDownloadAny_Empty(t *testing.T) {
 	tempDir := t.TempDir()
 
 	// Test with empty lists and users
-	result, _, err := BatchDownloadAny(ctx, nil, db, []twitter.ListBase{}, []*twitter.User{}, tempDir, tempDir, false, nil, nil, nil)
+	result, _, _, err := BatchDownloadAny(ctx, nil, db, []twitter.ListBase{}, []*twitter.User{}, tempDir, tempDir, false, nil, nil, nil, nil)
 
 	// Should return nil, nil for empty input
 	if err != nil {
@@ -35,7 +35,7 @@ func TestBatchDownloadAny_NilInputs(t *testing.T) {
 	tempDir := t.TempDir()
 
 	// Test with nil lists and users
-	result, _, err := BatchDownloadAny(ctx, nil, db, nil, nil, tempDir, tempDir, false, nil, nil, nil)
+	result, _, _, err := BatchDownloadAny(ctx, nil, db, nil, nil, tempDir, tempDir, false, nil, nil, nil, nil)
 
 	if err != nil {
 		t.Errorf("BatchDownloadAny() error = %v", err)
@@ -70,7 +70,7 @@ func TestBatchDownloadAny_WithUsersOnly(t *testing.T) {
 		}
 	}()
 
-	_, _, _ = BatchDownloadAny(ctx, nil, db, []twitter.ListBase{}, users, tempDir, tempDir, false, nil, nil, nil)
+	_, _, _, _ = BatchDownloadAny(ctx, nil, db, []twitter.ListBase{}, users, tempDir, tempDir, false, nil, nil, nil, nil)
 }
 
 func TestBatchDownloadAny_WithListsOnly(t *testing.T) {
@@ -93,7 +93,7 @@ func TestBatchDownloadAny_WithListsOnly(t *testing.T) {
 		}
 	}()
 
-	_, _, _ = BatchDownloadAny(ctx, nil, db, []twitter.ListBase{mockList}, []*twitter.User{}, tempDir, tempDir, false, nil, nil, nil)
+	_, _, _, _ = BatchDownloadAny(ctx, nil, db, []twitter.ListBase{mockList}, []*twitter.User{}, tempDir, tempDir, false, nil, nil, nil, nil)
 }
 
 func TestBatchDownloadAny_WithBoth(t *testing.T) {
@@ -122,7 +122,7 @@ func TestBatchDownloadAny_WithBoth(t *testing.T) {
 		}
 	}()
 
-	_, _, _ = BatchDownloadAny(ctx, nil, db, []twitter.ListBase{mockList}, users, tempDir, tempDir, false, nil, nil, nil)
+	_, _, _, _ = BatchDownloadAny(ctx, nil, db, []twitter.ListBase{mockList}, users, tempDir, tempDir, false, nil, nil, nil, nil)
 }
 
 func TestBatchDownloadAny_CancelledContext(t *testing.T) {
@@ -147,7 +147,7 @@ func TestBatchDownloadAny_CancelledContext(t *testing.T) {
 		}
 	}()
 
-	_, _, _ = BatchDownloadAny(ctx, nil, db, []twitter.ListBase{mockList}, []*twitter.User{}, tempDir, tempDir, false, nil, nil, nil)
+	_, _, _, _ = BatchDownloadAny(ctx, nil, db, []twitter.ListBase{mockList}, []*twitter.User{}, tempDir, tempDir, false, nil, nil, nil, nil)
 }
 
 func TestBatchDownloadAny_ListError(t *testing.T) {
@@ -170,7 +170,7 @@ func TestBatchDownloadAny_ListError(t *testing.T) {
 		}
 	}()
 
-	_, _, err := BatchDownloadAny(ctx, nil, db, []twitter.ListBase{mockList}, []*twitter.User{}, tempDir, tempDir, false, nil, nil, nil)
+	_, _, _, err := BatchDownloadAny(ctx, nil, db, []twitter.ListBase{mockList}, []*twitter.User{}, tempDir, tempDir, false, nil, nil, nil, nil)
 	if err == nil {
 		t.Log("BatchDownloadAny should return error when list fails")
 	}
@@ -208,7 +208,7 @@ func TestBatchDownloadAny_MultipleLists(t *testing.T) {
 		}
 	}()
 
-	_, _, _ = BatchDownloadAny(ctx, nil, db, lists, []*twitter.User{}, tempDir, tempDir, false, nil, nil, nil)
+	_, _, _, _ = BatchDownloadAny(ctx, nil, db, lists, []*twitter.User{}, tempDir, tempDir, false, nil, nil, nil, nil)
 }
 
 func TestBatchDownloadAny_DifferentDirs(t *testing.T) {
@@ -232,7 +232,7 @@ func TestBatchDownloadAny_DifferentDirs(t *testing.T) {
 		}
 	}()
 
-	_, _, _ = BatchDownloadAny(ctx, nil, db, []twitter.ListBase{mockList}, []*twitter.User{}, dir1, dir2, false, nil, nil, nil)
+	_, _, _, _ = BatchDownloadAny(ctx, nil, db, []twitter.ListBase{mockList}, []*twitter.User{}, dir1, dir2, false, nil, nil, nil, nil)
 }
 
 func TestBatchDownloadAny_AutoFollow(t *testing.T) {
@@ -265,7 +265,7 @@ func TestBatchDownloadAny_AutoFollow(t *testing.T) {
 	}()
 
 	// Test with autoFollow = true
-	_, _, _ = BatchDownloadAny(ctx, nil, db, []twitter.ListBase{mockList}, []*twitter.User{}, tempDir, tempDir, true, nil, nil, nil)
+	_, _, _, _ = BatchDownloadAny(ctx, nil, db, []twitter.ListBase{mockList}, []*twitter.User{}, tempDir, tempDir, true, nil, nil, nil, nil)
 }
 
 func TestBatchDownloadAny_AdditionalClients(t *testing.T) {
@@ -289,7 +289,7 @@ func TestBatchDownloadAny_AdditionalClients(t *testing.T) {
 	}()
 
 	// Test with additional clients (nil for now)
-	_, _, _ = BatchDownloadAny(ctx, nil, db, []twitter.ListBase{mockList}, []*twitter.User{}, tempDir, tempDir, false, nil, nil, nil)
+	_, _, _, _ = BatchDownloadAny(ctx, nil, db, []twitter.ListBase{mockList}, []*twitter.User{}, tempDir, tempDir, false, nil, nil, nil, nil)
 }
 
 func TestBatchDownloadAny_EmptyListMembers(t *testing.T) {
@@ -312,7 +312,7 @@ func TestBatchDownloadAny_EmptyListMembers(t *testing.T) {
 		}
 	}()
 
-	_, _, _ = BatchDownloadAny(ctx, nil, db, []twitter.ListBase{mockList}, []*twitter.User{}, tempDir, tempDir, false, nil, nil, nil)
+	_, _, _, _ = BatchDownloadAny(ctx, nil, db, []twitter.ListBase{mockList}, []*twitter.User{}, tempDir, tempDir, false, nil, nil, nil, nil)
 }
 
 func TestBatchDownloadAny_ConcurrentLists(t *testing.T) {
@@ -341,5 +341,5 @@ func TestBatchDownloadAny_ConcurrentLists(t *testing.T) {
 		}
 	}()
 
-	_, _, _ = BatchDownloadAny(ctx, nil, db, lists, []*twitter.User{}, tempDir, tempDir, false, nil, nil, nil)
+	_, _, _, _ = BatchDownloadAny(ctx, nil, db, lists, []*twitter.User{}, tempDir, tempDir, false, nil, nil, nil, nil)
 }

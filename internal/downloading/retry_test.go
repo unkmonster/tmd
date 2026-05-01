@@ -90,8 +90,28 @@ func TestRetryFailedTweets_EmptyDumper(t *testing.T) {
 		}
 	}()
 
-	// This will fail due to nil DB, but shouldn't panic
-	_ = RetryFailedTweets(ctx, dumper, nil, nil, nil, nil)
+	// Empty dumper should return immediately and never touch dependencies.
+	_, _ = RetryFailedTweets(ctx, dumper, nil, nil, nil, nil, nil)
+}
+
+func TestRetryFailedTweets_EmptyDumperWithProgress(t *testing.T) {
+	ctx := context.Background()
+	dumper := NewDumper()
+	called := false
+
+	summary, err := RetryFailedTweets(ctx, dumper, nil, nil, nil, nil, func(progress RetryProgress) {
+		called = true
+	})
+
+	if err != nil {
+		t.Fatalf("RetryFailedTweets() error = %v", err)
+	}
+	if called {
+		t.Fatal("RetryFailedTweets() should not call progress for empty dumper")
+	}
+	if summary.TotalEntities != 0 || summary.RemainingEntities != 0 {
+		t.Fatalf("RetryFailedTweets() summary = %+v, want zero summary", summary)
+	}
 }
 
 func TestRetryFailedTweets_WithTweets(t *testing.T) {

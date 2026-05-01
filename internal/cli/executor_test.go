@@ -71,8 +71,8 @@ func (m *MockDownloadService) MarkDownloaded(ctx context.Context, taskID string,
 func TestExecute_ParseArgsError(t *testing.T) {
 	deps := &Dependencies{
 		Dependencies: service.Dependencies{
-			Client:      resty.New(),
-			Config:      &config.Config{},
+			Client: resty.New(),
+			Config: &config.Config{},
 		},
 	}
 
@@ -97,8 +97,8 @@ func TestExecute_JsonDownload(t *testing.T) {
 
 	deps := &Dependencies{
 		Dependencies: service.Dependencies{
-			Client:      resty.New(),
-			Config:      &config.Config{},
+			Client: resty.New(),
+			Config: &config.Config{},
 		},
 		DownloadService: mockSvc,
 	}
@@ -116,8 +116,8 @@ func TestExecute_JsonDownload_NoRetry(t *testing.T) {
 
 	deps := &Dependencies{
 		Dependencies: service.Dependencies{
-			Client:      resty.New(),
-			Config:      &config.Config{},
+			Client: resty.New(),
+			Config: &config.Config{},
 		},
 		DownloadService: mockSvc,
 	}
@@ -129,6 +129,26 @@ func TestExecute_JsonDownload_NoRetry(t *testing.T) {
 	mockSvc.AssertExpectations(t)
 }
 
+func TestExecute_JsonDownload_TakesPrecedenceOverProfile(t *testing.T) {
+	mockSvc := new(MockDownloadService)
+	mockSvc.On("JsonFileDownload", mock.Anything, mock.Anything, []string{"/path/to/file.json"}, false, mock.Anything).Return(nil)
+
+	deps := &Dependencies{
+		Dependencies: service.Dependencies{
+			Client: resty.New(),
+			Config: &config.Config{},
+		},
+		DownloadService: mockSvc,
+	}
+
+	args := []string{"-jsonfile", "/path/to/file.json", "-profile-user", "user1"}
+	err := Execute(context.Background(), args, deps)
+
+	assert.NoError(t, err)
+	mockSvc.AssertExpectations(t)
+	mockSvc.AssertNotCalled(t, "ProfileDownload", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+}
+
 func TestExecute_MarkDownloaded(t *testing.T) {
 	mockSvc := new(MockDownloadService)
 	markTime := "2024-01-01T00:00:00"
@@ -136,8 +156,8 @@ func TestExecute_MarkDownloaded(t *testing.T) {
 
 	deps := &Dependencies{
 		Dependencies: service.Dependencies{
-			Client:      resty.New(),
-			Config:      &config.Config{},
+			Client: resty.New(),
+			Config: &config.Config{},
 		},
 		DownloadService: mockSvc,
 	}
@@ -155,13 +175,34 @@ func TestExecute_ProfileDownload(t *testing.T) {
 
 	deps := &Dependencies{
 		Dependencies: service.Dependencies{
-			Client:      resty.New(),
-			Config:      &config.Config{},
+			Client: resty.New(),
+			Config: &config.Config{},
 		},
 		DownloadService: mockSvc,
 	}
 
 	args := []string{"-profile-user", "user1", "-profile-user", "user2"}
+	err := Execute(context.Background(), args, deps)
+
+	assert.NoError(t, err)
+	mockSvc.AssertExpectations(t)
+}
+
+func TestExecute_BatchAndProfileDownload(t *testing.T) {
+	mockSvc := new(MockDownloadService)
+	opts := service.DownloadOptions{}
+	mockSvc.On("UserDownload", mock.Anything, mock.Anything, "user1", opts, mock.Anything).Return(nil)
+	mockSvc.On("ProfileDownload", mock.Anything, mock.Anything, []string{"user2"}, mock.Anything).Return(nil)
+
+	deps := &Dependencies{
+		Dependencies: service.Dependencies{
+			Client: resty.New(),
+			Config: &config.Config{},
+		},
+		DownloadService: mockSvc,
+	}
+
+	args := []string{"-user", "user1", "-profile-user", "user2"}
 	err := Execute(context.Background(), args, deps)
 
 	assert.NoError(t, err)
@@ -174,8 +215,8 @@ func TestExecute_ListProfileDownload(t *testing.T) {
 
 	deps := &Dependencies{
 		Dependencies: service.Dependencies{
-			Client:      resty.New(),
-			Config:      &config.Config{},
+			Client: resty.New(),
+			Config: &config.Config{},
 		},
 		DownloadService: mockSvc,
 	}
@@ -190,8 +231,8 @@ func TestExecute_ListProfileDownload(t *testing.T) {
 func TestExecute_NoArgs(t *testing.T) {
 	deps := &Dependencies{
 		Dependencies: service.Dependencies{
-			Client:      resty.New(),
-			Config:      &config.Config{},
+			Client: resty.New(),
+			Config: &config.Config{},
 		},
 		DownloadService: nil,
 	}
@@ -205,8 +246,8 @@ func TestExecute_NoArgs(t *testing.T) {
 func TestExecute_NoArgs_LogsHint(t *testing.T) {
 	deps := &Dependencies{
 		Dependencies: service.Dependencies{
-			Client:      resty.New(),
-			Config:      &config.Config{},
+			Client: resty.New(),
+			Config: &config.Config{},
 		},
 	}
 

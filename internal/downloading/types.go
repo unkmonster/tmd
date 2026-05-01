@@ -61,6 +61,7 @@ type workerConfig struct {
 	downloader     downloader.Downloader
 	fileWriter     downloader.FileWriter
 	client         *resty.Client
+	onTweetDone    func(tweet *twitter.Tweet, failed bool)
 }
 
 const userTweetRateLimit = 1500

@@ -5,24 +5,9 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
-)
 
-// isValidScreenName 校验 Twitter screen name 格式
-// 规则：1-15个字符，只允许字母、数字、下划线
-func isValidScreenName(screenName string) bool {
-	if len(screenName) < 1 || len(screenName) > 15 {
-		return false
-	}
-	for _, ch := range screenName {
-		if !((ch >= 'a' && ch <= 'z') ||
-			(ch >= 'A' && ch <= 'Z') ||
-			(ch >= '0' && ch <= '9') ||
-			ch == '_') {
-			return false
-		}
-	}
-	return true
-}
+	"github.com/unkmonster/tmd/internal/utils"
+)
 
 // UserArgs 用户参数（只支持 ScreenName）
 type UserArgs struct {
@@ -34,10 +19,10 @@ func (u *UserArgs) Set(str string) error {
 		u.ScreenName = make([]string, 0)
 	}
 
-	str = strings.TrimPrefix(str, "@")
+	str = utils.NormalizeScreenName(str)
 
 	// 校验 screenName 格式
-	if !isValidScreenName(str) {
+	if !utils.IsValidScreenName(str) {
 		return fmt.Errorf("invalid screen name format: %s", str)
 	}
 
@@ -125,18 +110,18 @@ func (j *JsonFolderPathArgs) GetPaths() []string {
 
 // CLIConfig CLI 配置
 type CLIConfig struct {
-	UsrArgs          UserArgs
-	ListArgs         ListArgs
-	FollArgs         UserArgs
-	ProfileUsers     UserArgs
-	ProfileList      ListArgs
-	JsonFileArgs     JsonFilePathsArgs
-	JsonFolderArgs   JsonFolderPathArgs
-	AutoFollow       bool
-	NoRetry          bool
-	MarkDownloaded   bool
-	MarkTime         string
-	NoProfile        bool
+	UsrArgs        UserArgs
+	ListArgs       ListArgs
+	FollArgs       UserArgs
+	ProfileUsers   UserArgs
+	ProfileList    ListArgs
+	JsonFileArgs   JsonFilePathsArgs
+	JsonFolderArgs JsonFolderPathArgs
+	AutoFollow     bool
+	NoRetry        bool
+	MarkDownloaded bool
+	MarkTime       string
+	NoProfile      bool
 }
 
 // ParseArgs 解析命令行参数

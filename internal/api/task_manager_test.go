@@ -181,9 +181,15 @@ func TestTaskManager_GetAllTasks(t *testing.T) {
 	task1 := tm.CreateTask(TaskTypeUserDownload, nil)
 	task2 := tm.CreateTask(TaskTypeListDownload, nil)
 	task3 := tm.CreateTask(TaskTypeBatchDownload, nil)
+	task1.CreatedAt = time.Date(2024, 1, 1, 10, 0, 0, 0, time.UTC)
+	task2.CreatedAt = time.Date(2024, 1, 1, 10, 1, 0, 0, time.UTC)
+	task3.CreatedAt = time.Date(2024, 1, 1, 10, 2, 0, 0, time.UTC)
 
 	tasks = tm.GetAllTasks()
 	assert.Len(t, tasks, 3)
+	assert.Equal(t, task3.ID, tasks[0].ID)
+	assert.Equal(t, task2.ID, tasks[1].ID)
+	assert.Equal(t, task1.ID, tasks[2].ID)
 
 	// 验证包含所有任务
 	taskIDs := make(map[string]bool)
@@ -345,6 +351,7 @@ func TestTaskManager_UpdateTaskStatus_RejectsInvalidTransition(t *testing.T) {
 func TestTaskManager_SetTaskError(t *testing.T) {
 	tm := NewTaskManager()
 	task := tm.CreateTask(TaskTypeUserDownload, nil)
+	tm.UpdateTaskProgress(task.ID, &TaskProgress{Stage: "downloading", Total: 100, Completed: 40, Current: "user1"})
 
 	err := assert.AnError
 	ok := tm.SetTaskError(task.ID, err)
@@ -354,6 +361,9 @@ func TestTaskManager_SetTaskError(t *testing.T) {
 	assert.Equal(t, TaskStatusFailed, got.Status)
 	assert.Equal(t, err.Error(), got.Error)
 	assert.NotNil(t, got.EndedAt)
+	assert.Equal(t, "", got.Progress.Stage)
+	assert.Equal(t, "", got.Progress.Current)
+	assert.Equal(t, 40, got.Progress.Completed)
 
 	// 测试不存在的任务
 	ok = tm.SetTaskError("non_existent", err)
@@ -423,6 +433,33 @@ func TestTaskManager_CompleteTask_DoesNotOverrideCompletedTask(t *testing.T) {
 	assert.Equal(t, 1, got.Result.Failed)
 	assert.Equal(t, 2, got.Result.Versioned)
 	assert.Equal(t, "detailed result", got.Result.Message)
+}
+
+func TestTaskManager_CompleteTask_ConvergesProgress(t *testing.T) {
+	tm := NewTaskManager()
+	task := tm.CreateTask(TaskTypeUserDownload, nil)
+	tm.UpdateTaskProgress(task.ID, &TaskProgress{
+		Stage:     "retrying",
+		Total:     100,
+		Completed: 80,
+		Failed:    3,
+		Current:   "user1",
+	})
+
+	result := &TaskResult{
+		Downloaded: 97,
+		Failed:     3,
+		Message:    "done",
+	}
+	assert.True(t, tm.CompleteTask(task.ID, result))
+
+	got, ok := tm.GetTask(task.ID)
+	assert.True(t, ok)
+	assert.Equal(t, TaskStatusCompleted, got.Status)
+	assert.Equal(t, "completed", got.Progress.Stage)
+	assert.Equal(t, "", got.Progress.Current)
+	assert.Equal(t, 100, got.Progress.Completed)
+	assert.Equal(t, 3, got.Progress.Failed)
 }
 
 func TestTaskManager_UpdateTaskProgress(t *testing.T) {
@@ -501,12 +538,16 @@ func TestTaskManager_CancelTask(t *testing.T) {
 	t.Run("取消运行中的任务", func(t *testing.T) {
 		task := tm.CreateTask(TaskTypeUserDownload, nil)
 		tm.UpdateTaskStatus(task.ID, TaskStatusRunning)
+		tm.UpdateTaskProgress(task.ID, &TaskProgress{Stage: "downloading", Total: 10, Completed: 3, Current: "user1"})
 
 		ok := tm.CancelTask(task.ID)
 		assert.True(t, ok)
 
 		got, _ := tm.GetTask(task.ID)
 		assert.Equal(t, TaskStatusCancelled, got.Status)
+		assert.Equal(t, "", got.Progress.Stage)
+		assert.Equal(t, "", got.Progress.Current)
+		assert.Equal(t, 3, got.Progress.Completed)
 	})
 
 	t.Run("取消已完成的任务", func(t *testing.T) {
@@ -637,6 +678,9 @@ func TestTaskManager_TaskLifecycle(t *testing.T) {
 	assert.NotNil(t, task.EndedAt)
 	assert.Equal(t, 98, task.Result.Downloaded)
 	assert.Equal(t, "Completed", task.Result.Message)
+	assert.Equal(t, "completed", task.Progress.Stage)
+	assert.Equal(t, "", task.Progress.Current)
+	assert.Equal(t, 100, task.Progress.Completed)
 }
 
 func TestTaskStatus_Constants(t *testing.T) {

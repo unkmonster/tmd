@@ -5,10 +5,10 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/unkmonster/tmd/internal/service"
+	"github.com/unkmonster/tmd/internal/utils"
 )
 
 // executeDownloadTask 执行下载任务的通用辅助方法
@@ -44,69 +44,55 @@ func formatTaskMarkTime(timestamp *time.Time) *string {
 	return &formatted
 }
 
-// isValidScreenName 校验 Twitter screen name 格式
-// 规则：1-15个字符，只允许字母、数字、下划线
-func isValidScreenName(screenName string) bool {
-	if len(screenName) < 1 || len(screenName) > 15 {
-		return false
-	}
-	for _, ch := range screenName {
-		if !((ch >= 'a' && ch <= 'z') ||
-			(ch >= 'A' && ch <= 'Z') ||
-			(ch >= '0' && ch <= '9') ||
-			ch == '_') {
-			return false
-		}
-	}
-	return true
-}
+func (s *Server) screenNameFromPath(w http.ResponseWriter, r *http.Request) (string, bool) {
+	screenName := utils.NormalizeScreenName(r.PathValue("screen_name"))
 
-func normalizeScreenName(screenName string) string {
-	return strings.TrimPrefix(screenName, "@")
-}
-
-func (s *Server) handleUsers(w http.ResponseWriter, r *http.Request) {
-	path := strings.TrimPrefix(r.URL.Path, "/api/v1/users/")
-	parts := strings.Split(path, "/")
-
-	if len(parts) < 2 {
-		s.writeError(w, http.StatusNotFound, "Not found")
-		return
-	}
-
-	screenName := normalizeScreenName(parts[0])
-
-	// 校验 screenName 格式
-	if !isValidScreenName(screenName) {
+	if !utils.IsValidScreenName(screenName) {
 		s.writeError(w, http.StatusBadRequest, "Invalid screen name format")
+		return "", false
+	}
+
+	return screenName, true
+}
+
+func (s *Server) handleUserDownloadRoute(w http.ResponseWriter, r *http.Request) {
+	screenName, ok := s.screenNameFromPath(w, r)
+	if !ok {
 		return
 	}
+	s.handleUserDownload(w, r, screenName)
+}
 
-	action := parts[1]
-
-	switch action {
-	case "download":
-		s.handleUserDownload(w, r, screenName)
-	case "profile":
-		s.handleUserProfile(w, r, screenName)
-	case "mark":
-		s.handleUserMark(w, r, screenName)
-	case "following":
-		if len(parts) >= 3 {
-			switch parts[2] {
-			case "download":
-				s.handleFollowingDownload(w, r, screenName)
-			case "mark":
-				s.handleFollowingMark(w, r, screenName)
-			default:
-				s.writeError(w, http.StatusNotFound, "Not found")
-			}
-		} else {
-			s.writeError(w, http.StatusNotFound, "Not found")
-		}
-	default:
-		s.writeError(w, http.StatusNotFound, "Not found")
+func (s *Server) handleUserProfileRoute(w http.ResponseWriter, r *http.Request) {
+	screenName, ok := s.screenNameFromPath(w, r)
+	if !ok {
+		return
 	}
+	s.handleUserProfile(w, r, screenName)
+}
+
+func (s *Server) handleUserMarkRoute(w http.ResponseWriter, r *http.Request) {
+	screenName, ok := s.screenNameFromPath(w, r)
+	if !ok {
+		return
+	}
+	s.handleUserMark(w, r, screenName)
+}
+
+func (s *Server) handleFollowingDownloadRoute(w http.ResponseWriter, r *http.Request) {
+	screenName, ok := s.screenNameFromPath(w, r)
+	if !ok {
+		return
+	}
+	s.handleFollowingDownload(w, r, screenName)
+}
+
+func (s *Server) handleFollowingMarkRoute(w http.ResponseWriter, r *http.Request) {
+	screenName, ok := s.screenNameFromPath(w, r)
+	if !ok {
+		return
+	}
+	s.handleFollowingMark(w, r, screenName)
 }
 
 func (s *Server) handleUserDownload(w http.ResponseWriter, r *http.Request, screenName string) {
@@ -258,39 +244,44 @@ func (s *Server) handleFollowingDownload(w http.ResponseWriter, r *http.Request,
 	}))
 }
 
-func (s *Server) handleLists(w http.ResponseWriter, r *http.Request) {
-	path := strings.TrimPrefix(r.URL.Path, "/api/v1/lists/")
-	parts := strings.Split(path, "/")
-
-	if len(parts) < 2 {
-		s.writeError(w, http.StatusNotFound, "Not found")
-		return
-	}
-
-	listID, err := strconv.ParseUint(parts[0], 10, 64)
+func (s *Server) listIDFromPath(w http.ResponseWriter, r *http.Request) (uint64, bool) {
+	listID, err := strconv.ParseUint(r.PathValue("list_id"), 10, 64)
 	if err != nil {
 		s.writeError(w, http.StatusBadRequest, "Invalid list ID")
-		return
+		return 0, false
 	}
 
 	// 校验 listID 有效性（必须大于 0）
 	if listID == 0 {
 		s.writeError(w, http.StatusBadRequest, "Invalid list ID")
+		return 0, false
+	}
+
+	return listID, true
+}
+
+func (s *Server) handleListDownloadRoute(w http.ResponseWriter, r *http.Request) {
+	listID, ok := s.listIDFromPath(w, r)
+	if !ok {
 		return
 	}
+	s.handleListDownload(w, r, listID)
+}
 
-	action := parts[1]
-
-	switch action {
-	case "download":
-		s.handleListDownload(w, r, listID)
-	case "profile":
-		s.handleListProfile(w, r, listID)
-	case "mark":
-		s.handleListMark(w, r, listID)
-	default:
-		s.writeError(w, http.StatusNotFound, "Not found")
+func (s *Server) handleListProfileRoute(w http.ResponseWriter, r *http.Request) {
+	listID, ok := s.listIDFromPath(w, r)
+	if !ok {
+		return
 	}
+	s.handleListProfile(w, r, listID)
+}
+
+func (s *Server) handleListMarkRoute(w http.ResponseWriter, r *http.Request) {
+	listID, ok := s.listIDFromPath(w, r)
+	if !ok {
+		return
+	}
+	s.handleListMark(w, r, listID)
 }
 
 func (s *Server) handleListDownload(w http.ResponseWriter, r *http.Request, listID uint64) {
@@ -406,15 +397,15 @@ func (s *Server) handleBatchDownload(w http.ResponseWriter, r *http.Request) {
 
 	// 校验所有 screenName 格式
 	for i, screenName := range req.Users {
-		req.Users[i] = normalizeScreenName(screenName)
-		if !isValidScreenName(req.Users[i]) {
+		req.Users[i] = utils.NormalizeScreenName(screenName)
+		if !utils.IsValidScreenName(req.Users[i]) {
 			s.writeError(w, http.StatusBadRequest, "Invalid screen name format: "+screenName)
 			return
 		}
 	}
 	for i, screenName := range req.FollowingNames {
-		req.FollowingNames[i] = normalizeScreenName(screenName)
-		if !isValidScreenName(req.FollowingNames[i]) {
+		req.FollowingNames[i] = utils.NormalizeScreenName(screenName)
+		if !utils.IsValidScreenName(req.FollowingNames[i]) {
 			s.writeError(w, http.StatusBadRequest, "Invalid screen name format: "+screenName)
 			return
 		}

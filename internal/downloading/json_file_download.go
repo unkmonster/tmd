@@ -160,7 +160,7 @@ func DownloadThirdPartyTweets(
 
 			// 使用 BatchDownloadTweet 统一处理下载
 			// skipLoongTweet=false：需要保存 txt 和 json 元数据文件
-			failedTweets := BatchDownloadTweet(ctx, client, false, dwn, fileWriter, pts...)
+			failedTweets := BatchDownloadTweet(ctx, client, false, dwn, fileWriter, nil, pts...)
 
 			result.Success = len(failedTweets) == 0
 			result.MediaCount = totalMedia
