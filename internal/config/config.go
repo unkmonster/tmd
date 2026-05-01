@@ -7,20 +7,31 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
 
 	log "github.com/sirupsen/logrus"
+	"github.com/unkmonster/tmd/internal/utils"
 	"gopkg.in/yaml.v3"
 )
 
 const (
-	DefaultMaxDownloadRoutine = 35
-	DefaultMaxFileNameLen     = 158
-	MinFileNameLen            = 50
-	MaxFileNameLen            = 250
+	MinFileNameLen = 50
+	MaxFileNameLen = 250
 )
+
+// DefaultMaxDownloadRoutine 返回默认的最大下载并发数
+// 基于 CPU 核心数计算，但不超过 100
+func DefaultMaxDownloadRoutine() int {
+	return min(100, runtime.GOMAXPROCS(0)*10)
+}
+
+// DefaultMaxFileNameLen 返回默认的最大文件名长度
+func DefaultMaxFileNameLen() int {
+	return utils.DefaultMaxFileNameLen
+}
 
 type Cookie struct {
 	AuthToken string `yaml:"auth_token"`
@@ -83,15 +94,15 @@ func GetFieldDefs() []FieldDef {
 		{
 			Name:    "max_download_routine",
 			Prompt:  "enter max download routine",
-			Default: strconv.Itoa(DefaultMaxDownloadRoutine),
+			Default: strconv.Itoa(DefaultMaxDownloadRoutine()),
 			Getter: func(c *Config) string {
 				if c.MaxDownloadRoutine == 0 {
-					return strconv.Itoa(DefaultMaxDownloadRoutine)
+					return strconv.Itoa(DefaultMaxDownloadRoutine())
 				}
 				return strconv.Itoa(c.MaxDownloadRoutine)
 			},
 			Setter: func(c *Config, v string) error {
-				n, err := parseIntWithDefault(v, DefaultMaxDownloadRoutine)
+				n, err := parseIntWithDefault(v, DefaultMaxDownloadRoutine())
 				if err != nil {
 					return fmt.Errorf("invalid number: %w", err)
 				}
@@ -102,15 +113,15 @@ func GetFieldDefs() []FieldDef {
 		{
 			Name:    "max_file_name_len",
 			Prompt:  fmt.Sprintf("enter max file name length (%d-%d)", MinFileNameLen, MaxFileNameLen),
-			Default: strconv.Itoa(DefaultMaxFileNameLen),
+			Default: strconv.Itoa(DefaultMaxFileNameLen()),
 			Getter: func(c *Config) string {
 				if c.MaxFileNameLen == 0 {
-					return strconv.Itoa(DefaultMaxFileNameLen)
+					return strconv.Itoa(DefaultMaxFileNameLen())
 				}
 				return strconv.Itoa(c.MaxFileNameLen)
 			},
 			Setter: func(c *Config, v string) error {
-				n, err := parseIntWithDefault(v, DefaultMaxFileNameLen)
+				n, err := parseIntWithDefault(v, DefaultMaxFileNameLen())
 				if err != nil {
 					return fmt.Errorf("invalid number: %w", err)
 				}

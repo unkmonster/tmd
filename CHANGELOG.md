@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ***
 
+## [3.2.16] - 2026-04-29
+
+### Changed
+
+#### 默认并发数优化
+
+| 文件 | 变更 |
+|------|------|
+| `internal/config/config.go` | 新增 `DefaultMaxDownloadRoutine()` 函数，统一默认并发数计算 |
+| `internal/config/config.go` | 默认并发数从 `min(10, GOMAXPROCS*2)` 改为 `min(100, GOMAXPROCS*10)` |
+| `internal/downloading/types.go` | 使用 `config.DefaultMaxDownloadRoutine()` 替代硬编码逻辑 |
+
+#### 代码注释增强
+
+| 文件 | 变更 |
+|------|------|
+| `internal/downloading/tweet_download.go` | 添加注释说明辅助文件是尽力而为，失败不影响媒体下载 |
+| `internal/downloading/tweet_download.go` | 添加注释说明 `.json` 和 `.txt` 元数据不应阻塞媒体下载 |
+
+### Stats
+
+- **4 个文件变更**
+- **+17 行 / -8 行**
+
+***
+
 ## [3.2.15] - 2026-04-29
 
 ### Changed

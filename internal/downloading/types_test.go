@@ -8,6 +8,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/unkmonster/tmd/internal/config"
 	"github.com/unkmonster/tmd/internal/twitter"
 )
 
@@ -90,9 +91,9 @@ func TestMaxDownloadRoutine_DefaultValue(t *testing.T) {
 	assert.Greater(t, MaxDownloadRoutine, 0, "MaxDownloadRoutine should be greater than 0")
 	assert.LessOrEqual(t, MaxDownloadRoutine, 100, "MaxDownloadRoutine should be <= 100")
 
-	// 验证是合理的值（基于CPU核心数）
-	// 默认应该是 min(10, GOMAXPROCS*2)
-	assert.LessOrEqual(t, MaxDownloadRoutine, 10, "MaxDownloadRoutine should be <= 10")
+	// 默认应该是 min(100, GOMAXPROCS*10)
+	assert.Equal(t, config.DefaultMaxDownloadRoutine(), MaxDownloadRoutine)
+	assert.LessOrEqual(t, MaxDownloadRoutine, 100, "MaxDownloadRoutine should be <= 100")
 }
 
 // ==================== workerConfig 测试 ====================

@@ -23,6 +23,8 @@ import (
 )
 
 func writeAuxiliaryTweetFile(fileWriter downloader.FileWriter, writeReq downloader.WriteRequest, fileType string) {
+	// Auxiliary tweet metadata is best-effort: failures are logged but do not affect
+	// the media download result.
 	result, err := fileWriter.Write(writeReq)
 	if err != nil {
 		log.Warnf("failed to write %s: %v", fileType, err)
@@ -42,6 +44,7 @@ func saveTweetJson(cfg *workerConfig, dir string, tweet *twitter.Tweet, namingOb
 		return
 	}
 
+	// Fire-and-forget by design: .json metadata should not block media downloads.
 	go func() {
 		defer utils.RecoverWithLog("saveTweetJson")
 
@@ -79,6 +82,7 @@ func saveLoongTweet(cfg *workerConfig, dir string, tweet *twitter.Tweet, namingO
 		return
 	}
 
+	// Fire-and-forget by design: .txt metadata should not block media downloads.
 	go func() {
 		defer utils.RecoverWithLog("saveLoongTweet")
 
