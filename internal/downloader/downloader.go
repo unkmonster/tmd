@@ -7,6 +7,7 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
+	"github.com/unkmonster/tmd/internal/utils"
 )
 
 const streamThreshold = 10 * 1024 * 1024 // 10MB
@@ -34,6 +35,17 @@ func waitRetryDelay(ctx context.Context, delay time.Duration) error {
 type DefaultDownloader struct {
 	fileWriter FileWriter
 	logger     log.FieldLogger
+}
+
+func newHTTPStatusError(statusCode int, url string) error {
+	return &utils.HttpStatusError{
+		Code: statusCode,
+		Msg:  url,
+	}
+}
+
+func isNonRetriableStatusError(err error) bool {
+	return utils.IsStatusCode(err, 403) || utils.IsStatusCode(err, 404)
 }
 
 // NewDownloader 创建下载器
@@ -124,7 +136,7 @@ func (d *DefaultDownloader) downloadBuffer(req DownloadRequest) (*DownloadResult
 	}
 
 	if resp.StatusCode() < 200 || resp.StatusCode() >= 300 {
-		err := fmt.Errorf("HTTP %d: %s", resp.StatusCode(), req.URL)
+		err := newHTTPStatusError(resp.StatusCode(), req.URL)
 		result.Error = err
 		d.logger.WithFields(log.Fields{
 			"url":         req.URL,
@@ -176,6 +188,10 @@ func (d *DefaultDownloader) downloadStream(req DownloadRequest, contentLength in
 		}
 
 		lastErr = err
+
+		if isNonRetriableStatusError(err) {
+			return result, err
+		}
 
 		// 检查是否是可重试的错误（文件大小不匹配）
 		if result != nil && result.Error != nil {
@@ -237,7 +253,7 @@ func (d *DefaultDownloader) doDownloadStream(req DownloadRequest, contentLength 
 	defer resp.RawResponse.Body.Close()
 
 	if resp.StatusCode() < 200 || resp.StatusCode() >= 300 {
-		err := fmt.Errorf("HTTP %d: %s", resp.StatusCode(), req.URL)
+		err := newHTTPStatusError(resp.StatusCode(), req.URL)
 		result.Error = err
 		d.logger.WithFields(log.Fields{
 			"url":         req.URL,

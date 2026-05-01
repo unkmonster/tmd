@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/go-resty/resty/v2"
+	"github.com/unkmonster/tmd/internal/utils"
 )
 
 // =============================================================================
@@ -1583,6 +1584,96 @@ func TestDownloader_Download_NetworkError(t *testing.T) {
 	}
 	if result.Success {
 		t.Error("期望 Success=false")
+	}
+}
+
+func TestDownloader_DownloadBuffer_ReturnsHTTPStatusError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "HEAD" {
+			w.Header().Set("Content-Length", "1024")
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte("not found"))
+	}))
+	defer server.Close()
+
+	tempDir, err := os.MkdirTemp("", "downloader_http_status_buffer")
+	if err != nil {
+		t.Fatalf("创建临时目录失败: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	dl := NewDownloader(NewFileWriter(nil))
+	req := DownloadRequest{
+		Context:     context.Background(),
+		Client:      resty.New(),
+		URL:         server.URL + "/missing.jpg",
+		Destination: filepath.Join(tempDir, "missing.jpg"),
+	}
+
+	result, err := dl.Download(req)
+	if err == nil {
+		t.Fatal("期望返回 HTTP 状态错误")
+	}
+	if result == nil {
+		t.Fatal("期望 result 不为 nil")
+	}
+
+	var statusErr *utils.HttpStatusError
+	if !errors.As(err, &statusErr) {
+		t.Fatalf("期望错误可解析为 HttpStatusError, got %T", err)
+	}
+	if statusErr.Code != http.StatusNotFound {
+		t.Fatalf("期望状态码 404, got %d", statusErr.Code)
+	}
+}
+
+func TestDownloader_DownloadStream_404DoesNotRetry(t *testing.T) {
+	getCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "HEAD" {
+			w.Header().Set("Content-Length", fmt.Sprintf("%d", 11*1024*1024))
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		getCount++
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer server.Close()
+
+	tempDir, err := os.MkdirTemp("", "downloader_http_status_stream")
+	if err != nil {
+		t.Fatalf("创建临时目录失败: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	dl := NewDownloader(NewFileWriter(nil))
+	req := DownloadRequest{
+		Context:     context.Background(),
+		Client:      resty.New(),
+		URL:         server.URL + "/missing.bin",
+		Destination: filepath.Join(tempDir, "missing.bin"),
+	}
+
+	result, err := dl.Download(req)
+	if err == nil {
+		t.Fatal("期望返回 HTTP 状态错误")
+	}
+	if result == nil {
+		t.Fatal("期望 result 不为 nil")
+	}
+	if getCount != 1 {
+		t.Fatalf("404 流式下载不应重试，实际 GET 次数 = %d", getCount)
+	}
+
+	var statusErr *utils.HttpStatusError
+	if !errors.As(err, &statusErr) {
+		t.Fatalf("期望错误可解析为 HttpStatusError, got %T", err)
+	}
+	if statusErr.Code != http.StatusNotFound {
+		t.Fatalf("期望状态码 404, got %d", statusErr.Code)
 	}
 }
 

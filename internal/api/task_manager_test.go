@@ -152,14 +152,30 @@ func TestTaskManager_GetTask_ReturnsClone(t *testing.T) {
 		Users: []string{"user1"},
 	})
 	tm.UpdateTaskProgress(task.ID, &TaskProgress{Total: 10, Completed: 1})
+	tm.SetTaskResult(task.ID, &TaskResult{
+		Main: &TaskMainResult{
+			Downloaded: 2,
+			Failed:     1,
+		},
+		Profile: &TaskProfileResult{
+			Downloaded: 3,
+			Failed:     1,
+			Versioned:  1,
+		},
+	})
 
 	got, ok := tm.GetTask(task.ID)
 	assert.True(t, ok)
 	assert.NotSame(t, task, got)
 	assert.NotSame(t, task.Progress, got.Progress)
+	assert.NotSame(t, task.Result, got.Result)
+	assert.NotSame(t, task.Result.Main, got.Result.Main)
+	assert.NotSame(t, task.Result.Profile, got.Result.Profile)
 
 	got.Status = TaskStatusCompleted
 	got.Progress.Completed = 9
+	got.Result.Main.Downloaded = 99
+	got.Result.Profile.Versioned = 99
 	gotData := got.Data.(*BatchDownloadTaskData)
 	gotData.Users[0] = "mutated"
 
@@ -167,6 +183,8 @@ func TestTaskManager_GetTask_ReturnsClone(t *testing.T) {
 	assert.True(t, ok)
 	assert.Equal(t, TaskStatusQueued, again.Status)
 	assert.Equal(t, 1, again.Progress.Completed)
+	assert.Equal(t, 2, again.Result.Main.Downloaded)
+	assert.Equal(t, 1, again.Result.Profile.Versioned)
 	assert.Equal(t, "user1", again.Data.(*BatchDownloadTaskData).Users[0])
 }
 
@@ -377,8 +395,10 @@ func TestTaskManager_CompleteTask_DoesNotOverrideFailedTask(t *testing.T) {
 	assert.True(t, tm.SetTaskError(task.ID, assert.AnError))
 
 	result := &TaskResult{
-		Downloaded: 100,
-		Message:    "should not override failed task",
+		Main: &TaskMainResult{
+			Downloaded: 100,
+		},
+		Message: "should not override failed task",
 	}
 	assert.False(t, tm.CompleteTask(task.ID, result))
 
@@ -394,8 +414,10 @@ func TestTaskManager_SetTaskError_DoesNotOverrideCompletedTask(t *testing.T) {
 	task := tm.CreateTask(TaskTypeUserDownload, nil)
 
 	result := &TaskResult{
-		Downloaded: 100,
-		Message:    "completed",
+		Main: &TaskMainResult{
+			Downloaded: 100,
+		},
+		Message: "completed",
 	}
 	assert.True(t, tm.CompleteTask(task.ID, result))
 	assert.False(t, tm.SetTaskError(task.ID, assert.AnError))
@@ -404,7 +426,8 @@ func TestTaskManager_SetTaskError_DoesNotOverrideCompletedTask(t *testing.T) {
 	assert.True(t, ok)
 	assert.Equal(t, TaskStatusCompleted, got.Status)
 	assert.NotNil(t, got.Result)
-	assert.Equal(t, 100, got.Result.Downloaded)
+	assert.NotNil(t, got.Result.Main)
+	assert.Equal(t, 100, got.Result.Main.Downloaded)
 	assert.Empty(t, got.Error)
 }
 
@@ -413,10 +436,16 @@ func TestTaskManager_CompleteTask_DoesNotOverrideCompletedTask(t *testing.T) {
 	task := tm.CreateTask(TaskTypeUserDownload, nil)
 
 	first := &TaskResult{
-		Downloaded: 100,
-		Failed:     1,
-		Versioned:  2,
-		Message:    "detailed result",
+		Main: &TaskMainResult{
+			Downloaded: 100,
+			Failed:     1,
+		},
+		Profile: &TaskProfileResult{
+			Downloaded: 7,
+			Failed:     1,
+			Versioned:  2,
+		},
+		Message: "detailed result",
 	}
 	second := &TaskResult{
 		Message: "summary only",
@@ -429,9 +458,11 @@ func TestTaskManager_CompleteTask_DoesNotOverrideCompletedTask(t *testing.T) {
 	assert.True(t, ok)
 	assert.Equal(t, TaskStatusCompleted, got.Status)
 	assert.NotNil(t, got.Result)
-	assert.Equal(t, 100, got.Result.Downloaded)
-	assert.Equal(t, 1, got.Result.Failed)
-	assert.Equal(t, 2, got.Result.Versioned)
+	assert.NotNil(t, got.Result.Main)
+	assert.NotNil(t, got.Result.Profile)
+	assert.Equal(t, 100, got.Result.Main.Downloaded)
+	assert.Equal(t, 1, got.Result.Main.Failed)
+	assert.Equal(t, 2, got.Result.Profile.Versioned)
 	assert.Equal(t, "detailed result", got.Result.Message)
 }
 
@@ -447,9 +478,11 @@ func TestTaskManager_CompleteTask_ConvergesProgress(t *testing.T) {
 	})
 
 	result := &TaskResult{
-		Downloaded: 97,
-		Failed:     3,
-		Message:    "done",
+		Main: &TaskMainResult{
+			Downloaded: 97,
+			Failed:     3,
+		},
+		Message: "done",
 	}
 	assert.True(t, tm.CompleteTask(task.ID, result))
 
@@ -491,10 +524,16 @@ func TestTaskManager_SetTaskResult(t *testing.T) {
 	task := tm.CreateTask(TaskTypeUserDownload, nil)
 
 	result := &TaskResult{
-		Downloaded: 100,
-		Failed:     5,
-		Versioned:  10,
-		Message:    "Download completed",
+		Main: &TaskMainResult{
+			Downloaded: 100,
+			Failed:     5,
+		},
+		Profile: &TaskProfileResult{
+			Downloaded: 6,
+			Failed:     1,
+			Versioned:  10,
+		},
+		Message: "Download completed",
 	}
 
 	ok := tm.SetTaskResult(task.ID, result)
@@ -502,9 +541,11 @@ func TestTaskManager_SetTaskResult(t *testing.T) {
 
 	got, _ := tm.GetTask(task.ID)
 	assert.Equal(t, result, got.Result)
-	assert.Equal(t, 100, got.Result.Downloaded)
-	assert.Equal(t, 5, got.Result.Failed)
-	assert.Equal(t, 10, got.Result.Versioned)
+	assert.NotNil(t, got.Result.Main)
+	assert.NotNil(t, got.Result.Profile)
+	assert.Equal(t, 100, got.Result.Main.Downloaded)
+	assert.Equal(t, 5, got.Result.Main.Failed)
+	assert.Equal(t, 10, got.Result.Profile.Versioned)
 	assert.Equal(t, "Download completed", got.Result.Message)
 
 	// 测试不存在的任务
@@ -671,12 +712,19 @@ func TestTaskManager_TaskLifecycle(t *testing.T) {
 	assert.Equal(t, 100, task.Progress.Completed)
 
 	// 5. 设置结果并完成任务
-	tm.SetTaskResult(task.ID, &TaskResult{Downloaded: 98, Failed: 2, Message: "Completed"})
+	tm.SetTaskResult(task.ID, &TaskResult{
+		Main: &TaskMainResult{
+			Downloaded: 98,
+			Failed:     2,
+		},
+		Message: "Completed",
+	})
 	tm.UpdateTaskStatus(task.ID, TaskStatusCompleted)
 	task, _ = tm.GetTask(task.ID)
 	assert.Equal(t, TaskStatusCompleted, task.Status)
 	assert.NotNil(t, task.EndedAt)
-	assert.Equal(t, 98, task.Result.Downloaded)
+	assert.NotNil(t, task.Result.Main)
+	assert.Equal(t, 98, task.Result.Main.Downloaded)
 	assert.Equal(t, "Completed", task.Result.Message)
 	assert.Equal(t, "completed", task.Progress.Stage)
 	assert.Equal(t, "", task.Progress.Current)

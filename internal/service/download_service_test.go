@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"os"
 	"path/filepath"
@@ -17,6 +18,7 @@ import (
 	"github.com/unkmonster/tmd/internal/config"
 	"github.com/unkmonster/tmd/internal/database"
 	"github.com/unkmonster/tmd/internal/downloading"
+	"github.com/unkmonster/tmd/internal/entity"
 	"github.com/unkmonster/tmd/internal/path"
 	"github.com/unkmonster/tmd/internal/twitter"
 )
@@ -88,6 +90,19 @@ func createTestDependencies(t *testing.T) *Dependencies {
 		AdditionalClients: []*resty.Client{},
 		DB:                db,
 		Config:            &config.Config{RootPath: "/test/path"},
+	}
+}
+
+func newFailedTweet(entityID int, tweetID uint64) *downloading.TweetInEntity {
+	record := &database.UserEntity{
+		Id:        sql.NullInt32{Int32: int32(entityID), Valid: true},
+		Uid:       uint64(entityID),
+		Name:      "user",
+		ParentDir: "/tmp",
+	}
+	return &downloading.TweetInEntity{
+		Tweet:  &twitter.Tweet{Id: tweetID, CreatedAt: time.Now()},
+		Entity: entity.NewUserEntityFromRecord(nil, record),
 	}
 }
 
@@ -166,25 +181,28 @@ func TestDownloadServiceImpl_NewRetryProgressCallback(t *testing.T) {
 }
 
 func TestDownloadServiceImpl_BuildMainDownloadResultUsesMainDownloadStats(t *testing.T) {
-	dumper := downloading.NewDumper()
-	now := time.Now()
-	dumper.Push(1, &twitter.Tweet{Id: 1, CreatedAt: now})
-	dumper.Push(2, &twitter.Tweet{Id: 2, CreatedAt: now})
-	profileResult := &Result{Downloaded: 5, Failed: 1, Versioned: 3}
-
-	result := (&downloadServiceImpl{}).buildMainDownloadResult(downloading.BatchDownloadSummary{TotalEntities: 5}, dumper, profileResult)
+	result := (&downloadServiceImpl{}).buildMainDownloadResult(downloading.BatchDownloadSummary{TotalEntities: 5}, 2)
 	require.NotNil(t, result)
 	assert.Equal(t, 3, result.Downloaded)
 	assert.Equal(t, 2, result.Failed)
-	assert.Equal(t, 3, result.Versioned)
 }
 
-func TestDownloadServiceImpl_BuildMainDownloadResultFallsBackToProfileStats(t *testing.T) {
-	profileResult := &Result{Downloaded: 1, Failed: 0, Versioned: 2, Message: "Profile download completed"}
+func TestDownloadServiceImpl_BuildMainDownloadResultReturnsNilWithoutMainEntities(t *testing.T) {
+	result := (&downloadServiceImpl{}).buildMainDownloadResult(downloading.BatchDownloadSummary{}, 0)
+	assert.Nil(t, result)
+}
 
-	result := (&downloadServiceImpl{}).buildMainDownloadResult(downloading.BatchDownloadSummary{}, nil, profileResult)
-	require.NotNil(t, result)
-	assert.Equal(t, *profileResult, *result)
+func TestCountRemainingFailedEntitiesOnlyCountsCurrentFailures(t *testing.T) {
+	dumper := downloading.NewDumper()
+	dumper.Push(9, &twitter.Tweet{Id: 90, CreatedAt: time.Now()})
+	dumper.Push(1, &twitter.Tweet{Id: 10, CreatedAt: time.Now()})
+
+	failures := collectFailedTweetSet([]*downloading.TweetInEntity{
+		newFailedTweet(1, 10),
+		newFailedTweet(2, 20),
+	})
+
+	assert.Equal(t, 1, countRemainingFailedEntities(dumper, failures))
 }
 
 func TestDownloadServiceImpl_CompleteProfileTaskWithoutDownloads(t *testing.T) {
@@ -198,6 +216,7 @@ func TestDownloadServiceImpl_CompleteProfileTaskWithoutDownloads(t *testing.T) {
 
 	require.Len(t, reporter.CompleteCalls, 1)
 	assert.Equal(t, "No profile downloads performed", reporter.CompleteCalls[0].Result.Message)
+	assert.Nil(t, reporter.CompleteCalls[0].Result.Profile)
 }
 
 func TestDownloadServiceImpl_CompleteTaskWithProfileWarning(t *testing.T) {
@@ -207,14 +226,26 @@ func TestDownloadServiceImpl_CompleteTaskWithProfileWarning(t *testing.T) {
 	impl := service.(*downloadServiceImpl)
 
 	reporter := NewMockProgressReporter()
-	stats := &Result{Downloaded: 2, Failed: 1, Versioned: 3}
+	stats := &Result{
+		Main: &MainResult{
+			Downloaded: 2,
+			Failed:     1,
+		},
+		Profile: &ProfileResult{
+			Downloaded: 4,
+			Failed:     1,
+			Versioned:  3,
+		},
+	}
 	impl.completeTask("task-1", reporter, "User download completed", stats, "with profile warnings")
 
 	require.Len(t, reporter.CompleteCalls, 1)
 	assert.Equal(t, "User download completed (with profile warnings)", reporter.CompleteCalls[0].Result.Message)
-	assert.Equal(t, 2, reporter.CompleteCalls[0].Result.Downloaded)
-	assert.Equal(t, 1, reporter.CompleteCalls[0].Result.Failed)
-	assert.Equal(t, 3, reporter.CompleteCalls[0].Result.Versioned)
+	require.NotNil(t, reporter.CompleteCalls[0].Result.Main)
+	require.NotNil(t, reporter.CompleteCalls[0].Result.Profile)
+	assert.Equal(t, 2, reporter.CompleteCalls[0].Result.Main.Downloaded)
+	assert.Equal(t, 1, reporter.CompleteCalls[0].Result.Main.Failed)
+	assert.Equal(t, 3, reporter.CompleteCalls[0].Result.Profile.Versioned)
 }
 
 func TestDownloadServiceImpl_UserDownloadErrorDoesNotCallReporterOnError(t *testing.T) {
@@ -475,7 +506,7 @@ func TestDownloadOptions_AllCombinations(t *testing.T) {
 
 func TestMockProgressReporter_ProgressStages(t *testing.T) {
 	reporter := NewMockProgressReporter()
-	stages := []string{"syncing", "downloading", "retrying", "profile", "marking", "completed"}
+	stages := []string{"syncing", "downloading", "retrying", "profile", "profile_warning", "marking", "completed"}
 
 	for _, stage := range stages {
 		reporter.OnProgress("task-1", Progress{Stage: stage, Current: "test"})
@@ -492,12 +523,24 @@ func TestMockProgressReporter_ResultVariations(t *testing.T) {
 	reporter := NewMockProgressReporter()
 
 	// 测试不同结果类型
-	reporter.OnComplete("task-1", Result{Downloaded: 100, Failed: 5, Versioned: 10, Message: "Stats"})
+	reporter.OnComplete("task-1", Result{
+		Main: &MainResult{
+			Downloaded: 100,
+			Failed:     5,
+		},
+		Profile: &ProfileResult{
+			Downloaded: 8,
+			Failed:     1,
+			Versioned:  10,
+		},
+		Message: "Stats",
+	})
 	reporter.OnComplete("task-2", Result{Message: "Only message"})
 	reporter.OnComplete("task-3", Result{})
 
 	assert.Len(t, reporter.CompleteCalls, 3)
-	assert.Equal(t, 100, reporter.CompleteCalls[0].Result.Downloaded)
+	require.NotNil(t, reporter.CompleteCalls[0].Result.Main)
+	assert.Equal(t, 100, reporter.CompleteCalls[0].Result.Main.Downloaded)
 	assert.Equal(t, "Only message", reporter.CompleteCalls[1].Result.Message)
 	assert.Equal(t, "", reporter.CompleteCalls[2].Result.Message)
 }
@@ -552,7 +595,28 @@ func TestDownloadServiceImpl_DownloadProfile_ReturnsErrorWhenAllProfilesFail(t *
 		{ScreenName: "broken_user"},
 	}, pathHelper, versionManager, fileWriter, dwn, reporter)
 	require.Error(t, err)
-	assert.Nil(t, result)
+	require.NotNil(t, result)
+	assert.Equal(t, 0, result.Downloaded)
+	assert.Equal(t, 1, result.Failed)
+	assert.Equal(t, 0, result.Versioned)
 	assert.Contains(t, err.Error(), "profile download failed for all 1 users")
+	assert.Empty(t, reporter.CompleteCalls)
+}
+
+func TestDownloadServiceImpl_ProfileDownload_ReturnsErrorWhenAllUsersFailToResolve(t *testing.T) {
+	deps := createTestDependencies(t)
+	deps.Config.RootPath = t.TempDir()
+
+	service, err := NewDownloadService(deps)
+	require.NoError(t, err)
+	impl := service.(*downloadServiceImpl)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	reporter := NewMockProgressReporter()
+	err = impl.ProfileDownload(ctx, "task-1", []string{"broken_user"}, reporter)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "all profile users failed to resolve")
 	assert.Empty(t, reporter.CompleteCalls)
 }

@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
@@ -24,8 +25,8 @@ func (err *HttpStatusError) Error() string {
 }
 
 func IsStatusCode(err error, code int) bool {
-	e, ok := err.(*HttpStatusError)
-	if !ok {
+	var e *HttpStatusError
+	if !errors.As(err, &e) {
 		return false
 	}
 	return e.Code == code

@@ -3,11 +3,14 @@ package downloading
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/unkmonster/tmd/internal/downloader"
 	"github.com/unkmonster/tmd/internal/twitter"
+	"github.com/unkmonster/tmd/internal/utils"
 )
 
 type mockTweetFileWriter struct {
@@ -18,6 +21,33 @@ type mockTweetFileWriter struct {
 func (m *mockTweetFileWriter) Write(req downloader.WriteRequest) (downloader.WriteResult, error) {
 	return m.result, m.err
 }
+
+type mockTweetDownloader struct {
+	results map[string]mockTweetDownloadResult
+}
+
+type mockTweetDownloadResult struct {
+	result *downloader.DownloadResult
+	err    error
+}
+
+func (m *mockTweetDownloader) Download(req downloader.DownloadRequest) (*downloader.DownloadResult, error) {
+	if m.results == nil {
+		return &downloader.DownloadResult{Success: true}, nil
+	}
+	if result, ok := m.results[req.URL]; ok {
+		return result.result, result.err
+	}
+	return &downloader.DownloadResult{Success: true}, nil
+}
+
+type testPackagedTweet struct {
+	tweet *twitter.Tweet
+	path  string
+}
+
+func (t testPackagedTweet) GetTweet() *twitter.Tweet { return t.tweet }
+func (t testPackagedTweet) GetPath() string          { return t.path }
 
 func TestCleanTweetJson(t *testing.T) {
 	tests := []struct {
@@ -296,5 +326,169 @@ func TestTweetDownloader_Config(t *testing.T) {
 
 	if config.skipLoongTweet {
 		t.Error("skipLoongTweet should be false")
+	}
+}
+
+func TestDownloadTweetMedia_SkipsNonRetriableStatus(t *testing.T) {
+	tempDir := t.TempDir()
+	tweet := &twitter.Tweet{
+		Id:        1,
+		Text:      "tweet",
+		Urls:      []string{"https://example.com/404.jpg"},
+		CreatedAt: time.Now(),
+		Creator: &twitter.User{
+			Name:       "alice",
+			ScreenName: "alice",
+		},
+	}
+
+	cfg := &workerConfig{
+		ctx: context.Background(),
+		downloader: &mockTweetDownloader{results: map[string]mockTweetDownloadResult{
+			"https://example.com/404.jpg": {
+				result: &downloader.DownloadResult{},
+				err:    &utils.HttpStatusError{Code: 404, Msg: "missing"},
+			},
+		}},
+	}
+
+	err := downloadTweetMedia(cfg, tempDir, tweet, true)
+	if err != nil {
+		t.Fatalf("403/404 应视为不进入重试链路，got err=%v", err)
+	}
+	if len(tweet.Urls) != 0 {
+		t.Fatalf("403/404 不应保留在 tweet.Urls，got %v", tweet.Urls)
+	}
+}
+
+func TestDownloadTweetMedia_RetainsRetryableUrlsOnly(t *testing.T) {
+	tempDir := t.TempDir()
+	retryableURL := "https://example.com/500.jpg"
+	tweet := &twitter.Tweet{
+		Id:        2,
+		Text:      "tweet",
+		Urls:      []string{"https://example.com/404.jpg", retryableURL, "https://example.com/success.jpg"},
+		CreatedAt: time.Now(),
+		Creator: &twitter.User{
+			Name:       "bob",
+			ScreenName: "bob",
+		},
+	}
+
+	cfg := &workerConfig{
+		ctx: context.Background(),
+		downloader: &mockTweetDownloader{results: map[string]mockTweetDownloadResult{
+			"https://example.com/404.jpg": {
+				result: &downloader.DownloadResult{},
+				err:    &utils.HttpStatusError{Code: 404, Msg: "missing"},
+			},
+			retryableURL: {
+				result: &downloader.DownloadResult{},
+				err:    &utils.HttpStatusError{Code: 500, Msg: "server error"},
+			},
+			"https://example.com/success.jpg": {
+				result: &downloader.DownloadResult{Success: true},
+			},
+		}},
+	}
+
+	err := downloadTweetMedia(cfg, tempDir, tweet, true)
+	if err == nil {
+		t.Fatal("500 应保留为可重试失败")
+	}
+	if !utils.IsStatusCode(err, 500) {
+		t.Fatalf("期望保留首个可重试状态码根因，got %v", err)
+	}
+	if len(tweet.Urls) != 1 || tweet.Urls[0] != retryableURL {
+		t.Fatalf("tweet.Urls 只应保留可重试 URL，got %v", tweet.Urls)
+	}
+}
+
+func TestBatchDownloadTweet_404DoesNotReturnFailedTweet(t *testing.T) {
+	tempDir := t.TempDir()
+	tweet := &twitter.Tweet{
+		Id:        3,
+		Text:      "tweet",
+		Urls:      []string{"https://example.com/404.jpg"},
+		CreatedAt: time.Now(),
+		Creator: &twitter.User{
+			Name:       "carol",
+			ScreenName: "carol",
+		},
+	}
+
+	var callbackCalled bool
+	var gotFailed bool
+	failedTweets := BatchDownloadTweet(
+		context.Background(),
+		nil,
+		true,
+		&mockTweetDownloader{results: map[string]mockTweetDownloadResult{
+			"https://example.com/404.jpg": {
+				result: &downloader.DownloadResult{},
+				err:    &utils.HttpStatusError{Code: 404, Msg: "missing"},
+			},
+		}},
+		nil,
+		func(tweet *twitter.Tweet, failed bool) {
+			callbackCalled = true
+			gotFailed = failed
+		},
+		testPackagedTweet{
+			tweet: tweet,
+			path:  filepath.Join(tempDir, "carol"),
+		},
+	)
+
+	if len(failedTweets) != 0 {
+		t.Fatalf("404 不应进入失败队列，got %d", len(failedTweets))
+	}
+	if !callbackCalled {
+		t.Fatal("应触发 onTweetDone 回调")
+	}
+	if gotFailed {
+		t.Fatal("404 不应被标记为 failed")
+	}
+	if len(tweet.Urls) != 0 {
+		t.Fatalf("404 不应保留在 tweet.Urls，got %v", tweet.Urls)
+	}
+}
+
+func TestDownloadTweetMedia_PreservesWrappedRetryableCause(t *testing.T) {
+	tempDir := t.TempDir()
+	tweet := &twitter.Tweet{
+		Id:        4,
+		Text:      "tweet",
+		Urls:      []string{"https://example.com/500.jpg"},
+		CreatedAt: time.Now(),
+		Creator: &twitter.User{
+			Name:       "dave",
+			ScreenName: "dave",
+		},
+	}
+
+	cfg := &workerConfig{
+		ctx: context.Background(),
+		downloader: &mockTweetDownloader{results: map[string]mockTweetDownloadResult{
+			"https://example.com/500.jpg": {
+				result: &downloader.DownloadResult{},
+				err:    &utils.HttpStatusError{Code: 500, Msg: "server error"},
+			},
+		}},
+	}
+
+	err := downloadTweetMedia(cfg, tempDir, tweet, true)
+	if err == nil {
+		t.Fatal("期望返回聚合错误")
+	}
+	var mediaErr *mediaDownloadError
+	if !errors.As(err, &mediaErr) {
+		t.Fatalf("期望错误可解析为 mediaDownloadError, got %T", err)
+	}
+	if mediaErr.failedCount != 1 {
+		t.Fatalf("failedCount = %d, want 1", mediaErr.failedCount)
+	}
+	if !utils.IsStatusCode(err, 500) {
+		t.Fatalf("聚合错误应保留底层状态码根因, got %v", err)
 	}
 }

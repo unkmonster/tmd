@@ -72,6 +72,7 @@ func TestNewServer(t *testing.T) {
 	assert.NotNil(t, server.config)
 	assert.NotNil(t, server.taskManager)
 	assert.NotNil(t, server.downloadService)
+	assert.NotNil(t, server.downloadTaskSlots)
 	assert.Equal(t, "/app", server.appRootPath)
 }
 
@@ -169,6 +170,57 @@ func TestServer_ExecuteDownloadTaskSkipsCancelledTask(t *testing.T) {
 	case <-executed:
 		t.Fatal("cancelled task should not execute download function")
 	case <-time.After(200 * time.Millisecond):
+	}
+}
+
+func TestServer_ExecuteDownloadTaskLimitsConcurrentTasks(t *testing.T) {
+	server, db := setupTestServer(t)
+	defer db.Close()
+
+	firstTask := server.taskManager.CreateTask(TaskTypeUserDownload, nil)
+	secondTask := server.taskManager.CreateTask(TaskTypeUserDownload, nil)
+
+	firstStarted := make(chan struct{})
+	releaseFirst := make(chan struct{})
+	secondStarted := make(chan struct{})
+
+	server.executeDownloadTask(firstTask, func() error {
+		close(firstStarted)
+		<-releaseFirst
+		server.taskManager.CompleteTask(firstTask.ID, &TaskResult{Message: "first done"})
+		return nil
+	})
+
+	select {
+	case <-firstStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("first task did not start")
+	}
+
+	server.executeDownloadTask(secondTask, func() error {
+		close(secondStarted)
+		server.taskManager.CompleteTask(secondTask.ID, &TaskResult{Message: "second done"})
+		return nil
+	})
+
+	select {
+	case <-secondStarted:
+		t.Fatal("second task should wait for the task slot")
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	secondSnapshot, ok := server.taskManager.GetTask(secondTask.ID)
+	if !ok {
+		t.Fatal("second task not found")
+	}
+	assert.Equal(t, TaskStatusQueued, secondSnapshot.Status)
+
+	close(releaseFirst)
+
+	select {
+	case <-secondStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("second task did not start after slot was released")
 	}
 }
 
@@ -1103,16 +1155,23 @@ func TestServer_TaskProgressAndResult(t *testing.T) {
 
 	// 设置结果
 	result := &TaskResult{
-		Downloaded: 95,
-		Failed:     5,
-		Versioned:  10,
-		Message:    "Done",
+		Main: &TaskMainResult{
+			Downloaded: 95,
+			Failed:     5,
+		},
+		Profile: &TaskProfileResult{
+			Downloaded: 7,
+			Failed:     1,
+			Versioned:  10,
+		},
+		Message: "Done",
 	}
 	ok = server.taskManager.SetTaskResult(task.ID, result)
 	assert.True(t, ok)
 
 	task, _ = server.taskManager.GetTask(task.ID)
-	assert.Equal(t, 95, task.Result.Downloaded)
+	assert.NotNil(t, task.Result.Main)
+	assert.Equal(t, 95, task.Result.Main.Downloaded)
 	assert.Equal(t, "Done", task.Result.Message)
 }
 

@@ -113,3 +113,12 @@ func (td *TweetDumper) Count() int {
 func (td *TweetDumper) EntityCount() int {
 	return len(td.data)
 }
+
+func (td *TweetDumper) HasTweet(eid int, tweetID uint64) bool {
+	tweets, ok := td.set[eid]
+	if !ok {
+		return false
+	}
+	_, ok = tweets[tweetID]
+	return ok
+}

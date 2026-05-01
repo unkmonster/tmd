@@ -1,20 +1,37 @@
 package service
 
+import (
+	"fmt"
+	"strings"
+)
+
 // Progress 下载进度
 type Progress struct {
-	Stage     string // "syncing", "downloading", "retrying", "profile", "marking", "completed"
+	Stage     string // "syncing", "downloading", "retrying", "profile", "profile_warning", "marking", "completed"
 	Total     int
 	Completed int
 	Failed    int
 	Current   string // 当前处理的用户/列表
 }
 
-// Result 执行结果
-type Result struct {
+// MainResult 主下载结果
+type MainResult struct {
+	Downloaded int
+	Failed     int
+}
+
+// ProfileResult 资料下载结果
+type ProfileResult struct {
 	Downloaded int
 	Failed     int
 	Versioned  int // 版本化（旧文件已备份到 .versions）
-	Message    string
+}
+
+// Result 执行结果
+type Result struct {
+	Main    *MainResult
+	Profile *ProfileResult
+	Message string
 }
 
 // ProgressReporter 进度报告接口
@@ -74,14 +91,16 @@ func (l *LogReporter) OnComplete(taskID string, r Result) {
 	if l.logger == nil {
 		return
 	}
-	if r.Downloaded != 0 || r.Failed != 0 || r.Versioned != 0 {
-		l.logger(
-			"[%s] Completed (downloaded=%d, failed=%d, versioned=%d)",
-			taskID,
-			r.Downloaded,
-			r.Failed,
-			r.Versioned,
-		)
+
+	parts := make([]string, 0, 2)
+	if r.Main != nil {
+		parts = append(parts, formatMainResult(*r.Main))
+	}
+	if r.Profile != nil {
+		parts = append(parts, formatProfileResult(*r.Profile))
+	}
+	if len(parts) > 0 {
+		l.logger("[%s] Completed (%s)", taskID, strings.Join(parts, ", "))
 		return
 	}
 	l.logger("[%s] Completed: %s", taskID, r.Message)
@@ -92,4 +111,12 @@ func (l *LogReporter) OnError(taskID string, err error) {
 		return
 	}
 	l.logger("[%s] Error: %v", taskID, err)
+}
+
+func formatMainResult(r MainResult) string {
+	return fmt.Sprintf("main(downloaded=%d, failed=%d)", r.Downloaded, r.Failed)
+}
+
+func formatProfileResult(r ProfileResult) string {
+	return fmt.Sprintf("profile(downloaded=%d, failed=%d, versioned=%d)", r.Downloaded, r.Failed, r.Versioned)
 }

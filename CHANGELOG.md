@@ -7,6 +7,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ***
 
+## [3.2.15] - 2026-04-29
+
+### Changed
+
+#### 任务结果结构重构
+
+| 文件 | 变更 |
+|------|------|
+| `internal/api/task_manager.go` | `TaskResult` 拆分为 `Main` 和 `Profile` 两个独立结果 |
+| `internal/api/task_manager.go` | 新增 `TaskMainResult` 和 `TaskProfileResult` 结构体 |
+| `internal/service/download_service.go` | `Result` 拆分为 `MainResult` 和 `ProfileResult` |
+| `internal/service/download_service.go` | 新增失败推文追踪和统计功能 |
+
+#### 媒体下载错误处理优化
+
+| 文件 | 变更 |
+|------|------|
+| `internal/downloading/tweet_download.go` | 新增 `mediaDownloadError` 包装错误类型 |
+| `internal/downloading/tweet_download.go` | 新增 `isNonRetriableMediaError()` 判断 403/404 |
+| `internal/downloading/tweet_download.go` | 403/404 错误直接跳过，不进入重试队列 |
+| `internal/downloading/tweet_download.go` | 区分可重试失败和跳过的 URL |
+
+#### Profile 下载容错增强
+
+| 文件 | 变更 |
+|------|------|
+| `internal/service/download_service.go` | Profile 下载失败不再导致整个任务失败 |
+| `internal/service/download_service.go` | Profile 失败作为警告，主下载继续完成 |
+
+### Removed
+
+- 删除 `internal/service/interfaces_test.go`
+
+### Fixed
+
+- 修复任务结果深拷贝不完整的问题
+- 修复媒体下载 403/404 错误进入无限重试的问题
+
+### Stats
+
+- **20 个文件变更**
+- **+995 行 / -227 行**
+
+***
+
 ## [3.2.14] - 2026-04-29
 
 ### Added

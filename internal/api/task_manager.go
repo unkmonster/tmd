@@ -53,7 +53,7 @@ type Task struct {
 
 // TaskProgress 任务进度
 type TaskProgress struct {
-	Stage     string `json:"stage"` // "syncing", "downloading", "retrying", "profile", "marking", "completed"
+	Stage     string `json:"stage"` // "syncing", "downloading", "retrying", "profile", "profile_warning", "marking", "completed"
 	Total     int    `json:"total"`
 	Completed int    `json:"completed"`
 	Failed    int    `json:"failed"`
@@ -61,11 +61,21 @@ type TaskProgress struct {
 }
 
 // TaskResult 任务结果
+type TaskMainResult struct {
+	Downloaded int `json:"downloaded,omitempty"`
+	Failed     int `json:"failed,omitempty"`
+}
+
+type TaskProfileResult struct {
+	Downloaded int `json:"downloaded,omitempty"`
+	Failed     int `json:"failed,omitempty"`
+	Versioned  int `json:"versioned,omitempty"` // 版本化（旧文件已备份到 .versions）
+}
+
 type TaskResult struct {
-	Downloaded int    `json:"downloaded,omitempty"`
-	Failed     int    `json:"failed,omitempty"`
-	Versioned  int    `json:"versioned,omitempty"` // 版本化（旧文件已备份到 .versions）
-	Message    string `json:"message,omitempty"`
+	Main    *TaskMainResult    `json:"main,omitempty"`
+	Profile *TaskProfileResult `json:"profile,omitempty"`
+	Message string             `json:"message,omitempty"`
 }
 
 // TaskManager 任务管理器
@@ -149,8 +159,7 @@ func cloneTask(task *Task) *Task {
 		t.Progress = &p
 	}
 	if task.Result != nil {
-		r := *task.Result
-		t.Result = &r
+		t.Result = cloneTaskResult(task.Result)
 	}
 	if task.StartedAt != nil {
 		startedAt := *task.StartedAt
@@ -162,6 +171,23 @@ func cloneTask(task *Task) *Task {
 	}
 
 	return &t
+}
+
+func cloneTaskResult(result *TaskResult) *TaskResult {
+	if result == nil {
+		return nil
+	}
+
+	clone := *result
+	if result.Main != nil {
+		main := *result.Main
+		clone.Main = &main
+	}
+	if result.Profile != nil {
+		profile := *result.Profile
+		clone.Profile = &profile
+	}
+	return &clone
 }
 
 func cloneTaskData(data interface{}) interface{} {
@@ -285,13 +311,31 @@ func applyTerminalProgress(task *Task, status TaskStatus, result *TaskResult) {
 		if task.Progress.Total > 0 {
 			task.Progress.Completed = task.Progress.Total
 		}
-		if result != nil && result.Failed > task.Progress.Failed {
-			task.Progress.Failed = result.Failed
+		if result != nil {
+			failed := taskResultFailedCount(result)
+			if failed > task.Progress.Failed {
+				task.Progress.Failed = failed
+			}
 		}
 	case TaskStatusFailed, TaskStatusCancelled:
 		task.Progress.Stage = ""
 		task.Progress.Current = ""
 	}
+}
+
+func taskResultFailedCount(result *TaskResult) int {
+	if result == nil {
+		return 0
+	}
+
+	failed := 0
+	if result.Main != nil {
+		failed += result.Main.Failed
+	}
+	if result.Profile != nil {
+		failed += result.Profile.Failed
+	}
+	return failed
 }
 
 // UpdateTaskStatus 更新任务状态

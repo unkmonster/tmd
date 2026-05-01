@@ -15,6 +15,11 @@ import (
 func (s *Server) executeDownloadTask(task *Task, downloadFunc func() error) {
 	taskID := task.ID
 	go func() {
+		if !s.acquireDownloadTaskSlot(task.Ctx) {
+			return
+		}
+		defer s.releaseDownloadTaskSlot()
+
 		if !s.taskManager.UpdateTaskStatus(taskID, TaskStatusRunning) {
 			return
 		}
@@ -25,6 +30,28 @@ func (s *Server) executeDownloadTask(task *Task, downloadFunc func() error) {
 			}
 		}
 	}()
+}
+
+func (s *Server) acquireDownloadTaskSlot(ctx context.Context) bool {
+	if s.downloadTaskSlots == nil {
+		return true
+	}
+	select {
+	case s.downloadTaskSlots <- struct{}{}:
+		return true
+	case <-ctx.Done():
+		return false
+	}
+}
+
+func (s *Server) releaseDownloadTaskSlot() {
+	if s.downloadTaskSlots == nil {
+		return
+	}
+	select {
+	case <-s.downloadTaskSlots:
+	default:
+	}
 }
 
 func (s *Server) enqueueTask(task *Task, run func(ctx context.Context, taskID string, reporter service.ProgressReporter) error) {

@@ -76,10 +76,16 @@ func TestSSEProgressReporter_OnComplete(t *testing.T) {
 	reporter := NewSSEProgressReporter(server)
 
 	result := service.Result{
-		Downloaded: 95,
-		Failed:     5,
-		Versioned:  10,
-		Message:    "Download completed successfully",
+		Main: &service.MainResult{
+			Downloaded: 95,
+			Failed:     5,
+		},
+		Profile: &service.ProfileResult{
+			Downloaded: 12,
+			Failed:     1,
+			Versioned:  10,
+		},
+		Message: "Download completed successfully",
 	}
 
 	reporter.OnComplete(task.ID, result)
@@ -88,9 +94,11 @@ func TestSSEProgressReporter_OnComplete(t *testing.T) {
 	assert.True(t, ok)
 	assert.Equal(t, TaskStatusCompleted, updatedTask.Status)
 	assert.NotNil(t, updatedTask.Result)
-	assert.Equal(t, 95, updatedTask.Result.Downloaded)
-	assert.Equal(t, 5, updatedTask.Result.Failed)
-	assert.Equal(t, 10, updatedTask.Result.Versioned)
+	assert.NotNil(t, updatedTask.Result.Main)
+	assert.NotNil(t, updatedTask.Result.Profile)
+	assert.Equal(t, 95, updatedTask.Result.Main.Downloaded)
+	assert.Equal(t, 5, updatedTask.Result.Main.Failed)
+	assert.Equal(t, 10, updatedTask.Result.Profile.Versioned)
 	assert.Equal(t, "Download completed successfully", updatedTask.Result.Message)
 }
 
@@ -164,10 +172,16 @@ func TestProgress_Struct(t *testing.T) {
 
 func TestResult_Struct(t *testing.T) {
 	r := TaskResult{
-		Downloaded: 100,
-		Failed:     5,
-		Versioned:  10,
-		Message:    "Task completed",
+		Main: &TaskMainResult{
+			Downloaded: 100,
+			Failed:     5,
+		},
+		Profile: &TaskProfileResult{
+			Downloaded: 8,
+			Failed:     1,
+			Versioned:  10,
+		},
+		Message: "Task completed",
 	}
 
 	data, err := json.Marshal(r)
@@ -208,15 +222,17 @@ func TestSSEProgressReporter_CompleteWorkflow(t *testing.T) {
 	})
 
 	reporter.OnComplete(task.ID, service.Result{
-		Downloaded: 100,
-		Failed:     0,
-		Versioned:  0,
-		Message:    "All done",
+		Main: &service.MainResult{
+			Downloaded: 100,
+			Failed:     0,
+		},
+		Message: "All done",
 	})
 
 	finalTask, _ := tm.GetTask(task.ID)
 	assert.Equal(t, TaskStatusCompleted, finalTask.Status)
-	assert.Equal(t, 100, finalTask.Result.Downloaded)
+	assert.NotNil(t, finalTask.Result.Main)
+	assert.Equal(t, 100, finalTask.Result.Main.Downloaded)
 	assert.Equal(t, "All done", finalTask.Result.Message)
 }
 

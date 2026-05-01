@@ -29,6 +29,7 @@ func TestProgress_AllStages(t *testing.T) {
 		"downloading",
 		"retrying",
 		"profile",
+		"profile_warning",
 		"marking",
 		"completed",
 	}
@@ -63,24 +64,36 @@ func TestProgress_NegativeValues(t *testing.T) {
 
 func TestResult_Struct(t *testing.T) {
 	r := Result{
-		Downloaded: 100,
-		Failed:     5,
-		Versioned:  10,
-		Message:    "Download completed successfully",
+		Main: &MainResult{
+			Downloaded: 100,
+			Failed:     5,
+		},
+		Profile: &ProfileResult{
+			Downloaded: 8,
+			Failed:     1,
+			Versioned:  10,
+		},
+		Message: "Download completed successfully",
 	}
 
-	assert.Equal(t, 100, r.Downloaded)
-	assert.Equal(t, 5, r.Failed)
-	assert.Equal(t, 10, r.Versioned)
+	require := assert.New(t)
+	if require.NotNil(r.Main) {
+		require.Equal(100, r.Main.Downloaded)
+		require.Equal(5, r.Main.Failed)
+	}
+	if require.NotNil(r.Profile) {
+		require.Equal(8, r.Profile.Downloaded)
+		require.Equal(1, r.Profile.Failed)
+		require.Equal(10, r.Profile.Versioned)
+	}
 	assert.Equal(t, "Download completed successfully", r.Message)
 }
 
 func TestResult_ZeroValues(t *testing.T) {
 	r := Result{}
 
-	assert.Equal(t, 0, r.Downloaded)
-	assert.Equal(t, 0, r.Failed)
-	assert.Equal(t, 0, r.Versioned)
+	assert.Nil(t, r.Main)
+	assert.Nil(t, r.Profile)
 	assert.Empty(t, r.Message)
 }
 
@@ -89,9 +102,8 @@ func TestResult_OnlyMessage(t *testing.T) {
 		Message: "Test message",
 	}
 
-	assert.Equal(t, 0, r.Downloaded)
-	assert.Equal(t, 0, r.Failed)
-	assert.Equal(t, 0, r.Versioned)
+	assert.Nil(t, r.Main)
+	assert.Nil(t, r.Profile)
 	assert.Equal(t, "Test message", r.Message)
 }
 
@@ -112,9 +124,11 @@ func TestNopReporter_OnComplete(t *testing.T) {
 	reporter := &NopReporter{}
 
 	r := Result{
-		Downloaded: 100,
-		Failed:     5,
-		Message:    "Completed",
+		Main: &MainResult{
+			Downloaded: 100,
+			Failed:     5,
+		},
+		Message: "Completed",
 	}
 
 	reporter.OnComplete("task-123", r)
@@ -236,18 +250,22 @@ func TestLogReporter_OnComplete_WithStats(t *testing.T) {
 
 	reporter := NewLogReporter(logger)
 	reporter.OnComplete("task-123", Result{
-		Downloaded: 100,
-		Failed:     5,
-		Versioned:  10,
-		Message:    "User download completed",
+		Main: &MainResult{
+			Downloaded: 100,
+			Failed:     5,
+		},
+		Profile: &ProfileResult{
+			Downloaded: 12,
+			Failed:     1,
+			Versioned:  10,
+		},
+		Message: "User download completed",
 	})
 
 	assert.Len(t, loggedMessages, 1)
-	assert.Equal(t, "[%s] Completed (downloaded=%d, failed=%d, versioned=%d)", loggedMessages[0])
+	assert.Equal(t, "[%s] Completed (%s)", loggedMessages[0])
 	assert.Equal(t, "task-123", loggedArgs[0])
-	assert.Equal(t, 100, loggedArgs[1])
-	assert.Equal(t, 5, loggedArgs[2])
-	assert.Equal(t, 10, loggedArgs[3])
+	assert.Equal(t, "main(downloaded=100, failed=5), profile(downloaded=12, failed=1, versioned=10)", loggedArgs[1])
 }
 
 func TestLogReporter_OnComplete_WithoutStats(t *testing.T) {

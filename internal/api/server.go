@@ -19,6 +19,8 @@ import (
 	"github.com/unkmonster/tmd/internal/service"
 )
 
+const maxConcurrentDownloadTasks = 1
+
 type Server struct {
 	client            *resty.Client
 	additionalClients []*resty.Client
@@ -28,6 +30,7 @@ type Server struct {
 	configMu          sync.RWMutex
 	taskManager       *TaskManager
 	downloadService   service.DownloadService
+	downloadTaskSlots chan struct{}
 	logWriter         io.Closer
 	httpServer        *http.Server
 	shutdownOnce      sync.Once
@@ -43,6 +46,7 @@ func NewServer(client *resty.Client, additionalClients []*resty.Client, db *sqlx
 		appRootPath:       appRootPath,
 		logWriter:         logWriter,
 		taskManager:       NewTaskManager(),
+		downloadTaskSlots: make(chan struct{}, maxConcurrentDownloadTasks),
 		shutdownDone:      make(chan struct{}),
 	}
 

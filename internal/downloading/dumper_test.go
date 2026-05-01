@@ -92,6 +92,21 @@ func TestTweetDumper_Count(t *testing.T) {
 	}
 }
 
+func TestTweetDumper_HasTweet(t *testing.T) {
+	dumper := NewDumper()
+	dumper.Push(1, &twitter.Tweet{Id: 10, CreatedAt: time.Now()})
+
+	if !dumper.HasTweet(1, 10) {
+		t.Fatal("HasTweet() should find pushed tweet")
+	}
+	if dumper.HasTweet(1, 11) {
+		t.Fatal("HasTweet() should reject unknown tweet")
+	}
+	if dumper.HasTweet(2, 10) {
+		t.Fatal("HasTweet() should reject unknown entity")
+	}
+}
+
 func TestTweetDumper_Clear(t *testing.T) {
 	dumper := NewDumper()
 

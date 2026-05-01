@@ -226,6 +226,23 @@ func cleanMediaRecursive(data any) {
 	}
 }
 
+type mediaDownloadError struct {
+	failedCount int
+	cause       error
+}
+
+func (e *mediaDownloadError) Error() string {
+	return fmt.Sprintf("%d media(s) failed to download", e.failedCount)
+}
+
+func (e *mediaDownloadError) Unwrap() error {
+	return e.cause
+}
+
+func isNonRetriableMediaError(err error) bool {
+	return utils.IsStatusCode(err, 403) || utils.IsStatusCode(err, 404)
+}
+
 func downloadTweetMedia(cfg *workerConfig, dir string, tweet *twitter.Tweet, skipLoongTweet bool) error {
 	var creatorTitle string
 	if tweet.Creator != nil {
@@ -240,10 +257,11 @@ func downloadTweetMedia(cfg *workerConfig, dir string, tweet *twitter.Tweet, ski
 		saveLoongTweet(cfg, dir, tweet, tweetNaming)
 	}
 
-	// 用于收集仍然失败的URL
-	failedUrls := make([]string, 0)
-	// 用于收集成功的URL（用于日志）
+	// 只保留需要进入重试链路的 URL。
+	retryableFailedUrls := make([]string, 0)
+	skippedUrls := make([]string, 0)
 	successUrls := make([]string, 0)
+	var firstRetryableErr error
 
 	for _, u := range tweet.Urls {
 		ext, err := utils.GetExtFromUrl(u)
@@ -255,7 +273,11 @@ func downloadTweetMedia(cfg *workerConfig, dir string, tweet *twitter.Tweet, ski
 
 		path, err := tweetNaming.FilePath(dir, ext)
 		if err != nil {
-			failedUrls = append(failedUrls, u)
+			log.Warnln("failed to build media path:", u, "-", err)
+			retryableFailedUrls = append(retryableFailedUrls, u)
+			if firstRetryableErr == nil {
+				firstRetryableErr = err
+			}
 			continue
 		}
 
@@ -272,33 +294,70 @@ func downloadTweetMedia(cfg *workerConfig, dir string, tweet *twitter.Tweet, ski
 
 		result, err := cfg.downloader.Download(req)
 		if err != nil {
+			if isNonRetriableMediaError(err) {
+				log.Infof("skip non-retriable media: %s - %v", u, err)
+				skippedUrls = append(skippedUrls, u)
+				continue
+			}
 			log.Warnln("failed to download media:", u, "-", err)
-			failedUrls = append(failedUrls, u)
+			retryableFailedUrls = append(retryableFailedUrls, u)
+			if firstRetryableErr == nil {
+				firstRetryableErr = err
+			}
+			continue
+		}
+		if result == nil {
+			err = fmt.Errorf("download returned nil result")
+			log.Warnln("media download returned nil result:", u)
+			retryableFailedUrls = append(retryableFailedUrls, u)
+			if firstRetryableErr == nil {
+				firstRetryableErr = err
+			}
 			continue
 		}
 		if !result.Success {
+			if result.Error != nil && isNonRetriableMediaError(result.Error) {
+				log.Infof("skip non-retriable media: %s - %v", u, result.Error)
+				skippedUrls = append(skippedUrls, u)
+				continue
+			}
 			log.Warnln("media download reported failure:", u, "-", result.Error)
-			failedUrls = append(failedUrls, u)
+			retryableFailedUrls = append(retryableFailedUrls, u)
+			if firstRetryableErr == nil {
+				if result.Error != nil {
+					firstRetryableErr = result.Error
+				} else {
+					firstRetryableErr = fmt.Errorf("media download reported unsuccessful result")
+				}
+			}
 			continue
 		}
 		successUrls = append(successUrls, u)
 	}
 
-	// 更新 tweet.Urls：只保留失败的URL
-	tweet.Urls = failedUrls
+	// 更新 tweet.Urls：只保留需要重试的 URL。
+	tweet.Urls = retryableFailedUrls
 
 	// 只在至少一个媒体下载成功时才打印推文标题
 	if len(successUrls) > 0 {
 		fmt.Printf("%s", color.FgLightMagenta.Render(tweetNaming.LogFormat()))
-		if len(failedUrls) > 0 {
-			fmt.Printf(" [%d/%d succeeded]", len(successUrls), len(successUrls)+len(failedUrls))
+		totalAttempted := len(successUrls) + len(retryableFailedUrls) + len(skippedUrls)
+		if totalAttempted > len(successUrls) {
+			fmt.Printf(" [%d/%d succeeded", len(successUrls), totalAttempted)
+			if len(skippedUrls) > 0 {
+				fmt.Printf(", %d skipped", len(skippedUrls))
+			}
+			fmt.Printf("]")
 		}
 		fmt.Println()
 	}
 
-	// 只要有失败的URL，就返回错误，让推文进入重试队列
-	if len(failedUrls) > 0 {
-		return fmt.Errorf("%d media(s) failed to download", len(failedUrls))
+	// 只有可重试的失败才进入后续失败链路。
+	if len(retryableFailedUrls) > 0 {
+		return &mediaDownloadError{
+			failedCount: len(retryableFailedUrls),
+			cause:       firstRetryableErr,
+		}
 	}
 	return nil
 }
@@ -360,7 +419,7 @@ func tweetDownloader(config *workerConfig, errch chan<- PackagedTweet, twech <-c
 			continue
 		}
 		err := downloadTweetMedia(config, path, pt.GetTweet(), config.skipLoongTweet)
-		failed := err != nil && !utils.IsStatusCode(err, 404) && !utils.IsStatusCode(err, 403)
+		failed := err != nil
 		if failed {
 			errch <- pt
 		}

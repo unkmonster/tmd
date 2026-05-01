@@ -32,19 +32,28 @@ func (s *downloadServiceImpl) completeTask(taskID string, reporter ProgressRepor
 		result.Message = fmt.Sprintf("%s (%s)", message, warning)
 	}
 	if stats != nil {
-		result.Downloaded = stats.Downloaded
-		result.Failed = stats.Failed
-		result.Versioned = stats.Versioned
+		if stats.Main != nil {
+			main := *stats.Main
+			result.Main = &main
+		}
+		if stats.Profile != nil {
+			profile := *stats.Profile
+			result.Profile = &profile
+		}
 	}
 	reporter.OnComplete(taskID, result)
 }
 
-func (s *downloadServiceImpl) completeProfileTask(taskID string, reporter ProgressReporter, result *Result) {
-	if result == nil {
+func (s *downloadServiceImpl) completeProfileTask(taskID string, reporter ProgressReporter, profileResult *ProfileResult) {
+	if profileResult == nil {
 		reporter.OnComplete(taskID, Result{Message: "No profile downloads performed"})
 		return
 	}
-	reporter.OnComplete(taskID, *result)
+	profile := *profileResult
+	reporter.OnComplete(taskID, Result{
+		Profile: &profile,
+		Message: formatProfileCompletionMessage(profile),
+	})
 }
 
 func (s *downloadServiceImpl) newBatchProgressCallback(taskID string, reporter ProgressReporter) downloading.BatchProgressFunc {
@@ -70,25 +79,50 @@ func (s *downloadServiceImpl) newRetryProgressCallback(taskID string, reporter P
 	}
 }
 
-func (s *downloadServiceImpl) buildMainDownloadResult(summary downloading.BatchDownloadSummary, dumper *downloading.TweetDumper, profileResult *Result) *Result {
-	if summary.TotalEntities == 0 && profileResult != nil {
-		clone := *profileResult
-		return &clone
+func (s *downloadServiceImpl) buildMainDownloadResult(summary downloading.BatchDownloadSummary, failed int) *MainResult {
+	if summary.TotalEntities == 0 {
+		return nil
 	}
-
-	failed := 0
-	if dumper != nil {
-		failed = dumper.EntityCount()
-	}
-
-	result := &Result{
+	return &MainResult{
 		Downloaded: max(0, summary.TotalEntities-failed),
 		Failed:     failed,
 	}
-	if profileResult != nil {
-		result.Versioned = profileResult.Versioned
+}
+
+type failedTweetSet map[int]map[uint64]struct{}
+
+func collectFailedTweetSet(failedTweets []*downloading.TweetInEntity) failedTweetSet {
+	failures := make(failedTweetSet)
+	for _, failedTweet := range failedTweets {
+		if failedTweet == nil || failedTweet.Tweet == nil || failedTweet.Entity == nil {
+			continue
+		}
+		entityID, err := failedTweet.Entity.Id()
+		if err != nil {
+			continue
+		}
+		if failures[entityID] == nil {
+			failures[entityID] = make(map[uint64]struct{})
+		}
+		failures[entityID][failedTweet.Tweet.Id] = struct{}{}
 	}
-	return result
+	return failures
+}
+
+func countRemainingFailedEntities(dumper *downloading.TweetDumper, failures failedTweetSet) int {
+	if dumper == nil || len(failures) == 0 {
+		return 0
+	}
+	count := 0
+	for entityID, tweetIDs := range failures {
+		for tweetID := range tweetIDs {
+			if dumper.HasTweet(entityID, tweetID) {
+				count++
+				break
+			}
+		}
+	}
+	return count
 }
 
 func (s *downloadServiceImpl) resolveUsers(ctx context.Context, screenNames []string) []*twitter.User {
@@ -177,6 +211,7 @@ func (s *downloadServiceImpl) UserDownload(ctx context.Context, taskID string, s
 	if err != nil {
 		return err
 	}
+	mainFailures := collectFailedTweetSet(failedTweets)
 
 	// 收集失败的推文到 Dumper
 	s.collectFailedTweets(dumper, failedTweets)
@@ -189,7 +224,7 @@ func (s *downloadServiceImpl) UserDownload(ctx context.Context, taskID string, s
 	}
 
 	// Profile 下载
-	var profileResult *Result
+	var profileResult *ProfileResult
 	profileWarning := ""
 	if !opts.SkipProfile {
 		profileResult, err = s.downloadProfile(ctx, taskID, []*twitter.User{user}, pathHelper, versionManager, fileWriter, dwn, reporter)
@@ -200,7 +235,10 @@ func (s *downloadServiceImpl) UserDownload(ctx context.Context, taskID string, s
 		}
 	}
 
-	s.completeTask(taskID, reporter, "User download completed", s.buildMainDownloadResult(summary, dumper, profileResult), profileWarning)
+	s.completeTask(taskID, reporter, "User download completed", &Result{
+		Main:    s.buildMainDownloadResult(summary, countRemainingFailedEntities(dumper, mainFailures)),
+		Profile: cloneProfileResult(profileResult),
+	}, profileWarning)
 	return nil
 }
 
@@ -241,6 +279,7 @@ func (s *downloadServiceImpl) ListDownload(ctx context.Context, taskID string, l
 	if err != nil {
 		return err
 	}
+	mainFailures := collectFailedTweetSet(failedTweets)
 
 	// 收集失败的推文到 Dumper
 	s.collectFailedTweets(dumper, failedTweets)
@@ -253,7 +292,7 @@ func (s *downloadServiceImpl) ListDownload(ctx context.Context, taskID string, l
 	}
 
 	// Profile 下载（复用 BatchDownloadAny 返回的 listMembers）
-	var profileResult *Result
+	var profileResult *ProfileResult
 	profileWarning := ""
 	if !opts.SkipProfile && len(listMembers) > 0 {
 		profileResult, err = s.downloadProfile(ctx, taskID, listMembers, pathHelper, versionManager, fileWriter, dwn, reporter)
@@ -264,7 +303,10 @@ func (s *downloadServiceImpl) ListDownload(ctx context.Context, taskID string, l
 		}
 	}
 
-	s.completeTask(taskID, reporter, "List download completed", s.buildMainDownloadResult(summary, dumper, profileResult), profileWarning)
+	s.completeTask(taskID, reporter, "List download completed", &Result{
+		Main:    s.buildMainDownloadResult(summary, countRemainingFailedEntities(dumper, mainFailures)),
+		Profile: cloneProfileResult(profileResult),
+	}, profileWarning)
 	return nil
 }
 
@@ -305,6 +347,7 @@ func (s *downloadServiceImpl) FollowingDownload(ctx context.Context, taskID stri
 	if err != nil {
 		return err
 	}
+	mainFailures := collectFailedTweetSet(failedTweets)
 
 	// 收集失败的推文到 Dumper
 	s.collectFailedTweets(dumper, failedTweets)
@@ -317,7 +360,7 @@ func (s *downloadServiceImpl) FollowingDownload(ctx context.Context, taskID stri
 	}
 
 	// Profile 下载（复用 BatchDownloadAny 返回的 listMembers）
-	var profileResult *Result
+	var profileResult *ProfileResult
 	profileWarning := ""
 	if !opts.SkipProfile && len(listMembers) > 0 {
 		profileResult, err = s.downloadProfile(ctx, taskID, listMembers, pathHelper, versionManager, fileWriter, dwn, reporter)
@@ -328,7 +371,10 @@ func (s *downloadServiceImpl) FollowingDownload(ctx context.Context, taskID stri
 		}
 	}
 
-	s.completeTask(taskID, reporter, "Following download completed", s.buildMainDownloadResult(summary, dumper, profileResult), profileWarning)
+	s.completeTask(taskID, reporter, "Following download completed", &Result{
+		Main:    s.buildMainDownloadResult(summary, countRemainingFailedEntities(dumper, mainFailures)),
+		Profile: cloneProfileResult(profileResult),
+	}, profileWarning)
 	return nil
 }
 
@@ -352,6 +398,9 @@ func (s *downloadServiceImpl) ProfileDownload(ctx context.Context, taskID string
 		}
 	}
 	users := s.resolveUsers(ctx, unique)
+	if len(unique) > 0 && len(users) == 0 {
+		return fmt.Errorf("all profile users failed to resolve")
+	}
 
 	profileResult, err := s.downloadProfile(ctx, taskID, users, pathHelper, versionManager, fileWriter, dwn, reporter)
 	if err != nil {
@@ -475,9 +524,11 @@ func (s *downloadServiceImpl) JsonFileDownload(ctx context.Context, taskID strin
 	}
 
 	reporter.OnComplete(taskID, Result{
-		Downloaded: successCount,
-		Failed:     failCount,
-		Message:    fmt.Sprintf("JSON file download: %d success, %d failed, %d media", successCount, failCount, totalMedia),
+		Main: &MainResult{
+			Downloaded: successCount,
+			Failed:     failCount,
+		},
+		Message: fmt.Sprintf("JSON file download: %d success, %d failed, %d media", successCount, failCount, totalMedia),
 	})
 	return nil
 }
@@ -512,9 +563,11 @@ func (s *downloadServiceImpl) JsonFolderDownload(ctx context.Context, taskID str
 	}
 
 	reporter.OnComplete(taskID, Result{
-		Downloaded: successCount,
-		Failed:     failCount,
-		Message:    fmt.Sprintf("JSON folder download: %d success, %d failed", successCount, failCount),
+		Main: &MainResult{
+			Downloaded: successCount,
+			Failed:     failCount,
+		},
+		Message: fmt.Sprintf("JSON folder download: %d success, %d failed", successCount, failCount),
 	})
 	return nil
 }
@@ -559,6 +612,7 @@ func (s *downloadServiceImpl) BatchDownload(ctx context.Context, taskID string, 
 	if err != nil {
 		return err
 	}
+	mainFailures := collectFailedTweetSet(failedTweets)
 
 	// 收集失败的推文到 Dumper
 	s.collectFailedTweets(dumper, failedTweets)
@@ -571,7 +625,7 @@ func (s *downloadServiceImpl) BatchDownload(ctx context.Context, taskID string, 
 	}
 
 	// Profile 下载（复用 BatchDownloadAny 返回的 listMembers，避免重复 API 调用）
-	var profileResult *Result
+	var profileResult *ProfileResult
 	profileWarning := ""
 	if !opts.SkipProfile && (len(users) > 0 || len(listMembers) > 0) {
 		profileUsers := make([]*twitter.User, 0)
@@ -603,7 +657,10 @@ func (s *downloadServiceImpl) BatchDownload(ctx context.Context, taskID string, 
 		}
 	}
 
-	s.completeTask(taskID, reporter, "Batch download completed", s.buildMainDownloadResult(summary, dumper, profileResult), profileWarning)
+	s.completeTask(taskID, reporter, "Batch download completed", &Result{
+		Main:    s.buildMainDownloadResult(summary, countRemainingFailedEntities(dumper, mainFailures)),
+		Profile: cloneProfileResult(profileResult),
+	}, profileWarning)
 	return nil
 }
 
@@ -630,7 +687,7 @@ func (s *downloadServiceImpl) collectFailedTweets(dumper *downloading.TweetDumpe
 }
 
 // 内部辅助方法：下载 Profile
-func (s *downloadServiceImpl) downloadProfile(ctx context.Context, taskID string, users []*twitter.User, pathHelper *path.StorePath, versionManager downloader.VersionManager, fileWriter downloader.FileWriter, dwn downloader.Downloader, reporter ProgressReporter) (*Result, error) {
+func (s *downloadServiceImpl) downloadProfile(ctx context.Context, taskID string, users []*twitter.User, pathHelper *path.StorePath, versionManager downloader.VersionManager, fileWriter downloader.FileWriter, dwn downloader.Downloader, reporter ProgressReporter) (*ProfileResult, error) {
 	if len(users) == 0 {
 		return nil, nil
 	}
@@ -704,14 +761,35 @@ func (s *downloadServiceImpl) downloadProfile(ctx context.Context, taskID string
 		}
 	}
 
-	if successCount == 0 && failCount > 0 {
-		return nil, fmt.Errorf("profile download failed for all %d users: %w", failCount, firstErr)
-	}
-
-	return &Result{
+	profileResult := &ProfileResult{
 		Downloaded: successCount,
 		Failed:     failCount,
 		Versioned:  versionedFileCount,
-		Message:    fmt.Sprintf("Profile download completed: %d success, %d failed, %d versioned files", successCount, failCount, versionedFileCount),
-	}, nil
+	}
+
+	if successCount == 0 && failCount > 0 {
+		if firstErr == nil {
+			firstErr = fmt.Errorf("unknown profile download error")
+		}
+		return profileResult, fmt.Errorf("profile download failed for all %d users: %w", failCount, firstErr)
+	}
+
+	return profileResult, nil
+}
+
+func formatProfileCompletionMessage(result ProfileResult) string {
+	return fmt.Sprintf(
+		"Profile download completed: %d success, %d failed, %d versioned files",
+		result.Downloaded,
+		result.Failed,
+		result.Versioned,
+	)
+}
+
+func cloneProfileResult(result *ProfileResult) *ProfileResult {
+	if result == nil {
+		return nil
+	}
+	clone := *result
+	return &clone
 }

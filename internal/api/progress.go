@@ -29,12 +29,21 @@ func (r *SSEProgressReporter) OnProgress(taskID string, p service.Progress) {
 
 func (r *SSEProgressReporter) OnComplete(taskID string, result service.Result) {
 	// 自动更新任务结果和状态，避免竞态条件
-	r.server.taskManager.CompleteTask(taskID, &TaskResult{
-		Downloaded: result.Downloaded,
-		Failed:     result.Failed,
-		Versioned:  result.Versioned,
-		Message:    result.Message,
-	})
+	taskResult := &TaskResult{Message: result.Message}
+	if result.Main != nil {
+		taskResult.Main = &TaskMainResult{
+			Downloaded: result.Main.Downloaded,
+			Failed:     result.Main.Failed,
+		}
+	}
+	if result.Profile != nil {
+		taskResult.Profile = &TaskProfileResult{
+			Downloaded: result.Profile.Downloaded,
+			Failed:     result.Profile.Failed,
+			Versioned:  result.Profile.Versioned,
+		}
+	}
+	r.server.taskManager.CompleteTask(taskID, taskResult)
 }
 
 func (r *SSEProgressReporter) OnError(taskID string, err error) {

@@ -561,6 +561,7 @@ function getStageText(stage) {
     'downloading': ' · 下载中',
     'retrying': ' · 重试中',
     'profile': ' · 下载资料',
+    'profile_warning': ' · 资料下载异常',
     'marking': ' · 标记中',
     'completed': ''
   };
@@ -590,6 +591,8 @@ function getTaskProgressPercent(task) {
       return Math.round(80 + ratio * 10);
     case 'profile':
       return total > 0 ? Math.round(90 + ratio * 9) : 90;
+    case 'profile_warning':
+      return 99;
     case 'marking':
       return total > 0 ? Math.round(10 + ratio * 85) : 10;
     default:
@@ -619,6 +622,42 @@ function getTaskTarget(task) {
   }
 
   return parts.length ? parts.join(' · ') : 'Unknown';
+}
+
+function renderTaskResult(task) {
+  const result = task.result;
+  if (!result) return '';
+
+  const sections = [];
+  if (result.main) {
+    sections.push(`
+      <div class="text-sm">
+        <strong>主下载</strong>
+        <span class="text-secondary">下载: ${escapeHtml(result.main.downloaded || 0)} · 失败: ${escapeHtml(result.main.failed || 0)}</span>
+      </div>
+    `);
+  }
+  if (result.profile) {
+    sections.push(`
+      <div class="text-sm">
+        <strong>Profile</strong>
+        <span class="text-secondary">下载: ${escapeHtml(result.profile.downloaded || 0)} · 失败: ${escapeHtml(result.profile.failed || 0)} · 版本: ${escapeHtml(result.profile.versioned || 0)}</span>
+      </div>
+    `);
+  }
+  if (result.message) {
+    sections.push(`<div class="text-sm text-secondary">${escapeHtml(result.message)}</div>`);
+  }
+  if (sections.length === 0) return '';
+
+  return `
+    <div class="form-group">
+      <label class="form-label">结果</label>
+      <div style="background: var(--bg-primary); padding: var(--space-3); border-radius: var(--radius-md); display: flex; flex-direction: column; gap: var(--space-2);">
+        ${sections.join('')}
+      </div>
+    </div>
+  `;
 }
 
 function getOptionalTimestamp(inputId) {
@@ -1635,6 +1674,7 @@ function showTaskDetail(id) {
       <label class="form-label">创建时间</label>
       <div>${new Date(task.created_at).toLocaleString()}</div>
     </div>
+    ${renderTaskResult(task)}
     ${task.error ? `
       <div class="form-group">
         <label class="form-label" style="color: var(--danger);">错误信息</label>
