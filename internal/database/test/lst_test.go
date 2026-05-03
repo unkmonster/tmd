@@ -24,9 +24,9 @@ func TestCreateLst(t *testing.T) {
 
 	t.Run("create_valid_list", func(t *testing.T) {
 		lst := &database.Lst{
-			Id:      1,
-			Name:    "Test List",
-			OwnerId: 100,
+			Id:          1,
+			Name:        "Test List",
+			OwnerUserId: 100,
 		}
 		err := database.CreateLst(db, lst)
 		assert.NoError(t, err)
@@ -34,9 +34,9 @@ func TestCreateLst(t *testing.T) {
 
 	t.Run("create_duplicate_list", func(t *testing.T) {
 		lst := &database.Lst{
-			Id:      1,
-			Name:    "Another List",
-			OwnerId: 200,
+			Id:          1,
+			Name:        "Another List",
+			OwnerUserId: 200,
 		}
 		err := database.CreateLst(db, lst)
 		assert.Error(t, err)
@@ -46,9 +46,9 @@ func TestCreateLst(t *testing.T) {
 	t.Run("create_multiple_lists", func(t *testing.T) {
 		for i := 2; i <= 5; i++ {
 			lst := &database.Lst{
-				Id:      uint64(i),
-				Name:    "List " + string(rune('0'+i)),
-				OwnerId: uint64(i * 100),
+				Id:          uint64(i),
+				Name:        "List " + string(rune('0'+i)),
+				OwnerUserId: uint64(i * 100),
 			}
 			err := database.CreateLst(db, lst)
 			assert.NoError(t, err)
@@ -61,9 +61,9 @@ func TestGetLst(t *testing.T) {
 	defer db.Close()
 
 	lst := &database.Lst{
-		Id:      1,
-		Name:    "Test List",
-		OwnerId: 100,
+		Id:          1,
+		Name:        "Test List",
+		OwnerUserId: 100,
 	}
 	err := database.CreateLst(db, lst)
 	require.NoError(t, err)
@@ -74,7 +74,7 @@ func TestGetLst(t *testing.T) {
 		assert.NotNil(t, retrieved)
 		assert.Equal(t, uint64(1), retrieved.Id)
 		assert.Equal(t, "Test List", retrieved.Name)
-		assert.Equal(t, uint64(100), retrieved.OwnerId)
+		assert.Equal(t, uint64(100), retrieved.OwnerUserId)
 	})
 
 	t.Run("get_nonexistent_list", func(t *testing.T) {
@@ -89,9 +89,9 @@ func TestUpdateLst(t *testing.T) {
 	defer db.Close()
 
 	lst := &database.Lst{
-		Id:      1,
-		Name:    "Original Name",
-		OwnerId: 100,
+		Id:          1,
+		Name:        "Original Name",
+		OwnerUserId: 100,
 	}
 	err := database.CreateLst(db, lst)
 	require.NoError(t, err)
@@ -103,14 +103,14 @@ func TestUpdateLst(t *testing.T) {
 
 		retrieved, _ := database.GetLst(db, 1)
 		assert.Equal(t, "Updated Name", retrieved.Name)
-		assert.Equal(t, uint64(100), retrieved.OwnerId)
+		assert.Equal(t, uint64(100), retrieved.OwnerUserId)
 	})
 
 	t.Run("update_nonexistent_list", func(t *testing.T) {
 		nonexistent := &database.Lst{
-			Id:      99999,
-			Name:    "Ghost List",
-			OwnerId: 999,
+			Id:          99999,
+			Name:        "Ghost List",
+			OwnerUserId: 999,
 		}
 		err := database.UpdateLst(db, nonexistent)
 		assert.NoError(t, err)
@@ -126,9 +126,9 @@ func TestLst_CRUD(t *testing.T) {
 
 	t.Run("full_crud_lifecycle", func(t *testing.T) {
 		lst := &database.Lst{
-			Id:      42,
-			Name:    "Lifecycle List",
-			OwnerId: 999,
+			Id:          42,
+			Name:        "Lifecycle List",
+			OwnerUserId: 999,
 		}
 
 		err := database.CreateLst(db, lst)
@@ -137,7 +137,7 @@ func TestLst_CRUD(t *testing.T) {
 		retrieved, err := database.GetLst(db, 42)
 		require.NoError(t, err)
 		assert.Equal(t, "Lifecycle List", retrieved.Name)
-		assert.Equal(t, uint64(999), retrieved.OwnerId)
+		assert.Equal(t, uint64(999), retrieved.OwnerUserId)
 
 		lst.Name = "Updated Lifecycle List"
 		err = database.UpdateLst(db, lst)
@@ -150,12 +150,12 @@ func TestLst_CRUD(t *testing.T) {
 
 func TestLst_Struct(t *testing.T) {
 	lst := database.Lst{
-		Id:      1,
-		Name:    "Test List",
-		OwnerId: 100,
+		Id:          1,
+		Name:        "Test List",
+		OwnerUserId: 100,
 	}
 
 	assert.Equal(t, uint64(1), lst.Id)
 	assert.Equal(t, "Test List", lst.Name)
-	assert.Equal(t, uint64(100), lst.OwnerId)
+	assert.Equal(t, uint64(100), lst.OwnerUserId)
 }

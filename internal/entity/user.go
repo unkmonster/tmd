@@ -26,7 +26,7 @@ func NewUserEntity(db *sqlx.DB, uid uint64, parentDir string) (*UserEntity, erro
 	}
 	if record == nil {
 		record = &database.UserEntity{}
-		record.Uid = uid
+		record.UserId = uid
 		record.ParentDir = parentDir
 		created = false
 	}
@@ -62,7 +62,7 @@ func (ue *UserEntity) Remove() error {
 
 func (ue *UserEntity) Rename(title string) error {
 	if !ue.created {
-		return fmt.Errorf("user entity [%s:%d] was not created", ue.record.ParentDir, ue.record.Uid)
+		return fmt.Errorf("user entity [%s:%d] was not created", ue.record.ParentDir, ue.record.UserId)
 	}
 
 	old, _ := ue.Path()
@@ -94,28 +94,28 @@ func (ue *UserEntity) ParentDir() string {
 
 func (ue *UserEntity) Name() (string, error) {
 	if ue.record.Name == "" {
-		return "", fmt.Errorf("the name of user entity [%s:%d] was unset", ue.record.ParentDir, ue.record.Uid)
+		return "", fmt.Errorf("the name of user entity [%s:%d] was unset", ue.record.ParentDir, ue.record.UserId)
 	}
 	return ue.record.Name, nil
 }
 
 func (ue *UserEntity) Id() (int, error) {
 	if !ue.created {
-		return 0, fmt.Errorf("user entity [%s:%d] was not created", ue.record.ParentDir, ue.record.Uid)
+		return 0, fmt.Errorf("user entity [%s:%d] was not created", ue.record.ParentDir, ue.record.UserId)
 	}
 	return int(ue.record.Id.Int32), nil
 }
 
 func (ue *UserEntity) LatestReleaseTime() (time.Time, error) {
 	if !ue.created {
-		return time.Time{}, fmt.Errorf("user entity [%s:%d] was not created", ue.record.ParentDir, ue.record.Uid)
+		return time.Time{}, fmt.Errorf("user entity [%s:%d] was not created", ue.record.ParentDir, ue.record.UserId)
 	}
 	return ue.record.LatestReleaseTime.Time, nil
 }
 
 func (ue *UserEntity) SetLatestReleaseTime(t time.Time) error {
 	if !ue.created {
-		return fmt.Errorf("user entity [%s:%d] was not created", ue.record.ParentDir, ue.record.Uid)
+		return fmt.Errorf("user entity [%s:%d] was not created", ue.record.ParentDir, ue.record.UserId)
 	}
 	err := database.SetUserEntityLatestReleaseTime(ue.db, int(ue.record.Id.Int32), t)
 	if err == nil {
@@ -126,7 +126,7 @@ func (ue *UserEntity) SetLatestReleaseTime(t time.Time) error {
 
 func (ue *UserEntity) ClearLatestReleaseTime() error {
 	if !ue.created {
-		return fmt.Errorf("user entity [%s:%d] was not created", ue.record.ParentDir, ue.record.Uid)
+		return fmt.Errorf("user entity [%s:%d] was not created", ue.record.ParentDir, ue.record.UserId)
 	}
 	err := database.ClearUserEntityLatestReleaseTime(ue.db, int(ue.record.Id.Int32))
 	if err == nil {
@@ -135,8 +135,8 @@ func (ue *UserEntity) ClearLatestReleaseTime() error {
 	return err
 }
 
-func (ue *UserEntity) Uid() uint64 {
-	return ue.record.Uid
+func (ue *UserEntity) UserId() uint64 {
+	return ue.record.UserId
 }
 
 func (ue *UserEntity) Recorded() bool {

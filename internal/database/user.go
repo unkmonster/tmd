@@ -101,7 +101,7 @@ func MarkListMembersAccessibleByIDs(db *sqlx.DB, uids []uint64) error {
 }
 
 func RecordUserPreviousName(db *sqlx.DB, uid uint64, name string, screenName string) error {
-	stmt := `INSERT INTO user_previous_names(uid, screen_name, name, record_date) VALUES(?, ?, ?, ?)`
+	stmt := `INSERT INTO user_previous_names(user_id, screen_name, name, record_date) VALUES(?, ?, ?, ?)`
 	_, err := db.Exec(stmt, uid, screenName, name, time.Now())
 	if err != nil {
 		return fmt.Errorf("failed to record previous name for user %d (%s -> %s): %w", uid, screenName, name, err)
@@ -146,7 +146,7 @@ func DelUser(db *sqlx.DB, uid uint64) (err error) {
 		return fmt.Errorf("failed to delete user entities for user %d: %w", uid, err)
 	}
 
-	_, err = tx.Exec("DELETE FROM user_previous_names WHERE uid = ?", uid)
+	_, err = tx.Exec("DELETE FROM user_previous_names WHERE user_id = ?", uid)
 	if err != nil {
 		return fmt.Errorf("failed to delete previous names for user %d: %w", uid, err)
 	}

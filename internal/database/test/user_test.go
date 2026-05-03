@@ -338,7 +338,7 @@ func TestRecordUserPreviousName(t *testing.T) {
 		assert.Len(t, names, 1)
 		assert.Equal(t, "Old Name", names[0].Name)
 		assert.Equal(t, "oldname", names[0].ScreenName)
-		assert.Equal(t, uint64(1), names[0].Uid)
+		assert.Equal(t, uint64(1), names[0].UserId)
 	})
 
 	t.Run("record_multiple_names", func(t *testing.T) {

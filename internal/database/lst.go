@@ -8,7 +8,7 @@ import (
 )
 
 func CreateLst(db *sqlx.DB, lst *Lst) error {
-	stmt := `INSERT INTO lsts(id, name, owner_uid) VALUES(:id, :name, :owner_uid)`
+	stmt := `INSERT INTO lsts(id, name, owner_user_id) VALUES(:id, :name, :owner_user_id)`
 	_, err := db.NamedExec(stmt, &lst)
 	if err != nil {
 		return fmt.Errorf("failed to create list %d (%s): %w", lst.Id, lst.Name, err)

@@ -41,7 +41,7 @@ func TestCreateUserEntity(t *testing.T) {
 	t.Run("create_valid_entity", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		entity := &database.UserEntity{
-			Uid:       1,
+			UserId:       1,
 			Name:      "testuser",
 			ParentDir: tmpDir,
 		}
@@ -56,7 +56,7 @@ func TestCreateUserEntity(t *testing.T) {
 		// 第一个实体已经在上面创建成功，使用相同Uid但不同目录
 		tmpDir := t.TempDir()
 		entity := &database.UserEntity{
-			Uid:       1,
+			UserId:    1,
 			Name:      "testuser2",
 			ParentDir: tmpDir,
 		}
@@ -68,7 +68,7 @@ func TestCreateUserEntity(t *testing.T) {
 
 	t.Run("create_with_relative_path", func(t *testing.T) {
 		entity := &database.UserEntity{
-			Uid:       1,
+			UserId:    1,
 			Name:      "reluser",
 			ParentDir: ".",
 		}
@@ -81,7 +81,7 @@ func TestCreateUserEntity(t *testing.T) {
 
 	t.Run("create_with_invalid_parent_dir", func(t *testing.T) {
 		entity := &database.UserEntity{
-			Uid:       1,
+			UserId:    1,
 			Name:      "invalid",
 			ParentDir: "\x00invalid",
 		}
@@ -97,7 +97,7 @@ func TestDelUserEntity(t *testing.T) {
 	t.Run("delete_existing_entity", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		entity := &database.UserEntity{
-			Uid:       1,
+			UserId:    1,
 			Name:      "todelete",
 			ParentDir: tmpDir,
 		}
@@ -124,7 +124,7 @@ func TestLocateUserEntity(t *testing.T) {
 
 	tmpDir := t.TempDir()
 	entity := &database.UserEntity{
-		Uid:       1,
+		UserId:    1,
 		Name:      "located",
 		ParentDir: tmpDir,
 	}
@@ -163,7 +163,7 @@ func TestGetUserEntity(t *testing.T) {
 
 	tmpDir := t.TempDir()
 	entity := &database.UserEntity{
-		Uid:       1,
+		UserId:    1,
 		Name:      "testentity",
 		ParentDir: tmpDir,
 	}
@@ -176,7 +176,7 @@ func TestGetUserEntity(t *testing.T) {
 		assert.NoError(t, err)
 		assert.NotNil(t, retrieved)
 		assert.Equal(t, int32(entityId), retrieved.Id.Int32)
-		assert.Equal(t, uint64(1), retrieved.Uid)
+		assert.Equal(t, uint64(1), retrieved.UserId)
 		assert.Equal(t, "testentity", retrieved.Name)
 	})
 
@@ -193,7 +193,7 @@ func TestUpdateUserEntity(t *testing.T) {
 
 	tmpDir := t.TempDir()
 	entity := &database.UserEntity{
-		Uid:       1,
+		UserId:    1,
 		Name:      "original",
 		ParentDir: tmpDir,
 	}
@@ -245,7 +245,7 @@ func TestUpdateUserEntityMediCount(t *testing.T) {
 
 	tmpDir := t.TempDir()
 	entity := &database.UserEntity{
-		Uid:       1,
+		UserId:    1,
 		Name:      "mediacount",
 		ParentDir: tmpDir,
 	}
@@ -272,7 +272,7 @@ func TestUpdateUserEntityTweetStat(t *testing.T) {
 
 	tmpDir := t.TempDir()
 	entity := &database.UserEntity{
-		Uid:       1,
+		UserId:    1,
 		Name:      "tweetstat",
 		ParentDir: tmpDir,
 	}
@@ -302,7 +302,7 @@ func TestSetUserEntityLatestReleaseTime(t *testing.T) {
 
 	tmpDir := t.TempDir()
 	entity := &database.UserEntity{
-		Uid:       1,
+		UserId:    1,
 		Name:      "releasetime",
 		ParentDir: tmpDir,
 	}
@@ -332,7 +332,7 @@ func TestClearUserEntityLatestReleaseTime(t *testing.T) {
 
 	tmpDir := t.TempDir()
 	entity := &database.UserEntity{
-		Uid:               1,
+		UserId:            1,
 		Name:              "cleartime",
 		ParentDir:         tmpDir,
 		LatestReleaseTime: sql.NullTime{Time: time.Now(), Valid: true},

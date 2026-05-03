@@ -95,8 +95,8 @@ func TestSyncUserAndEntity(t *testing.T) {
 	}
 
 	// Verify entity properties
-	if entity.Uid() != user.Id {
-		t.Errorf("Uid() = %d, want %d", entity.Uid(), user.Id)
+	if entity.UserId() != user.Id {
+		t.Errorf("UserId() = %d, want %d", entity.UserId(), user.Id)
 	}
 
 	// Verify directory was created
@@ -158,7 +158,7 @@ func TestSyncUserAndEntity_UpdateExisting(t *testing.T) {
 	}
 
 	// Should return the same entity
-	if entity1.Uid() != entity2.Uid() {
+	if entity1.UserId() != entity2.UserId() {
 		t.Error("Should return entity for same user")
 	}
 

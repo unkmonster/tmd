@@ -212,8 +212,8 @@ func verifyUserRecord(t *testing.T, db *sqlx.DB, e entity.Entity, uid uint64, na
 	if record.Name != name {
 		t.Errorf("recorded name: %s, want %s", record.Name, name)
 	}
-	if record.Uid != uid {
-		t.Errorf("uid: %d, want %d", record.Uid, uid)
+	if record.UserId != uid {
+		t.Errorf("uid: %d, want %d", record.UserId, uid)
 	}
 	return e.(*entity.UserEntity)
 }
@@ -272,8 +272,8 @@ func testSyncUser(t *testing.T, db *sqlx.DB, name string, uid int, parentdir str
 
 	verifyUserRecord(t, db, ue, uint64(uid), name, parentdir)
 
-	if ue.Uid() != uint64(uid) {
-		t.Errorf("uid: %d, want %d", ue.Uid(), uid)
+	if ue.UserId() != uint64(uid) {
+		t.Errorf("uid: %d, want %d", ue.UserId(), uid)
 	}
 	return ue
 }

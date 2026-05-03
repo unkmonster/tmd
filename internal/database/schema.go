@@ -1,8 +1,8 @@
 package database
 
 import (
-	"strings"
 	"fmt"
+	"strings"
 
 	"github.com/jmoiron/sqlx"
 )
@@ -21,18 +21,18 @@ CREATE TABLE IF NOT EXISTS users (
 
 CREATE TABLE IF NOT EXISTS user_previous_names (
 	id INTEGER NOT NULL, 
-	uid INTEGER NOT NULL, 
+	user_id INTEGER NOT NULL, 
 	screen_name VARCHAR NOT NULL, 
 	name VARCHAR NOT NULL, 
 	record_date DATE NOT NULL, 
 	PRIMARY KEY (id), 
-	FOREIGN KEY(uid) REFERENCES users (id)
+	FOREIGN KEY(user_id) REFERENCES users (id)
 );
 
 CREATE TABLE IF NOT EXISTS lsts (
 	id INTEGER NOT NULL, 
 	name VARCHAR NOT NULL, 
-	owner_uid INTEGER NOT NULL, 
+	owner_user_id INTEGER NOT NULL, 
 	PRIMARY KEY (id)
 );
 
@@ -74,13 +74,13 @@ CREATE INDEX IF NOT EXISTS idx_users_name ON users(name);
 CREATE INDEX IF NOT EXISTS idx_users_accessible ON users(is_accessible);
 CREATE INDEX IF NOT EXISTS idx_users_protected ON users(protected);
 CREATE INDEX IF NOT EXISTS idx_lsts_name ON lsts(name);
-CREATE INDEX IF NOT EXISTS idx_lsts_owner ON lsts(owner_uid);
+CREATE INDEX IF NOT EXISTS idx_lsts_owner ON lsts(owner_user_id);
 CREATE INDEX IF NOT EXISTS idx_user_entities_user_id ON user_entities(user_id);
 CREATE INDEX IF NOT EXISTS idx_user_entities_name ON user_entities(name);
 CREATE INDEX IF NOT EXISTS idx_lst_entities_lst_id ON lst_entities(lst_id);
 CREATE INDEX IF NOT EXISTS idx_user_links_user_id ON user_links(user_id);
 CREATE INDEX IF NOT EXISTS idx_user_links_lst_entity ON user_links(parent_lst_entity_id);
-CREATE INDEX IF NOT EXISTS idx_user_previous_names_uid ON user_previous_names(uid);
+CREATE INDEX IF NOT EXISTS idx_user_previous_names_user_id ON user_previous_names(user_id);
 `
 
 func CreateTables(db *sqlx.DB) {
@@ -90,14 +90,26 @@ func CreateTables(db *sqlx.DB) {
 func MigrateDatabase(db *sqlx.DB) error {
 	migrations := []string{
 		`ALTER TABLE users ADD COLUMN is_accessible BOOLEAN NOT NULL DEFAULT 1`,
+		`ALTER TABLE user_previous_names RENAME COLUMN uid TO user_id`,
+		`ALTER TABLE lsts RENAME COLUMN owner_uid TO owner_user_id`,
 	}
 
 	for i, migration := range migrations {
 		if _, err := db.Exec(migration); err != nil {
-			if !strings.Contains(err.Error(), "duplicate column name") {
+			if !strings.Contains(err.Error(), "duplicate column name") && !isColumnAlreadyRenamed(err) && !isTableNotExist(err) {
 				return fmt.Errorf("migration %d failed: %w", i+1, err)
 			}
 		}
 	}
 	return nil
+}
+
+func isColumnAlreadyRenamed(err error) bool {
+	msg := err.Error()
+	return strings.Contains(msg, "no such column") || strings.Contains(msg, "cannot rename")
+}
+
+func isTableNotExist(err error) bool {
+	msg := err.Error()
+	return strings.Contains(msg, "no such table")
 }

@@ -96,7 +96,7 @@ func createTestDependencies(t *testing.T) *Dependencies {
 func newFailedTweet(entityID int, tweetID uint64) *downloading.TweetInEntity {
 	record := &database.UserEntity{
 		Id:        sql.NullInt32{Int32: int32(entityID), Valid: true},
-		Uid:       uint64(entityID),
+		UserId:    uint64(entityID),
 		Name:      "user",
 		ParentDir: "/tmp",
 	}

@@ -66,7 +66,7 @@ func TestCreateTables_UserPreviousNamesSchema(t *testing.T) {
 
 	database.CreateTables(db)
 
-	columns := []string{"id", "uid", "screen_name", "name", "record_date"}
+	columns := []string{"id", "user_id", "screen_name", "name", "record_date"}
 	for _, col := range columns {
 		var count int
 		err := db.Get(&count, "SELECT COUNT(*) FROM pragma_table_info('user_previous_names') WHERE name=?", col)
@@ -81,7 +81,7 @@ func TestCreateTables_LstsSchema(t *testing.T) {
 
 	database.CreateTables(db)
 
-	columns := []string{"id", "name", "owner_uid"}
+	columns := []string{"id", "name", "owner_user_id"}
 	for _, col := range columns {
 		var count int
 		err := db.Get(&count, "SELECT COUNT(*) FROM pragma_table_info('lsts') WHERE name=?", col)
@@ -153,7 +153,7 @@ func TestCreateTables_Indexes(t *testing.T) {
 		"idx_lst_entities_lst_id",
 		"idx_user_links_user_id",
 		"idx_user_links_lst_entity",
-		"idx_user_previous_names_uid",
+		"idx_user_previous_names_user_id",
 	}
 
 	for _, idx := range indexes {

@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"os"
 
 	"github.com/go-resty/resty/v2"
 	log "github.com/sirupsen/logrus"
@@ -672,6 +673,8 @@ func (s *downloadServiceImpl) saveDumper(dumper *downloading.TweetDumper, path s
 		} else {
 			log.Infof("%d tweets have been dumped", dumper.Count())
 		}
+	} else {
+		os.Remove(path)
 	}
 }
 

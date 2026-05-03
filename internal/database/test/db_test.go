@@ -228,7 +228,7 @@ func TestUserEntity(t *testing.T) {
 		entity.MediaCount.Scan(25)
 
 		// locate
-		record, err := database.LocateUserEntity(db, entity.Uid, tempDir)
+		record, err := database.LocateUserEntity(db, entity.UserId, tempDir)
 		if err != nil {
 			t.Error(err)
 			return
@@ -273,7 +273,7 @@ func generateUserEntity(uid uint64, pdir string) *database.UserEntity {
 	}
 
 	ue.Name = user.Name
-	ue.Uid = uid
+	ue.UserId = uid
 	ue.ParentDir = pdir
 	return &ue
 }

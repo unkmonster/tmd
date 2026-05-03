@@ -120,7 +120,7 @@ type DBUserItem struct {
 type DBListItem struct {
 	ID      string `json:"id"`
 	Name    string `json:"name"`
-	OwnerID string `json:"owner_uid"`
+	OwnerID string `json:"owner_user_id"`
 }
 
 // DBEntityItem 数据库用户实体项（前端友好格式）
@@ -152,7 +152,7 @@ type DBUserLinkItem struct {
 // DBUserPreviousNameItem 用户历史名称项
 type DBUserPreviousNameItem struct {
 	ID         string `json:"id"`
-	Uid        string `json:"uid"`
+	Uid        string `json:"user_id"`
 	ScreenName string `json:"screen_name"`
 	Name       string `json:"name"`
 	RecordDate string `json:"record_date"`

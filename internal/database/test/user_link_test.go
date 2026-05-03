@@ -30,7 +30,7 @@ func setupUserLinkTestDB(t *testing.T) *sqlx.DB {
 	lst := &database.Lst{
 		Id:      1,
 		Name:    "TestList",
-		OwnerId: 100,
+		OwnerUserId: 100,
 	}
 	err = database.CreateLst(db, lst)
 	require.NoError(t, err)

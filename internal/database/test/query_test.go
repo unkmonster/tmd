@@ -33,7 +33,7 @@ func setupQueryTestDB(t *testing.T) *sqlx.DB {
 		lst := &database.Lst{
 			Id:      uint64(i + 1),
 			Name:    "List " + string(rune('0'+i)),
-			OwnerId: uint64(i + 100),
+			OwnerUserId: uint64(i + 100),
 		}
 		err := database.CreateLst(db, lst)
 		require.NoError(t, err)
@@ -145,7 +145,7 @@ func TestQueryLists(t *testing.T) {
 	})
 
 	t.Run("query_with_where", func(t *testing.T) {
-		lists, err := database.QueryLists(db, "owner_uid = ?", []interface{}{uint64(100)}, "", 10, 0)
+		lists, err := database.QueryLists(db, "owner_user_id = ?", []interface{}{uint64(100)}, "", 10, 0)
 		assert.NoError(t, err)
 		assert.Len(t, lists, 1)
 		assert.Equal(t, "List 0", lists[0].Name)
@@ -165,7 +165,7 @@ func TestQueryUserEntities(t *testing.T) {
 
 	for i := 0; i < 5; i++ {
 		entity := &database.UserEntity{
-			Uid:       uint64(i + 1),
+			UserId:    uint64(i + 1),
 			Name:      "entity" + string(rune('0'+i)),
 			ParentDir: "/tmp/test",
 		}
@@ -224,7 +224,7 @@ func TestQueryUserLinks(t *testing.T) {
 	defer db.Close()
 
 	// 使用新的list ID避免冲突
-	lst := &database.Lst{Id: 999, Name: "TestList999", OwnerId: 100}
+	lst := &database.Lst{Id: 999, Name: "TestList999", OwnerUserId: 100}
 	err := database.CreateLst(db, lst)
 	require.NoError(t, err)
 

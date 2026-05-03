@@ -6,9 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	pathpkg "path"
 	"path/filepath"
 	"regexp"
-	pathpkg "path"
 	"strings"
 	"sync"
 	"syscall"
@@ -249,7 +249,7 @@ func (pd *ProfileDownloader) syncUserDirectory(profile *ProfileInfo, userTitle, 
 
 	if entity == nil {
 		entity = &database.UserEntity{
-			Uid:       profile.ID,
+			UserId:    profile.ID,
 			ParentDir: pd.storage.usersBasePath,
 			Name:      expectedTitle,
 		}

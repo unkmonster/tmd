@@ -70,7 +70,7 @@ func BatchUserDownload(ctx context.Context, client *resty.Client, db *sqlx.DB, u
 	missingTweets := 0
 	depthByEntity := make(map[*entity.UserEntity]int)
 	userEntityHeap := utils.NewHeap(func(lhs, rhs *entity.UserEntity) bool {
-		luser, ruser := uidToUser[lhs.Uid()], uidToUser[rhs.Uid()]
+		luser, ruser := uidToUser[lhs.UserId()], uidToUser[rhs.UserId()]
 		lOnlyMater := luser.IsProtected && luser.Followstate == twitter.FS_FOLLOWING
 		rOnlyMaster := ruser.IsProtected && ruser.Followstate == twitter.FS_FOLLOWING
 
@@ -223,7 +223,7 @@ func BatchUserDownload(ctx context.Context, client *resty.Client, db *sqlx.DB, u
 		defer prodwg.Done()
 		defer panicHandler()
 
-		user := uidToUser[ent.Uid()]
+		user := uidToUser[ent.UserId()]
 
 		entityName, nameErr := ent.Name()
 		if nameErr != nil {
@@ -362,7 +362,7 @@ func BatchUserDownload(ctx context.Context, client *resty.Client, db *sqlx.DB, u
 				if depth > userTweetRateLimit {
 					entityName, nameErr := entity.Name()
 					if nameErr != nil {
-						entityName = fmt.Sprintf("(uid:%d)", entity.Uid())
+						entityName = fmt.Sprintf("(uid:%d)", entity.UserId())
 					}
 					log.Warnln("user depth exceeds limit:", entityName, "- depth:", depth)
 					userEntityHeap.Pop()

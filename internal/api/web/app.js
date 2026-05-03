@@ -922,7 +922,7 @@ function renderDBTable(type, data, sort) {
       return `<tr>
         <td>${escapeHtml(item.id)}</td>
         <td>${escapeHtml(item.name)}</td>
-        <td>${escapeHtml(item.owner_uid)}</td>
+        <td>${escapeHtml(item.owner_user_id)}</td>
         <td>${renderActionButtons(type, item)}</td>
       </tr>`;
     } else if (type === 'entities') {
@@ -974,7 +974,7 @@ function renderDBTable(type, data, sort) {
           <div style="font-weight: var(--font-semibold); margin-bottom: var(--space-2);">${escapeHtml(item.name)}</div>
           <div style="color: var(--text-secondary); font-size: var(--text-sm); margin-bottom: var(--space-2);">
             <div>ID: ${escapeHtml(item.id)}</div>
-            <div>Owner: ${escapeHtml(item.owner_uid)}</div>
+            <div>Owner: ${escapeHtml(item.owner_user_id)}</div>
           </div>
           <div>${renderActionButtons(type, item)}</div>
         </div>
@@ -1287,7 +1287,7 @@ async function editDBItem(type, id) {
           </div>
           <div class="form-group">
             <label class="form-label">Owner ID</label>
-            <input type="text" class="form-input" id="editListOwnerId" value="${escapeAttr(item.owner_uid || '')}">
+            <input type="text" class="form-input" id="editListOwnerId" value="${escapeAttr(item.owner_user_id || '')}">
           </div>
         `;
         break;
@@ -1347,7 +1347,7 @@ async function saveDBItem(type, id) {
       break;
     case 'lists':
       data.name = document.getElementById('editListName').value.trim();
-      data.owner_uid = document.getElementById('editListOwnerId').value.trim();
+      data.owner_user_id = document.getElementById('editListOwnerId').value.trim();
       if (!data.name) return toast.show('Name is required', 'error');
       break;
     case 'entities':

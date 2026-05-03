@@ -23,7 +23,7 @@ var userSortFields = map[string]string{
 var listSortFields = map[string]string{
 	"id":       "id",
 	"name":     "name",
-	"owner_id": "owner_uid",
+	"owner_id": "owner_user_id",
 }
 
 var entitySortFields = map[string]string{
@@ -242,7 +242,7 @@ func (s *Server) handleDBLists(w http.ResponseWriter, r *http.Request) {
 			s.writeError(w, http.StatusBadRequest, "Invalid owner ID")
 			return
 		}
-		whereConditions = append(whereConditions, "owner_uid = ?")
+		whereConditions = append(whereConditions, "owner_user_id = ?")
 		args = append(args, ownerUID)
 	}
 
@@ -272,7 +272,7 @@ func (s *Server) handleDBLists(w http.ResponseWriter, r *http.Request) {
 		items[i] = DBListItem{
 			ID:      strconv.FormatUint(l.Id, 10),
 			Name:    l.Name,
-			OwnerID: strconv.FormatUint(l.OwnerId, 10),
+			OwnerID: strconv.FormatUint(l.OwnerUserId, 10),
 		}
 	}
 
@@ -300,7 +300,7 @@ func (s *Server) handleDBListDetail(w http.ResponseWriter, r *http.Request) {
 	item := DBListItem{
 		ID:      strconv.FormatUint(lst.Id, 10),
 		Name:    lst.Name,
-		OwnerID: strconv.FormatUint(lst.OwnerId, 10),
+		OwnerID: strconv.FormatUint(lst.OwnerUserId, 10),
 	}
 
 	s.writeJSON(w, http.StatusOK, NewSuccessResponse(item))
@@ -315,7 +315,7 @@ func (s *Server) handleDBListUpdate(w http.ResponseWriter, r *http.Request) {
 
 	var req struct {
 		Name    string `json:"name"`
-		OwnerID string `json:"owner_uid"`
+		OwnerID string `json:"owner_user_id"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -342,7 +342,7 @@ func (s *Server) handleDBListUpdate(w http.ResponseWriter, r *http.Request) {
 			s.writeError(w, http.StatusBadRequest, "Invalid owner ID")
 			return
 		}
-		lst.OwnerId = ownerID
+		lst.OwnerUserId = ownerID
 	}
 
 	if err := database.UpdateLst(s.db, lst); err != nil {
@@ -353,7 +353,7 @@ func (s *Server) handleDBListUpdate(w http.ResponseWriter, r *http.Request) {
 	item := DBListItem{
 		ID:      strconv.FormatUint(lst.Id, 10),
 		Name:    lst.Name,
-		OwnerID: strconv.FormatUint(lst.OwnerId, 10),
+		OwnerID: strconv.FormatUint(lst.OwnerUserId, 10),
 	}
 
 	s.writeJSON(w, http.StatusOK, NewSuccessResponse(item))
@@ -430,7 +430,7 @@ func (s *Server) handleDBUserEntities(w http.ResponseWriter, r *http.Request) {
 	for i, e := range entities {
 		items[i] = DBEntityItem{
 			ID:         strconv.FormatInt(int64(nullInt32(e.Id)), 10),
-			UserID:     strconv.FormatUint(e.Uid, 10),
+			UserID:     strconv.FormatUint(e.UserId, 10),
 			Name:       e.Name,
 			ParentDir:  e.ParentDir,
 			MediaCount: nullInt32(e.MediaCount),
@@ -463,7 +463,7 @@ func (s *Server) handleDBUserEntityDetail(w http.ResponseWriter, r *http.Request
 
 	item := DBEntityItem{
 		ID:         strconv.FormatInt(int64(nullInt32(entity.Id)), 10),
-		UserID:     strconv.FormatUint(entity.Uid, 10),
+		UserID:     strconv.FormatUint(entity.UserId, 10),
 		Name:       entity.Name,
 		ParentDir:  entity.ParentDir,
 		MediaCount: nullInt32(entity.MediaCount),
@@ -522,7 +522,7 @@ func (s *Server) handleDBUserEntityUpdate(w http.ResponseWriter, r *http.Request
 
 	item := DBEntityItem{
 		ID:         strconv.FormatInt(int64(nullInt32(entity.Id)), 10),
-		UserID:     strconv.FormatUint(entity.Uid, 10),
+		UserID:     strconv.FormatUint(entity.UserId, 10),
 		Name:       entity.Name,
 		ParentDir:  entity.ParentDir,
 		MediaCount: nullInt32(entity.MediaCount),
@@ -890,7 +890,7 @@ func (s *Server) handleDBUserPreviousNames(w http.ResponseWriter, r *http.Reques
 
 	// 获取总数
 	total, err := database.Count(s.db, "user_previous_names", &database.QueryOptions{
-		Where: "uid = ?",
+		Where: "user_id = ?",
 		Args:  []interface{}{uid},
 	})
 	if err != nil {
@@ -902,7 +902,7 @@ func (s *Server) handleDBUserPreviousNames(w http.ResponseWriter, r *http.Reques
 	for i, n := range names {
 		items[i] = DBUserPreviousNameItem{
 			ID:         strconv.Itoa(int(n.Id)),
-			Uid:        strconv.FormatUint(n.Uid, 10),
+			Uid:        strconv.FormatUint(n.UserId, 10),
 			ScreenName: n.ScreenName,
 			Name:       n.Name,
 			RecordDate: n.RecordDate.Format("2006-01-02"),

@@ -239,6 +239,7 @@ func initializeClients(
 		log.Fatalln("failed to connect to database:", err)
 	}
 	log.Infoln("database is connected")
+	downloading.InitListSyncManager(db)
 
 	return client, additional, pathHelper, db
 }

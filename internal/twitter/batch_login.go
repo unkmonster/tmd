@@ -39,13 +39,12 @@ func BatchLogin(ctx context.Context, opts BatchLoginOptions, cookies []AccountCo
 		go func(index int) {
 			defer wg.Done()
 			cli, sn, err := LoginWithOptions(ctx, cookie.AuthToken, cookie.Ct0, loginOpts)
-			if _, loaded := added.LoadOrStore(sn, struct{}{}); loaded {
-				msgs[index] = "    - ? repeated\n"
-				return
-			}
-
 			if err != nil {
 				msgs[index] = fmt.Sprintf("    - ? %v\n", err)
+				return
+			}
+			if _, loaded := added.LoadOrStore(sn, struct{}{}); loaded {
+				msgs[index] = "    - ? repeated\n"
 				return
 			}
 			EnableRateLimit(cli)

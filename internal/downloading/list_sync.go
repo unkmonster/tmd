@@ -17,10 +17,16 @@ type ListSyncManager struct {
 	mu        sync.Mutex
 }
 
-func NewListSyncManager(db *sqlx.DB) *ListSyncManager {
-	return &ListSyncManager{
+var globalListSyncManager *ListSyncManager
+
+func InitListSyncManager(db *sqlx.DB) {
+	globalListSyncManager = &ListSyncManager{
 		txManager: tx.NewManager(db),
 	}
+}
+
+func GetListSyncManager() *ListSyncManager {
+	return globalListSyncManager
 }
 
 func (lsm *ListSyncManager) SyncListMembers(ctx context.Context, lstEntityId int, lstName string, currentMemberIDs []uint64) error {
@@ -33,18 +39,31 @@ func (lsm *ListSyncManager) SyncListMembers(ctx context.Context, lstEntityId int
 	lsm.mu.Lock()
 	defer lsm.mu.Unlock()
 
-	// 使用事务管理器统一处理事务生命周期
-	return lsm.txManager.RunInTransaction(ctx, func(tx *sqlx.Tx) error {
-		return lsm.syncListMembersInTx(ctx, tx, lstEntityId, lstName, currentMemberIDs)
-	})
-}
+	var pathsToRemove []string
 
-// syncListMembersInTx 在事务内同步列表成员
-// 所有数据库操作必须使用传入的 tx 参数
-func (lsm *ListSyncManager) syncListMembersInTx(_ context.Context, tx *sqlx.Tx, lstEntityId int, lstName string, currentMemberIDs []uint64) error {
-	links, err := database.GetUserLinksByLstEntityId(tx, lstEntityId)
+	err := lsm.txManager.RunInTransaction(ctx, func(tx *sqlx.Tx) error {
+		var txErr error
+		pathsToRemove, txErr = lsm.syncListMembersInTx(ctx, tx, lstEntityId, lstName, currentMemberIDs)
+		return txErr
+	})
+
 	if err != nil {
 		return err
+	}
+
+	for _, p := range pathsToRemove {
+		if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
+			log.Warnln("failed to remove symlink:", p, err)
+		}
+	}
+
+	return nil
+}
+
+func (lsm *ListSyncManager) syncListMembersInTx(_ context.Context, tx *sqlx.Tx, lstEntityId int, lstName string, currentMemberIDs []uint64) ([]string, error) {
+	links, err := database.GetUserLinksByLstEntityId(tx, lstEntityId)
+	if err != nil {
+		return nil, err
 	}
 
 	memberSet := make(map[uint64]bool)
@@ -53,14 +72,17 @@ func (lsm *ListSyncManager) syncListMembersInTx(_ context.Context, tx *sqlx.Tx, 
 	}
 
 	removedCount := 0
+	pathsToRemove := make([]string, 0)
+
 	for _, link := range links {
 		if !memberSet[link.UserId] {
-			if err := lsm.removeUserLinkInTx(tx, link, lstEntityId); err != nil {
-				log.Warnln("failed to remove user link:", link.UserId, err)
-				return err
-			} else {
-				removedCount++
+			linkPaths, linkErr := lsm.removeUserLinkInTx(tx, link, lstEntityId)
+			if linkErr != nil {
+				log.Warnln("failed to remove user link:", link.UserId, linkErr)
+				return nil, linkErr
 			}
+			pathsToRemove = append(pathsToRemove, linkPaths...)
+			removedCount++
 		}
 	}
 
@@ -68,28 +90,25 @@ func (lsm *ListSyncManager) syncListMembersInTx(_ context.Context, tx *sqlx.Tx, 
 		log.Infoln("Removed", removedCount, "users from list", lstName, "(no longer members)")
 	}
 
-	return nil
+	return pathsToRemove, nil
 }
 
-// removeUserLinkInTx 在事务内删除用户链接
-// 所有数据库操作必须使用传入的 tx 参数
-func (lsm *ListSyncManager) removeUserLinkInTx(tx *sqlx.Tx, link *database.UserLink, lstEntityId int) error {
+func (lsm *ListSyncManager) removeUserLinkInTx(tx *sqlx.Tx, link *database.UserLink, lstEntityId int) ([]string, error) {
 	if link.Id == 0 {
-		return fmt.Errorf("link id is not valid for user %d in list %d", link.UserId, lstEntityId)
+		return nil, fmt.Errorf("link id is not valid for user %d in list %d", link.UserId, lstEntityId)
 	}
 
-	// 使用 PathWithTx 确保在事务内查询
+	var pathsToRemove []string
+
 	linkpath, err := link.PathWithTx(tx)
-	if err == nil {
-		if err := os.Remove(linkpath); err != nil && !os.IsNotExist(err) {
-			log.Warnln("failed to remove symlink:", linkpath, err)
-		}
+	if err == nil && linkpath != "" {
+		pathsToRemove = append(pathsToRemove, linkpath)
 	}
 
 	_, err = tx.Exec(`DELETE FROM user_links WHERE id = ?`, link.Id)
 	if err != nil {
-		return fmt.Errorf("failed to delete user link %d from database: %w", link.Id, err)
+		return nil, fmt.Errorf("failed to delete user link %d from database: %w", link.Id, err)
 	}
 
-	return nil
+	return pathsToRemove, nil
 }

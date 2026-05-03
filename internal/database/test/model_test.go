@@ -93,7 +93,7 @@ func TestUserLink_Path(t *testing.T) {
 	defer db.Close()
 
 	t.Run("valid_path", func(t *testing.T) {
-		lst := &database.Lst{Id: 1, Name: "TestList", OwnerId: 100}
+		lst := &database.Lst{Id: 1, Name: "TestList", OwnerUserId: 100}
 		err := database.CreateLst(db, lst)
 		require.NoError(t, err)
 
@@ -184,14 +184,14 @@ func TestUser_Struct(t *testing.T) {
 func TestUserEntity_Struct(t *testing.T) {
 	ue := database.UserEntity{
 		Id:        sql.NullInt32{Int32: 1, Valid: true},
-		Uid:       100,
+		UserId:    100,
 		Name:      "testuser",
 		ParentDir: "/tmp/test",
 	}
 
 	assert.Equal(t, int32(1), ue.Id.Int32)
 	assert.True(t, ue.Id.Valid)
-	assert.Equal(t, uint64(100), ue.Uid)
+	assert.Equal(t, uint64(100), ue.UserId)
 	assert.Equal(t, "testuser", ue.Name)
 	assert.Equal(t, "/tmp/test", ue.ParentDir)
 }
@@ -213,13 +213,13 @@ func TestUserLink_Struct(t *testing.T) {
 func TestUserPreviousName_Struct(t *testing.T) {
 	upn := database.UserPreviousName{
 		Id:         1,
-		Uid:        100,
+		UserId:     100,
 		ScreenName: "oldname",
 		Name:       "Old Name",
 	}
 
 	assert.Equal(t, int32(1), upn.Id)
-	assert.Equal(t, uint64(100), upn.Uid)
+	assert.Equal(t, uint64(100), upn.UserId)
 	assert.Equal(t, "oldname", upn.ScreenName)
 	assert.Equal(t, "Old Name", upn.Name)
 }
@@ -228,12 +228,12 @@ func TestLstModel_Struct(t *testing.T) {
 	lst := database.Lst{
 		Id:      1,
 		Name:    "Test List",
-		OwnerId: 100,
+		OwnerUserId: 100,
 	}
 
 	assert.Equal(t, uint64(1), lst.Id)
 	assert.Equal(t, "Test List", lst.Name)
-	assert.Equal(t, uint64(100), lst.OwnerId)
+	assert.Equal(t, uint64(100), lst.OwnerUserId)
 }
 
 func TestLstEntity_Struct(t *testing.T) {

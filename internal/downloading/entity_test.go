@@ -23,7 +23,7 @@ func TestUpdateUserLink(t *testing.T) {
 
 	// Create a user entity first
 	entity := &database.UserEntity{
-		Uid:       12345,
+		UserId:    12345,
 		ParentDir: filepath.Join(tempDir, "users"),
 		Name:      "TestUser",
 	}

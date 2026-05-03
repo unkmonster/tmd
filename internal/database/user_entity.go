@@ -19,7 +19,7 @@ func CreateUserEntity(db *sqlx.DB, entity *UserEntity) error {
 	stmt := `INSERT INTO user_entities(user_id, name, parent_dir) VALUES(:user_id, :name, :parent_dir)`
 	res, err := db.NamedExec(stmt, entity)
 	if err != nil {
-		return fmt.Errorf("failed to create user entity for user %d in %q: %w", entity.Uid, entity.ParentDir, err)
+		return fmt.Errorf("failed to create user entity for user %d in %q: %w", entity.UserId, entity.ParentDir, err)
 	}
 	return handleInsertWithId(res, err, func(id int64) { entity.Id.Scan(id) })
 }

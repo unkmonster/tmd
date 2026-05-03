@@ -344,7 +344,7 @@ func TestHandleDBLists_WithData(t *testing.T) {
 	lst := &database.Lst{
 		Id:      1,
 		Name:    "Test List",
-		OwnerId: 100,
+		OwnerUserId: 100,
 	}
 	err := database.CreateLst(db, lst)
 	assert.NoError(t, err)
@@ -364,7 +364,7 @@ func TestHandleDBLists_WithSearch(t *testing.T) {
 	lst := &database.Lst{
 		Id:      1,
 		Name:    "Search List",
-		OwnerId: 100,
+		OwnerUserId: 100,
 	}
 	database.CreateLst(db, lst)
 
@@ -383,9 +383,9 @@ func TestHandleDBLists_WithOwnerFilter(t *testing.T) {
 	lst := &database.Lst{
 		Id:      1,
 		Name:    "Test List",
-		OwnerId: 100,
+		OwnerUserId: 100,
 	}
-	database.CreateLst(db, lst)
+	_ = database.CreateLst(db, lst)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/db/lists?ownerId=100", nil)
 	rr := httptest.NewRecorder()
@@ -414,7 +414,7 @@ func TestHandleDBListDetail_Success(t *testing.T) {
 	lst := &database.Lst{
 		Id:      1,
 		Name:    "Detail List",
-		OwnerId: 100,
+		OwnerUserId: 100,
 	}
 	database.CreateLst(db, lst)
 
@@ -460,13 +460,13 @@ func TestHandleDBListUpdate_Success(t *testing.T) {
 	lst := &database.Lst{
 		Id:      1,
 		Name:    "Old Name",
-		OwnerId: 100,
+		OwnerUserId: 100,
 	}
 	database.CreateLst(db, lst)
 
 	updateData := map[string]string{
 		"name":     "New Name",
-		"owner_uid": "200",
+		"owner_user_id": "200",
 	}
 	body, _ := json.Marshal(updateData)
 
@@ -487,12 +487,12 @@ func TestHandleDBListUpdate_InvalidOwnerID(t *testing.T) {
 	lst := &database.Lst{
 		Id:      1,
 		Name:    "Test List",
-		OwnerId: 100,
+		OwnerUserId: 100,
 	}
 	database.CreateLst(db, lst)
 
 	updateData := map[string]string{
-		"owner_uid": "invalid",
+		"owner_user_id": "invalid",
 	}
 	body, _ := json.Marshal(updateData)
 
@@ -513,7 +513,7 @@ func TestHandleDBListDelete_Success(t *testing.T) {
 	lst := &database.Lst{
 		Id:      1,
 		Name:    "Delete List",
-		OwnerId: 100,
+		OwnerUserId: 100,
 	}
 	database.CreateLst(db, lst)
 
@@ -1024,7 +1024,7 @@ func TestHandleDBListUpdate_PartialFields(t *testing.T) {
 	lst := &database.Lst{
 		Id:      1,
 		Name:    "Original Name",
-		OwnerId: 100,
+		OwnerUserId: 100,
 	}
 	database.CreateLst(db, lst)
 
@@ -1058,7 +1058,7 @@ func TestHandleDBUserEntityUpdate_PartialFields(t *testing.T) {
 
 	// 创建实体
 	entity := &database.UserEntity{
-		Uid:       1,
+		UserId:    1,
 		Name:      "Original Name",
 		ParentDir: "/data",
 	}
@@ -1088,7 +1088,7 @@ func TestHandleDBListEntityUpdate_PartialFields(t *testing.T) {
 	lst := &database.Lst{
 		Id:      1,
 		Name:    "Test List",
-		OwnerId: 100,
+		OwnerUserId: 100,
 	}
 	database.CreateLst(db, lst)
 

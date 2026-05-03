@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -26,11 +27,6 @@ const (
 // 基于 CPU 核心数计算，但不超过 100
 func DefaultMaxDownloadRoutine() int {
 	return min(100, runtime.GOMAXPROCS(0)*10)
-}
-
-// DefaultMaxFileNameLen 返回默认的最大文件名长度
-func DefaultMaxFileNameLen() int {
-	return utils.DefaultMaxFileNameLen
 }
 
 type Cookie struct {
@@ -113,15 +109,15 @@ func GetFieldDefs() []FieldDef {
 		{
 			Name:    "max_file_name_len",
 			Prompt:  fmt.Sprintf("enter max file name length (%d-%d)", MinFileNameLen, MaxFileNameLen),
-			Default: strconv.Itoa(DefaultMaxFileNameLen()),
+			Default: strconv.Itoa(utils.DefaultMaxFileNameLen),
 			Getter: func(c *Config) string {
 				if c.MaxFileNameLen == 0 {
-					return strconv.Itoa(DefaultMaxFileNameLen())
+					return strconv.Itoa(utils.DefaultMaxFileNameLen)
 				}
 				return strconv.Itoa(c.MaxFileNameLen)
 			},
 			Setter: func(c *Config, v string) error {
-				n, err := parseIntWithDefault(v, DefaultMaxFileNameLen())
+				n, err := parseIntWithDefault(v, utils.DefaultMaxFileNameLen)
 				if err != nil {
 					return fmt.Errorf("invalid number: %w", err)
 				}
@@ -134,9 +130,37 @@ func GetFieldDefs() []FieldDef {
 			Prompt:  "enter proxy url (e.g., http://127.0.0.1:7897, leave empty for system proxy)",
 			Default: func() string { return "" }(),
 			Getter:  func(c *Config) string { return c.ProxyURL },
-			Setter:  func(c *Config, v string) error { c.ProxyURL = v; return nil },
+			Setter: func(c *Config, v string) error {
+				proxyURL, err := normalizeProxyURL(v)
+				if err != nil {
+					return err
+				}
+				c.ProxyURL = proxyURL
+				return nil
+			},
 		},
 	}
+}
+
+func normalizeProxyURL(raw string) (string, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", nil
+	}
+
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return "", fmt.Errorf("invalid proxy url: %w", err)
+	}
+	if parsed.Scheme == "" || parsed.Host == "" {
+		return "", fmt.Errorf("invalid proxy url: must include scheme and host")
+	}
+	switch parsed.Scheme {
+	case "http", "https", "socks5":
+	default:
+		return "", fmt.Errorf("invalid proxy url: unsupported scheme %q", parsed.Scheme)
+	}
+	return parsed.String(), nil
 }
 
 // GetFieldValue 获取字段当前值（通过 FieldDef.Getter）

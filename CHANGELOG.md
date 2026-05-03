@@ -7,6 +7,55 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ***
 
+## [3.2.17] - 2026-04-29
+
+### Added
+
+#### 代理配置增强
+
+| 功能 | 说明 |
+|------|------|
+| `normalizeProxyURL()` | 新增代理 URL 格式验证函数 |
+| `parseConfiguredProxyURL()` | 新增配置代理解析函数 |
+| `proxyFromEnvWithoutBypass()` | 新增环境变量代理获取函数 |
+| `proxyEnvPriority()` | 新增代理环境变量优先级定义 |
+| `logProxySelection()` | 新增代理选择日志记录 |
+
+#### 列表同步管理器单例模式
+
+| 功能 | 说明 |
+|------|------|
+| `InitListSyncManager()` | 新增初始化函数 |
+| `GetListSyncManager()` | 新增获取单例函数 |
+
+### Changed
+
+#### 代理功能重构
+
+| 文件 | 变更 |
+|------|------|
+| `internal/config/config.go` | 新增代理 URL 验证，支持 http/https/socks5 |
+| `internal/twitter/client.go` | 重构代理逻辑，分离配置和环境变量代理 |
+| `internal/twitter/client.go` | HTTPS 请求优先 HTTPS_PROXY，回退 HTTP_PROXY |
+
+#### 列表同步事务优化
+
+| 文件 | 变更 |
+|------|------|
+| `internal/downloading/list_sync.go` | 改为单例模式 |
+| `internal/downloading/list_sync.go` | 文件删除移到事务外，避免事务内 IO 操作 |
+
+### Removed
+
+- 删除 `DefaultMaxFileNameLen()` 函数，直接使用 `utils.DefaultMaxFileNameLen`
+
+### Stats
+
+- **38 个文件变更**
+- **+353 行 / -222 行**
+
+***
+
 ## [3.2.16] - 2026-04-29
 
 ### Changed

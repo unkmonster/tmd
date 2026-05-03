@@ -349,7 +349,7 @@ func TestDBListItem(t *testing.T) {
 
 	bytes, err := json.Marshal(item)
 	assert.NoError(t, err)
-	assert.JSONEq(t, `{"id":"100","name":"Test List","owner_uid":"200"}`, string(bytes))
+	assert.JSONEq(t, `{"id":"100","name":"Test List","owner_user_id":"200"}`, string(bytes))
 }
 
 func TestDBEntityItem(t *testing.T) {
@@ -404,7 +404,7 @@ func TestDBUserPreviousNameItem(t *testing.T) {
 
 	bytes, err := json.Marshal(item)
 	assert.NoError(t, err)
-	assert.JSONEq(t, `{"id":"1","uid":"123","screen_name":"old_name","name":"Old Name","record_date":"2024-01-01"}`, string(bytes))
+	assert.JSONEq(t, `{"id":"1","user_id":"123","screen_name":"old_name","name":"Old Name","record_date":"2024-01-01"}`, string(bytes))
 }
 
 func TestConfigResponse(t *testing.T) {

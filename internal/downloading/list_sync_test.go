@@ -8,23 +8,14 @@ import (
 	"testing"
 
 	"github.com/unkmonster/tmd/internal/database"
+	"github.com/unkmonster/tmd/internal/database/tx"
 )
-
-func TestNewListSyncManager(t *testing.T) {
-	db := setupTestDB(t)
-	defer db.Close()
-
-	manager := NewListSyncManager(db)
-	if manager == nil {
-		t.Fatal("NewListSyncManager() returned nil")
-	}
-}
 
 func TestListSyncManager_SyncListMembers(t *testing.T) {
 	db := setupTestDB(t)
 	defer db.Close()
 
-	manager := NewListSyncManager(db)
+	manager := &ListSyncManager{txManager: tx.NewManager(db)}
 	ctx := context.Background()
 
 	// Create a list entity first
@@ -41,7 +32,7 @@ func TestListSyncManager_SyncListMembers(t *testing.T) {
 	// Create user entities and links
 	for i := 1; i <= 3; i++ {
 		userEntity := &database.UserEntity{
-			Uid:       uint64(i),
+			UserId:    uint64(i),
 			ParentDir: t.TempDir(),
 			Name:      "User" + string(rune('0'+i)),
 		}
@@ -106,7 +97,7 @@ func TestListSyncManager_SyncListMembers_EmptyCurrent(t *testing.T) {
 	db := setupTestDB(t)
 	defer db.Close()
 
-	manager := NewListSyncManager(db)
+	manager := &ListSyncManager{txManager: tx.NewManager(db)}
 	ctx := context.Background()
 
 	// Create a list entity
@@ -123,7 +114,7 @@ func TestListSyncManager_SyncListMembers_EmptyCurrent(t *testing.T) {
 	// Create user entities and links
 	for i := 1; i <= 2; i++ {
 		userEntity := &database.UserEntity{
-			Uid:       uint64(i),
+			UserId:    uint64(i),
 			ParentDir: t.TempDir(),
 			Name:      "User" + string(rune('0'+i)),
 		}
@@ -164,7 +155,7 @@ func TestListSyncManager_SyncListMembers_NewMembers(t *testing.T) {
 	db := setupTestDB(t)
 	defer db.Close()
 
-	manager := NewListSyncManager(db)
+	manager := &ListSyncManager{txManager: tx.NewManager(db)}
 	ctx := context.Background()
 
 	// Create a list entity
@@ -200,7 +191,7 @@ func TestListSyncManager_SyncListMembers_CancelledContext(t *testing.T) {
 	db := setupTestDB(t)
 	defer db.Close()
 
-	manager := NewListSyncManager(db)
+	manager := &ListSyncManager{txManager: tx.NewManager(db)}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // Cancel immediately
 
@@ -214,7 +205,7 @@ func TestListSyncManager_removeUserLinkInTx(t *testing.T) {
 	db := setupTestDB(t)
 	defer db.Close()
 
-	manager := NewListSyncManager(db)
+	manager := &ListSyncManager{txManager: tx.NewManager(db)}
 
 	// Create a list entity
 	listEntity := &database.LstEntity{
@@ -229,7 +220,7 @@ func TestListSyncManager_removeUserLinkInTx(t *testing.T) {
 
 	// Create user entity
 	userEntity := &database.UserEntity{
-		Uid:       1,
+		UserId:    1,
 		ParentDir: t.TempDir(),
 		Name:      "TestUser",
 	}
@@ -273,7 +264,7 @@ func TestListSyncManager_removeUserLinkInTx(t *testing.T) {
 	}
 
 	// Remove the link
-	err = manager.removeUserLinkInTx(tx, link, int(listEntity.Id.Int32))
+	paths, err := manager.removeUserLinkInTx(tx, link, int(listEntity.Id.Int32))
 	if err != nil {
 		t.Errorf("removeUserLinkInTx() error = %v", err)
 	}
@@ -282,6 +273,13 @@ func TestListSyncManager_removeUserLinkInTx(t *testing.T) {
 	err = tx.Commit()
 	if err != nil {
 		t.Fatalf("Failed to commit transaction: %v", err)
+	}
+
+	// Remove symlinks outside transaction (matching production behavior)
+	for _, p := range paths {
+		if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
+			t.Logf("Warning: failed to remove symlink: %v", err)
+		}
 	}
 
 	// Verify symlink was removed
@@ -304,7 +302,7 @@ func TestListSyncManager_removeUserLinkInTx_InvalidId(t *testing.T) {
 	db := setupTestDB(t)
 	defer db.Close()
 
-	manager := NewListSyncManager(db)
+	manager := &ListSyncManager{txManager: tx.NewManager(db)}
 
 	// Start transaction
 	tx, err := db.Beginx()
@@ -321,7 +319,7 @@ func TestListSyncManager_removeUserLinkInTx_InvalidId(t *testing.T) {
 		Name:              "Test",
 	}
 
-	err = manager.removeUserLinkInTx(tx, link, 1)
+	_, err = manager.removeUserLinkInTx(tx, link, 1)
 	if err == nil {
 		t.Error("removeUserLinkInTx() with invalid ID should return error")
 	}
@@ -331,7 +329,7 @@ func TestListSyncManager_removeUserLinkInTx_NonExistentSymlink(t *testing.T) {
 	db := setupTestDB(t)
 	defer db.Close()
 
-	manager := NewListSyncManager(db)
+	manager := &ListSyncManager{txManager: tx.NewManager(db)}
 
 	// Create a list entity
 	listEntity := &database.LstEntity{
@@ -363,7 +361,7 @@ func TestListSyncManager_removeUserLinkInTx_NonExistentSymlink(t *testing.T) {
 	}
 
 	// Remove the link (symlink doesn't exist, should not error)
-	err = manager.removeUserLinkInTx(tx, link, int(listEntity.Id.Int32))
+	_, err = manager.removeUserLinkInTx(tx, link, int(listEntity.Id.Int32))
 	if err != nil {
 		t.Errorf("removeUserLinkInTx() error = %v (non-existent symlink should be OK)", err)
 	}
@@ -379,7 +377,7 @@ func TestListSyncManager_ConcurrentAccess(t *testing.T) {
 	db := setupTestDB(t)
 	defer db.Close()
 
-	manager := NewListSyncManager(db)
+	manager := &ListSyncManager{txManager: tx.NewManager(db)}
 	ctx := context.Background()
 
 	// Create a list entity

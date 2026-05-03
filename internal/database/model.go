@@ -20,7 +20,7 @@ type User struct {
 
 type UserEntity struct {
 	Id                sql.NullInt32 `db:"id"`
-	Uid               uint64        `db:"user_id"`
+	UserId            uint64        `db:"user_id"`
 	Name              string        `db:"name"`
 	LatestReleaseTime sql.NullTime  `db:"latest_release_time"`
 	ParentDir         string        `db:"parent_dir"`
@@ -37,16 +37,16 @@ type UserLink struct {
 // UserPreviousName 用户历史名称
 type UserPreviousName struct {
 	Id         int32     `db:"id" json:"id"`
-	Uid        uint64    `db:"uid" json:"uid"`
+	UserId     uint64    `db:"user_id" json:"user_id"`
 	ScreenName string    `db:"screen_name" json:"screen_name"`
 	Name       string    `db:"name" json:"name"`
 	RecordDate time.Time `db:"record_date" json:"record_date"`
 }
 
 type Lst struct {
-	Id      uint64 `db:"id"`
-	Name    string `db:"name"`
-	OwnerId uint64 `db:"owner_uid"`
+	Id           uint64 `db:"id"`
+	Name         string `db:"name"`
+	OwnerUserId  uint64 `db:"owner_user_id"`
 }
 
 type LstEntity struct {

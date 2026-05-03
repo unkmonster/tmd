@@ -130,7 +130,7 @@ func QueryUserLinks(db *sqlx.DB, where string, args []interface{}, limit, offset
 func QueryUserPreviousNames(db *sqlx.DB, uid uint64, limit, offset int) ([]UserPreviousName, error) {
 	var names []UserPreviousName
 	err := db.Select(&names,
-		"SELECT * FROM user_previous_names WHERE uid = ? ORDER BY record_date DESC LIMIT ? OFFSET ?",
+		"SELECT * FROM user_previous_names WHERE user_id = ? ORDER BY record_date DESC LIMIT ? OFFSET ?",
 		uid, limit, offset)
 	return names, err
 }
