@@ -67,8 +67,9 @@ CREATE TABLE IF NOT EXISTS user_links (
 	FOREIGN KEY(user_id) REFERENCES users (id), 
 	FOREIGN KEY(parent_lst_entity_id) REFERENCES lst_entities (id)
 );
+`
 
--- 索引
+const indexes = `
 CREATE INDEX IF NOT EXISTS idx_users_screen_name ON users(screen_name);
 CREATE INDEX IF NOT EXISTS idx_users_name ON users(name);
 CREATE INDEX IF NOT EXISTS idx_users_accessible ON users(is_accessible);
@@ -85,6 +86,11 @@ CREATE INDEX IF NOT EXISTS idx_user_previous_names_user_id ON user_previous_name
 
 func CreateTables(db *sqlx.DB) {
 	db.MustExec(schema)
+	db.MustExec(indexes)
+}
+
+func CreateIndexes(db *sqlx.DB) {
+	db.MustExec(indexes)
 }
 
 func MigrateDatabase(db *sqlx.DB) error {

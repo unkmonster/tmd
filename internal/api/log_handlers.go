@@ -1,25 +1,15 @@
 package api
 
 import (
-	"bytes"
-	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
-	"os"
-	"path/filepath"
 	"regexp"
 	"strings"
-	"time"
 )
 
 const (
-	logFileName                 = "tmd2.log"
-	defaultLogsPageSize         = 100
-	maxLogsPageSize             = 200
-	logTailLineLimit            = 5000
-	logStreamPollInterval       = time.Second
-	logTailChunkSize      int64 = 4096
+	defaultLogsPageSize = 100
+	maxLogsPageSize     = 200
 )
 
 func (s *Server) handleGetLogs(w http.ResponseWriter, r *http.Request) {
@@ -28,14 +18,7 @@ func (s *Server) handleGetLogs(w http.ResponseWriter, r *http.Request) {
 	search := query.Get("q")
 	pagination := NewPaginationWithDefaults(r, defaultLogsPageSize, maxLogsPageSize, defaultPaginationSort, defaultSortOrder)
 
-	logPath := filepath.Join(s.appRootPath, logFileName)
-	lines, err := readLogLinesTail(logPath, logTailLineLimit)
-	if err != nil {
-		s.writeError(w, http.StatusInternalServerError, "Failed to read logs: "+err.Error())
-		return
-	}
-
-	filtered := filterLogLines(lines, levelStr, search)
+	filtered := reverseLogLines(filterLogLines(s.consoleLogHub().Snapshot(), levelStr, search))
 
 	total := len(filtered)
 	start := pagination.Offset
@@ -48,136 +31,18 @@ func (s *Server) handleGetLogs(w http.ResponseWriter, r *http.Request) {
 		filtered = filtered[start:end]
 	}
 
+	totalPages := 1
+	if total > 0 {
+		totalPages = (total + pagination.PageSize - 1) / pagination.PageSize
+	}
+
 	s.writeJSON(w, http.StatusOK, NewSuccessResponse(LogsResponse{
 		Logs:       filtered,
 		Total:      total,
 		Page:       pagination.Page,
 		PageSize:   pagination.PageSize,
-		TotalPages: (total + pagination.PageSize - 1) / pagination.PageSize,
+		TotalPages: totalPages,
 	}))
-}
-
-type logFollower struct {
-	path    string
-	file    *os.File
-	offset  int64
-	pending string
-}
-
-func newLogFollower(path string) (*logFollower, error) {
-	follower := &logFollower{path: path}
-	if err := follower.openAtEnd(); err != nil {
-		return nil, err
-	}
-	return follower, nil
-}
-
-func (f *logFollower) Close() error {
-	if f.file == nil {
-		return nil
-	}
-	err := f.file.Close()
-	f.file = nil
-	return err
-}
-
-func (f *logFollower) open(offset int64) error {
-	if err := f.Close(); err != nil {
-		return err
-	}
-
-	file, err := os.Open(f.path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			f.offset = 0
-			f.pending = ""
-			return nil
-		}
-		return err
-	}
-
-	if _, err := file.Seek(offset, io.SeekStart); err != nil {
-		file.Close()
-		return err
-	}
-
-	f.file = file
-	f.offset = offset
-	f.pending = ""
-	return nil
-}
-
-func (f *logFollower) openAtEnd() error {
-	info, err := os.Stat(f.path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
-		return err
-	}
-	return f.open(info.Size())
-}
-
-func (f *logFollower) prepare() error {
-	pathInfo, err := os.Stat(f.path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return f.Close()
-		}
-		return err
-	}
-
-	if f.file == nil {
-		return f.open(0)
-	}
-
-	currentInfo, err := f.file.Stat()
-	if err != nil {
-		return f.open(0)
-	}
-
-	if !os.SameFile(currentInfo, pathInfo) || pathInfo.Size() < f.offset {
-		return f.open(0)
-	}
-
-	return nil
-}
-
-func (f *logFollower) ReadNewLines() ([]string, error) {
-	if err := f.prepare(); err != nil {
-		return nil, err
-	}
-	if f.file == nil {
-		return nil, nil
-	}
-
-	data, err := io.ReadAll(f.file)
-	if err != nil {
-		return nil, err
-	}
-	f.offset += int64(len(data))
-	if len(data) == 0 {
-		return nil, nil
-	}
-
-	chunk := f.pending + string(data)
-	parts := strings.Split(chunk, "\n")
-	if strings.HasSuffix(chunk, "\n") {
-		f.pending = ""
-	} else {
-		f.pending = parts[len(parts)-1]
-		parts = parts[:len(parts)-1]
-	}
-
-	lines := make([]string, 0, len(parts))
-	for _, part := range parts {
-		line := strings.TrimSuffix(part, "\r")
-		if strings.TrimSpace(line) == "" {
-			continue
-		}
-		lines = append(lines, line)
-	}
-	return lines, nil
 }
 
 func (s *Server) handleLogStream(w http.ResponseWriter, r *http.Request) {
@@ -193,113 +58,35 @@ func (s *Server) handleLogStream(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Accel-Buffering", "no")
 
 	levelStr := r.URL.Query().Get("level")
+	search := r.URL.Query().Get("q")
 	ctx := r.Context()
-	logPath := filepath.Join(s.appRootPath, logFileName)
+	ch, unsubscribe := s.consoleLogHub().Subscribe()
+	defer unsubscribe()
 
-	follower, err := newLogFollower(logPath)
-	if err != nil {
-		s.writeError(w, http.StatusInternalServerError, "Failed to open log stream: "+err.Error())
-		return
-	}
-	defer follower.Close()
-
-	ticker := time.NewTicker(logStreamPollInterval)
-	defer ticker.Stop()
+	fmt.Fprint(w, ": connected\n\n")
+	flusher.Flush()
 
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case <-ticker.C:
-			lines, err := follower.ReadNewLines()
-			if err != nil {
+		case line := <-ch:
+			if line == "" {
 				continue
 			}
-
-			if len(lines) == 0 {
-				fmt.Fprint(w, ": ping\n\n")
-				flusher.Flush()
+			if !matchLogFilters(line, levelStr, search) {
 				continue
 			}
-
-			for _, line := range lines {
-				if levelStr != "" && !matchLogLevel(line, levelStr) {
-					continue
-				}
-				line = stripAnsiCodes(line)
-				fmt.Fprintf(w, "data: %s\n\n", jsonEscape(line))
-				flusher.Flush()
-			}
+			writeSSEData(w, line)
+			flusher.Flush()
 		}
 	}
-}
-
-func readLogLinesTail(path string, n int) ([]string, error) {
-	if n <= 0 {
-		return []string{}, nil
-	}
-
-	file, err := os.Open(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return []string{}, nil
-		}
-		return nil, err
-	}
-	defer file.Close()
-
-	info, err := file.Stat()
-	if err != nil {
-		return nil, err
-	}
-	if info.Size() == 0 {
-		return []string{}, nil
-	}
-
-	offset := info.Size()
-	buf := make([]byte, 0)
-	newlineCount := 0
-
-	for offset > 0 && newlineCount <= n {
-		start := offset - logTailChunkSize
-		if start < 0 {
-			start = 0
-		}
-
-		chunk := make([]byte, offset-start)
-		if _, err := file.ReadAt(chunk, start); err != nil && err != io.EOF {
-			return nil, err
-		}
-		buf = append(chunk, buf...)
-		newlineCount += bytes.Count(chunk, []byte{'\n'})
-		offset = start
-	}
-
-	parts := bytes.Split(buf, []byte{'\n'})
-	if len(parts) > 0 && len(parts[len(parts)-1]) == 0 {
-		parts = parts[:len(parts)-1]
-	}
-	if offset > 0 && len(parts) > 0 {
-		parts = parts[1:]
-	}
-	if len(parts) > n {
-		parts = parts[len(parts)-n:]
-	}
-
-	lines := make([]string, 0, len(parts))
-	for _, part := range parts {
-		lines = append(lines, strings.TrimSuffix(string(part), "\r"))
-	}
-	return lines, nil
 }
 
 func filterLogLines(lines []string, level, search string) []string {
 	result := make([]string, 0, len(lines))
 	for _, line := range lines {
-		if level != "" && !matchLogLevel(line, level) {
-			continue
-		}
-		if search != "" && !strings.Contains(strings.ToLower(line), strings.ToLower(search)) {
+		if !matchLogFilters(line, level, search) {
 			continue
 		}
 		result = append(result, line)
@@ -307,11 +94,54 @@ func filterLogLines(lines []string, level, search string) []string {
 	return result
 }
 
+func reverseLogLines(lines []string) []string {
+	reversed := make([]string, len(lines))
+	for i := range lines {
+		reversed[i] = lines[len(lines)-1-i]
+	}
+	return reversed
+}
+
+func matchLogFilters(line, level, search string) bool {
+	if level != "" && level != "all" && !matchLogLevel(line, level) {
+		return false
+	}
+	if search != "" && !strings.Contains(strings.ToLower(line), strings.ToLower(search)) {
+		return false
+	}
+	return true
+}
+
 func matchLogLevel(line, level string) bool {
-	target := "level=" + level
-	return strings.Contains(line, target+" ") ||
-		strings.Contains(line, target+"\n") ||
-		strings.Contains(line, target+"\t")
+	line = stripAnsiCodes(line)
+	level = strings.ToLower(strings.TrimSpace(level))
+	if level == "" || level == "all" {
+		return true
+	}
+
+	lowerLine := strings.ToLower(line)
+	if strings.Contains(lowerLine, "level="+level+" ") ||
+		strings.Contains(lowerLine, "level="+level+"\n") ||
+		strings.Contains(lowerLine, "level="+level+"\t") {
+		return true
+	}
+
+	return strings.HasPrefix(line, logLevelPrefix(level)+"[")
+}
+
+func logLevelPrefix(level string) string {
+	switch level {
+	case "debug":
+		return "DEBU"
+	case "info":
+		return "INFO"
+	case "warn", "warning":
+		return "WARN"
+	case "error":
+		return "ERRO"
+	default:
+		return strings.ToUpper(level)
+	}
 }
 
 var ansiRegex = regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]`)
@@ -320,10 +150,9 @@ func stripAnsiCodes(s string) string {
 	return ansiRegex.ReplaceAllString(s, "")
 }
 
-func jsonEscape(s string) string {
-	b, err := json.Marshal(s)
-	if err != nil {
-		return s
+func writeSSEData(w http.ResponseWriter, line string) {
+	for _, part := range strings.Split(line, "\n") {
+		fmt.Fprintf(w, "data: %s\n", strings.TrimSuffix(part, "\r"))
 	}
-	return string(b[1 : len(b)-1])
+	fmt.Fprint(w, "\n")
 }

@@ -7,6 +7,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ***
 
+## [3.2.18] - 2026-04-29
+
+### Added
+
+#### 控制台日志模块
+
+| 功能 | 说明 |
+|------|------|
+| `internal/consolelog/hub.go` | 新增控制台日志捕获和分发中心 |
+| `Hub.Add()` | 添加日志行到内存并推送给订阅者 |
+| `Hub.Snapshot()` | 获取当前日志快照 |
+| `Hub.Subscribe()` | 订阅实时日志流 |
+| `StartCapture()` | 启动 stdout/stderr 捕获 |
+
+### Changed
+
+#### 日志系统重构
+
+| 文件 | 变更 |
+|------|------|
+| `internal/api/log_handlers.go` | 从文件读取改为内存快照 |
+| `internal/api/log_handlers.go` | 日志流使用订阅模式替代轮询 |
+| `internal/api/handlers.go` | 新增 `consoleLogHub()` 方法 |
+| `internal/api/server.go` | 集成 consolelog 模块 |
+| `main.go` | 启动时调用 `consolelog.StartCapture()` |
+
+#### Web 界面日志实时化
+
+| 文件 | 变更 |
+|------|------|
+| `internal/api/web/app.js` | 默认开启自动刷新 |
+| `internal/api/web/app.js` | 新增 `startLogStream()` / `stopLogStream()` |
+| `internal/api/web/app.js` | 使用 EventSource 实现真正实时日志流 |
+| `internal/api/web/app.js` | "自动刷新"按钮改为"实时" |
+| `internal/api/web/app.js` | 优化日志级别颜色匹配 |
+
+### Stats
+
+- **13 个文件变更**
+- **+493 行 / -339 行**
+
+***
+
 ## [3.2.17] - 2026-04-29
 
 ### Added

@@ -22,6 +22,7 @@ import (
 	"github.com/unkmonster/tmd/internal/api"
 	"github.com/unkmonster/tmd/internal/cli"
 	"github.com/unkmonster/tmd/internal/config"
+	"github.com/unkmonster/tmd/internal/consolelog"
 	"github.com/unkmonster/tmd/internal/database"
 	"github.com/unkmonster/tmd/internal/downloading"
 	"github.com/unkmonster/tmd/internal/naming"
@@ -30,7 +31,7 @@ import (
 	"github.com/unkmonster/tmd/internal/twitter"
 )
 
-func initLogger(dbg bool, logFile io.Writer) {
+func initLogger(dbg bool, logFile io.Writer, logHub *consolelog.Hub) {
 	log.SetFormatter(&log.TextFormatter{
 		ForceColors:    true,
 		FullTimestamp:  true,
@@ -44,6 +45,11 @@ func initLogger(dbg bool, logFile io.Writer) {
 		log.SetLevel(log.InfoLevel)
 	}
 
+	if err := consolelog.StartCapture(logHub); err != nil {
+		log.Warnf("failed to start console log capture: %v", err)
+	} else {
+		log.SetOutput(os.Stderr)
+	}
 	log.AddHook(lfshook.NewHook(logFile, nil))
 }
 
@@ -107,7 +113,8 @@ func main() {
 		Compress:   false,
 	}
 	defer logWriter.Close()
-	initLogger(dbg, logWriter)
+	consoleLogHub := consolelog.DefaultHub()
+	initLogger(dbg, logWriter, consoleLogHub)
 
 	defer func() {
 		if dbg {
@@ -144,7 +151,7 @@ func main() {
 
 	// Server 模式
 	if serverMode {
-		runServer(conf, appRootPath, serverPort, loginOpts, logWriter)
+		runServer(conf, appRootPath, serverPort, loginOpts, logWriter, consoleLogHub)
 		return
 	}
 
@@ -244,7 +251,7 @@ func initializeClients(
 	return client, additional, pathHelper, db
 }
 
-func runServer(conf *config.Config, appRootPath string, port int, loginOpts twitter.LoginOptions, logWriter io.Closer) {
+func runServer(conf *config.Config, appRootPath string, port int, loginOpts twitter.LoginOptions, logWriter io.Closer, logHub *consolelog.Hub) {
 	ctx := context.Background()
 
 	client, additional, _, db := initializeClients(ctx, conf, appRootPath, loginOpts, false)
@@ -264,7 +271,7 @@ func runServer(conf *config.Config, appRootPath string, port int, loginOpts twit
 
 	// 创建并启动 API Server
 	// 注意：不再使用 defer db.Close()，因为 GracefulShutdown 会处理所有资源清理
-	server := api.NewServer(client, additional, db, conf, appRootPath, logWriter)
+	server := api.NewServerWithConsoleLogHub(client, additional, db, conf, appRootPath, logWriter, logHub)
 
 	// 信号处理
 	sigChan := make(chan os.Signal, 1)

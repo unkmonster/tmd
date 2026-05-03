@@ -130,6 +130,8 @@ func (s *Server) handleUserDownload(w http.ResponseWriter, r *http.Request, scre
 	req.ScreenName = screenName
 
 	task := s.taskManager.CreateTask(TaskTypeUserDownload, &req)
+	taskID := task.ID
+	status := task.Status
 
 	opts := service.DownloadOptions{
 		AutoFollow:  req.AutoFollow,
@@ -142,8 +144,8 @@ func (s *Server) handleUserDownload(w http.ResponseWriter, r *http.Request, scre
 	})
 
 	s.writeJSON(w, http.StatusAccepted, NewSuccessResponse(map[string]interface{}{
-		"task_id":      task.ID,
-		"status":       task.Status,
+		"task_id":      taskID,
+		"status":       status,
 		"screen_name":  req.ScreenName,
 		"auto_follow":  req.AutoFollow,
 		"skip_profile": req.SkipProfile,
@@ -156,14 +158,16 @@ func (s *Server) handleUserProfile(w http.ResponseWriter, _ *http.Request, scree
 	req := ProfileDownloadTaskData{ScreenName: screenName}
 
 	task := s.taskManager.CreateTask(TaskTypeProfileDownload, &req)
+	taskID := task.ID
+	status := task.Status
 
 	s.enqueueTask(task, func(ctx context.Context, taskID string, reporter service.ProgressReporter) error {
 		return s.downloadService.ProfileDownload(ctx, taskID, []string{screenName}, reporter)
 	})
 
 	s.writeJSON(w, http.StatusAccepted, NewSuccessResponse(map[string]interface{}{
-		"task_id":     task.ID,
-		"status":      task.Status,
+		"task_id":     taskID,
+		"status":      status,
 		"screen_name": req.ScreenName,
 		"message":     "Profile download task queued",
 	}))
@@ -177,6 +181,8 @@ func (s *Server) handleUserMark(w http.ResponseWriter, r *http.Request, screenNa
 	req.ScreenName = screenName
 
 	task := s.taskManager.CreateTask(TaskTypeMarkDownloaded, &req)
+	taskID := task.ID
+	status := task.Status
 
 	markTime := formatTaskMarkTime(req.Timestamp)
 
@@ -185,8 +191,8 @@ func (s *Server) handleUserMark(w http.ResponseWriter, r *http.Request, screenNa
 	})
 
 	s.writeJSON(w, http.StatusAccepted, NewSuccessResponse(map[string]interface{}{
-		"task_id":     task.ID,
-		"status":      task.Status,
+		"task_id":     taskID,
+		"status":      status,
 		"screen_name": req.ScreenName,
 		"timestamp":   req.Timestamp,
 		"message":     "Mark downloaded task queued",
@@ -201,6 +207,8 @@ func (s *Server) handleListMark(w http.ResponseWriter, r *http.Request, listID u
 	req.ListID = listID
 
 	task := s.taskManager.CreateTask(TaskTypeMarkDownloaded, &req)
+	taskID := task.ID
+	status := task.Status
 
 	markTime := formatTaskMarkTime(req.Timestamp)
 
@@ -209,8 +217,8 @@ func (s *Server) handleListMark(w http.ResponseWriter, r *http.Request, listID u
 	})
 
 	s.writeJSON(w, http.StatusAccepted, NewSuccessResponse(map[string]interface{}{
-		"task_id":   task.ID,
-		"status":    task.Status,
+		"task_id":   taskID,
+		"status":    status,
 		"list_id":   listID,
 		"timestamp": req.Timestamp,
 		"message":   "Mark list downloaded task queued",
@@ -225,6 +233,8 @@ func (s *Server) handleFollowingMark(w http.ResponseWriter, r *http.Request, scr
 	req.ScreenName = screenName
 
 	task := s.taskManager.CreateTask(TaskTypeMarkDownloaded, &req)
+	taskID := task.ID
+	status := task.Status
 
 	markTime := formatTaskMarkTime(req.Timestamp)
 
@@ -233,8 +243,8 @@ func (s *Server) handleFollowingMark(w http.ResponseWriter, r *http.Request, scr
 	})
 
 	s.writeJSON(w, http.StatusAccepted, NewSuccessResponse(map[string]interface{}{
-		"task_id":     task.ID,
-		"status":      task.Status,
+		"task_id":     taskID,
+		"status":      status,
 		"screen_name": screenName,
 		"timestamp":   req.Timestamp,
 		"message":     "Mark following downloaded task queued",
@@ -249,6 +259,8 @@ func (s *Server) handleFollowingDownload(w http.ResponseWriter, r *http.Request,
 	req.ScreenName = screenName
 
 	task := s.taskManager.CreateTask(TaskTypeFollowingDownload, &req)
+	taskID := task.ID
+	status := task.Status
 
 	opts := service.DownloadOptions{
 		AutoFollow:  req.AutoFollow,
@@ -261,8 +273,8 @@ func (s *Server) handleFollowingDownload(w http.ResponseWriter, r *http.Request,
 	})
 
 	s.writeJSON(w, http.StatusAccepted, NewSuccessResponse(map[string]interface{}{
-		"task_id":      task.ID,
-		"status":       task.Status,
+		"task_id":      taskID,
+		"status":       status,
 		"screen_name":  req.ScreenName,
 		"auto_follow":  req.AutoFollow,
 		"skip_profile": req.SkipProfile,
@@ -319,6 +331,8 @@ func (s *Server) handleListDownload(w http.ResponseWriter, r *http.Request, list
 	req.ListID = listID
 
 	task := s.taskManager.CreateTask(TaskTypeListDownload, &req)
+	taskID := task.ID
+	status := task.Status
 
 	opts := service.DownloadOptions{
 		AutoFollow:  req.AutoFollow,
@@ -331,8 +345,8 @@ func (s *Server) handleListDownload(w http.ResponseWriter, r *http.Request, list
 	})
 
 	s.writeJSON(w, http.StatusAccepted, NewSuccessResponse(map[string]interface{}{
-		"task_id":      task.ID,
-		"status":       task.Status,
+		"task_id":      taskID,
+		"status":       status,
 		"list_id":      listID,
 		"skip_profile": req.SkipProfile,
 		"auto_follow":  req.AutoFollow,
@@ -345,14 +359,16 @@ func (s *Server) handleListProfile(w http.ResponseWriter, _ *http.Request, listI
 	req := ListProfileTaskData{ListID: listID}
 
 	task := s.taskManager.CreateTask(TaskTypeListProfile, &req)
+	taskID := task.ID
+	status := task.Status
 
 	s.enqueueTask(task, func(ctx context.Context, taskID string, reporter service.ProgressReporter) error {
 		return s.downloadService.ListProfileDownload(ctx, taskID, listID, reporter)
 	})
 
 	s.writeJSON(w, http.StatusAccepted, NewSuccessResponse(map[string]interface{}{
-		"task_id": task.ID,
-		"status":  task.Status,
+		"task_id": taskID,
+		"status":  status,
 		"list_id": listID,
 		"message": "List profile download task queued",
 	}))
@@ -371,13 +387,15 @@ func (s *Server) handleJsonFileDownload(w http.ResponseWriter, r *http.Request) 
 	}
 
 	task := s.taskManager.CreateTask(TaskTypeJsonFileDownload, &req)
+	taskID := task.ID
+	status := task.Status
 	s.enqueueTask(task, func(ctx context.Context, taskID string, reporter service.ProgressReporter) error {
 		return s.downloadService.JsonFileDownload(ctx, taskID, req.Paths, req.NoRetry, reporter)
 	})
 
 	s.writeJSON(w, http.StatusAccepted, NewSuccessResponse(map[string]interface{}{
-		"task_id":  task.ID,
-		"status":   task.Status,
+		"task_id":  taskID,
+		"status":   status,
 		"paths":    req.Paths,
 		"no_retry": req.NoRetry,
 		"message":  "JSON file download task queued",
@@ -397,13 +415,15 @@ func (s *Server) handleJsonFolderDownload(w http.ResponseWriter, r *http.Request
 	}
 
 	task := s.taskManager.CreateTask(TaskTypeJsonFolderDownload, &req)
+	taskID := task.ID
+	status := task.Status
 	s.enqueueTask(task, func(ctx context.Context, taskID string, reporter service.ProgressReporter) error {
 		return s.downloadService.JsonFolderDownload(ctx, taskID, req.Paths, req.NoRetry, reporter)
 	})
 
 	s.writeJSON(w, http.StatusAccepted, NewSuccessResponse(map[string]interface{}{
-		"task_id":  task.ID,
-		"status":   task.Status,
+		"task_id":  taskID,
+		"status":   status,
 		"paths":    req.Paths,
 		"no_retry": req.NoRetry,
 		"message":  "JSON folder download task queued",
@@ -447,6 +467,8 @@ func (s *Server) handleBatchDownload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	task := s.taskManager.CreateTask(TaskTypeBatchDownload, &req)
+	taskID := task.ID
+	status := task.Status
 
 	opts := service.DownloadOptions{
 		AutoFollow:  req.AutoFollow,
@@ -459,8 +481,8 @@ func (s *Server) handleBatchDownload(w http.ResponseWriter, r *http.Request) {
 	})
 
 	s.writeJSON(w, http.StatusAccepted, NewSuccessResponse(map[string]interface{}{
-		"task_id":         task.ID,
-		"status":          task.Status,
+		"task_id":         taskID,
+		"status":          status,
 		"users":           req.Users,
 		"lists":           req.Lists,
 		"following_names": req.FollowingNames,

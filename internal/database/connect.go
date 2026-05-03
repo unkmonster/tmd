@@ -31,6 +31,7 @@ func Connect(path string) (*sqlx.DB, error) {
 	if err := MigrateDatabase(db); err != nil {
 		return nil, fmt.Errorf("failed to migrate database at %q: %w", path, err)
 	}
+	CreateIndexes(db)
 
 	if !ex {
 		log.Debugln("created new db file", path)

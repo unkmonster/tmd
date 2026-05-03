@@ -51,7 +51,7 @@ const store = {
     logs: [],
     logLevel: 'all',
     logSearch: '',
-    logAutoRefresh: false,
+    logAutoRefresh: true,
     logPagination: { page: 1, pageSize: 100, total: 0, totalPages: 1 },
     _systemTab: 'config',
     configMode: 'form',
@@ -1700,7 +1700,7 @@ async function refreshTasks() {
   }
 }
 
-function refreshLogs() { loadLogs(); }
+function refreshLogs() { loadLogs(); restartLogStreamIfNeeded(); }
 
 function escapeHtml(str) {
   const d = document.createElement('div');
@@ -1901,6 +1901,10 @@ function renderLogViewer() {
   const { logs, logLevel, logSearch, logPagination, logAutoRefresh } = store.state;
 
   function getLineColor(line) {
+    if (line.startsWith('ERRO[')) return 'var(--danger)';
+    if (line.startsWith('WARN[')) return 'var(--warning)';
+    if (line.startsWith('INFO[')) return 'var(--info)';
+    if (line.startsWith('DEBU[')) return 'var(--text-tertiary)';
     for (const [key, val] of [['debug','DEBUG'],['info','INFO'],['warn','WARN'],['warning','WARNING'],['error','ERROR']]) {
       if (line.includes('level=' + key)) return val === 'ERROR' ? 'var(--danger)' : val === 'WARNING' || val === 'WARN' ? 'var(--warning)' : val === 'INFO' ? 'var(--info)' : 'var(--text-tertiary)';
     }
@@ -1919,7 +1923,7 @@ function renderLogViewer() {
           <div class="log-level-filters">
             ${['all','debug','info','warn','error'].map(l => `<button class="btn btn-sm ${logLevel===l?'btn-primary':'btn-ghost'}" onclick="setLogLevel('${l}')">${l.toUpperCase()}</button>`).join('')}
           </div>
-          <button class="btn btn-ghost btn-sm ${logAutoRefresh?'active':''}" onclick="toggleLogAutoRefresh()">${logAutoRefresh?'⏸️':'▶️'} 自动刷新</button>
+          <button class="btn btn-ghost btn-sm ${logAutoRefresh?'active':''}" onclick="toggleLogAutoRefresh()">${logAutoRefresh?'⏸️':'▶️'} 实时</button>
           <button class="btn btn-ghost btn-sm" onclick="refreshLogs()">🔄 刷新</button>
         </div>
       </div>
@@ -2137,9 +2141,9 @@ async function shutdownServer() {
       return;
     }
 
-    if (shouldRestoreLogAutoRefresh && !logAutoRefreshTimer) {
+    if (shouldRestoreLogAutoRefresh) {
       store.setState({ logAutoRefresh: true });
-      logAutoRefreshTimer = setInterval(loadLogs, 5000);
+      startLogStream();
     }
     sseManager.resume();
     toast.show('关闭失败: ' + err.message, 'error');
@@ -2166,6 +2170,7 @@ async function loadLogs() {
 function setLogLevel(level) {
   store.setState({ logLevel: level, logPagination: { ...store.state.logPagination, page: 1 } });
   loadLogs();
+  restartLogStreamIfNeeded();
 }
 
 function changeLogPage(delta) {
@@ -2180,6 +2185,7 @@ function goToLogPage(page) {
 }
 
 let logAutoRefreshTimer = null;
+let logStreamConn = null;
 let configCodeMirror = null;
 let cookiesCodeMirror = null;
 
@@ -2224,18 +2230,64 @@ function initCookiesCodeMirror() {
 function toggleLogAutoRefresh() {
   const ns = !store.state.logAutoRefresh;
   store.setState({ logAutoRefresh: ns });
-  if (ns) { logAutoRefreshTimer = setInterval(loadLogs, 5000); }
-  else { clearInterval(logAutoRefreshTimer); logAutoRefreshTimer = null; }
+  if (ns) startLogStream();
+  else stopLogStream();
 }
 
 function cleanupSystemTimers() {
   if (logAutoRefreshTimer) {
-    clearInterval(logAutoRefreshTimer);
+    clearTimeout(logAutoRefreshTimer);
     logAutoRefreshTimer = null;
   }
-  if (store.state.logAutoRefresh) {
-    store.setState({ logAutoRefresh: false });
+  stopLogStream();
+}
+
+function buildLogStreamURL() {
+  const { logLevel, logSearch } = store.state;
+  const p = new URLSearchParams();
+  if (logLevel !== 'all') p.append('level', logLevel);
+  if (logSearch) p.append('q', logSearch);
+  const qs = p.toString();
+  return `/api/v1/logs/stream${qs ? '?' + qs : ''}`;
+}
+
+function startLogStream() {
+  if (logStreamConn || store.state.currentPage !== 'system' || store.state._systemTab !== 'logs') return;
+  logStreamConn = new EventSource(buildLogStreamURL());
+  logStreamConn.onmessage = (e) => {
+    const line = e.data || '';
+    if (!line) return;
+    const logs = [line, ...store.state.logs].slice(0, 1000);
+    const total = Math.max(store.state.logPagination.total + 1, logs.length);
+    store.setState({ logs, logPagination: { ...store.state.logPagination, total, totalPages: Math.max(1, Math.ceil(total / store.state.logPagination.pageSize)) } });
+    setTimeout(() => {
+      const el = document.getElementById('logContainer');
+      if (el) el.scrollTop = 0;
+    }, 0);
+  };
+  logStreamConn.onerror = () => {
+    stopLogStream();
+    if (store.state.logAutoRefresh && store.state.currentPage === 'system' && store.state._systemTab === 'logs') {
+      logAutoRefreshTimer = setTimeout(() => { logAutoRefreshTimer = null; startLogStream(); }, 2000);
+    }
+  };
+}
+
+function stopLogStream() {
+  if (logAutoRefreshTimer) {
+    clearTimeout(logAutoRefreshTimer);
+    logAutoRefreshTimer = null;
   }
+  if (logStreamConn) {
+    logStreamConn.close();
+    logStreamConn = null;
+  }
+}
+
+function restartLogStreamIfNeeded() {
+  if (!store.state.logAutoRefresh) return;
+  stopLogStream();
+  startLogStream();
 }
 
 function syncConfigTabView() {
@@ -2253,8 +2305,8 @@ function syncCookiesTabView() {
 function syncLogsTabView() {
   if (store.state.logs.length === 0) {
     loadLogs();
-    if (!logAutoRefreshTimer && store.state.logAutoRefresh) logAutoRefreshTimer = setInterval(loadLogs, 5000);
   }
+  if (store.state.logAutoRefresh) startLogStream();
 }
 
 function syncSystemTabView() {
@@ -2266,7 +2318,13 @@ function syncSystemTabView() {
 }
 
 function setSystemTab(tab) {
+  if (store.state._systemTab === 'logs' && tab !== 'logs') {
+    stopLogStream();
+  }
   store.setState({ _systemTab: tab });
+  if (tab === 'logs' && store.state.logAutoRefresh) {
+    setTimeout(startLogStream, 0);
+  }
 }
 
 // ============================================
@@ -2580,6 +2638,7 @@ let lastCookiesSaving = store.state.cookiesSaving;
 let lastCookieItemsJson = JSON.stringify(store.state.cookieItems);
 let lastCookiesMode = store.state.cookiesMode;
 let lastLogsLength = store.state.logs.length;
+let lastLogLevel = store.state.logLevel;
 store.subscribe((state) => {
   if (state.currentPage !== lastPage) {
     lastPage = state.currentPage;
@@ -2609,8 +2668,9 @@ store.subscribe((state) => {
       const cookiesRawChanged = state.cookiesRaw !== lastCookiesRaw;
       const cookiesSavingChanged = state.cookiesSaving !== lastCookiesSaving;
       const logsChanged = state.logs.length !== lastLogsLength;
+      const logLevelChanged = state.logLevel !== lastLogLevel;
 
-      if (tabChanged || logPagChanged || configRawChanged || configSavingChanged || logsChanged || configFieldsChanged || configFieldsLoadingChanged || configModeChanged || cookiesChanged || cookiesModeChanged || cookiesRawChanged || cookiesSavingChanged) {
+      if (tabChanged || logPagChanged || configRawChanged || configSavingChanged || logsChanged || logLevelChanged || configFieldsChanged || configFieldsLoadingChanged || configModeChanged || cookiesChanged || cookiesModeChanged || cookiesRawChanged || cookiesSavingChanged) {
         lastSystemTab = state._systemTab;
         lastLogPaginationJson = JSON.stringify(state.logPagination);
         lastConfigRaw = state.configRaw;
@@ -2623,6 +2683,7 @@ store.subscribe((state) => {
         lastCookiesRaw = state.cookiesRaw;
         lastCookiesSaving = state.cookiesSaving;
         lastLogsLength = state.logs.length;
+        lastLogLevel = state.logLevel;
         render();
       }
     }

@@ -4,11 +4,10 @@ import (
 	"context"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 	"github.com/unkmonster/tmd/internal/config"
+	"github.com/unkmonster/tmd/internal/entity"
 	"github.com/unkmonster/tmd/internal/twitter"
 )
 
@@ -183,181 +182,28 @@ func TestConstants(t *testing.T) {
 	})
 }
 
-// ==================== syncedUsers 并发安全测试 ====================
+// ==================== batchSyncState 测试 ====================
 
-func TestSyncedUsers_Map(t *testing.T) {
-	key := uint64(12345)
-	value := "test value"
+func TestBatchSyncState_UserCache(t *testing.T) {
+	state := newBatchSyncState()
+	userID := uint64(12345)
 
-	t.Run("基本操作", func(t *testing.T) {
-		// Store
-		syncedUsers.Store(key, value)
+	_, ok := state.loadUser(userID)
+	assert.False(t, ok)
 
-		// Load
-		loaded, ok := syncedUsers.Load(key)
-		require.True(t, ok, "should find stored value")
-		assert.Equal(t, value, loaded)
+	ent := &entity.UserEntity{}
+	state.storeUser(userID, ent)
 
-		// Delete for cleanup
-		syncedUsers.Delete(key)
-
-		// Verify deleted
-		_, ok = syncedUsers.Load(key)
-		assert.False(t, ok, "value should be deleted")
-	})
-
-	t.Run("并发访问", func(t *testing.T) {
-		const numGoroutines = 100
-		const numOperations = 100
-
-		var wg sync.WaitGroup
-		wg.Add(numGoroutines)
-
-		for i := 0; i < numGoroutines; i++ {
-			go func(id int) {
-				defer wg.Done()
-				key := uint64(id)
-				for j := 0; j < numOperations; j++ {
-					syncedUsers.Store(key, j)
-					val, ok := syncedUsers.Load(key)
-					if ok {
-						_ = val.(int)
-					}
-				}
-				syncedUsers.Delete(key)
-			}(i)
-		}
-
-		wg.Wait()
-	})
-
-	t.Run("存储不同类型", func(t *testing.T) {
-		tests := []struct {
-			key   uint64
-			value any
-		}{
-			{1, "string value"},
-			{2, 42},
-			{3, true},
-			{4, time.Now()},
-			{5, struct{ Name string }{Name: "test"}},
-		}
-
-		for _, tt := range tests {
-			syncedUsers.Store(tt.key, tt.value)
-			loaded, ok := syncedUsers.Load(tt.key)
-			require.True(t, ok)
-			assert.Equal(t, tt.value, loaded)
-			syncedUsers.Delete(tt.key)
-		}
-	})
+	got, ok := state.loadUser(userID)
+	assert.True(t, ok)
+	assert.Same(t, ent, got)
 }
 
-// ==================== syncedListUsers 并发安全测试 ====================
+func TestBatchSyncState_ListUserDedup(t *testing.T) {
+	state := newBatchSyncState()
 
-func TestSyncedListUsers_Map(t *testing.T) {
-	t.Run("基本操作", func(t *testing.T) {
-		key := 12345
-		value := &sync.Map{}
-		value.Store("test", "data")
-
-		// Store
-		syncedListUsers.Store(key, value)
-
-		// Load
-		loaded, ok := syncedListUsers.Load(key)
-		require.True(t, ok, "should find stored value")
-		assert.Equal(t, value, loaded)
-
-		// Verify the inner map works
-		if innerMap, ok := loaded.(*sync.Map); ok {
-			data, ok := innerMap.Load("test")
-			require.True(t, ok)
-			assert.Equal(t, "data", data)
-		}
-
-		// Delete for cleanup
-		syncedListUsers.Delete(key)
-
-		// Verify deleted
-		_, ok = syncedListUsers.Load(key)
-		assert.False(t, ok, "value should be deleted")
-	})
-
-	t.Run("并发访问", func(t *testing.T) {
-		const numGoroutines = 50
-		const numOperations = 50
-
-		var wg sync.WaitGroup
-		wg.Add(numGoroutines)
-
-		for i := 0; i < numGoroutines; i++ {
-			go func(id int) {
-				defer wg.Done()
-
-				// 每个goroutine创建自己的sync.Map
-				innerMap := &sync.Map{}
-				syncedListUsers.Store(id, innerMap)
-
-				for j := 0; j < numOperations; j++ {
-					innerMap.Store(j, id*numOperations+j)
-				}
-
-				// 验证存储
-				loaded, ok := syncedListUsers.Load(id)
-				if ok {
-					if m, ok := loaded.(*sync.Map); ok {
-						val, ok := m.Load(0)
-						if ok {
-							assert.Equal(t, id*numOperations, val)
-						}
-					}
-				}
-
-				syncedListUsers.Delete(id)
-			}(i)
-		}
-
-		wg.Wait()
-	})
-}
-
-// ==================== 性能测试 ====================
-
-func BenchmarkSyncedUsersStore(b *testing.B) {
-	for i := 0; i < b.N; i++ {
-		key := uint64(i)
-		syncedUsers.Store(key, i)
-		syncedUsers.Delete(key)
-	}
-}
-
-func BenchmarkSyncedUsersLoad(b *testing.B) {
-	// 预先存储一些数据
-	for i := 0; i < 1000; i++ {
-		syncedUsers.Store(uint64(i), i)
-	}
-	defer func() {
-		for i := 0; i < 1000; i++ {
-			syncedUsers.Delete(uint64(i))
-		}
-	}()
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		syncedUsers.Load(uint64(i % 1000))
-	}
-}
-
-func BenchmarkSyncedUsersConcurrent(b *testing.B) {
-	b.RunParallel(func(pb *testing.PB) {
-		i := 0
-		for pb.Next() {
-			key := uint64(i)
-			syncedUsers.Store(key, i)
-			syncedUsers.Load(key)
-			syncedUsers.Delete(key)
-			i++
-		}
-	})
+	assert.True(t, state.markListUser(1, 100))
+	assert.False(t, state.markListUser(1, 100))
+	assert.True(t, state.markListUser(1, 101))
+	assert.True(t, state.markListUser(2, 100))
 }

@@ -54,6 +54,7 @@ func BatchUserDownload(ctx context.Context, client *resty.Client, db *sqlx.DB, u
 	conswg := sync.WaitGroup{}
 	ctx, cancel := context.WithCancelCause(ctx)
 	defer cancel(nil)
+	syncState := newBatchSyncState()
 
 	symlinkWarnCount := 0
 	symlinkWarnMu := sync.Mutex{}
@@ -110,14 +111,14 @@ func BatchUserDownload(ctx context.Context, client *resty.Client, db *sqlx.DB, u
 				continue
 			}
 
-			pe, loaded := syncedUsers.Load(user.Id)
+			pathEntity, loaded := syncState.loadUser(user.Id)
 			if !loaded {
 				pathEntity, err = syncUserAndEntity(db, user, dir)
 				if err != nil {
 					log.Warnln("✗", user.Title(), "-", "failed to update user or entity", err)
 					continue
 				}
-				syncedUsers.Store(user.Id, pathEntity)
+				syncState.storeUser(user.Id, pathEntity)
 
 				upath, _ := pathEntity.Path()
 				linkds, err := database.GetUserLinks(db, user.Id)
@@ -133,13 +134,7 @@ func BatchUserDownload(ctx context.Context, client *resty.Client, db *sqlx.DB, u
 						}
 						symlinkWarnMu.Unlock()
 					}
-					sl, _ := syncedListUsers.LoadOrStore(int(linkd.ParentLstEntityId), &sync.Map{})
-					syncedList, ok := sl.(*sync.Map)
-					if !ok {
-						log.Warnln("invalid type in syncedListUsers map for list", linkd.ParentLstEntityId)
-						continue
-					}
-					syncedList.Store(user.Id, struct{}{})
+					syncState.markListUser(int(linkd.ParentLstEntityId), user.Id)
 				}
 
 				if user.MediaCount != 0 && user.IsVisiable() {
@@ -155,17 +150,12 @@ func BatchUserDownload(ctx context.Context, client *resty.Client, db *sqlx.DB, u
 						log.Debugln("✓", user.Title(), "-", "follow request has been sent")
 					}
 				}
-			} else {
-				pathEntity = pe.(*entity.UserEntity)
 			}
 
 			if leid == 0 {
 				continue
 			}
-			sl, _ := syncedListUsers.LoadOrStore(leid, &sync.Map{})
-			syncedList := sl.(*sync.Map)
-			_, loaded = syncedList.LoadOrStore(user.Id, struct{}{})
-			if loaded {
+			if !syncState.markListUser(leid, user.Id) {
 				continue
 			}
 

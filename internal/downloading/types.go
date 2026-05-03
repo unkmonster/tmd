@@ -43,13 +43,44 @@ type userInListEntity struct {
 
 var MaxDownloadRoutine int
 
-var syncedUsers sync.Map
-
-var syncedListUsers sync.Map
-
 func init() {
 	// Keep the runtime default in one place so config prompts and execution agree.
 	MaxDownloadRoutine = config.DefaultMaxDownloadRoutine()
+}
+
+type batchSyncState struct {
+	users     map[uint64]*entity.UserEntity
+	listUsers map[int]map[uint64]struct{}
+}
+
+func newBatchSyncState() *batchSyncState {
+	return &batchSyncState{
+		users:     make(map[uint64]*entity.UserEntity),
+		listUsers: make(map[int]map[uint64]struct{}),
+	}
+}
+
+func (s *batchSyncState) loadUser(userID uint64) (*entity.UserEntity, bool) {
+	ent, ok := s.users[userID]
+	return ent, ok
+}
+
+func (s *batchSyncState) storeUser(userID uint64, ent *entity.UserEntity) {
+	s.users[userID] = ent
+}
+
+func (s *batchSyncState) markListUser(listEntityID int, userID uint64) bool {
+	users, ok := s.listUsers[listEntityID]
+	if !ok {
+		users = make(map[uint64]struct{})
+		s.listUsers[listEntityID] = users
+	}
+
+	if _, exists := users[userID]; exists {
+		return false
+	}
+	users[userID] = struct{}{}
+	return true
 }
 
 type workerConfig struct {

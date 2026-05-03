@@ -16,6 +16,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/unkmonster/tmd/internal/config"
+	"github.com/unkmonster/tmd/internal/consolelog"
 	"github.com/unkmonster/tmd/internal/service"
 )
 
@@ -32,12 +33,21 @@ type Server struct {
 	downloadService   service.DownloadService
 	downloadTaskSlots chan struct{}
 	logWriter         io.Closer
+	logHub            *consolelog.Hub
 	httpServer        *http.Server
 	shutdownOnce      sync.Once
 	shutdownDone      chan struct{}
 }
 
 func NewServer(client *resty.Client, additionalClients []*resty.Client, db *sqlx.DB, config *config.Config, appRootPath string, logWriter io.Closer) *Server {
+	return NewServerWithConsoleLogHub(client, additionalClients, db, config, appRootPath, logWriter, consolelog.DefaultHub())
+}
+
+func NewServerWithConsoleLogHub(client *resty.Client, additionalClients []*resty.Client, db *sqlx.DB, config *config.Config, appRootPath string, logWriter io.Closer, logHub *consolelog.Hub) *Server {
+	if logHub == nil {
+		logHub = consolelog.DefaultHub()
+	}
+
 	s := &Server{
 		client:            client,
 		additionalClients: additionalClients,
@@ -45,6 +55,7 @@ func NewServer(client *resty.Client, additionalClients []*resty.Client, db *sqlx
 		config:            config,
 		appRootPath:       appRootPath,
 		logWriter:         logWriter,
+		logHub:            logHub,
 		taskManager:       NewTaskManager(),
 		downloadTaskSlots: make(chan struct{}, maxConcurrentDownloadTasks),
 		shutdownDone:      make(chan struct{}),
@@ -62,6 +73,13 @@ func NewServer(client *resty.Client, additionalClients []*resty.Client, db *sqlx
 	s.downloadService = downloadService
 
 	return s
+}
+
+func (s *Server) consoleLogHub() *consolelog.Hub {
+	if s.logHub != nil {
+		return s.logHub
+	}
+	return consolelog.DefaultHub()
 }
 
 func (s *Server) buildHandler() http.Handler {
