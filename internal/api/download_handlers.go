@@ -7,6 +7,9 @@ import (
 	"strconv"
 	"time"
 
+	log "github.com/sirupsen/logrus"
+
+	"github.com/unkmonster/tmd/internal/scheduler"
 	"github.com/unkmonster/tmd/internal/service"
 	"github.com/unkmonster/tmd/internal/utils"
 )
@@ -527,4 +530,67 @@ func (s *Server) handleCancelTask(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, http.StatusOK, NewSuccessResponse(map[string]interface{}{
 		"message": "Task cancelled",
 	}))
+}
+
+func (s *Server) scheduledDownload(entry scheduler.ScheduleEntry) string {
+	opts := service.DownloadOptions{
+		AutoFollow:  entry.AutoFollow,
+		SkipProfile: entry.SkipProfile,
+		NoRetry:     entry.NoRetry,
+	}
+
+	switch entry.Type {
+	case scheduler.ScheduleTypeList:
+		listID, err := strconv.ParseUint(entry.Target, 10, 64)
+		if err != nil {
+			log.Warnf("[scheduler] Invalid list_id %q: %v", entry.Target, err)
+			return ""
+		}
+		if listID == 0 {
+			log.Warnf("[scheduler] Invalid list_id %q: must be a positive integer", entry.Target)
+			return ""
+		}
+		req := &ListDownloadTaskData{
+			ListID:      listID,
+			AutoFollow:  entry.AutoFollow,
+			SkipProfile: entry.SkipProfile,
+			NoRetry:     entry.NoRetry,
+		}
+		task := s.taskManager.CreateTask(TaskTypeListDownload, req)
+		s.enqueueTask(task, func(ctx context.Context, taskID string, reporter service.ProgressReporter) error {
+			return s.downloadService.ListDownload(ctx, taskID, listID, opts, reporter)
+		})
+		return task.ID
+
+	case scheduler.ScheduleTypeUser:
+		req := &UserDownloadTaskData{
+			ScreenName:  entry.Target,
+			AutoFollow:  entry.AutoFollow,
+			SkipProfile: entry.SkipProfile,
+			NoRetry:     entry.NoRetry,
+		}
+		task := s.taskManager.CreateTask(TaskTypeUserDownload, req)
+		s.enqueueTask(task, func(ctx context.Context, taskID string, reporter service.ProgressReporter) error {
+			return s.downloadService.UserDownload(ctx, taskID, entry.Target, opts, reporter)
+		})
+		return task.ID
+
+	case scheduler.ScheduleTypeFollowing:
+		req := &FollowingDownloadTaskData{
+			ScreenName:  entry.Target,
+			AutoFollow:  entry.AutoFollow,
+			SkipProfile: entry.SkipProfile,
+			NoRetry:     entry.NoRetry,
+		}
+		task := s.taskManager.CreateTask(TaskTypeFollowingDownload, req)
+		s.enqueueTask(task, func(ctx context.Context, taskID string, reporter service.ProgressReporter) error {
+			return s.downloadService.FollowingDownload(ctx, taskID, entry.Target, opts, reporter)
+		})
+		return task.ID
+
+	default:
+		log.Warnf("[scheduler] Unknown schedule type: %q", entry.Type)
+	}
+
+	return ""
 }

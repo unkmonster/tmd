@@ -76,6 +76,144 @@ func TestNewServer(t *testing.T) {
 	assert.Equal(t, "/app", server.appRootPath)
 }
 
+func TestHandleUpdateSchedulesRawInitializesSchedulerAfterStartupParseFailure(t *testing.T) {
+	db, err := sqlx.Connect("sqlite3", ":memory:")
+	assert.NoError(t, err)
+	defer db.Close()
+	database.CreateTables(db)
+
+	appRoot := t.TempDir()
+	err = os.WriteFile(filepath.Join(appRoot, "schedules.yaml"), []byte("schedules:\n  - type: ["), 0600)
+	assert.NoError(t, err)
+
+	cfg := &config.Config{
+		RootPath:           "/test",
+		MaxDownloadRoutine: 5,
+		MaxFileNameLen:     100,
+	}
+	server := NewServer(resty.New(), []*resty.Client{}, db, cfg, appRoot, nil)
+	defer server.taskManager.Close()
+	assert.Nil(t, server.scheduler)
+
+	body := `{"content":"schedules:\n  - type: user\n    target: alice\n    name: Alice\n    schedule: \"interval:1h\"\n    enabled: false\n"}`
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/schedules/raw", strings.NewReader(body))
+	rr := serveAPI(server, req)
+
+	assert.Equal(t, http.StatusOK, rr.Code)
+	assert.NotNil(t, server.scheduler)
+	statuses := server.scheduler.GetStatuses()
+	if assert.Len(t, statuses, 1) {
+		assert.Equal(t, "alice", statuses[0].Entry.Target)
+	}
+
+	reloadReq := httptest.NewRequest(http.MethodPost, "/api/v1/schedules/reload", nil)
+	reloadRR := serveAPI(server, reloadReq)
+	assert.Equal(t, http.StatusOK, reloadRR.Code)
+}
+
+func TestHandleGetSchedulesReturnsFrontendFieldNames(t *testing.T) {
+	db, err := sqlx.Connect("sqlite3", ":memory:")
+	assert.NoError(t, err)
+	defer db.Close()
+	database.CreateTables(db)
+
+	appRoot := t.TempDir()
+	content := `schedules:
+  - type: user
+    target: alice
+    name: Alice
+    schedule: "interval:1h"
+    enabled: true
+    run_on_start: true
+    auto_follow: true
+  - type: list
+    target: "12345"
+    name: List
+    schedule: "daily:07:00"
+    enabled: false
+    skip_profile: true
+`
+	err = os.WriteFile(filepath.Join(appRoot, "schedules.yaml"), []byte(content), 0600)
+	assert.NoError(t, err)
+
+	cfg := &config.Config{
+		RootPath:           "/test",
+		MaxDownloadRoutine: 5,
+		MaxFileNameLen:     100,
+	}
+	server := NewServer(resty.New(), []*resty.Client{}, db, cfg, appRoot, nil)
+	defer server.taskManager.Close()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/schedules", nil)
+	rr := serveAPI(server, req)
+
+	assert.Equal(t, http.StatusOK, rr.Code)
+	body := rr.Body.String()
+	assert.Contains(t, body, `"type":"user"`)
+	assert.Contains(t, body, `"target":"alice"`)
+	assert.Contains(t, body, `"run_on_start":true`)
+	assert.Contains(t, body, `"auto_follow":true`)
+	assert.Contains(t, body, `"type":"list"`)
+	assert.Contains(t, body, `"skip_profile":true`)
+	assert.NotContains(t, body, `"Type"`)
+	assert.NotContains(t, body, `"AutoFollow"`)
+}
+
+func TestStructuredScheduleCRUDUsesStableID(t *testing.T) {
+	db, err := sqlx.Connect("sqlite3", ":memory:")
+	assert.NoError(t, err)
+	defer db.Close()
+	database.CreateTables(db)
+
+	appRoot := t.TempDir()
+	cfg := &config.Config{
+		RootPath:           "/test",
+		MaxDownloadRoutine: 5,
+		MaxFileNameLen:     100,
+	}
+	server := NewServer(resty.New(), []*resty.Client{}, db, cfg, appRoot, nil)
+	defer server.taskManager.Close()
+
+	createBody := `{"type":"list","target":"12345","name":"List A","schedule":"interval:1h","enabled":true,"run_on_start":false,"auto_follow":true}`
+	createReq := httptest.NewRequest(http.MethodPost, "/api/v1/schedules", strings.NewReader(createBody))
+	createRR := serveAPI(server, createReq)
+	assert.Equal(t, http.StatusCreated, createRR.Code)
+
+	var createResp APIResponse
+	err = json.Unmarshal(createRR.Body.Bytes(), &createResp)
+	assert.NoError(t, err)
+	createData := createResp.Data.(map[string]interface{})
+	createEntry := createData["entry"].(map[string]interface{})
+	id := createEntry["id"].(string)
+	assert.NotEmpty(t, id)
+
+	updateBody := `{"type":"user","target":"alice","name":"Alice","schedule":"daily:07:00","enabled":false,"run_on_start":true,"skip_profile":true}`
+	updateReq := httptest.NewRequest(http.MethodPut, "/api/v1/schedules/"+id, strings.NewReader(updateBody))
+	updateRR := serveAPI(server, updateReq)
+	assert.Equal(t, http.StatusOK, updateRR.Code)
+
+	enableReq := httptest.NewRequest(http.MethodPatch, "/api/v1/schedules/"+id+"/enabled", strings.NewReader(`{"enabled":true}`))
+	enableRR := serveAPI(server, enableReq)
+	assert.Equal(t, http.StatusOK, enableRR.Code)
+
+	getReq := httptest.NewRequest(http.MethodGet, "/api/v1/schedules", nil)
+	getRR := serveAPI(server, getReq)
+	assert.Equal(t, http.StatusOK, getRR.Code)
+	getBody := getRR.Body.String()
+	assert.Contains(t, getBody, `"id":"`+id+`"`)
+	assert.Contains(t, getBody, `"type":"user"`)
+	assert.Contains(t, getBody, `"target":"alice"`)
+	assert.Contains(t, getBody, `"enabled":true`)
+
+	deleteReq := httptest.NewRequest(http.MethodDelete, "/api/v1/schedules/"+id, nil)
+	deleteRR := serveAPI(server, deleteReq)
+	assert.Equal(t, http.StatusOK, deleteRR.Code)
+
+	finalRR := serveAPI(server, getReq)
+	assert.Equal(t, http.StatusOK, finalRR.Code)
+	assert.Contains(t, finalRR.Body.String(), `"total":0`)
+}
+
 func TestHandleHealth_Success(t *testing.T) {
 	server, db := setupTestServer(t)
 	defer db.Close()

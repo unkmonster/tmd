@@ -1,6 +1,10 @@
 package api
 
-import "time"
+import (
+	"time"
+
+	"github.com/unkmonster/tmd/internal/scheduler"
+)
 
 // UserDownloadTaskData 用户下载任务数据
 type UserDownloadTaskData struct {
@@ -227,4 +231,25 @@ type CookiesRawResponse struct {
 // CookiesSaveRequest cookies 保存请求（form 模式）
 type CookiesSaveRequest struct {
 	Cookies []map[string]string `json:"cookies"`
+}
+
+type SchedulesRawResponse struct {
+	Content string `json:"content"`
+	Path    string `json:"path"`
+	Exists  bool   `json:"exists"`
+}
+
+type ScheduleEnabledRequest struct {
+	Enabled bool `json:"enabled"`
+}
+
+type ScheduleValidateRequest struct {
+	Entry   *scheduler.ScheduleEntry  `json:"entry,omitempty"`
+	Entries []scheduler.ScheduleEntry `json:"entries,omitempty"`
+	Raw     string                    `json:"raw,omitempty"`
+}
+
+type ScheduleValidateResponse struct {
+	Valid  bool     `json:"valid"`
+	Errors []string `json:"errors,omitempty"`
 }

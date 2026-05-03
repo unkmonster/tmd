@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -17,6 +18,7 @@ import (
 
 	"github.com/unkmonster/tmd/internal/config"
 	"github.com/unkmonster/tmd/internal/consolelog"
+	"github.com/unkmonster/tmd/internal/scheduler"
 	"github.com/unkmonster/tmd/internal/service"
 )
 
@@ -37,6 +39,9 @@ type Server struct {
 	httpServer        *http.Server
 	shutdownOnce      sync.Once
 	shutdownDone      chan struct{}
+	schedulesMu       sync.Mutex
+	schedulerMu       sync.RWMutex
+	scheduler         *scheduler.Scheduler
 }
 
 func NewServer(client *resty.Client, additionalClients []*resty.Client, db *sqlx.DB, config *config.Config, appRootPath string, logWriter io.Closer) *Server {
@@ -72,7 +77,21 @@ func NewServerWithConsoleLogHub(client *resty.Client, additionalClients []*resty
 	}
 	s.downloadService = downloadService
 
+	schedulesPath := filepath.Join(appRootPath, "schedules.yaml")
+	sched, err := scheduler.New(schedulesPath, s.scheduledDownload)
+	if err != nil {
+		log.Warnf("[scheduler] Failed to initialize scheduler: %v", err)
+	} else {
+		s.scheduler = sched
+	}
+
 	return s
+}
+
+func (s *Server) getScheduler() *scheduler.Scheduler {
+	s.schedulerMu.RLock()
+	defer s.schedulerMu.RUnlock()
+	return s.scheduler
 }
 
 func (s *Server) consoleLogHub() *consolelog.Hub {
@@ -148,6 +167,17 @@ func (s *Server) buildHandler() http.Handler {
 	mux.HandleFunc("GET /api/v1/logs", s.handleGetLogs)
 	mux.HandleFunc("GET /api/v1/logs/stream", s.handleLogStream)
 
+	mux.HandleFunc("GET /api/v1/schedules", s.handleGetSchedules)
+	mux.HandleFunc("POST /api/v1/schedules", s.handleCreateSchedule)
+	mux.HandleFunc("GET /api/v1/schedules/raw", s.handleGetSchedulesRaw)
+	mux.HandleFunc("PUT /api/v1/schedules/raw", s.handleUpdateSchedulesRaw)
+	mux.HandleFunc("POST /api/v1/schedules/reload", s.handleReloadSchedules)
+	mux.HandleFunc("POST /api/v1/schedules/validate", s.handleValidateSchedule)
+	mux.HandleFunc("PUT /api/v1/schedules/{id}", s.handleUpdateSchedule)
+	mux.HandleFunc("DELETE /api/v1/schedules/{id}", s.handleDeleteSchedule)
+	mux.HandleFunc("PATCH /api/v1/schedules/{id}/enabled", s.handleSetScheduleEnabled)
+	mux.HandleFunc("POST /api/v1/schedules/{id}/trigger", s.handleTriggerSchedule)
+
 	var handler http.Handler = mux
 
 	// 注意中间件的包裹顺序：最外层是 Logging，里面一层是 CORS，最里面是 Mux。
@@ -174,6 +204,10 @@ func (s *Server) Start(port int) error {
 		Handler:      handler,
 		ReadTimeout:  30 * time.Second,
 		WriteTimeout: 30 * time.Second,
+	}
+
+	if sched := s.getScheduler(); sched != nil {
+		sched.Start()
 	}
 
 	return s.httpServer.ListenAndServe()
@@ -236,6 +270,10 @@ func (s *Server) GracefulShutdown(reason string) {
 			s.taskManager.Close()
 			log.Infoln("[server] all running tasks cancelled")
 			time.Sleep(1 * time.Second)
+		}
+
+		if sched := s.getScheduler(); sched != nil {
+			sched.Stop()
 		}
 
 		if s.httpServer != nil {

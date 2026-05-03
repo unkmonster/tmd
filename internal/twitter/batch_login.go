@@ -16,8 +16,7 @@ type AccountCookie struct {
 
 // BatchLoginOptions 批量登录选项
 type BatchLoginOptions struct {
-	Debug    bool
-	ProxyURL string
+	Debug bool
 }
 
 func BatchLogin(ctx context.Context, opts BatchLoginOptions, cookies []AccountCookie, master string) []*resty.Client {
@@ -32,7 +31,7 @@ func BatchLogin(ctx context.Context, opts BatchLoginOptions, cookies []AccountCo
 	mtx := sync.Mutex{}
 	added.Store(master, struct{}{})
 
-	loginOpts := LoginOptions{ProxyURL: opts.ProxyURL}
+	loginOpts := LoginOptions{}
 
 	for i, cookie := range cookies {
 		wg.Add(1)

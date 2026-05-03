@@ -7,6 +7,60 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ***
 
+## [3.3.0] - 2026-04-29
+
+### Added
+
+#### 定时任务调度器
+
+| 功能 | 说明 |
+|------|------|
+| `internal/scheduler/` | 新增调度器模块，支持 interval 和 daily 两种模式 |
+| `ScheduleEntry` | 定时任务配置结构体 |
+| `ScheduleStatus` | 定时任务状态结构体 |
+| `Scheduler.Start()` / `Stop()` | 调度器启停控制 |
+
+#### 调度器 API
+
+| 端点 | 功能 |
+|------|------|
+| `GET /api/v1/schedules` | 获取调度器状态和任务列表 |
+| `POST /api/v1/schedules` | 创建定时任务 |
+| `GET/PUT /api/v1/schedules/raw` | 原始配置读写 |
+| `POST /api/v1/schedules/reload` | 重载配置 |
+| `POST /api/v1/schedules/validate` | 验证配置 |
+| `PUT/DELETE /api/v1/schedules/{id}` | 更新/删除任务 |
+| `PATCH /api/v1/schedules/{id}/enabled` | 启用/禁用任务 |
+| `POST /api/v1/schedules/{id}/trigger` | 手动触发任务 |
+
+#### Web 界面 Schedules 页面
+
+| 功能 | 说明 |
+|------|------|
+| 任务列表 | 显示所有定时任务及其状态 |
+| 创建任务 | 支持 interval 和 daily 两种调度模式 |
+| 任务类型 | 支持 list/user/following 三种下载类型 |
+| 任务控制 | 启用/禁用、手动触发、删除 |
+| 原始编辑 | 支持 YAML 格式批量编辑 |
+
+### Changed
+
+| 文件 | 变更 |
+|------|------|
+| `internal/api/server.go` | 集成调度器，自动启停 |
+| `internal/api/download_handlers.go` | 新增 `scheduledDownload()` 方法 |
+| `internal/config/config.go` | 新增 `SchedulesFile` 配置项 |
+| `internal/api/web/app.js` | 新增 Schedules 页面 |
+| `internal/api/web/index.html` | 新增导航菜单和页面结构 |
+| `internal/api/web/styles.css` | 新增调度器相关样式 |
+
+### Stats
+
+- **15 个文件变更**
+- **+1298 行 / -260 行**
+
+***
+
 ## [3.2.19] - 2026-04-29
 
 ### Added

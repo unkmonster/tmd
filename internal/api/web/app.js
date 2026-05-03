@@ -85,6 +85,13 @@ const store = {
     cookiesSaving: false,
     cookieItems: [],
     cookiesMode: 'form',
+    _scheduleTab: 'form',
+    _schedules: [],
+    _scheduleRaw: '',
+    _scheduleExists: false,
+    _scheduleSaving: false,
+    _scheduleFormItems: [],
+    _schedulerRunning: false,
   },
 
   listeners: [],
@@ -157,12 +164,12 @@ const api = {
   createBatchDownload(data) { 
     return this.post('/api/v1/batch/download', data); 
   },
-  createJsonFileDownload(data) { 
-    return this.post('/api/v1/json/file/download', data); 
-},
-createJsonFolderDownload(data) { 
-    return this.post('/api/v1/json/folder/download', data); 
-},
+  createJsonFileDownload(data) {
+    return this.post('/api/v1/json/file/download', data);
+  },
+  createJsonFolderDownload(data) {
+    return this.post('/api/v1/json/folder/download', data);
+  },
   
   // Config
   getConfig() { return this.get('/api/v1/config'); },
@@ -178,6 +185,17 @@ createJsonFolderDownload(data) {
 
   // Logs
   getLogs(params = '') { return this.get(`/api/v1/logs${params}`); },
+
+  // Schedules
+  getSchedules() { return this.get('/api/v1/schedules'); },
+  createSchedule(entry) { return this.post('/api/v1/schedules', entry); },
+  updateSchedule(id, entry) { return this.request('PUT', `/api/v1/schedules/${encodeURIComponent(id)}`, entry); },
+  deleteSchedule(id) { return this.request('DELETE', `/api/v1/schedules/${encodeURIComponent(id)}`); },
+  setScheduleEnabled(id, enabled) { return this.request('PATCH', `/api/v1/schedules/${encodeURIComponent(id)}/enabled`, { enabled }); },
+  getSchedulesRaw() { return this.get('/api/v1/schedules/raw'); },
+  updateSchedulesRaw(content) { return this.request('PUT', '/api/v1/schedules/raw', { content }); },
+  triggerSchedule(id) { return this.request('POST', `/api/v1/schedules/${encodeURIComponent(id)}/trigger`, {}); },
+  validateSchedule(body) { return this.post('/api/v1/schedules/validate', body); },
 
   // Database CRUD with pagination
   getDBUsers(params = '') { return this.get(`/api/v1/db/users${params ? '?' + params : ''}`); },
@@ -222,6 +240,10 @@ const sseManager = {
 
     this.conn = new EventSource('/api/v1/sse/tasks');
 
+    this.conn.onopen = () => {
+      store.setState({ sseConnected: true });
+    };
+
     this.conn.onmessage = (e) => {
       try {
         const tasks = JSON.parse(e.data);
@@ -246,8 +268,6 @@ const sseManager = {
         this.connect();
       }, delay);
     };
-
-    store.setState({ sseConnected: true });
   },
   
   disconnect() {
@@ -554,6 +574,7 @@ const pages = {
           <div class="tab ${store.state._systemTab === 'config' ? 'active' : ''}" onclick="setSystemTab('config')">⚙️ 配置编辑</div>
           <div class="tab ${store.state._systemTab === 'cookies' ? 'active' : ''}" onclick="setSystemTab('cookies')">🍪 额外账户</div>
           <div class="tab ${store.state._systemTab === 'logs' ? 'active' : ''}" onclick="setSystemTab('logs')">📋 系统日志</div>
+          <div class="tab ${store.state._systemTab === 'schedules' ? 'active' : ''}" onclick="setSystemTab('schedules')">⏰ 定时任务</div>
         </div>
         <button class="btn btn-danger btn-sm" onclick="shutdownServer()">⏻ 关闭服务器</button>
       </div>
@@ -568,6 +589,10 @@ const pages = {
 
       <div id="systemLogsPanel" class="system-panel" style="${store.state._systemTab === 'logs' ? '' : 'display:none'}">
         ${renderLogViewer()}
+      </div>
+
+      <div id="systemSchedulesPanel" class="system-panel" style="${store.state._systemTab === 'schedules' ? '' : 'display:none'}">
+        ${renderScheduleViewer()}
       </div>
     `;
   }
@@ -713,13 +738,13 @@ function renderTaskItem(task, showCheckbox = false) {
   const target = escapeHtml(getTaskTarget(task));
 
   return `
-    <div class="task-item" onclick="showTaskDetail('${escapeAttr(task.task_id)}')">
+    <div class="task-item" data-task-id="${escapeAttr(task.task_id)}" onclick="showTaskDetail(this.dataset.taskId)">
       ${showCheckbox ? `<div class="task-checkbox"><input type="checkbox" class="form-checkbox" data-task-id="${escapeAttr(task.task_id)}"></div>` : ''}
       <div class="task-info">
         <div class="task-title">${escapeHtml(task.type)} - ${target}</div>
         <div class="task-meta">
           <span class="tag ${status.tag}">${status.text}</span>
-          <span>ID: ${escapeAttr(task.task_id)}</span>
+          <span>ID: ${escapeHtml(task.task_id)}</span>
           <span>${new Date(task.created_at).toLocaleString()}</span>
         </div>
       </div>
@@ -731,8 +756,8 @@ function renderTaskItem(task, showCheckbox = false) {
       </div>
       <div class="task-actions" onclick="event.stopPropagation()">
         ${task.status === 'running' || task.status === 'queued' ?
-          `<button class="btn btn-danger btn-sm" onclick="cancelTask('${escapeAttr(task.task_id)}')">取消</button>` :
-          `<button class="btn btn-ghost btn-sm" onclick="showTaskDetail('${escapeAttr(task.task_id)}')">详情</button>`
+          `<button class="btn btn-danger btn-sm" data-task-id="${escapeAttr(task.task_id)}" onclick="cancelTask(this.dataset.taskId)">取消</button>` :
+          `<button class="btn btn-ghost btn-sm" data-task-id="${escapeAttr(task.task_id)}" onclick="showTaskDetail(this.dataset.taskId)">详情</button>`
         }
       </div>
     </div>
@@ -902,7 +927,7 @@ function renderDBTable(type, data, sort) {
   };
 
   const sortableHeader = (field, label) => `
-    <th onclick="sortDB('${escapeAttr(field)}')" style="cursor: pointer; user-select: none;">
+    <th data-sort-field="${escapeAttr(field)}" onclick="sortDB(this.dataset.sortField)" style="cursor: pointer; user-select: none;">
       ${label} ${sortIcon(field)}
     </th>
   `;
@@ -924,8 +949,8 @@ function renderDBTable(type, data, sort) {
     const idStr = String(item.id);
     return `
       <div class="flex gap-2">
-        <button class="btn btn-ghost btn-sm" onclick="editDBItem('${escapeAttr(type)}', '${escapeAttr(idStr)}')">✏️</button>
-        <button class="btn btn-danger btn-sm" onclick="deleteDBItem('${escapeAttr(type)}', '${escapeAttr(idStr)}')">🗑️</button>
+        <button class="btn btn-ghost btn-sm" data-db-type="${escapeAttr(type)}" data-db-id="${escapeAttr(idStr)}" onclick="editDBItem(this.dataset.dbType, this.dataset.dbId)">✏️</button>
+        <button class="btn btn-danger btn-sm" data-db-type="${escapeAttr(type)}" data-db-id="${escapeAttr(idStr)}" onclick="deleteDBItem(this.dataset.dbType, this.dataset.dbId)">🗑️</button>
       </div>
     `;
   };
@@ -1337,7 +1362,7 @@ async function editDBItem(type, id) {
 
     const footer = `
       <button class="btn btn-secondary" onclick="drawer.close()">取消</button>
-      <button class="btn btn-primary" onclick="saveDBItem('${escapeAttr(type)}', '${escapeAttr(id)}')">保存</button>
+      <button class="btn btn-primary" data-db-type="${escapeAttr(type)}" data-db-id="${escapeAttr(id)}" onclick="saveDBItem(this.dataset.dbType, this.dataset.dbId)">保存</button>
     `;
 
     drawer.open('编辑 ' + type, content, footer);
@@ -1698,7 +1723,7 @@ function showTaskDetail(id) {
   `;
   
   const footer = task.status === 'running' || task.status === 'queued' ?
-    `<button class="btn btn-danger" onclick="cancelTask('${escapeAttr(task.task_id)}'); drawer.close();">取消任务</button>` :
+    `<button class="btn btn-danger" data-task-id="${escapeAttr(task.task_id)}" onclick="cancelTask(this.dataset.taskId); drawer.close();">取消任务</button>` :
     '<button class="btn btn-secondary" onclick="drawer.close()">关闭</button>';
   
   drawer.open('任务详情', content, footer);
@@ -1919,12 +1944,21 @@ function renderLogViewer() {
     if (line.startsWith('WARN[')) return 'var(--warning)';
     if (line.startsWith('INFO[')) return 'var(--info)';
     if (line.startsWith('DEBU[')) return 'var(--text-tertiary)';
-    for (const [key, val] of [['debug','DEBUG'],['info','INFO'],['warn','WARN'],['warning','WARNING'],['error','ERROR']]) {
-      if (line.includes('level=' + key)) return val === 'ERROR' ? 'var(--danger)' : val === 'WARNING' || val === 'WARN' ? 'var(--warning)' : val === 'INFO' ? 'var(--info)' : 'var(--text-tertiary)';
+    const levelColors = {
+      DEBUG: 'var(--text-tertiary)',
+      INFO: 'var(--info)',
+      WARNING: 'var(--warning)',
+      WARN: 'var(--warning)',
+      ERROR: 'var(--danger)'
+    };
+    for (const [key, level] of [['debug', 'DEBUG'], ['info', 'INFO'], ['warn', 'WARN'], ['warning', 'WARNING'], ['error', 'ERROR']]) {
+      if (line.includes('level=' + key)) return levelColors[level];
     }
     return 'var(--text-secondary)';
   }
-  function renderLine(line) { return `<div style="color:${getLineColor(line)};font-family:var(--font-mono);font-size:12px;padding:1px 8px;white-space:pre-wrap;word-break:break-all">${escapeHtml(stripAnsi(line))}</div>`; }
+  function renderLine(line) {
+    return `<div class="log-line" style="color:${getLineColor(line)}">${escapeHtml(stripAnsi(line))}</div>`;
+  }
 
   return `
     <div class="card">
@@ -1975,12 +2009,610 @@ async function loadConfigRaw() {
   try {
     const d = await api.getConfigRaw();
     store.setState({ configRaw: d.content || '', configExists: d.exists || false });
-    setTimeout(() => { if (store.state.configMode === 'raw') initConfigCodeMirror(); }, 50);
   } catch (e) { toast.show('加载配置失败: ' + e.message, 'error'); }
 }
 
 function showManualRestartNotice(subject) {
   toast.show(`✅ ${subject}已保存，需要手动重启服务后生效`, 'success');
+}
+
+function renderScheduleViewer() {
+  const { _scheduleTab, _schedules, _scheduleRaw, _scheduleExists, _scheduleSaving, _scheduleFormItems, _schedulerRunning } = store.state;
+
+  const schedulerBanner = !_schedulerRunning
+    ? `<div class="alert alert-warning" style="margin-bottom:var(--space-3)">⚠️ 调度器未启动，定时任务不会自动执行。请添加并启用规则后重载配置。</div>`
+    : '';
+
+  const modeTabs = `
+    <div class="config-mode-tabs">
+      <button class="mode-tab ${_scheduleTab === 'form' ? 'active' : ''}" onclick="setScheduleTab('form')">📝 简易模式</button>
+      <button class="mode-tab ${_scheduleTab === 'view' ? 'active' : ''}" onclick="setScheduleTab('view')">📋 表格模式</button>
+      <button class="mode-tab ${_scheduleTab === 'edit' ? 'active' : ''}" onclick="setScheduleTab('edit')">🔧 高级 (YAML)</button>
+    </div>
+  `;
+
+  if (_scheduleTab === 'edit') return schedulerBanner + modeTabs + renderScheduleRawEditor(_scheduleRaw, _scheduleSaving, _scheduleExists);
+  if (_scheduleTab === 'view') return schedulerBanner + modeTabs + renderScheduleTable(_schedules, _scheduleExists);
+  return schedulerBanner + modeTabs + renderScheduleForm(_scheduleFormItems, _scheduleSaving, _scheduleExists);
+}
+
+function renderScheduleForm(items, saving, exists) {
+  if (!items || items.length === 0) {
+    return `
+      <div class="card">
+        <div class="card-header">
+          <div><div class="card-title">定时下载任务</div><div class="card-subtitle">${exists ? '✅ 文件存在 · 0 条规则' : '⚠️ 配置文件不存在'}</div></div>
+          <div class="flex gap-2">
+            <button class="btn btn-ghost btn-sm" onclick="addScheduleItem()">➕ 添加规则</button>
+          </div>
+        </div>
+        <div class="card-body">
+          <div class="empty-state">
+            <div class="empty-icon">⏰</div>
+            <div class="empty-title">暂无定时任务</div>
+            <div class="empty-desc">点击「添加规则」创建定时下载任务</div>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  const typeOptions = (selected) => ['list', 'user', 'following'].map(t =>
+    `<option value="${t}" ${t === selected ? 'selected' : ''}>${t === 'list' ? '📋 列表' : t === 'user' ? '👤 用户' : '👥 关注'}</option>`
+  ).join('');
+
+  const scheduleModeOptions = (selected) => ['interval', 'daily'].map(m =>
+    `<option value="${m}" ${m === selected ? 'selected' : ''}>${m === 'interval' ? '⏱️ 间隔执行' : '🕐 每日定时'}</option>`
+  ).join('');
+
+  const renderItem = (item, idx) => {
+    const typeLabel = item.type === 'list' ? '📋 列表' : item.type === 'user' ? '👤 用户' : '👥 关注';
+    return `
+    <div class="config-group">
+      <div class="config-group-title" style="display:flex;justify-content:space-between;align-items:center;">
+        <span>${typeLabel} #${idx + 1}${item.name ? ' · ' + escapeHtml(item.name) : ''}</span>
+        <div class="flex gap-2">
+          <label style="display:flex;align-items:center;gap:4px;font-size:12px;color:var(--text-secondary);cursor:pointer;">
+            <input type="checkbox" id="sf_enabled_${idx}" ${item.enabled ? 'checked' : ''} style="margin:0">
+            启用
+          </label>
+          <button class="btn btn-danger btn-sm" onclick="removeScheduleItem(${idx})">删除</button>
+        </div>
+      </div>
+      <div class="config-field">
+        <label class="config-label">类型</label>
+        <select class="form-input config-input" id="sf_type_${idx}" onchange="updateScheduleFormItem(${idx}, 'type', this.value)">
+          ${typeOptions(item.type)}
+        </select>
+      </div>
+      <div class="config-field">
+        <label class="config-label">${item.type === 'list' ? '列表 ID' : '用户名 (Screen Name)'}</label>
+        <input type="text" class="form-input config-input" id="sf_target_${idx}"
+          value="${escapeAttr(item.target || '')}"
+          placeholder="${item.type === 'list' ? '例如: 123456789' : '例如: elonmusk'}">
+      </div>
+      <div class="config-field">
+        <label class="config-label">名称（可选）</label>
+        <input type="text" class="form-input config-input" id="sf_name_${idx}"
+          value="${escapeAttr(item.name || '')}"
+          placeholder="给这条规则起个名字">
+      </div>
+      <div class="config-field">
+        <label class="config-label">调度方式</label>
+        <select class="form-input config-input" id="sf_schedule_mode_${idx}" onchange="updateScheduleFormItem(${idx}, 'scheduleMode', this.value)">
+          ${scheduleModeOptions(item.scheduleMode || 'interval')}
+        </select>
+      </div>
+      <div class="config-field">
+        <label class="config-label">${(item.scheduleMode || 'interval') === 'interval' ? '执行间隔' : '执行时间'}</label>
+        <input type="text" class="form-input config-input" id="sf_schedule_value_${idx}"
+          value="${escapeAttr(item.scheduleValue || '')}"
+          placeholder="${(item.scheduleMode || 'interval') === 'interval' ? '例如: 2h, 30m, 6h30m, 24h' : '例如: 07:00,21:00 或 02:30'}"
+          onblur="validateScheduleField(${idx})" oninput="scheduleFieldChanged(${idx})">
+        <div id="sf_schedule_hint_${idx}" class="config-hint" style="font-size:12px;margin-top:4px;min-height:16px"></div>
+      </div>
+      <div class="config-field" style="display:flex;gap:16px;flex-wrap:wrap;">
+        <label style="display:flex;align-items:center;gap:4px;font-size:13px;cursor:pointer;">
+          <input type="checkbox" id="sf_auto_follow_${idx}" ${item.auto_follow ? 'checked' : ''} style="margin:0">
+          自动关注
+        </label>
+        <label style="display:flex;align-items:center;gap:4px;font-size:13px;cursor:pointer;">
+          <input type="checkbox" id="sf_run_on_start_${idx}" ${item.run_on_start ? 'checked' : ''} style="margin:0">
+          启动后立即运行
+        </label>
+        <label style="display:flex;align-items:center;gap:4px;font-size:13px;cursor:pointer;">
+          <input type="checkbox" id="sf_skip_profile_${idx}" ${item.skip_profile ? 'checked' : ''} style="margin:0">
+          跳过 Profile
+        </label>
+        <label style="display:flex;align-items:center;gap:4px;font-size:13px;cursor:pointer;">
+          <input type="checkbox" id="sf_no_retry_${idx}" ${item.no_retry ? 'checked' : ''} style="margin:0">
+          不重试
+        </label>
+      </div>
+    </div>
+  `;
+  };
+
+  return `
+    <div class="card">
+      <div class="card-header">
+        <div><div class="card-title">定时下载任务</div><div class="card-subtitle">${exists ? '✅ 文件存在' : '⚠️ 将创建新文件'} · 共 ${items.length} 条规则</div></div>
+        <div class="flex gap-2">
+          <button class="btn btn-ghost btn-sm" onclick="addScheduleItem()">➕ 添加规则</button>
+          <button class="btn btn-primary btn-sm" onclick="saveScheduleForm()" ${saving ? 'disabled' : ''}>
+            ${saving ? '<span class="loading-spinner"></span> 保存中...' : '💾 保存并重载'}
+          </button>
+        </div>
+      </div>
+      <div class="card-body">
+        ${items.map(renderItem).join('')}
+      </div>
+    </div>
+  `;
+}
+
+function renderScheduleTable(schedules, exists) {
+  const active = schedules.filter(s => readScheduleEntryField(s.entry, 'enabled', 'Enabled')).length;
+  const total = schedules.length;
+
+  if (schedules.length === 0) {
+    return `
+      <div class="card">
+        <div class="card-header">
+          <div><div class="card-title">定时下载任务</div><div class="card-subtitle">${exists ? '✅ 文件存在 · 0 条规则' : '⚠️ 配置文件不存在'}</div></div>
+          <div class="flex gap-2">
+            <button class="btn btn-ghost btn-sm" onclick="loadSchedules()">🔄 刷新</button>
+          </div>
+        </div>
+        <div class="card-body">
+          <div class="empty-state">
+            <div class="empty-icon">⏰</div>
+            <div class="empty-title">暂无定时任务</div>
+            <div class="empty-desc">切换到「高级 (YAML)」模式添加定时下载规则</div>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  const typeTag = (type) => {
+    const map = { list: ['List', 'tag-info'], user: ['User', 'tag-success'], following: ['Following', 'tag-warning'] };
+    const [label, cls] = map[type] || [type, ''];
+    return `<span class="tag ${cls}">${label}</span>`;
+  };
+
+  const statusTag = (enabled) => enabled
+    ? '<span class="tag tag-success">启用</span>'
+    : '<span class="tag tag-danger">禁用</span>';
+
+  const failureTag = (count) => {
+    if (!count || count === 0) return '<span style="color:var(--text-tertiary)">0</span>';
+    if (count >= 3) return `<span class="tag tag-danger">⚠ ${count}次</span>`;
+    return `<span class="tag tag-warning">${count}次</span>`;
+  };
+
+  const fmtTime = (t) => t ? new Date(t).toLocaleString() : '-';
+
+  const renderItem = (s, idx) => {
+    const entry = normalizeScheduleEntry(s.entry);
+    const failures = s.consecutive_failures || 0;
+    return `
+      <tr${failures >= 3 ? ' style="background:var(--danger-bg,rgba(239,68,68,0.06))"' : ''}>
+        <td>${typeTag(entry.type)}</td>
+        <td style="font-family:var(--font-mono);font-size:13px">${escapeHtml(entry.target)}</td>
+        <td>${escapeHtml(entry.name || '-')}</td>
+        <td>${escapeHtml(s.schedule_display)}</td>
+        <td>${statusTag(entry.enabled)}</td>
+        <td style="font-size:12px">${fmtTime(s.last_run_at)}</td>
+        <td style="font-size:12px">${fmtTime(s.next_run_at)}</td>
+        <td>${s.run_count}</td>
+        <td>${failureTag(failures)}</td>
+        <td><button class="btn btn-ghost btn-sm" data-schedule-id="${escapeAttr(entry.id)}" onclick="triggerSchedule(this.dataset.scheduleId)" ${!entry.enabled ? 'disabled title="规则已禁用"' : ''}>▶️</button></td>
+      </tr>
+    `;
+  };
+
+  const renderMobileCard = (s, idx) => {
+    const entry = normalizeScheduleEntry(s.entry);
+    const failures = s.consecutive_failures || 0;
+    return `
+      <div class="mobile-card"${failures >= 3 ? ' style="border-left:3px solid var(--danger, #ef4444)"' : ''}>
+        <div class="mobile-card-header">
+          <div>${typeTag(entry.type)} ${escapeHtml(entry.name || entry.target)}</div>
+          ${statusTag(entry.enabled)}
+        </div>
+        <div class="mobile-card-body">
+          <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--text-secondary)">
+            <span>目标: ${escapeHtml(entry.target)}</span>
+            <span>${escapeHtml(s.schedule_display)}</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--text-secondary);margin-top:4px">
+            <span>上次: ${fmtTime(s.last_run_at)}</span>
+            <span>下次: ${fmtTime(s.next_run_at)}</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px">
+            <span style="font-size:12px;color:var(--text-secondary)">执行 ${s.run_count} 次 · ${failureTag(failures)}</span>
+            <button class="btn btn-ghost btn-sm" data-schedule-id="${escapeAttr(entry.id)}" onclick="triggerSchedule(this.dataset.scheduleId)" ${!entry.enabled ? 'disabled' : ''}>▶️ 触发</button>
+          </div>
+        </div>
+      </div>
+    `;
+  };
+
+  return `
+    <div class="card">
+      <div class="card-header">
+        <div><div class="card-title">定时下载任务</div><div class="card-subtitle">共 ${total} 条规则 · ${active} 个启用</div></div>
+        <div class="flex gap-2">
+          <button class="btn btn-ghost btn-sm" onclick="loadSchedules()">🔄 刷新</button>
+        </div>
+      </div>
+      <div class="card-body" style="padding:0">
+        <div class="desktop-only">
+          <table class="table">
+            <thead>
+              <tr><th>类型</th><th>目标</th><th>名称</th><th>调度</th><th>状态</th><th>上次执行</th><th>下次执行</th><th>次数</th><th>连续失败</th><th>操作</th></tr>
+            </thead>
+            <tbody>${schedules.map(renderItem).join('')}</tbody>
+          </table>
+        </div>
+        <div class="mobile-only" style="padding:var(--space-3)">
+          ${schedules.map(renderMobileCard).join('')}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderScheduleRawEditor(raw, saving, exists) {
+  return `
+    <div class="card">
+      <div class="card-header">
+        <div><div class="card-title">schedules.yaml 原始编辑器</div><div class="card-subtitle">${exists ? '✅ 文件存在' : '⚠️ 将创建新文件'}</div></div>
+        <div class="flex gap-2">
+          <button class="btn btn-primary btn-sm" onclick="saveScheduleRaw()" ${saving ? 'disabled' : ''}>
+            ${saving ? '<span class="loading-spinner"></span> 保存中...' : '💾 保存并重载'}
+          </button>
+        </div>
+      </div>
+      <div class="card-body" style="padding:0;">
+        <div id="scheduleEditorContainer"></div>
+        <div class="config-hint text-sm text-tertiary p-3 mt-3">
+          ⚠️ 保存后将自动重载调度配置，无需重启服务。
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+async function loadSchedules() {
+  try {
+    const data = await api.getSchedules();
+    const entries = data.entries || [];
+    store.setState({
+      _schedules: entries,
+      _scheduleFormItems: entries.map(s => scheduleStatusToFormItem(s)),
+      _schedulerRunning: !!data.scheduler_running,
+    });
+  } catch (e) { /* ignore */ }
+}
+
+function scheduleStatusToFormItem(status) {
+  const e = normalizeScheduleEntry(status.entry);
+  const raw = e.schedule || '';
+  let scheduleMode = 'interval';
+  let scheduleValue = '';
+  if (raw.startsWith('daily:')) {
+    scheduleMode = 'daily';
+    scheduleValue = raw.replace('daily:', '');
+  } else if (raw.startsWith('interval:')) {
+    scheduleMode = 'interval';
+    scheduleValue = raw.replace('interval:', '');
+  }
+  return {
+    id: e.id || '',
+    type: e.type || 'list',
+    target: e.target || '',
+    name: e.name || '',
+    scheduleMode,
+    scheduleValue,
+    enabled: e.enabled !== false,
+    run_on_start: !!e.run_on_start,
+    auto_follow: !!e.auto_follow,
+    skip_profile: !!e.skip_profile,
+    no_retry: !!e.no_retry,
+  };
+}
+
+function normalizeScheduleEntry(entry) {
+  return {
+    id: readScheduleEntryField(entry, 'id', 'ID') || '',
+    type: readScheduleEntryField(entry, 'type', 'Type') || '',
+    target: readScheduleEntryField(entry, 'target', 'Target') || '',
+    name: readScheduleEntryField(entry, 'name', 'Name') || '',
+    schedule: readScheduleEntryField(entry, 'schedule', 'Schedule') || '',
+    enabled: readScheduleEntryField(entry, 'enabled', 'Enabled') !== false,
+    run_on_start: !!readScheduleEntryField(entry, 'run_on_start', 'RunOnStart'),
+    auto_follow: !!readScheduleEntryField(entry, 'auto_follow', 'AutoFollow'),
+    skip_profile: !!readScheduleEntryField(entry, 'skip_profile', 'SkipProfile'),
+    no_retry: !!readScheduleEntryField(entry, 'no_retry', 'NoRetry'),
+  };
+}
+
+function readScheduleEntryField(entry, jsonName, legacyName) {
+  if (!entry) return undefined;
+  return entry[jsonName] !== undefined ? entry[jsonName] : entry[legacyName];
+}
+
+async function loadScheduleRaw() {
+  try {
+    const data = await api.getSchedulesRaw();
+    store.setState({ _scheduleRaw: data.content || '', _scheduleExists: data.exists || false });
+  } catch (e) { /* ignore */ }
+}
+
+async function saveScheduleRaw() {
+  const content = getEditorValue(scheduleCodeMirror, store.state._scheduleRaw);
+  store.setState({ _scheduleRaw: content, _scheduleSaving: true });
+  try {
+    const validateResult = await api.validateSchedule({ raw: content });
+    if (!validateResult.valid) {
+      const msg = (validateResult.errors || []).join('; ');
+      toast.show('校验失败: ' + msg, 'error');
+      store.setState({ _scheduleSaving: false });
+      return;
+    }
+    await api.updateSchedulesRaw(content);
+    toast.show('调度配置已保存并重载');
+    await loadSchedules();
+    await loadScheduleRaw();
+    setEditorValue(scheduleCodeMirror, store.state._scheduleRaw || '');
+  } catch (e) {
+    toast.show('保存失败: ' + e.message, 'error');
+  } finally {
+    store.setState({ _scheduleSaving: false });
+  }
+}
+
+async function triggerSchedule(id) {
+  try {
+    const data = await api.triggerSchedule(id);
+    toast.show('已触发定时任务: ' + data.task_id);
+    setTimeout(loadSchedules, 1000);
+  } catch (e) {
+    toast.show('触发失败: ' + e.message, 'error');
+  }
+}
+
+function setScheduleTab(tab) {
+  if (tab !== 'edit' && scheduleCodeMirror) {
+    scheduleCodeMirror = null;
+  }
+  store.setState({ _scheduleTab: tab });
+  if (tab === 'edit' && !store.state._scheduleRaw) loadScheduleRaw();
+  if (tab === 'view' && store.state._schedules.length === 0) loadSchedules();
+  if (tab === 'form' && store.state._scheduleFormItems.length === 0 && store.state._schedules.length === 0) loadSchedules();
+}
+
+function addScheduleItem() {
+  const items = [...readScheduleFormItemsFromDOM(), {
+    id: '',
+    type: 'list',
+    target: '',
+    name: '',
+    scheduleMode: 'interval',
+    scheduleValue: '2h',
+    enabled: true,
+    run_on_start: false,
+    auto_follow: true,
+    skip_profile: false,
+    no_retry: false,
+  }];
+  store.setState({ _scheduleFormItems: items });
+}
+
+function removeScheduleItem(index) {
+  const items = readScheduleFormItemsFromDOM().filter((_, i) => i !== index);
+  store.setState({ _scheduleFormItems: items });
+}
+
+function readScheduleFormItemsFromDOM() {
+  return store.state._scheduleFormItems.map((fallback, idx) => {
+    const type = document.getElementById(`sf_type_${idx}`)?.value || fallback.type || 'list';
+    const scheduleMode = document.getElementById(`sf_schedule_mode_${idx}`)?.value || fallback.scheduleMode || 'interval';
+    return {
+      id: fallback.id || '',
+      type,
+      target: document.getElementById(`sf_target_${idx}`)?.value || '',
+      name: document.getElementById(`sf_name_${idx}`)?.value || '',
+      scheduleMode,
+      scheduleValue: document.getElementById(`sf_schedule_value_${idx}`)?.value || '',
+      enabled: document.getElementById(`sf_enabled_${idx}`)?.checked ?? fallback.enabled !== false,
+      run_on_start: document.getElementById(`sf_run_on_start_${idx}`)?.checked ?? !!fallback.run_on_start,
+      auto_follow: document.getElementById(`sf_auto_follow_${idx}`)?.checked ?? !!fallback.auto_follow,
+      skip_profile: document.getElementById(`sf_skip_profile_${idx}`)?.checked ?? !!fallback.skip_profile,
+      no_retry: document.getElementById(`sf_no_retry_${idx}`)?.checked ?? !!fallback.no_retry,
+    };
+  });
+}
+
+function updateScheduleFormItem(index, field, value) {
+  if (field === 'type') {
+    const target = document.getElementById(`sf_target_${index}`);
+    if (target) {
+      const label = target.closest('.config-field')?.querySelector('.config-label');
+      if (label) label.textContent = value === 'list' ? '列表 ID' : '用户名 (Screen Name)';
+      target.placeholder = value === 'list' ? '例如: 123456789' : '例如: elonmusk';
+    }
+  }
+  if (field === 'scheduleMode') {
+    const scheduleValue = document.getElementById(`sf_schedule_value_${index}`);
+    if (scheduleValue) {
+      const label = scheduleValue.closest('.config-field')?.querySelector('.config-label');
+      if (label) label.textContent = value === 'interval' ? '执行间隔' : '执行时间';
+      scheduleValue.placeholder = value === 'interval' ? '例如: 2h, 30m, 6h30m, 24h' : '例如: 07:00,21:00 或 02:30';
+    }
+  }
+}
+
+let _scheduleValidateTimer = null;
+
+function scheduleFieldChanged(idx) {
+  clearTimeout(_scheduleValidateTimer);
+  _scheduleValidateTimer = setTimeout(() => validateScheduleField(idx), 600);
+}
+
+async function validateScheduleField(idx) {
+  const mode = document.getElementById(`sf_schedule_mode_${idx}`)?.value || 'interval';
+  const value = document.getElementById(`sf_schedule_value_${idx}`)?.value?.trim() || '';
+  const hint = document.getElementById(`sf_schedule_hint_${idx}`);
+  if (!hint) return;
+
+  if (!value) {
+    hint.innerHTML = '';
+    return;
+  }
+
+  const schedule = `${mode}:${value}`;
+  try {
+    const result = await api.validateSchedule({ entry: { type: 'list', target: '1', schedule } });
+    if (result.valid) {
+      hint.innerHTML = '<span style="color:var(--success, #22c55e)">✓ 格式正确</span>';
+    } else {
+      const msg = (result.errors || []).join('; ');
+      hint.innerHTML = `<span style="color:var(--danger, #ef4444)">✗ ${escapeHtml(msg)}</span>`;
+    }
+  } catch (e) {
+    hint.innerHTML = '';
+  }
+}
+
+async function validateScheduleForm() {
+  const items = readScheduleFormItemsFromDOM();
+  const entries = items.map(item => ({
+    type: item.type,
+    target: item.type === 'list' ? (item.target.trim() || '1') : item.target.trim(),
+    schedule: `${item.scheduleMode}:${item.scheduleValue.trim()}`,
+  }));
+  try {
+    const result = await api.validateSchedule({ entries });
+    if (!result.valid) {
+      const msg = (result.errors || []).join('; ');
+      toast.show(msg, 'error');
+      return false;
+    }
+  } catch (e) {
+    return false;
+  }
+  return true;
+}
+
+async function saveScheduleForm() {
+  const items = readScheduleFormItemsFromDOM();
+
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i];
+    if (!item.target.trim()) {
+      toast.show(`规则 #${i + 1}: 目标不能为空`, 'error');
+      return;
+    }
+    if (!item.scheduleValue.trim()) {
+      toast.show(`规则 #${i + 1}: 调度值不能为空`, 'error');
+      return;
+    }
+  }
+
+  if (!(await validateScheduleForm())) return;
+
+  const schedules = items.map(item => ({
+    id: item.id || '',
+    type: item.type,
+    target: item.target.trim(),
+    name: item.name.trim(),
+    schedule: `${item.scheduleMode}:${item.scheduleValue.trim()}`,
+    enabled: item.enabled,
+    run_on_start: item.run_on_start,
+    auto_follow: item.auto_follow,
+    skip_profile: item.skip_profile,
+    no_retry: item.no_retry,
+  }));
+
+  store.setState({ _scheduleFormItems: items, _scheduleSaving: true });
+  try {
+    await syncScheduleFormChanges(schedules);
+    toast.show('调度配置已保存并重载');
+    await loadSchedules();
+    await loadScheduleRaw();
+  } catch (e) {
+    toast.show('保存失败: ' + e.message, 'error');
+  } finally {
+    store.setState({ _scheduleSaving: false });
+  }
+}
+
+async function syncScheduleFormChanges(entries) {
+  const existingIds = new Set(
+    (store.state._schedules || [])
+      .map(status => normalizeScheduleEntry(status.entry).id)
+      .filter(Boolean)
+  );
+  const submittedIds = new Set(entries.map(entry => entry.id).filter(Boolean));
+
+  for (const entry of entries) {
+    if (entry.id) {
+      await api.updateSchedule(entry.id, entry);
+    } else {
+      await api.createSchedule(entry);
+    }
+  }
+
+  for (const id of existingIds) {
+    if (!submittedIds.has(id)) {
+      await api.deleteSchedule(id);
+    }
+  }
+}
+
+function yamlDump(obj) {
+  const schedules = obj.schedules || [];
+  if (schedules.length === 0) {
+    return 'schedules: []\n';
+  }
+  let yaml = 'schedules:\n';
+  for (const s of schedules) {
+    yaml += `  - type: ${s.type}\n`;
+    if (s.id) yaml += `    id: ${yamlStr(s.id)}\n`;
+    yaml += `    target: ${yamlStr(s.target)}\n`;
+    yaml += `    name: ${yamlStr(s.name)}\n`;
+    yaml += `    schedule: ${yamlStr(s.schedule)}\n`;
+    yaml += `    enabled: ${s.enabled}\n`;
+    yaml += `    run_on_start: ${s.run_on_start}\n`;
+    yaml += `    auto_follow: ${s.auto_follow}\n`;
+    yaml += `    skip_profile: ${s.skip_profile}\n`;
+    yaml += `    no_retry: ${s.no_retry}\n`;
+  }
+  return yaml;
+}
+
+function yamlStr(s) {
+  if (!s) return '""';
+  if (/[:#{}[\],&*?|<>=!%@\\"]/.test(s) || s.includes('\n')) {
+    return '"' + s.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n') + '"';
+  }
+  return '"' + s + '"';
+}
+
+let scheduleCodeMirror = null;
+
+async function initScheduleCodeMirror() {
+  await waitForCodeMirror(3000);
+  scheduleCodeMirror = initCodeMirror('scheduleEditorContainer', store.state._scheduleRaw, 'yaml');
+}
+
+function syncScheduleTabView() {
+  if (store.state._schedules.length === 0) loadSchedules();
+  if (store.state._scheduleTab === 'edit' && !store.state._scheduleRaw) loadScheduleRaw();
+  if (store.state._scheduleTab === 'edit' && !scheduleCodeMirror) requestAnimationFrame(() => requestAnimationFrame(initScheduleCodeMirror));
 }
 
 function renderServerClosedState() {
@@ -2042,9 +2674,9 @@ async function saveConfigForm() {
 }
 
 async function saveConfig() {
-  const content = configCodeMirror ? configCodeMirror.getValue() : '';
+  const content = getEditorValue(configCodeMirror, store.state.configRaw);
   if (!content.trim()) return toast.show('配置不能为空', 'error');
-  store.setState({ configSaving: true });
+  store.setState({ configRaw: content, configSaving: true });
   try {
     const data = await api.updateConfigRaw(content);
     store.setState({
@@ -2069,7 +2701,6 @@ async function loadCookiesRaw() {
   try {
     const d = await api.getCookiesRaw();
     store.setState({ cookiesRaw: d.content || '', cookiesExists: d.exists || false });
-    setTimeout(() => { if (store.state.cookiesMode === 'raw') initCookiesCodeMirror(); }, 50);
   } catch (e) { toast.show('加载额外账户失败: ' + e.message, 'error'); }
 }
 
@@ -2107,10 +2738,10 @@ async function saveCookiesForm() {
 }
 
 async function saveCookies() {
-  const content = cookiesCodeMirror ? cookiesCodeMirror.getValue() : '';
+  const content = getEditorValue(cookiesCodeMirror, store.state.cookiesRaw);
   if (!content.trim()) return toast.show('内容不能为空', 'error');
 
-  store.setState({ cookiesSaving: true });
+  store.setState({ cookiesRaw: content, cookiesSaving: true });
   try {
     await api.updateCookiesRaw(content);
     store.setState({ cookiesSaving: false, cookiesRaw: content });
@@ -2126,6 +2757,7 @@ function setCookiesMode(mode) {
     cookiesCodeMirror = null;
   }
   store.setState({ cookiesMode: mode });
+  if (mode === 'raw' && !store.state.cookiesRaw) loadCookiesRaw();
 }
 
 function addCookieAccount() {
@@ -2173,6 +2805,7 @@ function setConfigMode(mode) {
     configCodeMirror = null;
   }
   store.setState({ configMode: mode });
+  if (mode === 'raw' && !store.state.configRaw) loadConfigRaw();
 }
 
 async function loadLogs() {
@@ -2210,19 +2843,33 @@ let logStreamConn = null;
 let configCodeMirror = null;
 let cookiesCodeMirror = null;
 
+function waitForCodeMirror(maxWait) {
+  if (typeof CodeMirror !== 'undefined') return Promise.resolve(true);
+  return new Promise(resolve => {
+    const start = Date.now();
+    const check = () => {
+      if (typeof CodeMirror !== 'undefined' || Date.now() - start > maxWait) {
+        resolve(typeof CodeMirror !== 'undefined');
+      } else {
+        setTimeout(check, 100);
+      }
+    };
+    check();
+  });
+}
+
 function initCodeMirror(containerId, content, mode) {
   const container = document.getElementById(containerId);
-  if (!container || typeof CodeMirror === 'undefined') {
-    if (container) {
-      container.innerHTML = '';
-      const textarea = document.createElement('textarea');
-      textarea.className = 'form-textarea config-editor';
-      textarea.spellcheck = false;
-      textarea.value = content;
-      container.appendChild(textarea);
-      return textarea;
-    }
-    return null;
+  if (!container) return null;
+
+  if (typeof CodeMirror === 'undefined') {
+    container.innerHTML = '';
+    const textarea = document.createElement('textarea');
+    textarea.className = 'form-textarea config-editor';
+    textarea.spellcheck = false;
+    textarea.value = content;
+    container.appendChild(textarea);
+    return textarea;
   }
 
   container.innerHTML = '';
@@ -2243,11 +2890,28 @@ function initCodeMirror(containerId, content, mode) {
   return cm;
 }
 
-function initConfigCodeMirror() {
+function getEditorValue(editor, fallback = '') {
+  if (!editor) return fallback || '';
+  if (typeof editor.getValue === 'function') return editor.getValue();
+  return editor.value || fallback || '';
+}
+
+function setEditorValue(editor, value) {
+  if (!editor) return;
+  if (typeof editor.setValue === 'function') {
+    editor.setValue(value);
+  } else {
+    editor.value = value;
+  }
+}
+
+async function initConfigCodeMirror() {
+  await waitForCodeMirror(3000);
   configCodeMirror = initCodeMirror('configEditorContainer', store.state.configRaw, 'yaml');
 }
 
-function initCookiesCodeMirror() {
+async function initCookiesCodeMirror() {
+  await waitForCodeMirror(3000);
   cookiesCodeMirror = initCodeMirror('cookiesEditorContainer', store.state.cookiesRaw, 'yaml');
 }
 
@@ -2263,6 +2927,10 @@ function cleanupSystemTimers() {
     clearTimeout(logAutoRefreshTimer);
     logAutoRefreshTimer = null;
   }
+  if (_scheduleValidateTimer) {
+    clearTimeout(_scheduleValidateTimer);
+    _scheduleValidateTimer = null;
+  }
   stopLogStream();
 }
 
@@ -2275,10 +2943,20 @@ function buildLogStreamURL() {
   return `/api/v1/logs/stream${qs ? '?' + qs : ''}`;
 }
 
+let _logStreamConnecting = false;
+let _pendingLogStreamConn = null;
+
 function startLogStream() {
-  if (logStreamConn || store.state.currentPage !== 'system' || store.state._systemTab !== 'logs') return;
-  logStreamConn = new EventSource(buildLogStreamURL());
-  logStreamConn.onmessage = (e) => {
+  if (logStreamConn || _logStreamConnecting || store.state.currentPage !== 'system' || store.state._systemTab !== 'logs') return;
+  _logStreamConnecting = true;
+  const conn = new EventSource(buildLogStreamURL());
+  _pendingLogStreamConn = conn;
+  conn.onopen = () => {
+    _pendingLogStreamConn = null;
+    logStreamConn = conn;
+    _logStreamConnecting = false;
+  };
+  conn.onmessage = (e) => {
     const line = e.data || '';
     if (!line) return;
     const logs = [line, ...store.state.logs].slice(0, 1000);
@@ -2289,8 +2967,15 @@ function startLogStream() {
       if (el) el.scrollTop = 0;
     }, 0);
   };
-  logStreamConn.onerror = () => {
-    stopLogStream();
+  conn.onerror = () => {
+    _pendingLogStreamConn = null;
+    _logStreamConnecting = false;
+    if (conn === logStreamConn) {
+      logStreamConn.close();
+      logStreamConn = null;
+    } else {
+      conn.close();
+    }
     if (store.state.logAutoRefresh && store.state.currentPage === 'system' && store.state._systemTab === 'logs') {
       logAutoRefreshTimer = setTimeout(() => { logAutoRefreshTimer = null; startLogStream(); }, 2000);
     }
@@ -2298,6 +2983,11 @@ function startLogStream() {
 }
 
 function stopLogStream() {
+  _logStreamConnecting = false;
+  if (_pendingLogStreamConn) {
+    _pendingLogStreamConn.close();
+    _pendingLogStreamConn = null;
+  }
   if (logAutoRefreshTimer) {
     clearTimeout(logAutoRefreshTimer);
     logAutoRefreshTimer = null;
@@ -2315,15 +3005,27 @@ function restartLogStreamIfNeeded() {
 }
 
 function syncConfigTabView() {
-  if (store.state.configMode === 'form' && (!store.state.configFields || store.state.configFields.length === 0)) { loadConfigFields(); }
-  if (store.state.configMode === 'raw' && !store.state.configRaw) { loadConfigRaw(); }
-  if (store.state.configMode === 'raw' && store.state.configRaw && !configCodeMirror) { setTimeout(initConfigCodeMirror, 50); }
+  if (store.state.configMode === 'form' && (!store.state.configFields || store.state.configFields.length === 0)) {
+    loadConfigFields();
+  }
+  if (store.state.configMode === 'raw' && !store.state.configRaw) {
+    loadConfigRaw();
+  }
+  if (store.state.configMode === 'raw' && !configCodeMirror) {
+    requestAnimationFrame(() => requestAnimationFrame(initConfigCodeMirror));
+  }
 }
 
 function syncCookiesTabView() {
-  if (store.state.cookiesMode === 'form' && (!store.state.cookieItems || store.state.cookieItems.length === 0)) { loadCookiesItems(); }
-  if (store.state.cookiesMode === 'raw' && !store.state.cookiesRaw) { loadCookiesRaw(); }
-  if (store.state.cookiesMode === 'raw' && store.state.cookiesRaw && !cookiesCodeMirror) { setTimeout(initCookiesCodeMirror, 50); }
+  if (store.state.cookiesMode === 'form' && (!store.state.cookieItems || store.state.cookieItems.length === 0)) {
+    loadCookiesItems();
+  }
+  if (store.state.cookiesMode === 'raw' && !store.state.cookiesRaw) {
+    loadCookiesRaw();
+  }
+  if (store.state.cookiesMode === 'raw' && !cookiesCodeMirror) {
+    requestAnimationFrame(() => requestAnimationFrame(initCookiesCodeMirror));
+  }
 }
 
 function syncLogsTabView() {
@@ -2339,6 +3041,14 @@ function syncSystemTabView() {
   if (store.state._systemTab === 'config') syncConfigTabView();
   if (store.state._systemTab === 'cookies') syncCookiesTabView();
   if (store.state._systemTab === 'logs') syncLogsTabView();
+  if (store.state._systemTab === 'schedules') syncScheduleTabView();
+}
+
+function rerenderSystemPanel(panelId, renderFn, resetEditor = null, initEditor = null) {
+  if (resetEditor) resetEditor();
+  const panel = document.getElementById(panelId);
+  if (panel) panel.innerHTML = renderFn();
+  if (initEditor) requestAnimationFrame(() => requestAnimationFrame(initEditor));
 }
 
 function setSystemTab(tab) {
@@ -2346,9 +3056,7 @@ function setSystemTab(tab) {
     stopLogStream();
   }
   store.setState({ _systemTab: tab });
-  if (tab === 'logs' && store.state.logAutoRefresh) {
-    setTimeout(startLogStream, 0);
-  }
+  setTimeout(syncSystemTabView, 0);
 }
 
 // ============================================
@@ -2466,8 +3174,6 @@ window.onpopstate = (event) => {
   // Update title
   const titles = { overview: '概览', tasks: '任务中心', data: '数据管理', system: '系统' };
   document.getElementById('pageTitle').textContent = titles[page];
-  
-  render();
 };
 
 function setDataSubPage(subPage) {
@@ -2548,28 +3254,18 @@ function filterTasks() {
 // ============================================
 
 async function init() {
-  // Parse URL route first
   const { page, dataSubPage } = parseRoute();
-  
-  // Set initial state based on URL
-  store.setState({
-    currentPage: page,
-    dataSubPage: dataSubPage
-  });
-  
-  // Update sidebar active state
+
   document.querySelectorAll('.nav-item').forEach(el => {
     el.classList.toggle('active', el.dataset.page === page);
   });
   document.querySelectorAll('.mobile-nav-item').forEach(el => {
     el.classList.toggle('active', el.dataset.page === page);
   });
-  
-  // Update title
+
   const titles = { overview: '概览', tasks: '任务中心', data: '数据管理', system: '系统' };
   document.getElementById('pageTitle').textContent = titles[page] || '概览';
-  
-  // Show loading state
+
   document.getElementById('contentContainer').innerHTML = `
     <div class="empty-state">
       <div class="skeleton" style="width: 64px; height: 64px; border-radius: var(--radius-xl); margin-bottom: var(--space-4);"></div>
@@ -2578,7 +3274,8 @@ async function init() {
     </div>
   `;
 
-  // Load initial data
+  sseManager.connect();
+
   try {
     const [health, tasks, config] = await Promise.all([
       api.getHealth(),
@@ -2587,22 +3284,23 @@ async function init() {
     ]);
 
     store.setState({
+      currentPage: page,
+      dataSubPage: dataSubPage,
       health,
-      tasks: tasks.tasks || [],
+      tasks: store.state.tasks.length > 0 ? store.state.tasks : (tasks.tasks || []),
       config
     });
 
-    // Load database data for current subpage
     await refreshDBData();
-    
+
   } catch (err) {
+    store.setState({
+      currentPage: page,
+      dataSubPage: dataSubPage
+    });
     toast.show('加载数据失败: ' + err.message, 'error');
   }
-  
-  // Connect SSE
-  sseManager.connect();
-  
-  // Initial render
+
   render();
 }
 
@@ -2654,6 +3352,12 @@ let lastDataSubPage = store.state.dataSubPage;
 let lastDbDataJson = JSON.stringify(store.state.dbData);
 let lastDbPaginationJson = JSON.stringify(store.state.dbPagination);
 let lastDbSortJson = JSON.stringify(store.state.dbSort);
+let lastSchedulesJson = JSON.stringify(store.state._schedules);
+let lastScheduleRaw = store.state._scheduleRaw;
+let lastScheduleExists = store.state._scheduleExists;
+let lastScheduleSaving = store.state._scheduleSaving;
+let lastScheduleTab = store.state._scheduleTab;
+let lastScheduleFormItemsJson = JSON.stringify(store.state._scheduleFormItems);
 store.subscribe((state) => {
   if (state.currentPage !== lastPage) {
     lastPage = state.currentPage;
@@ -2697,17 +3401,24 @@ store.subscribe((state) => {
       const cookiesSavingChanged = state.cookiesSaving !== lastCookiesSaving;
       const logsChanged = state.logs.length !== lastLogsLength;
       const logLevelChanged = state.logLevel !== lastLogLevel;
+      const schedulesChanged = JSON.stringify(state._schedules) !== lastSchedulesJson;
+      const scheduleRawChanged = state._scheduleRaw !== lastScheduleRaw;
+      const scheduleExistsChanged = state._scheduleExists !== lastScheduleExists;
+      const scheduleSavingChanged = state._scheduleSaving !== lastScheduleSaving;
+      const scheduleTabChanged = state._scheduleTab !== lastScheduleTab;
+      const scheduleFormItemsChanged = JSON.stringify(state._scheduleFormItems) !== lastScheduleFormItemsJson;
 
       if (tabChanged) {
         lastSystemTab = state._systemTab;
         document.querySelectorAll('.system-tabs .tab').forEach(t => {
           t.classList.toggle('active', t.textContent.includes(
-            state._systemTab === 'config' ? '配置' : state._systemTab === 'cookies' ? '账户' : '日志'
+            state._systemTab === 'config' ? '配置' : state._systemTab === 'cookies' ? '账户' : state._systemTab === 'logs' ? '日志' : '定时'
           ));
         });
         document.getElementById('systemConfigPanel').style.display = state._systemTab === 'config' ? '' : 'none';
         document.getElementById('systemCookiesPanel').style.display = state._systemTab === 'cookies' ? '' : 'none';
         document.getElementById('systemLogsPanel').style.display = state._systemTab === 'logs' ? '' : 'none';
+        document.getElementById('systemSchedulesPanel').style.display = state._systemTab === 'schedules' ? '' : 'none';
       }
 
       if (configRawChanged || configSavingChanged || configFieldsChanged || configFieldsLoadingChanged || configModeChanged) {
@@ -2716,8 +3427,12 @@ store.subscribe((state) => {
         lastConfigFieldsJson = JSON.stringify(state.configFields);
         lastConfigFieldsLoading = state.configFieldsLoading;
         lastConfigMode = state.configMode;
-        const panel = document.getElementById('systemConfigPanel');
-        if (panel) panel.innerHTML = renderConfigEditor();
+        rerenderSystemPanel(
+          'systemConfigPanel',
+          renderConfigEditor,
+          () => { configCodeMirror = null; },
+          state.configMode === 'raw' ? initConfigCodeMirror : null
+        );
       }
 
       if (cookiesChanged || cookiesModeChanged || cookiesRawChanged || cookiesSavingChanged) {
@@ -2725,8 +3440,12 @@ store.subscribe((state) => {
         lastCookiesMode = state.cookiesMode;
         lastCookiesRaw = state.cookiesRaw;
         lastCookiesSaving = state.cookiesSaving;
-        const panel = document.getElementById('systemCookiesPanel');
-        if (panel) panel.innerHTML = renderCookiesEditor();
+        rerenderSystemPanel(
+          'systemCookiesPanel',
+          renderCookiesEditor,
+          () => { cookiesCodeMirror = null; },
+          state.cookiesMode === 'raw' ? initCookiesCodeMirror : null
+        );
       }
 
       if (logsChanged || logLevelChanged || logPagChanged) {
@@ -2738,6 +3457,21 @@ store.subscribe((state) => {
           panel.innerHTML = renderLogViewer();
           restoreSearchValue('logSearchInput', 'logSearch');
         }
+      }
+
+      if (schedulesChanged || scheduleRawChanged || scheduleExistsChanged || scheduleSavingChanged || scheduleTabChanged || scheduleFormItemsChanged) {
+        lastSchedulesJson = JSON.stringify(state._schedules);
+        lastScheduleRaw = state._scheduleRaw;
+        lastScheduleExists = state._scheduleExists;
+        lastScheduleSaving = state._scheduleSaving;
+        lastScheduleTab = state._scheduleTab;
+        lastScheduleFormItemsJson = JSON.stringify(state._scheduleFormItems);
+        rerenderSystemPanel(
+          'systemSchedulesPanel',
+          renderScheduleViewer,
+          () => { scheduleCodeMirror = null; },
+          state._scheduleTab === 'edit' ? initScheduleCodeMirror : null
+        );
       }
     }
   }

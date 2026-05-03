@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -40,7 +39,6 @@ func SetClientAuth(client *resty.Client, authToken string, ct0 string) {
 
 // LoginOptions 登录选项
 type LoginOptions struct {
-	ProxyURL string // 代理URL，为空则使用系统代理
 }
 
 // Login 登录Twitter
@@ -127,7 +125,7 @@ func LoginWithOptions(ctx context.Context, authToken string, ct0 string, opts Lo
 		IdleConnTimeout:       5 * time.Second, // 连接空闲 n 秒后断开它
 		TLSHandshakeTimeout:   5 * time.Second,
 		ResponseHeaderTimeout: 5 * time.Second,
-		Proxy:                 newProxyFunc(opts.ProxyURL),
+		Proxy:                 http.ProxyFromEnvironment,
 	})
 
 	screenName, err := GetSelfScreenName(ctx, client)
@@ -137,81 +135,6 @@ func LoginWithOptions(ctx context.Context, authToken string, ct0 string, opts Lo
 
 	clientScreenNames.Store(client, screenName)
 	return client, screenName, nil
-}
-
-// newProxyFunc 创建代理函数：配置 > 环境变量 > 无代理。
-// HTTPS 请求优先 HTTPS_PROXY，回退 HTTP_PROXY；HTTP 请求则相反。
-func newProxyFunc(configURL string) func(*http.Request) (*url.URL, error) {
-	configURL = strings.TrimSpace(configURL)
-	if configURL != "" {
-		if parsed, err := parseConfiguredProxyURL(configURL); err != nil {
-			log.Warnf("invalid proxy URL in config: %s, error: %v", configURL, err)
-		} else {
-			log.Infof("using proxy from config: %s", parsed.Redacted())
-			return func(req *http.Request) (*url.URL, error) {
-				return parsed, nil
-			}
-		}
-	}
-
-	return func(req *http.Request) (*url.URL, error) {
-		if req == nil || req.URL == nil {
-			return nil, nil
-		}
-
-		return proxyFromEnvWithoutBypass(req.URL.Scheme)
-	}
-}
-
-func parseConfiguredProxyURL(raw string) (*url.URL, error) {
-	parsed, err := url.Parse(raw)
-	if err != nil {
-		return nil, err
-	}
-	if parsed.Scheme == "" || parsed.Host == "" {
-		return nil, fmt.Errorf("proxy URL must include scheme and host")
-	}
-	return parsed, nil
-}
-
-func proxyFromEnvWithoutBypass(requestScheme string) (*url.URL, error) {
-	envVars := proxyEnvPriority(requestScheme)
-	for _, envName := range envVars {
-		raw := strings.TrimSpace(os.Getenv(envName))
-		if raw == "" {
-			continue
-		}
-
-		proxyURL, err := parseEnvProxyURL(raw)
-		if err != nil {
-			log.Warnf("failed to parse proxy from env %s=%s: %v", envName, raw, err)
-			continue
-		}
-		logProxySelection("env "+envName, proxyURL)
-		return proxyURL, nil
-	}
-	return nil, nil
-}
-
-func proxyEnvPriority(requestScheme string) []string {
-	if requestScheme == "https" {
-		return []string{"HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy"}
-	}
-	return []string{"HTTP_PROXY", "http_proxy", "HTTPS_PROXY", "https_proxy"}
-}
-
-func parseEnvProxyURL(raw string) (*url.URL, error) {
-	if !strings.Contains(raw, "://") {
-		raw = "http://" + raw
-	}
-	return parseConfiguredProxyURL(raw)
-}
-
-func logProxySelection(source string, proxyURL *url.URL) {
-	if proxyURL == nil {
-		return
-	}
-	log.Debugf("using proxy from %s: %s", source, proxyURL.Redacted())
 }
 
 func GetClientScreenName(client *resty.Client) string {

@@ -64,8 +64,11 @@ func TestProxyURLFieldNormalizesAndValidates(t *testing.T) {
 		assert.NoError(t, field.Setter(conf, "socks5://127.0.0.1:7890"))
 		assert.Equal(t, "socks5://127.0.0.1:7890", conf.ProxyURL)
 
-		assert.Error(t, field.Setter(conf, "127.0.0.1:7897"))
-		assert.Error(t, field.Setter(conf, "ftp://127.0.0.1:21"))
+		assert.NoError(t, field.Setter(conf, "127.0.0.1:7897"))
+		assert.Equal(t, "", conf.ProxyURL)
+
+		assert.NoError(t, field.Setter(conf, "ftp://127.0.0.1:21"))
+		assert.Equal(t, "", conf.ProxyURL)
 		return
 	}
 

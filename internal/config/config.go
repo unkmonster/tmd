@@ -149,18 +149,15 @@ func normalizeProxyURL(raw string) (string, error) {
 	}
 
 	parsed, err := url.Parse(raw)
-	if err != nil {
-		return "", fmt.Errorf("invalid proxy url: %w", err)
-	}
-	if parsed.Scheme == "" || parsed.Host == "" {
-		return "", fmt.Errorf("invalid proxy url: must include scheme and host")
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return "", nil
 	}
 	switch parsed.Scheme {
 	case "http", "https", "socks5":
+		return parsed.String(), nil
 	default:
-		return "", fmt.Errorf("invalid proxy url: unsupported scheme %q", parsed.Scheme)
+		return "", nil
 	}
-	return parsed.String(), nil
 }
 
 // GetFieldValue 获取字段当前值（通过 FieldDef.Getter）

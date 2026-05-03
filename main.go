@@ -147,7 +147,30 @@ func main() {
 	}
 	log.Infoln("max file name length set to:", naming.MaxFileNameLen)
 
-	loginOpts := twitter.LoginOptions{ProxyURL: conf.ProxyURL}
+	if conf.ProxyURL != "" {
+		os.Setenv("HTTP_PROXY", conf.ProxyURL)
+		os.Setenv("HTTPS_PROXY", conf.ProxyURL)
+	} else {
+		// conf 没设代理，检查系统环境变量，只设一个时同步到另一个
+		httpProxy := os.Getenv("HTTP_PROXY")
+		httpsProxy := os.Getenv("HTTPS_PROXY")
+		if httpProxy == "" {
+			httpProxy = os.Getenv("http_proxy")
+		}
+		if httpsProxy == "" {
+			httpsProxy = os.Getenv("https_proxy")
+		}
+
+		if httpProxy != "" && httpsProxy == "" {
+			os.Setenv("HTTPS_PROXY", httpProxy)
+			os.Setenv("https_proxy", httpProxy)
+		} else if httpsProxy != "" && httpProxy == "" {
+			os.Setenv("HTTP_PROXY", httpsProxy)
+			os.Setenv("http_proxy", httpsProxy)
+		}
+	}
+
+	loginOpts := twitter.LoginOptions{}
 
 	// Server 模式
 	if serverMode {
@@ -232,7 +255,7 @@ func initializeClients(
 		twitterCookies[i] = twitter.AccountCookie{AuthToken: c.AuthToken, Ct0: c.Ct0}
 	}
 
-	batchOpts := twitter.BatchLoginOptions{Debug: enableRequestCounting, ProxyURL: conf.ProxyURL}
+	batchOpts := twitter.BatchLoginOptions{Debug: enableRequestCounting}
 	additional := twitter.BatchLogin(ctx, batchOpts, twitterCookies, screenName)
 
 	// 初始化路径和数据库
