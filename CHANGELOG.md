@@ -7,6 +7,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ***
 
+## [3.2.19] - 2026-04-29
+
+### Added
+
+#### Web 界面搜索状态管理
+
+| 功能 | 说明 |
+|------|------|
+| `updateSearchState()` | 统一更新搜索状态辅助函数 |
+| `restoreSearchValue()` | 恢复搜索输入框值辅助函数 |
+| `taskFilter` / `taskSearch` | 新增任务筛选状态 |
+
+### Changed
+
+#### Web 界面优化
+
+| 文件 | 变更 |
+|------|------|
+| `internal/api/web/app.js` | 数据库页面搜索值实时保存到 state |
+| `internal/api/web/app.js` | 日志搜索值实时保存到 state |
+| `internal/api/web/app.js` | System 标签页独立更新，避免整页重渲染 |
+| `internal/api/web/app.js` | 任务列表筛选从 state 获取条件 |
+
+#### CodeMirror 编辑器修复
+
+| 文件 | 变更 |
+|------|------|
+| `internal/api/web/app.js` | 切换模式时清理 CodeMirror 实例，避免重复初始化 |
+| `internal/api/web/app.js` | `initCodeMirror()` 清空容器后再初始化 |
+
+### Fixed
+
+- 修复搜索框值在渲染后丢失的问题
+- 修复 CodeMirror 编辑器重复初始化的问题
+- 修复 System 标签页切换时整页重渲染导致的性能问题
+
+### Stats
+
+- **1 个文件变更**
+- **+94 行 / -41 行**
+
+***
+
 ## [3.2.18] - 2026-04-29
 
 ### Added

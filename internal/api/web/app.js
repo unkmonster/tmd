@@ -1,4 +1,26 @@
 // ============================================
+// Search Input Helpers
+// ============================================
+function updateSearchState(stateKey, subKey, value) {
+  if (subKey) {
+    store.setState({
+      [stateKey]: { ...store.state[stateKey], [subKey]: value }
+    });
+  } else {
+    store.setState({ [stateKey]: value });
+  }
+}
+
+function restoreSearchValue(inputId, stateKey, subKey = null) {
+  const input = document.getElementById(inputId);
+  if (!input) return;
+  const value = subKey ? store.state[stateKey]?.[subKey] : store.state[stateKey];
+  if (value !== undefined) {
+    input.value = value;
+  }
+}
+
+// ============================================
 // State Management
 // ============================================
 const store = {
@@ -15,6 +37,8 @@ const store = {
     isMobile: window.innerWidth < 768,
     sseConnected: false,
     dataSubPage: 'users',
+    taskFilter: 'all',
+    taskSearch: '',
     // Database pagination state
     dbData: {
       users: { data: [], total: 0, page: 1, pageSize: 20 },
@@ -433,14 +457,14 @@ const pages = {
             </div>
             <div class="toolbar">
               <div class="toolbar-left">
-                <select class="form-select" style="width: 100px;" id="taskFilter">
+                <select class="form-select" style="width: 100px;" id="taskFilter" onchange="updateSearchState('taskFilter',null,this.value);filterTasks()">
                   <option value="all">全部状态</option>
                   <option value="running">运行中</option>
                   <option value="queued">排队中</option>
                   <option value="completed">已完成</option>
                   <option value="failed">失败</option>
                 </select>
-                <input type="text" class="form-input search-input" id="taskSearch" placeholder="搜索任务...">
+                <input type="text" class="form-input search-input" id="taskSearch" placeholder="搜索任务..." oninput="updateSearchState('taskSearch',null,this.value);filterTasks()">
               </div>
               <div class="toolbar-right">
                 <button class="btn btn-ghost btn-sm" onclick="refreshTasks()">🔄 刷新</button>
@@ -480,7 +504,6 @@ const pages = {
     const current = dataMap[dataSubPage];
     const pagination = dbPagination[dataSubPage] || { page: 1, pageSize: 20, totalPages: 1 };
     const sort = dbSort[dataSubPage] || { sortBy: 'id', sortOrder: 'desc' };
-    const search = dbSearch[dataSubPage] || '';
     
     return `
       <div class="card">
@@ -496,7 +519,7 @@ const pages = {
           </div>
           <div class="flex gap-2 items-center">
             <input type="text" class="form-input search-input" id="dbSearchInput" 
-              placeholder="搜索..." onkeypress="if(event.key==='Enter')searchDB()">
+              placeholder="搜索..." oninput="updateSearchState('dbSearch',store.state.dataSubPage,this.value)" onkeypress="if(event.key==='Enter')searchDB()">
             <button class="btn btn-ghost btn-icon" onclick="searchDB()">🔍</button>
             <button class="btn btn-ghost btn-icon" onclick="refreshDBData()">🔄</button>
           </div>
@@ -1127,7 +1150,6 @@ async function refreshDBData() {
     }
 
     if (response) {
-      // API 返回的是分页数据对象（因为 api.request 返回 data.data）
       const data = response || {};
       store.setState({
         dbData: {
@@ -1148,7 +1170,6 @@ async function refreshDBData() {
           }
         }
       });
-      render();
       toast.show('数据已刷新');
     } else {
       toast.show('获取数据失败', 'error');
@@ -1204,17 +1225,10 @@ function sortDB(field) {
 }
 
 function searchDB() {
-  const input = document.getElementById('dbSearchInput');
-  const { dataSubPage, dbSearch } = store.state;
-
   store.setState({
-    dbSearch: {
-      ...dbSearch,
-      [dataSubPage]: input.value.trim()
-    },
     dbPagination: {
       ...store.state.dbPagination,
-      [dataSubPage]: { ...store.state.dbPagination[dataSubPage], page: 1 }
+      [store.state.dataSubPage]: { ...store.state.dbPagination[store.state.dataSubPage], page: 1 }
     }
   });
   refreshDBData();
@@ -1919,7 +1933,8 @@ function renderLogViewer() {
         <div class="flex gap-2 items-center flex-wrap">
           <input type="text" class="form-input search-input" id="logSearchInput"
             placeholder="🔍 搜索..."
-            onkeypress="if(event.key==='Enter'){store.setState({logSearch:this.value});refreshLogs();}">
+            oninput="updateSearchState('logSearch',null,this.value)"
+            onkeypress="if(event.key==='Enter')refreshLogs()">
           <div class="log-level-filters">
             ${['all','debug','info','warn','error'].map(l => `<button class="btn btn-sm ${logLevel===l?'btn-primary':'btn-ghost'}" onclick="setLogLevel('${l}')">${l.toUpperCase()}</button>`).join('')}
           </div>
@@ -2107,6 +2122,9 @@ async function saveCookies() {
 }
 
 function setCookiesMode(mode) {
+  if (mode !== 'raw' && cookiesCodeMirror) {
+    cookiesCodeMirror = null;
+  }
   store.setState({ cookiesMode: mode });
 }
 
@@ -2151,6 +2169,9 @@ async function shutdownServer() {
 }
 
 function setConfigMode(mode) {
+  if (mode !== 'raw' && configCodeMirror) {
+    configCodeMirror = null;
+  }
   store.setState({ configMode: mode });
 }
 
@@ -2193,6 +2214,7 @@ function initCodeMirror(containerId, content, mode) {
   const container = document.getElementById(containerId);
   if (!container || typeof CodeMirror === 'undefined') {
     if (container) {
+      container.innerHTML = '';
       const textarea = document.createElement('textarea');
       textarea.className = 'form-textarea config-editor';
       textarea.spellcheck = false;
@@ -2202,6 +2224,8 @@ function initCodeMirror(containerId, content, mode) {
     }
     return null;
   }
+
+  container.innerHTML = '';
 
   const cm = CodeMirror(container, {
     value: content,
@@ -2293,13 +2317,13 @@ function restartLogStreamIfNeeded() {
 function syncConfigTabView() {
   if (store.state.configMode === 'form' && (!store.state.configFields || store.state.configFields.length === 0)) { loadConfigFields(); }
   if (store.state.configMode === 'raw' && !store.state.configRaw) { loadConfigRaw(); }
-  if (store.state.configMode === 'raw' && store.state.configRaw) { setTimeout(initConfigCodeMirror, 50); }
+  if (store.state.configMode === 'raw' && store.state.configRaw && !configCodeMirror) { setTimeout(initConfigCodeMirror, 50); }
 }
 
 function syncCookiesTabView() {
   if (store.state.cookiesMode === 'form' && (!store.state.cookieItems || store.state.cookieItems.length === 0)) { loadCookiesItems(); }
   if (store.state.cookiesMode === 'raw' && !store.state.cookiesRaw) { loadCookiesRaw(); }
-  if (store.state.cookiesMode === 'raw' && store.state.cookiesRaw) { setTimeout(initCookiesCodeMirror, 50); }
+  if (store.state.cookiesMode === 'raw' && store.state.cookiesRaw && !cookiesCodeMirror) { setTimeout(initCookiesCodeMirror, 50); }
 }
 
 function syncLogsTabView() {
@@ -2486,15 +2510,9 @@ function render() {
         };
       });
       
-      // Attach filter and search listeners
-      const filterSelect = document.getElementById('taskFilter');
-      const searchInput = document.getElementById('taskSearch');
-      if (filterSelect) {
-        filterSelect.onchange = () => filterTasks();
-      }
-      if (searchInput) {
-        searchInput.oninput = () => filterTasks();
-      }
+      // Restore filter and search values
+      restoreSearchValue('taskFilter', 'taskFilter');
+      restoreSearchValue('taskSearch', 'taskSearch');
     }
     
     // Attach quick download enter key listener
@@ -2509,19 +2527,12 @@ function render() {
     
     // Restore search value for data page
     if (page === 'data') {
-      const searchInput = document.getElementById('dbSearchInput');
-      const savedSearch = store.state.dbSearch[store.state.dataSubPage];
-      if (searchInput && savedSearch) {
-        searchInput.value = savedSearch;
-      }
+      restoreSearchValue('dbSearchInput', 'dbSearch', store.state.dataSubPage);
     }
     
     // Restore search value for logs
     if (page === 'system' && store.state._systemTab === 'logs') {
-      const logSearchInput = document.getElementById('logSearchInput');
-      if (logSearchInput && store.state.logSearch) {
-        logSearchInput.value = store.state.logSearch;
-      }
+      restoreSearchValue('logSearchInput', 'logSearch');
     }
   }
 }
@@ -2639,6 +2650,10 @@ let lastCookieItemsJson = JSON.stringify(store.state.cookieItems);
 let lastCookiesMode = store.state.cookiesMode;
 let lastLogsLength = store.state.logs.length;
 let lastLogLevel = store.state.logLevel;
+let lastDataSubPage = store.state.dataSubPage;
+let lastDbDataJson = JSON.stringify(store.state.dbData);
+let lastDbPaginationJson = JSON.stringify(store.state.dbPagination);
+let lastDbSortJson = JSON.stringify(store.state.dbSort);
 store.subscribe((state) => {
   if (state.currentPage !== lastPage) {
     lastPage = state.currentPage;
@@ -2653,7 +2668,20 @@ store.subscribe((state) => {
       if (state.currentPage === 'overview') { updateOverviewTasksUI(state.tasks); }
     }
 
-    if (state.currentPage === 'data') { render(); }
+    if (state.currentPage === 'data') {
+      const dataSubPageChanged = state.dataSubPage !== lastDataSubPage;
+      const dbDataChanged = JSON.stringify(state.dbData) !== lastDbDataJson;
+      const dbPaginationChanged = JSON.stringify(state.dbPagination) !== lastDbPaginationJson;
+      const dbSortChanged = JSON.stringify(state.dbSort) !== lastDbSortJson;
+
+      if (dataSubPageChanged || dbDataChanged || dbPaginationChanged || dbSortChanged) {
+        lastDataSubPage = state.dataSubPage;
+        lastDbDataJson = JSON.stringify(state.dbData);
+        lastDbPaginationJson = JSON.stringify(state.dbPagination);
+        lastDbSortJson = JSON.stringify(state.dbSort);
+        render();
+      }
+    }
 
     if (state.currentPage === 'system') {
       const tabChanged = state._systemTab !== lastSystemTab;
@@ -2670,21 +2698,46 @@ store.subscribe((state) => {
       const logsChanged = state.logs.length !== lastLogsLength;
       const logLevelChanged = state.logLevel !== lastLogLevel;
 
-      if (tabChanged || logPagChanged || configRawChanged || configSavingChanged || logsChanged || logLevelChanged || configFieldsChanged || configFieldsLoadingChanged || configModeChanged || cookiesChanged || cookiesModeChanged || cookiesRawChanged || cookiesSavingChanged) {
+      if (tabChanged) {
         lastSystemTab = state._systemTab;
-        lastLogPaginationJson = JSON.stringify(state.logPagination);
+        document.querySelectorAll('.system-tabs .tab').forEach(t => {
+          t.classList.toggle('active', t.textContent.includes(
+            state._systemTab === 'config' ? '配置' : state._systemTab === 'cookies' ? '账户' : '日志'
+          ));
+        });
+        document.getElementById('systemConfigPanel').style.display = state._systemTab === 'config' ? '' : 'none';
+        document.getElementById('systemCookiesPanel').style.display = state._systemTab === 'cookies' ? '' : 'none';
+        document.getElementById('systemLogsPanel').style.display = state._systemTab === 'logs' ? '' : 'none';
+      }
+
+      if (configRawChanged || configSavingChanged || configFieldsChanged || configFieldsLoadingChanged || configModeChanged) {
         lastConfigRaw = state.configRaw;
         lastConfigSaving = state.configSaving;
         lastConfigFieldsJson = JSON.stringify(state.configFields);
         lastConfigFieldsLoading = state.configFieldsLoading;
         lastConfigMode = state.configMode;
+        const panel = document.getElementById('systemConfigPanel');
+        if (panel) panel.innerHTML = renderConfigEditor();
+      }
+
+      if (cookiesChanged || cookiesModeChanged || cookiesRawChanged || cookiesSavingChanged) {
         lastCookieItemsJson = JSON.stringify(state.cookieItems);
         lastCookiesMode = state.cookiesMode;
         lastCookiesRaw = state.cookiesRaw;
         lastCookiesSaving = state.cookiesSaving;
+        const panel = document.getElementById('systemCookiesPanel');
+        if (panel) panel.innerHTML = renderCookiesEditor();
+      }
+
+      if (logsChanged || logLevelChanged || logPagChanged) {
+        lastLogPaginationJson = JSON.stringify(state.logPagination);
         lastLogsLength = state.logs.length;
         lastLogLevel = state.logLevel;
-        render();
+        const panel = document.getElementById('systemLogsPanel');
+        if (panel) {
+          panel.innerHTML = renderLogViewer();
+          restoreSearchValue('logSearchInput', 'logSearch');
+        }
       }
     }
   }
@@ -2714,8 +2767,8 @@ function updateTaskListUI(tasks) {
   const taskList = document.getElementById('taskList');
   if (!taskList) return;
   
-  const filter = document.getElementById('taskFilter')?.value || 'all';
-  const search = document.getElementById('taskSearch')?.value?.toLowerCase() || '';
+  const filter = store.state.taskFilter;
+  const search = store.state.taskSearch.toLowerCase();
   
   let filtered = tasks;
   
