@@ -5,7 +5,7 @@
 [![CI/CD](https://github.com/unkmonster/tmd/actions/workflows/go.yml/badge.svg)](.github/workflows/go.yml)
 [Release](https://github.com/unkmonster/tmd/releases/latest)
 
-> **版本**: 3.0.3 | **状态**: 活跃维护 | **许可证**: GPL-3.0
+> **版本**: 3.3.0 | **状态**: 活跃维护 | **许可证**: GPL-3.0
 
 本项目的代码基于 [unkmonster/tmd](https://github.com/unkmonster/tmd) 项目，修改了部分代码，添加了新的功能特性。新增的功能见 [CHANGELOG.md文件](CHANGELOG.md)
 
@@ -16,6 +16,7 @@
 - [安装与配置](#安装与配置)
 - [命令行参数详解](#命令行参数详解)
 - [API Server 模式](#api-server-模式)
+- [定时任务调度器](#定时任务调度器)
 - [Profile 下载功能](#profile-下载功能)
 - [推文 JSON 保存](#推文-json-保存)
 - [文件存储结构](#文件存储结构)
@@ -56,6 +57,10 @@
 - **LoongTweet 文件夹导入**：从 TMD 生成的 `.loongtweet` 文件夹下载推文媒体（`-jsonfolder`）
 - **标记已下载**：标记用户为已下载状态，跳过历史推文
 - **API Server 模式**：提供 HTTP REST API 和 Web 管理界面，支持远程控制和监控
+- **定时任务调度器**：支持 interval/daily 两种调度模式，自动执行下载任务
+- **Cookie 管理 API**：独立管理主 Cookie 和备用 Cookie，支持表单和原始 YAML 编辑
+- **服务器远程控制**：支持通过 API 优雅关闭服务器
+- **实时日志流**：SSE 推送实时日志，支持级别筛选和关键词搜索
 - **大文件流式下载**：≥10MB 文件自动启用流式模式，节省内存（v2.12.3+）
 - **智能部分重试**：仅重试失败的媒体文件，跳过已成功的（v2.12.0+）
 - **用户可访问状态检测**：自动识别封禁/注销用户，避免无效请求（v2.8.0+）
@@ -164,10 +169,11 @@ tmd -conf
 | storage dir          | 文件存储目录                        | 无（必填）                | `D:\twitter_downloads` |
 | auth\_token          | Twitter Cookie 中的 auth\_token | 无（必填）                | `a1b2c3d4e5f6...`      |
 | ct0                  | Twitter Cookie 中的 ct0         | 无（必填）                | `x1y2z3...`            |
-| max download routine | 最大并发下载数（范围 1-100）         | `min(10, CPU×2)`¹                | `35`                   |
+| max download routine | 最大并发下载数（范围 1-100）         | `min(100, CPU×10)`¹                | `35`                   |
 | max file name len    | 最大文件名长度（50-250）           | `158`                   | `158`                  |
+| proxy_url            | 代理服务器 URL（支持 http/https/socks5） | 空（使用系统代理） | `http://127.0.0.1:7890` |
 
-> ¹ `max download routine` 默认值为 `min(10, runtime.GOMAXPROCS(0)*2)`，即 CPU 核数的 2 倍且不超过 10。首次通过 `-conf` 配置时建议输入 35。
+> ¹ `max download routine` 默认值为 `min(100, runtime.GOMAXPROCS(0)*10)`，即 CPU 核数的 10 倍且不超过 100。首次通过 `-conf` 配置时建议输入 35。
 
 ### 配置文件位置
 
@@ -175,6 +181,15 @@ tmd -conf
 | ----------- | --------------------------- |
 | Windows     | `%APPDATA%\.tmd2\conf.yaml` |
 | macOS/Linux | `~/.tmd2/conf.yaml`         |
+
+### 其他配置文件
+
+| 文件 | 位置 | 说明 |
+|------|------|------|
+| 备用 Cookie | `$HOME/.tmd2/additional_cookies.yaml` | 多账号 Cookie |
+| 定时任务 | `$HOME/.tmd2/schedules.yaml` | 调度器配置 |
+| 日志文件 | `$HOME/.tmd2/tmd2.log` | 主日志 |
+| CLI 日志 | `$HOME/.tmd2/client.log` | REST 客户端日志 |
 
 ### 获取 Cookie
 
@@ -193,10 +208,10 @@ tmd -conf
 
 | 参数        | 类型   | 默认值   | 说明                                 |
 | --------- | ---- | ----- | ---------------------------------- |
-| `-conf`   | bool | false | 重新配置程序（部分更新，显示当前值可逐项修改）       |
-| `-dbg`    | bool | false | 显示调试信息，包括请求计数等                     |
-| `-server` | bool | false | 启动 API Server 模式                   |
-| `-port`   | int  | 25556 | API Server 监听端口（仅与 `-server` 一起使用） |
+| `-conf`     | bool | false | 重新配置程序（部分更新，显示当前值可逐项修改）       |
+| `-dbg`      | bool | false | 显示调试信息，包括请求计数等                     |
+| `-server`   | bool | false | 启动 API Server 模式                   |
+| `-port`     | int  | 25556 | API Server 监听端口（仅与 `-server` 一起使用） |
 
 ### 推文下载参数
 
@@ -282,24 +297,29 @@ tmd -server -port 8080
 | 功能           | 说明                              |
 | ------------ | ------------------------------- |
 | **REST API** | 完整的 HTTP API，支持下载任务管理、状态查询、任务取消 |
-| **Web 管理界面** | 内置可视化界面，支持浏览器访问和操作              |
-| **实时任务监控**   | SSE 推送任务状态更新，无需刷新页面             |
-| **数据库浏览**    | 查看已下载的用户、列表、用户实体信息              |
-| **跨域支持**     | 默认启用 CORS，支持 Web 前端直接调用         |
-| **配置管理**     | 双模式配置编辑器：结构化表单 + 原始 YAML 编辑      |
-| **日志查看**     | 实时日志查看器，支持按级别筛选、搜索、分页        |
+| **Web 管理界面** | 内置可视化界面，支持浏览器访问和操作 |
+| **实时任务监控** | SSE 推送任务状态更新，无需刷新页面 |
+| **数据库浏览** | 查看已下载的用户、列表、用户实体信息 |
+| **跨域支持** | 默认启用 CORS，支持 Web 前端直接调用 |
+| **配置管理** | 双模式配置编辑器：结构化表单 + 原始 YAML 编辑 |
+| **Cookie 管理** | 独立管理主 Cookie 和备用 Cookie，支持表单和原始 YAML 编辑 |
+| **日志查看** | 实时日志流（SSE）+ 历史日志查看，支持按级别筛选、搜索、分页 |
+| **定时任务** | 可视化调度器管理，支持创建/编辑/启禁/手动触发 |
+| **服务器控制** | 支持通过 API/Web 优雅关闭服务器 |
 
 ### API 端点速查
 
 | 方法 | 端点 | 说明 | 认证 |
 |------|------|------|------|
 | **GET** | `/api/v1/health` | 健康检查 | ❌ |
-| **POST** | `/api/v1/users/{name}/download` | 下载用户推文 | ❌ |
-| **POST** | `/api/v1/users/{name}/profile` | 下载用户 Profile | ❌ |
-| **POST** | `/api/v1/users/{name}/following/download` | 下载关注列表 | ❌ |
-| **POST** | `/api/v1/users/{name}/mark` | 标记用户已下载 | ❌ |
-| **POST** | `/api/v1/lists/{id}/download` | 下载列表推文 | ❌ |
-| **POST** | `/api/v1/lists/{id}/profile` | 下载列表 Profile | ❌ |
+| **POST** | `/api/v1/users/{screen_name}/download` | 下载用户推文 | ❌ |
+| **POST** | `/api/v1/users/{screen_name}/profile` | 下载用户 Profile | ❌ |
+| **POST** | `/api/v1/users/{screen_name}/following/download` | 下载关注列表 | ❌ |
+| **POST** | `/api/v1/users/{screen_name}/following/mark` | 标记关注列表已下载 | ❌ |
+| **POST** | `/api/v1/users/{screen_name}/mark` | 标记用户已下载 | ❌ |
+| **POST** | `/api/v1/lists/{list_id}/download` | 下载列表推文 | ❌ |
+| **POST** | `/api/v1/lists/{list_id}/profile` | 下载列表 Profile | ❌ |
+| **POST** | `/api/v1/lists/{list_id}/mark` | 标记列表已下载 | ❌ |
 | **POST** | `/api/v1/json/file/download` | JSON 文件导入下载 | ❌ |
 | **POST** | `/api/v1/json/folder/download` | LoongTweet 文件夹下载 | ❌ |
 | **POST** | `/api/v1/batch/download` | 批量下载（多用户/列表） | ❌ |
@@ -325,12 +345,31 @@ tmd -server -port 8080
 | **PUT** | `/api/v1/db/list-entities/{id}` | 更新列表实体 | ❌ |
 | **DELETE** | `/api/v1/db/list-entities/{id}` | 删除列表实体 | ❌ |
 | **GET** | `/api/v1/db/user-links` | 用户链接查询 | ❌ |
+| **GET** | `/api/v1/db/user-links/{id}` | 用户链接详情 | ❌ |
+| **PUT** | `/api/v1/db/user-links/{id}` | 更新用户链接 | ❌ |
+| **DELETE** | `/api/v1/db/user-links/{id}` | 删除用户链接 | ❌ |
 | **GET** | `/api/v1/config` | 系统配置（脱敏） | ❌ |
 | **GET** | `/api/v1/config/raw` | 获取原始配置文件内容 | ❌ |
 | **PUT** | `/api/v1/config/raw` | 更新原始配置文件 (YAML) | ❌ |
 | **GET** | `/api/v1/config/fields` | 获取结构化配置字段列表 | ❌ |
 | **PUT** | `/api/v1/config/fields` | 保存结构化配置字段 | ❌ |
+| **GET** | `/api/v1/cookies` | 获取备用 Cookie 列表（脱敏） | ❌ |
+| **PUT** | `/api/v1/cookies` | 保存备用 Cookie（表单） | ❌ |
+| **GET** | `/api/v1/cookies/raw` | 获取原始 Cookie 文件内容 | ❌ |
+| **PUT** | `/api/v1/cookies/raw` | 更新原始 Cookie 文件 (YAML) | ❌ |
+| **POST** | `/api/v1/server/shutdown` | 优雅关闭服务器 | ❌ |
 | **GET** | `/api/v1/logs` | 获取系统日志（支持筛选/分页） | ❌ |
+| **GET** | `/api/v1/logs/stream` | SSE 实时日志流 | ❌ |
+| **GET** | `/api/v1/schedules` | 获取定时任务列表和状态 | ❌ |
+| **POST** | `/api/v1/schedules` | 创建定时任务 | ❌ |
+| **GET** | `/api/v1/schedules/raw` | 获取原始调度配置 | ❌ |
+| **PUT** | `/api/v1/schedules/raw` | 更新原始调度配置 (YAML) | ❌ |
+| **POST** | `/api/v1/schedules/reload` | 重载调度配置 | ❌ |
+| **POST** | `/api/v1/schedules/validate` | 验证调度配置 | ❌ |
+| **PUT** | `/api/v1/schedules/{id}` | 更新定时任务 | ❌ |
+| **DELETE** | `/api/v1/schedules/{id}` | 删除定时任务 | ❌ |
+| **PATCH** | `/api/v1/schedules/{id}/enabled` | 启用/禁用定时任务 | ❌ |
+| **POST** | `/api/v1/schedules/{id}/trigger` | 手动触发定时任务 | ❌ |
 | **GET** | `/` | Web 管理界面 - 仪表盘 | ❌ |
 | **GET** | `/tasks` | Web 管理界面 - 任务 | ❌ |
 | **GET** | `/data` | Web 管理界面 - 数据 | ❌ |
@@ -362,17 +401,33 @@ tmd -server -port 8080
 
 ### SSE 实时推送
 
-`GET /api/v1/sse/tasks` 端点行为说明：
+**任务状态推送** - `GET /api/v1/sse/tasks`：
 
 - 每 **2 秒**推送一次所有任务列表（全量推送，非增量）
 - 客户端断开时服务端通过 `context.Done()` 自动感知
 - 无心跳机制，依赖 HTTP keep-alive 保持连接
+
+**实时日志流** - `GET /api/v1/logs/stream`：
+
+- 基于控制台日志捕获（`consolelog.Hub`），实时推送新日志行
+- 支持 `level` 和 `q` 查询参数进行服务端筛选
+- 客户端断开时自动取消订阅
 
 ### 任务自动清理
 
 - 已完成/失败/取消的任务在 **8 小时**后自动清理
 - 清理每 **1 小时**执行一次
 - 运行中的任务不会被清理
+
+### 服务器优雅关闭
+
+Server 支持优雅关闭，确保所有资源正确释放：
+
+- **信号触发**：收到 SIGINT/SIGTERM 信号时自动执行
+- **API 触发**：`POST /api/v1/server/shutdown`
+- **关闭顺序**：取消所有任务 → 停止调度器 → 关闭 HTTP Server → 关闭数据库 → 关闭日志写入器
+- **超时保护**：HTTP Server 关闭超时 5 秒
+- **幂等性**：使用 `sync.Once` 确保关闭只执行一次
 
 ### Web 管理界面
 
@@ -392,18 +447,28 @@ http://localhost:25556/
   - **Lists**：查看、搜索、排序、编辑、删除列表
   - **User Entities**：查看、搜索、排序、编辑、删除用户实体
   - **List Entities**：查看、搜索、排序、编辑、删除列表实体
-  - **User Links**：查看用户与列表的关联关系
+  - **User Links**：查看、搜索、排序、编辑、删除用户链接
   - **User Previous Names**：查看用户历史名称变更记录
+- **定时任务**：调度器管理
+  - 创建任务：支持 interval 和 daily 两种调度模式
+  - 任务类型：支持 list/user/following 三种下载类型
+  - 任务控制：启用/禁用、手动触发、删除
+  - 原始编辑：支持 YAML 格式批量编辑
 - **系统管理**
   - **配置编辑**（双模式）：
     - 📝 **简易模式**：结构化表单，按分组显示字段（基础设置/Cookie认证/高级选项）
     - 🔧 **高级模式**：原始 YAML 编辑器，适合高级用户
     - 自动备份、实时验证、敏感信息脱敏显示
+  - **Cookie 管理**：
+    - 📝 **表单模式**：结构化编辑备用 Cookie
+    - 🔧 **原始模式**：YAML 格式编辑
+    - 敏感信息脱敏显示
   - **日志查看器**：
+    - 实时日志流（SSE 推送，无需轮询）
     - 按级别筛选（DEBUG/INFO/WARN/ERROR）
     - 关键词搜索
     - 分页浏览
-    - 自动刷新（可选）
+  - **服务器控制**：优雅关闭服务器
 
 ### API 文档
 
@@ -436,6 +501,98 @@ curl http://localhost:25556/api/v1/tasks
 # 4. 取消任务
 curl -X POST http://localhost:25556/api/v1/tasks/task_xxx/cancel
 ```
+
+***
+
+## 定时任务调度器
+
+TMD Server 内置定时任务调度器，支持按时间间隔或每天固定时间自动执行下载任务。
+
+### 调度模式
+
+| 模式 | 格式 | 示例 | 说明 |
+|------|------|------|------|
+| **interval** | `interval:<duration>` | `interval:2h` | 每隔指定时间执行一次 |
+| **daily** | `daily:<times>` | `daily:07:00,21:00` | 每天在指定时间执行 |
+
+> interval 最小值为 `1m`（1 分钟）。
+
+### 任务类型
+
+| 类型 | target 格式 | 说明 |
+|------|------------|------|
+| `list` | 列表 ID（正整数） | 下载列表成员推文 |
+| `user` | 用户 screen_name | 下载用户推文 |
+| `following` | 用户 screen_name | 下载关注列表推文 |
+
+### 配置文件
+
+调度器配置文件位于 `$HOME/.tmd2/schedules.yaml`（Windows: `%APPDATA%\.tmd2\schedules.yaml`）：
+
+```yaml
+schedules:
+  - id: daily_tech_list
+    type: list
+    target: "1234567890123"
+    name: "科技圈每日同步"
+    schedule: "daily:07:00,21:00"
+    enabled: true
+    run_on_start: false
+    auto_follow: false
+    skip_profile: false
+    no_retry: false
+  - id: hourly_elon
+    type: user
+    target: elonmusk
+    name: "Elon 每小时同步"
+    schedule: "interval:1h"
+    enabled: true
+    run_on_start: true
+```
+
+### ScheduleEntry 字段说明
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `id` | string | 否 | 唯一标识（自动生成，格式 `sch_xxxxxxxxxxxx`） |
+| `type` | string | 是 | 任务类型：`list` / `user` / `following` |
+| `target` | string | 是 | 目标（列表 ID 或用户名） |
+| `name` | string | 否 | 任务显示名称 |
+| `schedule` | string | 是 | 调度规则（`interval:` 或 `daily:`） |
+| `enabled` | bool | 否 | 是否启用（默认 false） |
+| `run_on_start` | bool | 否 | 启动时是否立即执行一次（仅 interval 模式） |
+| `auto_follow` | bool | 否 | 自动关注受保护用户 |
+| `skip_profile` | bool | 否 | 跳过 Profile 下载 |
+| `no_retry` | bool | 否 | 不重试失败推文 |
+
+### 调度器 API
+
+| 方法 | 端点 | 说明 |
+|------|------|------|
+| **GET** | `/api/v1/schedules` | 获取调度器状态和任务列表 |
+| **POST** | `/api/v1/schedules` | 创建定时任务 |
+| **GET** | `/api/v1/schedules/raw` | 获取原始调度配置 |
+| **PUT** | `/api/v1/schedules/raw` | 更新原始调度配置 (YAML) |
+| **POST** | `/api/v1/schedules/reload` | 重载调度配置 |
+| **POST** | `/api/v1/schedules/validate` | 验证调度配置 |
+| **PUT** | `/api/v1/schedules/{id}` | 更新定时任务 |
+| **DELETE** | `/api/v1/schedules/{id}` | 删除定时任务 |
+| **PATCH** | `/api/v1/schedules/{id}/enabled` | 启用/禁用定时任务 |
+| **POST** | `/api/v1/schedules/{id}/trigger` | 手动触发定时任务 |
+
+### 调度器状态
+
+`GET /api/v1/schedules` 返回每个任务的状态信息：
+
+| 字段 | 说明 |
+|------|------|
+| `scheduler_running` | 调度器是否运行中 |
+| `entries[].last_run_at` | 上次执行时间 |
+| `entries[].next_run_at` | 下次执行时间 |
+| `entries[].run_count` | 累计执行次数 |
+| `entries[].last_task_id` | 上次执行的任务 ID |
+| `entries[].last_error` | 上次执行的错误信息 |
+| `entries[].consecutive_failures` | 连续失败次数 |
 
 ***
 
@@ -699,6 +856,20 @@ tmd -user elonmusk -no-retry
 
 ### 设置代理
 
+支持三种代理方式：
+
+**方式一：配置文件设置（推荐）**
+
+在 `tmd -conf` 配置时输入 `proxy_url`，或直接编辑 `conf.yaml`：
+
+```yaml
+proxy_url: http://127.0.0.1:7890
+```
+
+支持的协议：`http://`、`https://`、`socks5://`
+
+**方式二：环境变量设置**
+
 运行前通过环境变量指定代理服务器（TUN 模式跳过这一步）
 
 **Windows CMD:**
@@ -749,6 +920,35 @@ tmd -user elonmusk
 ### 关于速率限制
 
 Twitter API 限制一段时间内过快的请求（例如某端点每15分钟仅允许请求500次，超出这个次数会以429响应）。当某一端点将要达到速率限制程序会打印一条通知并阻塞尝试请求这个端点的协程直到余量刷新（这最多是15分钟），但并不会阻塞所有协程，所以其余协程打印的消息可能将这条休眠通知覆盖让人认为程序无响应了，等待余量刷新程序会继续工作。
+
+### 启动脚本
+
+项目提供自动重启的启动脚本，当 Server 异常崩溃时自动拉起：
+
+**Windows (`start.bat`)**：
+
+```bash
+# 直接运行
+start.bat
+
+# 指定额外参数
+start.bat -port 8080
+```
+
+**Linux/macOS (`start.sh`)**：
+
+```bash
+# 添加执行权限
+chmod +x start.sh
+
+# 直接运行
+./start.sh
+
+# 指定额外参数
+./start.sh -port 8080
+```
+
+> 脚本行为：正常关闭（Exit 0）→ 退出脚本；异常崩溃（非 0）→ 等待 5 秒后自动重启。
 
 ***
 
@@ -804,7 +1004,7 @@ Twitter API 限制一段时间内过快的请求（例如某端点每15分钟仅
 │  - api.go: REST API 封装     │  │  - connect/schema/model     │
 │  - client.go: 客户端管理     │  │  - query/user/lst           │
 │  - user/tweet/list 接口      │  │  - entity/sync/link         │
-│  - batch_login.go: 多账号    │  │                             │
+│  - batch_login.go: 多账号    │  │  - tx/manager.go: 事务管理  │
 └──────────┬──────────────────┘  └─────────────┬───────────────┘
            │                                    │
            └──────────────┬─────────────────────┘
@@ -827,9 +1027,13 @@ Twitter API 限制一段时间内过快的请求（例如某端点每15分钟仅
 │                  │ │                 │ │                   │
 │  - server.go     │ │  - executor.go  │ │  - store.go       │
 │  - handlers.go   │ │  - args.go      │ │                   │
-│  - db_handlers   │ │  - helpers.go   │ │                   │
+│  - db_handlers   │ │                 │ │                   │
 │  - task_manager  │ │                 │ │                   │
 │  - sse/middleware│ │                 │ │                   │
+│  - scheduler_*   │ │                 │ │                   │
+│  - cookie_*      │ │                 │ │                   │
+│  - log_handlers  │ │                 │ │                   │
+│  - config_*      │ │                 │ │                   │
 └────────┬─────────┘ └─────────────────┘ └───────────────────┘
          │
          ▼
@@ -863,6 +1067,13 @@ Twitter API 限制一段时间内过快的请求（例如某端点每15分钟仅
 │  internal/naming (命名服务)                                  │
 │  - tweet_naming.go / user_naming.go / list_naming.go        │
 ├─────────────────────────────────────────────────────────────┤
+│  internal/scheduler (定时任务调度器)                          │
+│  - scheduler.go: 调度器核心（interval/daily 模式）            │
+│  - types.go: ScheduleEntry / ScheduleStatus / ParsedSchedule │
+├─────────────────────────────────────────────────────────────┤
+│  internal/consolelog (控制台日志)                             │
+│  - hub.go: 日志捕获和分发中心，支持 SSE 实时推送              │
+├─────────────────────────────────────────────────────────────┤
 │  internal/utils (工具层)                                     │
 │  - fs.go / http.go / algo.go / time_range.go / recovery.go   │
 │  - win32.go (Windows) / stub.go (!Windows)                   │
@@ -879,7 +1090,7 @@ Twitter API 限制一段时间内过快的请求（例如某端点每15分钟仅
 | **单一职责** | 每个包职责明确，配置/Service/下载/命名/存储/数据分离                              |
 | **接口隔离** | 小接口设计（DownloadService, Downloader, FileWriter, VersionManager）       |
 | **逻辑复用** | `database.SyncUser()` 统一用户同步，`database.MarkUserInaccessible()` 统一标记逻辑 |
-| **并发安全** | `sync.Mutex`/`sync.Map`/`atomic`/`context.Context`，协程池控制并发            |
+| **并发安全** | `sync.Mutex`/`sync.Map`/`atomic`/`context.Context`，`ants` 协程池控制并发 |
 | **增量下载** | 基于 `latest_release_time` 的增量拉取，避免重复下载                                 |
 
 ***
@@ -910,8 +1121,8 @@ type DownloadService interface {
     // 关注列表下载
     FollowingDownload(ctx context.Context, taskID string, screenName string, opts DownloadOptions, reporter ProgressReporter) error
     
-    // 批量下载（多用户/多列表）
-    BatchDownload(ctx context.Context, taskID string, users []*twitter.User, lists []twitter.ListBase, opts DownloadOptions, reporter ProgressReporter) error
+    // 批量下载（多用户/多列表/多关注）
+    BatchDownload(ctx context.Context, taskID string, screenNames []string, listIDs []uint64, followingNames []string, opts DownloadOptions, reporter ProgressReporter) error
     
     // Profile 下载（指定用户）
     ProfileDownload(ctx context.Context, taskID string, screenNames []string, reporter ProgressReporter) error
@@ -925,11 +1136,8 @@ type DownloadService interface {
     // LoongTweet 文件夹下载（TMD 生成的 .loongtweet）
     JsonFolderDownload(ctx context.Context, taskID string, paths []string, noRetry bool, reporter ProgressReporter) error
 
-    // JSON 下载（通用，根据路径自动判断类型）
-    JsonDownload(ctx context.Context, taskID string, paths []string, noRetry bool, reporter ProgressReporter) error
-    
     // 标记已下载
-	MarkDownloaded(ctx context.Context, taskID string, users []*twitter.User, lists []twitter.ListBase, markTime *string, reporter ProgressReporter) error
+    MarkDownloaded(ctx context.Context, taskID string, screenNames []string, listIDs []uint64, followingNames []string, markTime *string, reporter ProgressReporter) error
 }
 ```
 
@@ -1102,6 +1310,8 @@ ENTITY_ID:2|USER_ID:23248887|SCREEN_NAME:NASA|STATUS:OK
 ```
 tmd/
 ├── main.go                      # 应用入口（命令行解析、模式选择）
+├── start.bat                    # Windows 启动脚本（自动重启）
+├── start.sh                     # Linux/macOS 启动脚本（自动重启）
 ├── internal/
 │   ├── api/                     # API Server 模块
 │   ├── cli/                     # CLI 命令模块
@@ -1114,6 +1324,8 @@ tmd/
 │   ├── naming/                  # 命名服务
 │   ├── entity/                  # 数据实体层
 │   ├── path/                    # 路径管理
+│   ├── scheduler/               # 定时任务调度器
+│   ├── consolelog/              # 控制台日志捕获与分发
 │   └── utils/                   # 工具函数
 ├── doc/                         # 详细文档
 ├── .github/workflows/           # CI/CD 配置
@@ -1162,8 +1374,10 @@ go tool cover -html=covprofile -o coverage.html
 | **依赖注入** | `service/deps.go` | 通过构造函数注入依赖，支持测试 Mock |
 | **策略模式** | `downloader/downloader.go` | 小文件 Buffer / 大文件流式两种策略 |
 | **观察者模式** | `api/sse.go` | SSE 推送任务状态更新 |
+| **观察者模式** | `consolelog/hub.go` | SSE 推送实时日志流 |
 | **工厂模式** | `naming/` | TweetNaming / UserNaming / ListNaming 工厂 |
 | **单例模式** | `database/connect.go` | 全局数据库连接（SQLite） |
+| **调度器模式** | `scheduler/scheduler.go` | interval/daily 两种调度策略 |
 
 ### CI/CD 流程
 

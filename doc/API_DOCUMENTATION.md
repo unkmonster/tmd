@@ -2,7 +2,7 @@
 
 ## 概述
 
-TMD (Twitter Media Downloader) 提供 HTTP REST API，允许通过编程方式控制下载任务。API Server 模式支持 Web/AI 调用。
+TMD (Twitter Media Downloader) 提供 HTTP REST API，允许通过编程方式控制下载任务，支持 Web/API 调用。
 
 ## 启动 API Server
 
@@ -40,7 +40,7 @@ GET /api/v1/health
 ```json
 {
   "status": "ok",
-  "version": "3.0.3",
+  "version": "2.0.0",
   "timestamp": "2024-01-15T10:30:00Z"
 }
 ```
@@ -211,6 +211,110 @@ curl -X POST http://localhost:25556/api/v1/users/elonmusk/mark \
 
 ***
 
+### 4.1 标记关注列表为已下载
+
+将某用户关注的所有用户标记为已下载状态。
+
+**请求：**
+
+```http
+POST /api/v1/users/{screen_name}/following/mark
+Content-Type: application/json
+
+{
+  "timestamp": "2024-01-15T10:30:00Z"
+}
+```
+
+**URL 参数：**
+
+| 字段            | 类型     | 必填 | 说明                          |
+| ------------- | ------ | -- | --------------------------- |
+| `screen_name` | string | 是  | 用户 Twitter 用户名（例如：elonmusk） |
+
+**请求体参数：**
+
+| 字段          | 类型     | 必填 | 默认值  | 说明                         |
+| ----------- | ------ | -- | ---- | -------------------------- |
+| `timestamp` | string | 否  | 当前时间 | 标记时间（ISO 8601格式），不传则使用当前时间 |
+
+**响应：**
+
+```json
+{
+  "success": true,
+  "data": {
+    "task_id": "task_ghi790",
+    "status": "queued",
+    "screen_name": "elonmusk",
+    "timestamp": "2024-01-15T10:30:00Z",
+    "message": "Mark following downloaded task queued"
+  }
+}
+```
+
+**示例：**
+
+```bash
+curl -X POST http://localhost:25556/api/v1/users/elonmusk/following/mark \
+  -H "Content-Type: application/json" \
+  -d '{"timestamp": "2024-01-01T00:00:00Z"}'
+```
+
+***
+
+### 4.2 标记列表为已下载
+
+将指定列表的所有成员标记为已下载状态。
+
+**请求：**
+
+```http
+POST /api/v1/lists/{list_id}/mark
+Content-Type: application/json
+
+{
+  "timestamp": "2024-01-15T10:30:00Z"
+}
+```
+
+**URL 参数：**
+
+| 字段        | 类型     | 必填 | 说明                          |
+| --------- | ------ | -- | --------------------------- |
+| `list_id` | uint64 | 是  | Twitter 列表 ID（例如：123456789） |
+
+**请求体参数：**
+
+| 字段          | 类型     | 必填 | 默认值  | 说明                         |
+| ----------- | ------ | -- | ---- | -------------------------- |
+| `timestamp` | string | 否  | 当前时间 | 标记时间（ISO 8601格式），不传则使用当前时间 |
+
+**响应：**
+
+```json
+{
+  "success": true,
+  "data": {
+    "task_id": "task_ghi791",
+    "status": "queued",
+    "list_id": 123456789,
+    "timestamp": "2024-01-15T10:30:00Z",
+    "message": "Mark list downloaded task queued"
+  }
+}
+```
+
+**示例：**
+
+```bash
+curl -X POST http://localhost:25556/api/v1/lists/123456789/mark \
+  -H "Content-Type: application/json" \
+  -d '{"timestamp": "2024-01-01T00:00:00Z"}'
+```
+
+***
+
 ### 5. 下载关注列表
 
 下载某用户关注的所有用户的推文。
@@ -375,7 +479,7 @@ curl -X POST http://localhost:25556/api/v1/lists/123456789/profile
 **请求：**
 
 ```http
-POST /api/v1/json/download
+POST /api/v1/json/file/download
 Content-Type: application/json
 
 {
@@ -401,7 +505,7 @@ Content-Type: application/json
     "status": "queued",
     "paths": ["/path/to/tweets1.json", "/path/to/tweets2.json"],
     "no_retry": false,
-    "message": "JSON download task queued"
+    "message": "JSON file download task queued"
   }
 }
 ```
@@ -409,9 +513,57 @@ Content-Type: application/json
 **示例：**
 
 ```bash
-curl -X POST http://localhost:25556/api/v1/json/download \
+curl -X POST http://localhost:25556/api/v1/json/file/download \
   -H "Content-Type: application/json" \
   -d '{"paths": ["/data/tweets.json"]}'
+```
+
+***
+
+### 8.1 从 JSON 文件夹下载
+
+从 loongtweet 格式的文件夹下载推文媒体。
+
+**请求：**
+
+```http
+POST /api/v1/json/folder/download
+Content-Type: application/json
+
+{
+  "paths": ["/path/to/folder1", "/path/to/folder2"],
+  "no_retry": false
+}
+```
+
+**请求体参数：**
+
+| 字段         | 类型        | 必填 | 默认值     | 说明                |
+| ---------- | --------- | -- | ------- | ----------------- |
+| `paths`    | \[]string | 是  | -       | 文件夹路径列表（绝对路径）     |
+| `no_retry` | bool      | 否  | `false` | 失败后不重试            |
+
+**响应：**
+
+```json
+{
+  "success": true,
+  "data": {
+    "task_id": "task_stu902",
+    "status": "queued",
+    "paths": ["/path/to/folder1", "/path/to/folder2"],
+    "no_retry": false,
+    "message": "JSON folder download task queued"
+  }
+}
+```
+
+**示例：**
+
+```bash
+curl -X POST http://localhost:25556/api/v1/json/folder/download \
+  -H "Content-Type: application/json" \
+  -d '{"paths": ["/data/loongtweet_folder"]}'
 ```
 
 ***
@@ -429,6 +581,7 @@ Content-Type: application/json
 {
   "users": ["elonmusk", "twitter", "github"],
   "lists": [123456789, 987654321],
+  "following_names": ["userA", "userB"],
   "auto_follow": false,
   "skip_profile": false,
   "no_retry": false
@@ -437,15 +590,16 @@ Content-Type: application/json
 
 **请求体参数：**
 
-| 字段             | 类型        | 必填 | 默认值     | 说明                  |
-| -------------- | --------- | -- | ------- | ------------------- |
-| `users`        | \[]string | 否  | -       | 要下载的用户名列表           |
-| `lists`        | \[]uint64 | 否  | -       | 要下载的列表 ID 列表        |
-| `auto_follow`  | bool      | 否  | `false` | 自动关注受保护用户           |
-| `skip_profile` | bool      | 否  | `false` | 跳过 Profile 下载（默认下载） |
-| `no_retry`     | bool      | 否  | `false` | 失败后不重试              |
+| 字段              | 类型        | 必填 | 默认值     | 说明                          |
+| --------------- | --------- | -- | ------- | --------------------------- |
+| `users`         | \[]string | 否  | -       | 要下载的用户名列表                   |
+| `lists`         | \[]uint64 | 否  | -       | 要下载的列表 ID 列表                |
+| `following_names` | \[]string | 否  | -       | 要下载其关注列表的用户名列表              |
+| `auto_follow`   | bool      | 否  | `false` | 自动关注受保护用户                   |
+| `skip_profile`  | bool      | 否  | `false` | 跳过 Profile 下载（默认下载）         |
+| `no_retry`      | bool      | 否  | `false` | 失败后不重试                      |
 
-**注意：** `users` 和 `lists` 至少需要一个。
+**注意：** `users`、`lists` 和 `following_names` 至少需要一个。
 
 **响应：**
 
@@ -457,8 +611,10 @@ Content-Type: application/json
     "status": "queued",
     "users": ["elonmusk", "twitter", "github"],
     "lists": [123456789, 987654321],
+    "following_names": ["userA", "userB"],
     "user_count": 3,
     "list_count": 2,
+    "following_count": 2,
     "auto_follow": false,
     "skip_profile": false,
     "no_retry": false,
@@ -540,6 +696,7 @@ GET /api/v1/tasks
 - `downloading` - 下载中
 - `retrying` - 重试中
 - `profile` - 下载 Profile 中
+- `profile_warning` - Profile 下载有警告
 - `marking` - 标记已下载中
 - `completed` - 已完成
 
@@ -553,7 +710,8 @@ GET /api/v1/tasks
 | `profile_download` | Profile 下载 |
 | `list_profile` | 列表成员 Profile 下载 |
 | `mark_downloaded` | 标记已下载 |
-| `json_download` | JSON 文件下载 |
+| `json_file_download` | JSON 文件下载 |
+| `json_folder_download` | JSON 文件夹下载 |
 | `batch_download` | 批量下载 |
 
 **示例：**
@@ -590,16 +748,23 @@ GET /api/v1/tasks/{task_id}
     "type": "user_download",
     "status": "completed",
     "progress": {
-      "stage": "downloading",
+      "stage": "completed",
       "total": 100,
       "completed": 100,
       "failed": 0,
       "current": ""
     },
     "result": {
-      "downloaded": 100,
-      "failed": 0,
-      "skipped": 0
+      "main": {
+        "downloaded": 95,
+        "failed": 0
+      },
+      "profile": {
+        "downloaded": 5,
+        "failed": 0,
+        "versioned": 1
+      },
+      "message": ""
     },
     "created_at": "2024-01-15T10:30:00Z",
     "started_at": "2024-01-15T10:30:05Z",
@@ -784,8 +949,10 @@ http://localhost:25556/
 | **仪表盘** | 显示系统健康状态、任务统计、快速操作入口 |
 | **新建任务** | 创建用户下载、列表下载、批量下载、JSON 下载任务 |
 | **任务列表** | 实时显示所有任务状态（支持 SSE 实时更新）、进度条、取消操作 |
-| **数据浏览** | 查看数据库中的 Users、Lists、User Entities |
+| **数据浏览** | 查看数据库中的 Users、Lists、User Entities、List Entities、User Links |
 | **配置编辑** | 双模式配置管理：结构化表单 + 原始 YAML 编辑器 |
+| **Cookie 管理** | 管理额外账户 Cookie，支持结构化表单和原始 YAML 编辑 |
+| **调度管理** | 创建、编辑、启用/禁用定时下载任务，支持手动触发 |
 | **日志查看** | 实时日志查看器，支持级别筛选、搜索、分页、自动刷新 |
 
 ### 实时任务更新
@@ -888,7 +1055,7 @@ GET /api/v1/db/lists
       {
         "id": "123456789",
         "name": "Tech News",
-        "owner_uid": "44196397"
+        "owner_user_id": "44196397"
       }
     ],
     "total": 1,
@@ -957,8 +1124,9 @@ GET /api/v1/config
 
 **说明：**
 
-- 返回脱敏后的配置信息（不包含敏感 Cookie）
+- 返回脱敏后的配置信息（不包含敏感 Cookie 和代理地址）
 - `root_path` 仅返回目录名，不返回完整绝对路径
+- 完整配置请使用 `/api/v1/config/fields` 或 `/api/v1/config/raw`
 
 ***
 
@@ -1028,9 +1196,9 @@ Content-Type: application/json
 {
   "success": true,
   "data": {
-    "message": "Configuration saved successfully",
+    "message": "Configuration saved successfully. Please restart TMD manually for changes to take effect.",
     "backup": "conf.yaml.backup.1705312345",
-    "applied": true
+    "yaml_preview": "root_path: ./downloads\nmax_download_routine: 35"
   }
 }
 ```
@@ -1038,7 +1206,7 @@ Content-Type: application/json
 **特性：**
 - 自动验证 YAML 格式有效性
 - 保存前自动创建备份（时间戳命名）
-- 更新后立即生效（热重载）
+- 更新后需手动重启 TMD 才能生效
 
 **示例：**
 
@@ -1201,9 +1369,8 @@ Content-Type: application/json
 {
   "success": true,
   "data": {
-    "message": "Configuration saved successfully",
+    "message": "Configuration saved successfully. Please restart TMD manually for changes to take effect.",
     "backup": "conf.yaml.backup.1705312345",
-    "applied": true,
     "yaml_preview": "root_path: ./downloads\n...",
     "fields": [...]
   }
@@ -1295,6 +1462,570 @@ curl "http://localhost:25556/api/v1/logs?page=2&pageSize=50"
 
 ***
 
+### 日志实时流
+
+通过 SSE 实时推送日志，支持按级别和关键词筛选。
+
+**请求：**
+
+```http
+GET /api/v1/logs/stream?level=info&q=download
+```
+
+**查询参数：**
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `level` | string | `""`(全部) | 日志级别筛选：debug/info/warn/error |
+| `q` | string | - | 搜索关键词 |
+
+**响应格式：**
+
+SSE 事件流，每条日志为一行 `data:` 事件：
+
+```
+: connected
+
+data: [2024-01-15 10:30:00] [INFO] Download completed: user elonmusk, 15 media
+```
+
+**示例：**
+
+```javascript
+const logStream = new EventSource('http://localhost:25556/api/v1/logs/stream?level=error');
+logStream.onmessage = (event) => {
+    console.log('Log:', event.data);
+};
+```
+
+***
+
+### Cookie 管理 API
+
+管理额外账户的 Cookie（用于多账户下载）。
+
+#### 获取额外 Cookie（结构化表单）
+
+**请求：**
+
+```http
+GET /api/v1/cookies
+```
+
+**响应：**
+
+```json
+{
+  "success": true,
+  "data": {
+    "exists": true,
+    "items": [
+      {
+        "index": 0,
+        "auth_token": "a1b•••xyz",
+        "ct0": "x1y•••789"
+      }
+    ]
+  }
+}
+```
+
+**响应字段：**
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `exists` | bool | additional_cookies.yaml 文件是否存在 |
+| `items[]` | array | Cookie 列表（密码字段已脱敏） |
+| `items[].index` | int | 账户索引 |
+| `items[].auth_token` | string | Auth Token（脱敏显示） |
+| `items[].ct0` | string | CT0（脱敏显示） |
+
+#### 保存额外 Cookie（结构化表单）
+
+**请求：**
+
+```http
+PUT /api/v1/cookies
+Content-Type: application/json
+
+{
+  "cookies": [
+    {
+      "auth_token": "new_token_value",
+      "ct0": "new_ct0_value"
+    },
+    {
+      "auth_token": "__KEEP_OLD__",
+      "ct0": "__KEEP_OLD__"
+    }
+  ]
+}
+```
+
+**请求体参数：**
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `cookies` | []map | 是 | Cookie 列表，每个元素包含 `auth_token` 和 `ct0` |
+
+**特殊值：**
+- `__KEEP_OLD__`: 保持原值不变（用于密码字段）
+
+**响应：**
+
+```json
+{
+  "success": true,
+  "data": {
+    "message": "Additional cookies saved successfully. Please restart TMD manually for changes to take effect.",
+    "backup": "additional_cookies.yaml.backup.1705312345"
+  }
+}
+```
+
+**注意：** 保存后需手动重启 TMD 才能生效。
+
+#### 获取原始 Cookie 文件内容
+
+**请求：**
+
+```http
+GET /api/v1/cookies/raw
+```
+
+**响应：**
+
+```json
+{
+  "success": true,
+  "data": {
+    "content": "- auth_token: xxx\n  ct0: yyy\n...",
+    "path": "/path/to/additional_cookies.yaml",
+    "exists": true
+  }
+}
+```
+
+#### 更新原始 Cookie 文件
+
+**请求：**
+
+```http
+PUT /api/v1/cookies/raw
+Content-Type: application/json
+
+{
+  "content": "- auth_token: new_token\n  ct0: new_ct0\n..."
+}
+```
+
+**请求体参数：**
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `content` | string | 是 | 完整的 YAML Cookie 内容 |
+
+**响应：**
+
+```json
+{
+  "success": true,
+  "data": {
+    "message": "Additional cookies saved successfully. Please restart TMD manually for changes to take effect.",
+    "backup": "additional_cookies.yaml.backup.1705312345"
+  }
+}
+```
+
+**注意：** 保存后需手动重启 TMD 才能生效。
+
+***
+
+### 服务器管理 API
+
+#### 关闭服务器
+
+优雅关闭 API Server，取消所有运行中的任务。
+
+**请求：**
+
+```http
+POST /api/v1/server/shutdown
+```
+
+**响应：**
+
+```json
+{
+  "success": true,
+  "data": {
+    "message": "Server shutting down...",
+    "action": "shutdown"
+  }
+}
+```
+
+**说明：**
+
+- 服务器将在 500ms 后开始优雅关闭
+- 所有运行中的任务将被取消
+- HTTP 服务器有 5 秒超时完成进行中的请求
+- 数据库连接将被关闭
+
+***
+
+### 调度器管理 API
+
+管理定时下载任务调度。
+
+#### 获取所有调度
+
+**请求：**
+
+```http
+GET /api/v1/schedules
+```
+
+**响应：**
+
+```json
+{
+  "success": true,
+  "data": {
+    "scheduler_running": true,
+    "entries": [
+      {
+        "entry": {
+          "id": "sched_abc123",
+          "type": "user",
+          "target": "elonmusk",
+          "name": "每日下载 Elon",
+          "schedule": "daily@08:00",
+          "enabled": true,
+          "run_on_start": false,
+          "auto_follow": false,
+          "skip_profile": false,
+          "no_retry": false
+        },
+        "schedule_display": "每天 08:00",
+        "last_run_at": "2024-01-15T08:00:00Z",
+        "next_run_at": "2024-01-16T08:00:00Z",
+        "run_count": 15,
+        "last_task_id": "task_xxx",
+        "last_error": "",
+        "consecutive_failures": 0
+      }
+    ],
+    "active": 1,
+    "total": 1
+  }
+}
+```
+
+**响应字段：**
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `scheduler_running` | bool | 调度器是否正在运行 |
+| `entries` | array | 调度条目列表 |
+| `active` | int | 启用中的调度数量 |
+| `total` | int | 调度总数 |
+
+**调度条目字段 (`entry`)：**
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `id` | string | 调度 ID |
+| `type` | string | 调度类型：`user`、`list`、`following` |
+| `target` | string | 调度目标（用户名或列表 ID） |
+| `name` | string | 调度名称 |
+| `schedule` | string | 调度表达式（如 `daily@08:00`、`interval@6h`） |
+| `enabled` | bool | 是否启用 |
+| `run_on_start` | bool | 启动时是否立即执行 |
+| `auto_follow` | bool | 自动关注受保护用户 |
+| `skip_profile` | bool | 跳过 Profile 下载 |
+| `no_retry` | bool | 失败后不重试 |
+
+#### 创建调度
+
+**请求：**
+
+```http
+POST /api/v1/schedules
+Content-Type: application/json
+
+{
+  "type": "user",
+  "target": "elonmusk",
+  "name": "每日下载 Elon",
+  "schedule": "daily@08:00",
+  "enabled": true,
+  "run_on_start": false,
+  "auto_follow": false,
+  "skip_profile": false,
+  "no_retry": false
+}
+```
+
+**请求体参数：**
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `type` | string | 是 | 调度类型：`user`、`list`、`following` |
+| `target` | string | 是 | 调度目标 |
+| `name` | string | 否 | 调度名称 |
+| `schedule` | string | 是 | 调度表达式 |
+| `enabled` | bool | 否 | 是否启用（默认 false） |
+| `run_on_start` | bool | 否 | 启动时执行（默认 false） |
+| `auto_follow` | bool | 否 | 自动关注（默认 false） |
+| `skip_profile` | bool | 否 | 跳过 Profile（默认 false） |
+| `no_retry` | bool | 否 | 不重试（默认 false） |
+| `id` | string | 否 | 自定义 ID（不提供则自动生成） |
+
+**响应：**
+
+```json
+{
+  "success": true,
+  "data": {
+    "message": "Schedule created successfully.",
+    "backup": "schedules.yaml.backup.1705312345",
+    "entry": { ... }
+  }
+}
+```
+
+#### 更新调度
+
+**请求：**
+
+```http
+PUT /api/v1/schedules/{id}
+Content-Type: application/json
+
+{
+  "type": "user",
+  "target": "elonmusk",
+  "name": "更新后的名称",
+  "schedule": "daily@09:00",
+  "enabled": true
+}
+```
+
+**URL 参数：**
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `id` | string | 是 | 调度 ID |
+
+**响应：**
+
+```json
+{
+  "success": true,
+  "data": {
+    "message": "Schedule updated successfully.",
+    "backup": "schedules.yaml.backup.1705312345",
+    "entry": { ... }
+  }
+}
+```
+
+#### 删除调度
+
+**请求：**
+
+```http
+DELETE /api/v1/schedules/{id}
+```
+
+**响应：**
+
+```json
+{
+  "success": true,
+  "data": {
+    "message": "Schedule deleted successfully.",
+    "backup": "schedules.yaml.backup.1705312345"
+  }
+}
+```
+
+#### 启用/禁用调度
+
+**请求：**
+
+```http
+PATCH /api/v1/schedules/{id}/enabled
+Content-Type: application/json
+
+{
+  "enabled": true
+}
+```
+
+**请求体参数：**
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `enabled` | bool | 是 | 是否启用 |
+
+**响应：**
+
+```json
+{
+  "success": true,
+  "data": {
+    "message": "Schedule updated successfully.",
+    "backup": "schedules.yaml.backup.1705312345",
+    "entry": { ... }
+  }
+}
+```
+
+#### 手动触发调度
+
+**请求：**
+
+```http
+POST /api/v1/schedules/{id}/trigger
+```
+
+**响应：**
+
+```json
+{
+  "success": true,
+  "data": {
+    "task_id": "task_abc123",
+    "message": "Schedule triggered successfully."
+  }
+}
+```
+
+#### 获取原始调度文件内容
+
+**请求：**
+
+```http
+GET /api/v1/schedules/raw
+```
+
+**响应：**
+
+```json
+{
+  "success": true,
+  "data": {
+    "content": "schedules:\n  - id: sched_abc123\n    type: user\n    target: elonmusk\n...",
+    "path": "/path/to/schedules.yaml",
+    "exists": true
+  }
+}
+```
+
+#### 更新原始调度文件
+
+**请求：**
+
+```http
+PUT /api/v1/schedules/raw
+Content-Type: application/json
+
+{
+  "content": "schedules:\n  - id: sched_abc123\n    type: user\n    target: elonmusk\n    schedule: daily@08:00\n    enabled: true"
+}
+```
+
+**请求体参数：**
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `content` | string | 是 | 完整的 YAML 调度内容 |
+
+**响应：**
+
+```json
+{
+  "success": true,
+  "data": {
+    "message": "Schedules saved and reloaded successfully.",
+    "backup": "schedules.yaml.backup.1705312345"
+  }
+}
+```
+
+#### 重新加载调度
+
+**请求：**
+
+```http
+POST /api/v1/schedules/reload
+```
+
+**响应：**
+
+```json
+{
+  "success": true,
+  "data": {
+    "message": "Schedules reloaded successfully."
+  }
+}
+```
+
+#### 验证调度
+
+验证调度条目格式是否正确，不实际保存。
+
+**请求：**
+
+```http
+POST /api/v1/schedules/validate
+Content-Type: application/json
+
+{
+  "entry": {
+    "type": "user",
+    "target": "elonmusk",
+    "schedule": "daily@08:00"
+  }
+}
+```
+
+**请求体参数（三选一）：**
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `entry` | object | 验证单个调度条目 |
+| `entries` | array | 验证多个调度条目 |
+| `raw` | string | 验证 YAML 格式的调度内容 |
+
+**响应：**
+
+```json
+{
+  "success": true,
+  "data": {
+    "valid": true
+  }
+}
+```
+
+**验证失败响应：**
+
+```json
+{
+  "success": true,
+  "data": {
+    "valid": false,
+    "errors": ["schedule #1 (每日下载): invalid schedule expression"]
+  }
+}
+```
+
+***
+
 ## 数据库管理 API 详解
 
 ### 通用查询参数
@@ -1332,7 +2063,7 @@ GET /api/v1/db/users?page=1&pageSize=20&sortBy=id&sortOrder=desc&q=elonmusk
 {
   "success": true,
   "data": {
-    "items": [
+    "data": [
       {
         "id": "44196397",
         "screen_name": "elonmusk",
@@ -1472,10 +2203,10 @@ GET /api/v1/db/users/44196397/previous-names
 {
   "success": true,
   "data": {
-    "items": [
+    "data": [
       {
         "id": "1",
-        "uid": "44196397",
+        "user_id": "44196397",
         "screen_name": "elonmusk_old",
         "name": "Elon Musk Old Name",
         "record_date": "2023-01-15"
@@ -1513,11 +2244,11 @@ GET /api/v1/db/lists?page=1&pageSize=20&q=tech
 {
   "success": true,
   "data": {
-    "items": [
+    "data": [
       {
         "id": "123456789",
         "name": "Tech News",
-        "owner_uid": "44196397"
+        "owner_user_id": "44196397"
       }
     ],
     "total": 1,
@@ -1544,7 +2275,7 @@ GET /api/v1/db/lists/123456789
   "data": {
     "id": "123456789",
     "name": "Tech News",
-    "owner_uid": "44196397"
+    "owner_user_id": "44196397"
   }
 }
 ```
@@ -1559,7 +2290,7 @@ Content-Type: application/json
 
 {
   "name": "Updated List Name",
-  "owner_uid": "44196397"
+  "owner_user_id": "44196397"
 }
 ```
 
@@ -1568,7 +2299,7 @@ Content-Type: application/json
 | 参数 | 类型 | 必填 | 说明 |
 |------|------|------|------|
 | `name` | string | 否 | 列表名称 |
-| `owner_uid` | string | 否 | 所有者用户 ID |
+| `owner_user_id` | string | 否 | 所有者用户 ID |
 
 **响应：**
 
@@ -1578,7 +2309,7 @@ Content-Type: application/json
   "data": {
     "id": "123456789",
     "name": "Updated List Name",
-    "owner_uid": "44196397"
+    "owner_user_id": "44196397"
   }
 }
 ```
@@ -1626,7 +2357,7 @@ GET /api/v1/db/user-entities?page=1&pageSize=20&q=elonmusk
 {
   "success": true,
   "data": {
-    "items": [
+    "data": [
       {
         "id": "1",
         "user_id": "44196397",
@@ -1678,7 +2409,6 @@ Content-Type: application/json
 
 {
   "name": "Updated Entity Name",
-  "parent_dir": "users/updated",
   "media_count": 200
 }
 ```
@@ -1688,8 +2418,9 @@ Content-Type: application/json
 | 参数 | 类型 | 必填 | 说明 |
 |------|------|------|------|
 | `name` | string | 否 | 实体名称 |
-| `parent_dir` | string | 否 | 父目录路径 |
-| `media_count` | int | 否 | 媒体文件数量 |
+| `media_count` | int32 | 否 | 媒体文件数量 |
+
+**注意：** `parent_dir` 字段不允许修改，请求中包含该字段将返回 400 错误。
 
 **响应：**
 
@@ -1701,7 +2432,7 @@ Content-Type: application/json
     "user_id": "44196397",
     "name": "Updated Entity Name",
     "latest_release_time": "2024-01-15 10:30:00",
-    "parent_dir": "users/updated",
+    "parent_dir": "users",
     "media_count": 200
   }
 }
@@ -1750,7 +2481,7 @@ GET /api/v1/db/list-entities?page=1&pageSize=20&q=listname
 {
   "success": true,
   "data": {
-    "items": [
+    "data": [
       {
         "id": "1",
         "lst_id": "123456789",
@@ -1797,8 +2528,7 @@ PUT /api/v1/db/list-entities/1
 Content-Type: application/json
 
 {
-  "name": "Updated List Entity",
-  "parent_dir": "lists/updated"
+  "name": "Updated List Entity"
 }
 ```
 
@@ -1807,7 +2537,8 @@ Content-Type: application/json
 | 参数 | 类型 | 必填 | 说明 |
 |------|------|------|------|
 | `name` | string | 否 | 实体名称 |
-| `parent_dir` | string | 否 | 父目录路径 |
+
+**注意：** `parent_dir` 字段不允许修改，请求中包含该字段将返回 400 错误。
 
 **响应：**
 
@@ -1818,7 +2549,7 @@ Content-Type: application/json
     "id": "1",
     "lst_id": "123456789",
     "name": "Updated List Entity",
-    "parent_dir": "lists/updated"
+    "parent_dir": "lists"
   }
 }
 ```
@@ -1867,7 +2598,7 @@ GET /api/v1/db/user-links?page=1&pageSize=20
 {
   "success": true,
   "data": {
-    "items": [
+    "data": [
       {
         "id": "1",
         "user_id": "44196397",
@@ -1883,10 +2614,79 @@ GET /api/v1/db/user-links?page=1&pageSize=20
 }
 ```
 
-**说明：**
+#### 获取用户链接详情
 
-- 用户链接是关联表，不支持直接编辑/删除
-- 通过列表下载和用户下载自动创建/更新
+**请求：**
+
+```http
+GET /api/v1/db/user-links/1
+```
+
+**响应：**
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": "1",
+    "user_id": "44196397",
+    "name": "elonmusk_link",
+    "parent_lst_entity_id": "1"
+  }
+}
+```
+
+#### 更新用户链接
+
+**请求：**
+
+```http
+PUT /api/v1/db/user-links/1
+Content-Type: application/json
+
+{
+  "name": "updated_link_name"
+}
+```
+
+**请求体参数：**
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `name` | string | 否 | 链接名称 |
+
+**响应：**
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": "1",
+    "user_id": "44196397",
+    "name": "updated_link_name",
+    "parent_lst_entity_id": "1"
+  }
+}
+```
+
+#### 删除用户链接
+
+**请求：**
+
+```http
+DELETE /api/v1/db/user-links/1
+```
+
+**响应：**
+
+```json
+{
+  "success": true,
+  "data": {
+    "message": "User link deleted successfully"
+  }
+}
+```
 
 ***
 
@@ -1960,9 +2760,12 @@ TASK_ID=$(curl -s -X POST http://localhost:25556/api/v1/lists/123456789/download
 | `/api/v1/users/{name}/profile`            | POST | 下载用户 Profile   |
 | `/api/v1/users/{name}/mark`               | POST | 标记用户为已下载       |
 | `/api/v1/users/{name}/following/download` | POST | 下载关注列表         |
+| `/api/v1/users/{name}/following/mark`     | POST | 标记关注列表为已下载     |
 | `/api/v1/lists/{id}/download`             | POST | 下载列表成员推文       |
 | `/api/v1/lists/{id}/profile`              | POST | 下载列表成员 Profile |
-| `/api/v1/json/download`                   | POST | 从 JSON 文件下载    |
+| `/api/v1/lists/{id}/mark`                 | POST | 标记列表为已下载       |
+| `/api/v1/json/file/download`              | POST | 从 JSON 文件下载    |
+| `/api/v1/json/folder/download`            | POST | 从 JSON 文件夹下载   |
 | `/api/v1/batch/download`                  | POST | 批量下载           |
 | `/api/v1/tasks`                           | GET  | 获取任务列表         |
 | `/api/v1/tasks/{id}`                      | GET  | 获取任务详情         |
@@ -1983,7 +2786,28 @@ TASK_ID=$(curl -s -X POST http://localhost:25556/api/v1/lists/123456789/download
 | `/api/v1/config/raw`                      | PUT  | 更新原始配置文件      |
 | `/api/v1/config/fields`                   | GET  | 获取结构化配置字段    |
 | `/api/v1/config/fields`                   | PUT  | 保存结构化配置字段    |
+| `/api/v1/cookies`                         | GET  | 获取额外 Cookie（脱敏） |
+| `/api/v1/cookies`                         | PUT  | 保存额外 Cookie      |
+| `/api/v1/cookies/raw`                     | GET  | 获取原始 Cookie 文件  |
+| `/api/v1/cookies/raw`                     | PUT  | 更新原始 Cookie 文件  |
 | `/api/v1/logs`                            | GET  | 获取系统日志         |
+| `/api/v1/logs/stream`                     | GET  | SSE 实时日志流      |
+| `/api/v1/server/shutdown`                 | POST | 优雅关闭服务器        |
+
+### 调度器 API
+
+| 端点                                        | 方法   | 功能               |
+| ----------------------------------------- | ---- | ---------------- |
+| `/api/v1/schedules`                       | GET  | 获取所有调度         |
+| `/api/v1/schedules`                       | POST | 创建调度           |
+| `/api/v1/schedules/raw`                   | GET  | 获取原始调度文件内容  |
+| `/api/v1/schedules/raw`                   | PUT  | 更新原始调度文件      |
+| `/api/v1/schedules/reload`                | POST | 重新加载调度         |
+| `/api/v1/schedules/validate`              | POST | 验证调度条目         |
+| `/api/v1/schedules/{id}`                  | PUT  | 更新调度           |
+| `/api/v1/schedules/{id}`                  | DELETE | 删除调度         |
+| `/api/v1/schedules/{id}/enabled`          | PATCH | 启用/禁用调度       |
+| `/api/v1/schedules/{id}/trigger`          | POST | 手动触发调度         |
 
 ### 数据库管理 API
 
@@ -2007,6 +2831,9 @@ TASK_ID=$(curl -s -X POST http://localhost:25556/api/v1/lists/123456789/download
 | `/api/v1/db/list-entities/{id}`           | PUT  | 更新列表实体       |
 | `/api/v1/db/list-entities/{id}`           | DELETE | 删除列表实体     |
 | `/api/v1/db/user-links`                   | GET  | 查询用户链接（分页/搜索） |
+| `/api/v1/db/user-links/{id}`              | GET  | 获取用户链接详情    |
+| `/api/v1/db/user-links/{id}`              | PUT  | 更新用户链接       |
+| `/api/v1/db/user-links/{id}`              | DELETE | 删除用户链接     |
 
 ***
 
@@ -2020,10 +2847,15 @@ TASK_ID=$(curl -s -X POST http://localhost:25556/api/v1/lists/123456789/download
 | `/api/v1/users/{screen_name}/profile`            | `screen_name` | string | Twitter 用户名 |
 | `/api/v1/users/{screen_name}/mark`               | `screen_name` | string | Twitter 用户名 |
 | `/api/v1/users/{screen_name}/following/download` | `screen_name` | string | Twitter 用户名 |
+| `/api/v1/users/{screen_name}/following/mark`     | `screen_name` | string | Twitter 用户名 |
 | `/api/v1/lists/{list_id}/download`               | `list_id`     | uint64 | 列表 ID       |
 | `/api/v1/lists/{list_id}/profile`                | `list_id`     | uint64 | 列表 ID       |
+| `/api/v1/lists/{list_id}/mark`                   | `list_id`     | uint64 | 列表 ID       |
 | `/api/v1/tasks/{task_id}`                        | `task_id`     | string | 任务 ID       |
 | `/api/v1/tasks/{task_id}/cancel`                 | `task_id`     | string | 任务 ID       |
+| `/api/v1/schedules/{id}`                         | `id`          | string | 调度 ID       |
+| `/api/v1/schedules/{id}/enabled`                 | `id`          | string | 调度 ID       |
+| `/api/v1/schedules/{id}/trigger`                 | `id`          | string | 调度 ID       |
 
 ### 请求体参数
 
@@ -2037,14 +2869,19 @@ TASK_ID=$(curl -s -X POST http://localhost:25556/api/v1/lists/123456789/download
 
 #### 各端点特有参数
 
-| 端点                          | 参数             | 类型        | 必填 | 说明                  |
-| --------------------------- | -------------- | --------- | -- | ------------------- |
-| `/api/v1/users/{name}/mark` | `timestamp`    | string    | 否  | 标记时间（ISO 8601）      |
-| `/api/v1/json/download`     | `paths`        | \[]string | 是  | JSON 文件路径列表         |
-| `/api/v1/json/download`     | `no_retry`     | bool      | 否  | 失败后不重试              |
-| `/api/v1/batch/download`    | `users`        | \[]string | 否  | 用户名列表               |
-| `/api/v1/batch/download`    | `lists`        | \[]uint64 | 否  | 列表 ID 列表            |
-| `/api/v1/batch/download`    | `auto_follow`  | bool      | 否  | 自动关注受保护用户           |
-| `/api/v1/batch/download`    | `skip_profile` | bool      | 否  | 跳过 Profile 下载（默认下载） |
-| `/api/v1/batch/download`    | `no_retry`     | bool      | 否  | 失败后不重试              |
+| 端点                              | 参数             | 类型        | 必填 | 说明                  |
+| ------------------------------- | -------------- | --------- | -- | ------------------- |
+| `/api/v1/users/{name}/mark`     | `timestamp`    | string    | 否  | 标记时间（ISO 8601）      |
+| `/api/v1/users/{name}/following/mark` | `timestamp` | string | 否  | 标记时间（ISO 8601）      |
+| `/api/v1/lists/{id}/mark`       | `timestamp`    | string    | 否  | 标记时间（ISO 8601）      |
+| `/api/v1/json/file/download`    | `paths`        | \[]string | 是  | JSON 文件路径列表         |
+| `/api/v1/json/file/download`    | `no_retry`     | bool      | 否  | 失败后不重试              |
+| `/api/v1/json/folder/download`  | `paths`        | \[]string | 是  | 文件夹路径列表            |
+| `/api/v1/json/folder/download`  | `no_retry`     | bool      | 否  | 失败后不重试              |
+| `/api/v1/batch/download`        | `users`        | \[]string | 否  | 用户名列表               |
+| `/api/v1/batch/download`        | `lists`        | \[]uint64 | 否  | 列表 ID 列表            |
+| `/api/v1/batch/download`        | `following_names` | \[]string | 否 | 关注列表用户名列表        |
+| `/api/v1/batch/download`        | `auto_follow`  | bool      | 否  | 自动关注受保护用户           |
+| `/api/v1/batch/download`        | `skip_profile` | bool      | 否  | 跳过 Profile 下载（默认下载） |
+| `/api/v1/batch/download`        | `no_retry`     | bool      | 否  | 失败后不重试              |
 
