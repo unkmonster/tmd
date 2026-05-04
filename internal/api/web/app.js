@@ -2185,63 +2185,43 @@ function renderScheduleTable(schedules, exists) {
 
   const typeTag = (type) => {
     const map = { list: ['List', 'tag-info'], user: ['User', 'tag-success'], following: ['Following', 'tag-warning'] };
-    const [label, cls] = map[type] || [type, ''];
-    return `<span class="tag ${cls}">${label}</span>`;
+    const [label, cls] = map[type] || [escapeHtml(type), ''];
+    return `<span class="tag ${escapeHtml(cls)}">${escapeHtml(label)}</span>`;
   };
 
-  const statusTag = (enabled) => enabled
-    ? '<span class="tag tag-success">启用</span>'
-    : '<span class="tag tag-danger">禁用</span>';
-
   const failureTag = (count) => {
-    if (!count || count === 0) return '<span style="color:var(--text-tertiary)">0</span>';
-    if (count >= 3) return `<span class="tag tag-danger">⚠ ${count}次</span>`;
-    return `<span class="tag tag-warning">${count}次</span>`;
+    if (!count || count === 0) return '';
+    if (count >= 3) return `<span class="tag tag-danger">⚠ ${count}次失败</span>`;
+    return `<span class="tag tag-warning">${count}次失败</span>`;
   };
 
   const fmtTime = (t) => t ? new Date(t).toLocaleString() : '-';
 
-  const renderItem = (s, idx) => {
+  const renderScheduleItem = (s) => {
     const entry = normalizeScheduleEntry(s.entry);
     const failures = s.consecutive_failures || 0;
-    return `
-      <tr${failures >= 3 ? ' style="background:var(--danger-bg,rgba(239,68,68,0.06))"' : ''}>
-        <td>${typeTag(entry.type)}</td>
-        <td style="font-family:var(--font-mono);font-size:13px">${escapeHtml(entry.target)}</td>
-        <td>${escapeHtml(entry.name || '-')}</td>
-        <td>${escapeHtml(s.schedule_display)}</td>
-        <td>${statusTag(entry.enabled)}</td>
-        <td style="font-size:12px">${fmtTime(s.last_run_at)}</td>
-        <td style="font-size:12px">${fmtTime(s.next_run_at)}</td>
-        <td>${s.run_count}</td>
-        <td>${failureTag(failures)}</td>
-        <td><button class="btn btn-ghost btn-sm" data-schedule-id="${escapeAttr(entry.id)}" onclick="triggerSchedule(this.dataset.scheduleId)" ${!entry.enabled ? 'disabled title="规则已禁用"' : ''}>▶️</button></td>
-      </tr>
-    `;
-  };
+    const displayName = entry.name || entry.target;
+    const metaParts = [escapeHtml(s.schedule_display), `执行 ${s.run_count} 次`];
+    const fTag = failureTag(failures);
+    if (fTag) metaParts.push(fTag);
 
-  const renderMobileCard = (s, idx) => {
-    const entry = normalizeScheduleEntry(s.entry);
-    const failures = s.consecutive_failures || 0;
     return `
-      <div class="mobile-card"${failures >= 3 ? ' style="border-left:3px solid var(--danger, #ef4444)"' : ''}>
-        <div class="mobile-card-header">
-          <div>${typeTag(entry.type)} ${escapeHtml(entry.name || entry.target)}</div>
-          ${statusTag(entry.enabled)}
+      <div class="schedule-item${failures >= 3 ? ' has-failure' : ''}">
+        <div class="schedule-type">${typeTag(entry.type)}</div>
+        <div class="schedule-info">
+          <div class="schedule-title">${escapeHtml(displayName)}</div>
+          <div class="schedule-meta">${metaParts.join('<span style="color:var(--border-secondary)">·</span>')}</div>
         </div>
-        <div class="mobile-card-body">
-          <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--text-secondary)">
-            <span>目标: ${escapeHtml(entry.target)}</span>
-            <span>${escapeHtml(s.schedule_display)}</span>
-          </div>
-          <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--text-secondary);margin-top:4px">
-            <span>上次: ${fmtTime(s.last_run_at)}</span>
-            <span>下次: ${fmtTime(s.next_run_at)}</span>
-          </div>
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px">
-            <span style="font-size:12px;color:var(--text-secondary)">执行 ${s.run_count} 次 · ${failureTag(failures)}</span>
-            <button class="btn btn-ghost btn-sm" data-schedule-id="${escapeAttr(entry.id)}" onclick="triggerSchedule(this.dataset.scheduleId)" ${!entry.enabled ? 'disabled' : ''}>▶️ 触发</button>
-          </div>
+        <div class="schedule-status">
+          <span class="tag ${entry.enabled ? 'tag-success' : 'tag-danger'}">${entry.enabled ? '启用' : '禁用'}</span>
+        </div>
+        <div class="schedule-time">
+          <div>下次 ${fmtTime(s.next_run_at)}</div>
+          <div>上次 ${fmtTime(s.last_run_at)}</div>
+        </div>
+        <div class="schedule-actions">
+          <button class="btn btn-ghost btn-sm" data-schedule-id="${escapeAttr(entry.id)}" onclick="triggerSchedule(this.dataset.scheduleId)" ${!entry.enabled ? 'disabled title="规则已禁用"' : ''}>▶️</button>
+          <button class="btn btn-ghost btn-sm" data-schedule-id="${escapeAttr(entry.id)}" data-enabled="${entry.enabled}" onclick="toggleScheduleEnabled(this.dataset.scheduleId, this.dataset.enabled === 'true')">⏯</button>
         </div>
       </div>
     `;
@@ -2252,21 +2232,12 @@ function renderScheduleTable(schedules, exists) {
       <div class="card-header">
         <div><div class="card-title">定时下载任务</div><div class="card-subtitle">共 ${total} 条规则 · ${active} 个启用</div></div>
         <div class="flex gap-2">
+          <button class="btn btn-ghost btn-sm" onclick="navigateToSystemSchedules()">📝 编辑任务</button>
           <button class="btn btn-ghost btn-sm" onclick="loadSchedules()">🔄 刷新</button>
         </div>
       </div>
       <div class="card-body" style="padding:0">
-        <div class="desktop-only">
-          <table class="table">
-            <thead>
-              <tr><th>类型</th><th>目标</th><th>名称</th><th>调度</th><th>状态</th><th>上次执行</th><th>下次执行</th><th>次数</th><th>连续失败</th><th>操作</th></tr>
-            </thead>
-            <tbody>${schedules.map(renderItem).join('')}</tbody>
-          </table>
-        </div>
-        <div class="mobile-only" style="padding:var(--space-3)">
-          ${schedules.map(renderMobileCard).join('')}
-        </div>
+        ${schedules.map(renderScheduleItem).join('')}
       </div>
     </div>
   `;
@@ -2372,12 +2343,19 @@ async function saveScheduleRaw() {
     }
     await api.updateSchedulesRaw(content);
     toast.show('调度配置已保存并重载');
-    await loadSchedules();
-    await loadScheduleRaw();
+    const [schedData, rawData] = await Promise.all([api.getSchedules(), api.getSchedulesRaw()]);
+    const entries = schedData.entries || [];
+    store.setState({
+      _schedules: entries,
+      _scheduleFormItems: entries.map(s => scheduleStatusToFormItem(s)),
+      _schedulerRunning: !!schedData.scheduler_running,
+      _scheduleRaw: rawData.content || '',
+      _scheduleExists: rawData.exists || false,
+      _scheduleSaving: false,
+    });
     setEditorValue(scheduleCodeMirror, store.state._scheduleRaw || '');
   } catch (e) {
     toast.show('保存失败: ' + e.message, 'error');
-  } finally {
     store.setState({ _scheduleSaving: false });
   }
 }
@@ -2386,15 +2364,46 @@ async function triggerSchedule(id) {
   try {
     const data = await api.triggerSchedule(id);
     toast.show('已触发定时任务: ' + data.task_id);
-    setTimeout(loadSchedules, 1000);
+    await sleep(1000);
+    await loadSchedules();
   } catch (e) {
     toast.show('触发失败: ' + e.message, 'error');
+  }
+}
+
+async function toggleScheduleEnabled(id, currentEnabled) {
+  try {
+    await api.setScheduleEnabled(id, !currentEnabled);
+    toast.show(currentEnabled ? '已禁用定时任务' : '已启用定时任务');
+    await loadSchedules();
+  } catch (e) {
+    toast.show('操作失败: ' + e.message, 'error');
+  }
+}
+
+function navigateToSystemSchedules() {
+  if (lastPage === 'system') {
+    store.setState({ _systemTab: 'schedules' });
+  } else {
+    store.setState({ currentPage: 'system', _systemTab: 'schedules' });
+    updateURL('system');
+    document.querySelectorAll('.nav-item').forEach(el => {
+      el.classList.toggle('active', el.dataset.page === 'system');
+    });
+    document.querySelectorAll('.mobile-nav-item').forEach(el => {
+      el.classList.toggle('active', el.dataset.page === 'system');
+    });
+    document.getElementById('pageTitle').textContent = '系统';
+    if (store.state.isMobile) {
+      document.getElementById('sidebar').classList.remove('open');
+    }
   }
 }
 
 function setScheduleTab(tab) {
   if (tab !== 'edit' && scheduleCodeMirror) {
     scheduleCodeMirror = null;
+    _scheduleCmInitializing = false;
   }
   store.setState({ _scheduleTab: tab });
   if (tab === 'edit' && !store.state._scheduleRaw) loadScheduleRaw();
@@ -2444,7 +2453,9 @@ function readScheduleFormItemsFromDOM() {
 }
 
 function updateScheduleFormItem(index, field, value) {
+  const items = readScheduleFormItemsFromDOM();
   if (field === 'type') {
+    items[index].type = value;
     const target = document.getElementById(`sf_target_${index}`);
     if (target) {
       const label = target.closest('.config-field')?.querySelector('.config-label');
@@ -2453,6 +2464,7 @@ function updateScheduleFormItem(index, field, value) {
     }
   }
   if (field === 'scheduleMode') {
+    items[index].scheduleMode = value;
     const scheduleValue = document.getElementById(`sf_schedule_value_${index}`);
     if (scheduleValue) {
       const label = scheduleValue.closest('.config-field')?.querySelector('.config-label');
@@ -2460,6 +2472,7 @@ function updateScheduleFormItem(index, field, value) {
       scheduleValue.placeholder = value === 'interval' ? '例如: 2h, 30m, 6h30m, 24h' : '例如: 07:00,21:00 或 02:30';
     }
   }
+  store.setState({ _scheduleFormItems: items });
 }
 
 let _scheduleValidateTimer = null;
@@ -2548,11 +2561,18 @@ async function saveScheduleForm() {
   try {
     await syncScheduleFormChanges(schedules);
     toast.show('调度配置已保存并重载');
-    await loadSchedules();
-    await loadScheduleRaw();
+    const [schedData, rawData] = await Promise.all([api.getSchedules(), api.getSchedulesRaw()]);
+    const entries = schedData.entries || [];
+    store.setState({
+      _schedules: entries,
+      _scheduleFormItems: entries.map(s => scheduleStatusToFormItem(s)),
+      _schedulerRunning: !!schedData.scheduler_running,
+      _scheduleRaw: rawData.content || '',
+      _scheduleExists: rawData.exists || false,
+      _scheduleSaving: false,
+    });
   } catch (e) {
     toast.show('保存失败: ' + e.message, 'error');
-  } finally {
     store.setState({ _scheduleSaving: false });
   }
 }
@@ -2610,10 +2630,16 @@ function yamlStr(s) {
 }
 
 let scheduleCodeMirror = null;
+let _scheduleCmInitializing = false;
 
 async function initScheduleCodeMirror() {
+  if (_scheduleCmInitializing || scheduleCodeMirror) return;
+  _scheduleCmInitializing = true;
   await waitForCodeMirror(3000);
-  scheduleCodeMirror = initCodeMirror('scheduleEditorContainer', store.state._scheduleRaw, 'yaml');
+  if (document.getElementById('scheduleEditorContainer')) {
+    scheduleCodeMirror = initCodeMirror('scheduleEditorContainer', store.state._scheduleRaw, 'yaml');
+  }
+  _scheduleCmInitializing = false;
 }
 
 function syncScheduleTabView() {
@@ -3497,7 +3523,7 @@ store.subscribe((state) => {
         rerenderSystemPanel(
           'systemSchedulesPanel',
           renderScheduleViewer,
-          () => { scheduleCodeMirror = null; },
+          () => { scheduleCodeMirror = null; _scheduleCmInitializing = false; },
           state._scheduleTab === 'edit' ? initScheduleCodeMirror : null
         );
       }

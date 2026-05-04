@@ -575,6 +575,26 @@ ul, ol {
   color: var(--warning);
 }
 
+.tag-info {
+  background: var(--info-bg);
+  color: var(--info);
+}
+
+.tag-success {
+  background: var(--success-bg);
+  color: var(--success);
+}
+
+.tag-warning {
+  background: var(--warning-bg);
+  color: var(--warning);
+}
+
+.tag-danger {
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+
 /* Progress Bar */
 .progress-bar {
   width: 100%;
@@ -1257,6 +1277,20 @@ ul, ol {
     min-width: auto;
     max-width: none;
   }
+
+  .schedule-item {
+    flex-wrap: wrap;
+  }
+
+  .schedule-time {
+    width: 100%;
+    order: 3;
+    margin-top: var(--space-2);
+  }
+
+  .schedule-type {
+    width: auto;
+  }
 }
 
 @media (min-width: 768px) {
@@ -1376,6 +1410,73 @@ ul, ol {
 .log-level-filters {
   display: flex;
   gap: var(--space-1);
+}
+
+/* ===== Schedule Item ===== */
+.schedule-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-4);
+  border-bottom: 1px solid var(--border-primary);
+  transition: background var(--duration-fast);
+}
+
+.schedule-item:hover {
+  background: var(--bg-tertiary);
+}
+
+.schedule-item:last-child {
+  border-bottom: none;
+}
+
+.schedule-item.has-failure {
+  border-left: 3px solid var(--danger);
+}
+
+.schedule-type {
+  flex-shrink: 0;
+  width: 90px;
+}
+
+.schedule-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.schedule-title {
+  font-weight: var(--font-medium);
+  color: var(--text-primary);
+  margin-bottom: var(--space-1);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.schedule-meta {
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.schedule-status {
+  flex-shrink: 0;
+}
+
+.schedule-time {
+  flex-shrink: 0;
+  width: 160px;
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+
+.schedule-actions {
+  display: flex;
+  gap: var(--space-2);
+  flex-shrink: 0;
 }
 
 /* ===== Config Form Styles ===== */
