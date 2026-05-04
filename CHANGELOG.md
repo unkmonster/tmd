@@ -7,6 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ***
 
+## [3.3.2] - 2026-05-04
+
+### Added
+
+#### Web 界面实时功能增强
+
+| 功能 | 说明 |
+|------|------|
+| SSE 连接状态指示器 | 顶部标题栏显示实时连接状态（绿色/红色圆点） |
+| 定时任务实时推送 | 通过 SSE 自动推送定时任务状态变更 |
+| 新增任务高亮动画 | 定时任务列表项新增 glowPulse 高亮效果 |
+
+#### 样式优化
+
+| 文件 | 变更 |
+|------|------|
+| `internal/api/web/styles.css` | 新增 tag-info、tag-success、tag-warning、tag-danger 标签样式 |
+| `internal/api/web/styles.css` | 新增 schedule-item 相关样式 |
+| `internal/api/web/styles.css` | 移动端适配优化 |
+
+#### 后端功能增强
+
+| 文件 | 变更 |
+|------|------|
+| `internal/scheduler/scheduler.go` | 新增 OnStatusChange 回调机制 |
+| `internal/api/task_manager.go` | 任务管理器优化 |
+| `internal/api/sse.go` | SSE 连接管理优化 |
+
+### Stats
+
+- **12 个文件变更**
+- **+720 行 / -266 行**
+
+***
+
 ## [3.3.1] - 2026-05-04
 
 ### Added
