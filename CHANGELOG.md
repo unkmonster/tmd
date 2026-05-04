@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ***
 
+## [3.3.1] - 2026-04-29
+
+### Added
+
+#### Web 界面独立定时任务页面
+
+| 功能 | 说明 |
+|------|------|
+| `/schedules` 路由 | 新增独立的定时任务页面 |
+| 调度器状态检测 | 未启动时显示警告提示 |
+
+### Changed
+
+#### Web 界面优化
+
+| 文件 | 变更 |
+|------|------|
+| `internal/api/web/app.js` | 定时任务从 System 标签页移出，改为独立页面 |
+| `internal/api/web/app.js` | 简化调度器界面，移除"表格模式"标签 |
+| `internal/api/server.go` | 新增 `GET /schedules` 路由 |
+
+### Fixed
+
+| 文件 | 修复 |
+|------|------|
+| `internal/downloading/batch_download.go` | 添加 `u.user != nil` 空指针检查 |
+| `internal/downloading/retry.go` | 添加 `leg.Tweet != nil` 空指针检查 |
+| `internal/downloading/retry.go` | 添加 `te.Tweet != nil` 空指针检查 |
+
+### Stats
+
+- **7 个文件变更**
+- **+89 行 / -47 行**
+
+***
+
 ## [3.3.0] - 2026-04-29
 
 ### Added

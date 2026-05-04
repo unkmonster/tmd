@@ -45,6 +45,9 @@ func BatchUserDownload(ctx context.Context, client *resty.Client, db *sqlx.DB, u
 
 	uidToUser := make(map[uint64]*twitter.User)
 	for _, u := range users {
+		if u.user == nil {
+			continue
+		}
 		uidToUser[u.user.Id] = u.user
 	}
 
@@ -72,8 +75,8 @@ func BatchUserDownload(ctx context.Context, client *resty.Client, db *sqlx.DB, u
 	depthByEntity := make(map[*entity.UserEntity]int)
 	userEntityHeap := utils.NewHeap(func(lhs, rhs *entity.UserEntity) bool {
 		luser, ruser := uidToUser[lhs.UserId()], uidToUser[rhs.UserId()]
-		lOnlyMater := luser.IsProtected && luser.Followstate == twitter.FS_FOLLOWING
-		rOnlyMaster := ruser.IsProtected && ruser.Followstate == twitter.FS_FOLLOWING
+		lOnlyMater := luser != nil && luser.IsProtected && luser.Followstate == twitter.FS_FOLLOWING
+		rOnlyMaster := ruser != nil && ruser.IsProtected && ruser.Followstate == twitter.FS_FOLLOWING
 
 		if lOnlyMater == rOnlyMaster {
 			return depthByEntity[lhs] > depthByEntity[rhs]
@@ -86,7 +89,7 @@ func BatchUserDownload(ctx context.Context, client *resty.Client, db *sqlx.DB, u
 	// 统计未关注且受保护的账户（无法下载内容的用户）
 	var protectedUnfollowedUsers []*twitter.User
 	for _, u := range users {
-		if u.user.IsProtected && u.user.Followstate == twitter.FS_UNFOLLOW {
+		if u.user != nil && u.user.IsProtected && u.user.Followstate == twitter.FS_UNFOLLOW {
 			protectedUnfollowedUsers = append(protectedUnfollowedUsers, u.user)
 		}
 	}
@@ -214,6 +217,10 @@ func BatchUserDownload(ctx context.Context, client *resty.Client, db *sqlx.DB, u
 		defer panicHandler()
 
 		user := uidToUser[ent.UserId()]
+		if user == nil {
+			log.Warnln("✗", fmt.Sprintf("(uid:%d)", ent.UserId()), "-", "user not found in uidToUser, skipping")
+			return
+		}
 
 		entityName, nameErr := ent.Name()
 		if nameErr != nil {

@@ -123,6 +123,7 @@ func (s *Server) buildHandler() http.Handler {
 	mux.HandleFunc("GET /{$}", s.handleWeb)
 	mux.HandleFunc("GET /tasks", s.handleWeb)
 	mux.HandleFunc("GET /data", s.handleWeb)
+	mux.HandleFunc("GET /schedules", s.handleWeb)
 	mux.HandleFunc("GET /system", s.handleWeb)
 	mux.HandleFunc("GET /static/{$}", s.handleStatic)
 	mux.HandleFunc("GET /static/{path...}", s.handleStatic)

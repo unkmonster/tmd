@@ -563,7 +563,17 @@ const pages = {
       </div>
     `;
   },
-  
+
+  schedules() {
+    const { _schedules, _scheduleExists, _schedulerRunning } = store.state;
+
+    const schedulerBanner = !_schedulerRunning
+      ? `<div class="alert alert-warning" style="margin-bottom:var(--space-3)">⚠️ 调度器未启动，定时任务不会自动执行。请在「系统 → 定时任务」中添加并启用规则后重载配置。</div>`
+      : '';
+
+    return schedulerBanner + renderScheduleTable(_schedules, _scheduleExists);
+  },
+
   // System Page
   system() {
     const { config, configRaw, logs, logLevel, logSearch, logPagination } = store.state;
@@ -573,8 +583,8 @@ const pages = {
         <div class="system-tabs" style="margin:0">
           <div class="tab ${store.state._systemTab === 'config' ? 'active' : ''}" onclick="setSystemTab('config')">⚙️ 配置编辑</div>
           <div class="tab ${store.state._systemTab === 'cookies' ? 'active' : ''}" onclick="setSystemTab('cookies')">🍪 额外账户</div>
+          <div class="tab ${store.state._systemTab === 'schedules' ? 'active' : ''}" onclick="setSystemTab('schedules')">⏰ 任务配置</div>
           <div class="tab ${store.state._systemTab === 'logs' ? 'active' : ''}" onclick="setSystemTab('logs')">📋 系统日志</div>
-          <div class="tab ${store.state._systemTab === 'schedules' ? 'active' : ''}" onclick="setSystemTab('schedules')">⏰ 定时任务</div>
         </div>
         <button class="btn btn-danger btn-sm" onclick="shutdownServer()">⏻ 关闭服务器</button>
       </div>
@@ -587,12 +597,12 @@ const pages = {
         ${renderCookiesEditor()}
       </div>
 
-      <div id="systemLogsPanel" class="system-panel" style="${store.state._systemTab === 'logs' ? '' : 'display:none'}">
-        ${renderLogViewer()}
-      </div>
-
       <div id="systemSchedulesPanel" class="system-panel" style="${store.state._systemTab === 'schedules' ? '' : 'display:none'}">
         ${renderScheduleViewer()}
+      </div>
+
+      <div id="systemLogsPanel" class="system-panel" style="${store.state._systemTab === 'logs' ? '' : 'display:none'}">
+        ${renderLogViewer()}
       </div>
     `;
   }
@@ -2026,13 +2036,11 @@ function renderScheduleViewer() {
   const modeTabs = `
     <div class="config-mode-tabs">
       <button class="mode-tab ${_scheduleTab === 'form' ? 'active' : ''}" onclick="setScheduleTab('form')">📝 简易模式</button>
-      <button class="mode-tab ${_scheduleTab === 'view' ? 'active' : ''}" onclick="setScheduleTab('view')">📋 表格模式</button>
       <button class="mode-tab ${_scheduleTab === 'edit' ? 'active' : ''}" onclick="setScheduleTab('edit')">🔧 高级 (YAML)</button>
     </div>
   `;
 
   if (_scheduleTab === 'edit') return schedulerBanner + modeTabs + renderScheduleRawEditor(_scheduleRaw, _scheduleSaving, _scheduleExists);
-  if (_scheduleTab === 'view') return schedulerBanner + modeTabs + renderScheduleTable(_schedules, _scheduleExists);
   return schedulerBanner + modeTabs + renderScheduleForm(_scheduleFormItems, _scheduleSaving, _scheduleExists);
 }
 
@@ -2168,7 +2176,7 @@ function renderScheduleTable(schedules, exists) {
           <div class="empty-state">
             <div class="empty-icon">⏰</div>
             <div class="empty-title">暂无定时任务</div>
-            <div class="empty-desc">切换到「高级 (YAML)」模式添加定时下载规则</div>
+            <div class="empty-desc">在「系统 → 定时任务」中添加定时下载规则</div>
           </div>
         </div>
       </div>
@@ -2390,7 +2398,6 @@ function setScheduleTab(tab) {
   }
   store.setState({ _scheduleTab: tab });
   if (tab === 'edit' && !store.state._scheduleRaw) loadScheduleRaw();
-  if (tab === 'view' && store.state._schedules.length === 0) loadSchedules();
   if (tab === 'form' && store.state._scheduleFormItems.length === 0 && store.state._schedules.length === 0) loadSchedules();
 }
 
@@ -3073,6 +3080,7 @@ function parseRoute() {
     '/': 'overview',
     '/tasks': 'tasks',
     '/data': 'data',
+    '/schedules': 'schedules',
     '/system': 'system'
   };
   
@@ -3098,6 +3106,7 @@ function updateURL(page, dataSubPage = null) {
     'overview': '/',
     'tasks': '/tasks',
     'data': '/data',
+    'schedules': '/schedules',
     'system': '/system'
   };
   
@@ -3138,7 +3147,7 @@ function navigateTo(page) {
   });
   
   // Update title
-  const titles = { overview: '概览', tasks: '任务中心', data: '数据管理', system: '系统' };
+  const titles = { overview: '概览', tasks: '任务中心', data: '数据管理', schedules: '定时任务', system: '系统' };
   document.getElementById('pageTitle').textContent = titles[page];
   
   // Close sidebar on mobile
@@ -3172,7 +3181,7 @@ window.onpopstate = (event) => {
   });
   
   // Update title
-  const titles = { overview: '概览', tasks: '任务中心', data: '数据管理', system: '系统' };
+  const titles = { overview: '概览', tasks: '任务中心', data: '数据管理', schedules: '定时任务', system: '系统' };
   document.getElementById('pageTitle').textContent = titles[page];
 };
 
@@ -3235,6 +3244,10 @@ function render() {
     if (page === 'data') {
       restoreSearchValue('dbSearchInput', 'dbSearch', store.state.dataSubPage);
     }
+
+    if (page === 'schedules') {
+      if (store.state._schedules.length === 0) loadSchedules();
+    }
     
     // Restore search value for logs
     if (page === 'system' && store.state._systemTab === 'logs') {
@@ -3263,7 +3276,7 @@ async function init() {
     el.classList.toggle('active', el.dataset.page === page);
   });
 
-  const titles = { overview: '概览', tasks: '任务中心', data: '数据管理', system: '系统' };
+  const titles = { overview: '概览', tasks: '任务中心', data: '数据管理', schedules: '定时任务', system: '系统' };
   document.getElementById('pageTitle').textContent = titles[page] || '概览';
 
   document.getElementById('contentContainer').innerHTML = `
@@ -3321,6 +3334,7 @@ document.getElementById('refreshBtn').onclick = () => {
   const page = store.state.currentPage;
   if (page === 'tasks') refreshTasks();
   else if (page === 'data') refreshDBData();
+  else if (page === 'schedules') loadSchedules();
   else init();
 };
 
@@ -3358,6 +3372,7 @@ let lastScheduleExists = store.state._scheduleExists;
 let lastScheduleSaving = store.state._scheduleSaving;
 let lastScheduleTab = store.state._scheduleTab;
 let lastScheduleFormItemsJson = JSON.stringify(store.state._scheduleFormItems);
+let lastSchedulerRunning = store.state._schedulerRunning;
 store.subscribe((state) => {
   if (state.currentPage !== lastPage) {
     lastPage = state.currentPage;
@@ -3387,6 +3402,19 @@ store.subscribe((state) => {
       }
     }
 
+    if (state.currentPage === 'schedules') {
+      const schedulesChanged = JSON.stringify(state._schedules) !== lastSchedulesJson;
+      const scheduleExistsChanged = state._scheduleExists !== lastScheduleExists;
+      const schedulerRunningChanged = state._schedulerRunning !== lastSchedulerRunning;
+
+      if (schedulesChanged || scheduleExistsChanged || schedulerRunningChanged) {
+        lastSchedulesJson = JSON.stringify(state._schedules);
+        lastScheduleExists = state._scheduleExists;
+        lastSchedulerRunning = state._schedulerRunning;
+        render();
+      }
+    }
+
     if (state.currentPage === 'system') {
       const tabChanged = state._systemTab !== lastSystemTab;
       const logPagChanged = JSON.stringify(state.logPagination) !== lastLogPaginationJson;
@@ -3412,7 +3440,7 @@ store.subscribe((state) => {
         lastSystemTab = state._systemTab;
         document.querySelectorAll('.system-tabs .tab').forEach(t => {
           t.classList.toggle('active', t.textContent.includes(
-            state._systemTab === 'config' ? '配置' : state._systemTab === 'cookies' ? '账户' : state._systemTab === 'logs' ? '日志' : '定时'
+            state._systemTab === 'config' ? '配置' : state._systemTab === 'cookies' ? '账户' : state._systemTab === 'logs' ? '日志' : '任务配置'
           ));
         });
         document.getElementById('systemConfigPanel').style.display = state._systemTab === 'config' ? '' : 'none';

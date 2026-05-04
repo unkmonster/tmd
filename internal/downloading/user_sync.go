@@ -30,5 +30,8 @@ func syncUserAndEntity(db *sqlx.DB, user *twitter.User, dir string) (*entity.Use
 }
 
 func shouldIgnoreUser(user *twitter.User) bool {
+	if user == nil {
+		return true
+	}
 	return user.Blocking || user.Muting
 }

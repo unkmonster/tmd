@@ -14,14 +14,18 @@ import (
 )
 
 func syncList(db *sqlx.DB, list *twitter.List) error {
+	var ownerUserId uint64
+	if list.Creator != nil {
+		ownerUserId = list.Creator.Id
+	}
 	listdb, err := database.GetLst(db, list.Id)
 	if err != nil {
 		return err
 	}
 	if listdb == nil {
-		return database.CreateLst(db, &database.Lst{Id: list.Id, Name: list.Name, OwnerUserId: list.Creator.Id})
+		return database.CreateLst(db, &database.Lst{Id: list.Id, Name: list.Name, OwnerUserId: ownerUserId})
 	}
-	return database.UpdateLst(db, &database.Lst{Id: list.Id, Name: list.Name, OwnerUserId: list.Creator.Id})
+	return database.UpdateLst(db, &database.Lst{Id: list.Id, Name: list.Name, OwnerUserId: ownerUserId})
 }
 
 func syncListAndGetMembers(ctx context.Context, client *resty.Client, db *sqlx.DB, lst twitter.ListBase, dir string) (entities []userInListEntity, members []*twitter.User, err error) {

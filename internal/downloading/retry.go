@@ -38,7 +38,9 @@ func RetryFailedTweets(ctx context.Context, dumper *TweetDumper, db *sqlx.DB, cl
 
 	toretry := make([]PackagedTweet, 0, len(legacy))
 	for _, leg := range legacy {
-		// 只保留还有URL需要下载的推文
+		if leg.Tweet == nil {
+			continue
+		}
 		if len(leg.Tweet.Urls) > 0 {
 			toretry = append(toretry, leg)
 		}
@@ -84,6 +86,9 @@ func RetryFailedTweets(ctx context.Context, dumper *TweetDumper, db *sqlx.DB, cl
 	dumper.Clear()
 	for _, pt := range newFails {
 		te := pt.(*TweetInEntity)
+		if te.Tweet == nil {
+			continue
+		}
 		eid, err := te.Entity.Id()
 		if err != nil {
 			log.Warnln("failed to get entity id:", err)
@@ -117,7 +122,9 @@ func RetryFailedTweets(ctx context.Context, dumper *TweetDumper, db *sqlx.DB, cl
 func countTotalUrls(tweets []PackagedTweet) int {
 	count := 0
 	for _, pt := range tweets {
-		count += len(pt.GetTweet().Urls)
+		if pt.GetTweet() != nil {
+			count += len(pt.GetTweet().Urls)
+		}
 	}
 	return count
 }
