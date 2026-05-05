@@ -30,18 +30,20 @@ var randomIntervalDelay = func(interval time.Duration) time.Duration {
 type ScheduleStatusChangeFunc func(statuses []ScheduleStatus)
 
 type Scheduler struct {
-	configPath     string
-	downloadFunc   DownloadFunc
-	entries        []ScheduleEntry
-	parsed         []*ParsedSchedule
-	statuses       []ScheduleStatus
-	mu             sync.Mutex
-	lifecycleMu    sync.Mutex
-	ctx            context.Context
-	cancel         context.CancelFunc
-	wg             sync.WaitGroup
-	started        bool
-	OnStatusChange ScheduleStatusChangeFunc
+	configPath       string
+	downloadFunc     DownloadFunc
+	entries          []ScheduleEntry
+	parsed           []*ParsedSchedule
+	statuses         []ScheduleStatus
+	mu               sync.Mutex
+	lifecycleMu      sync.Mutex
+	ctx              context.Context
+	cancel           context.CancelFunc
+	wg               sync.WaitGroup
+	started          bool
+	firstStart       bool
+	hasEverStarted   bool
+	OnStatusChange   ScheduleStatusChangeFunc
 }
 
 func New(configPath string, downloadFunc DownloadFunc) (*Scheduler, error) {
@@ -108,6 +110,10 @@ func (sc *Scheduler) readConfig() ([]ScheduleEntry, []*ParsedSchedule, []Schedul
 func (sc *Scheduler) Start() {
 	sc.lifecycleMu.Lock()
 	defer sc.lifecycleMu.Unlock()
+	if !sc.hasEverStarted {
+		sc.firstStart = true
+		sc.hasEverStarted = true
+	}
 	sc.startLocked()
 }
 
@@ -164,6 +170,7 @@ func (sc *Scheduler) stopLocked() {
 		sc.cancel()
 	}
 	sc.started = false
+	sc.firstStart = false
 	sc.cancel = nil
 	sc.ctx = nil
 	sc.mu.Unlock()
@@ -314,18 +321,19 @@ func (sc *Scheduler) runLoop(idx int) {
 	entry := sc.entries[idx]
 	parsed := sc.parsed[idx]
 	ctx := sc.ctx
+	firstStart := sc.firstStart
 	sc.mu.Unlock()
 
 	switch parsed.Mode {
 	case ScheduleModeInterval:
-		sc.runIntervalLoop(ctx, idx, entry, parsed)
+		sc.runIntervalLoop(ctx, idx, entry, parsed, firstStart)
 	case ScheduleModeDaily:
 		sc.runDailyLoop(ctx, idx, entry, parsed)
 	}
 }
 
-func (sc *Scheduler) runIntervalLoop(ctx context.Context, idx int, entry ScheduleEntry, parsed *ParsedSchedule) {
-	if entry.RunOnStart {
+func (sc *Scheduler) runIntervalLoop(ctx context.Context, idx int, entry ScheduleEntry, parsed *ParsedSchedule, firstStart bool) {
+	if entry.RunOnStart && firstStart {
 		sc.execute(idx, entry)
 	} else {
 		delay := randomIntervalDelay(parsed.Interval)

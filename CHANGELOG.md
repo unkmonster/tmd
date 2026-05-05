@@ -7,6 +7,83 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ***
 
+## [3.3.4] - 2026-05-04
+
+### Fixed
+
+#### 定时任务 run_on_start 逻辑修复
+
+| 文件 | 修复 |
+|------|------|
+| `internal/scheduler/scheduler.go` | 修复 `run_on_start` 只在系统首次启动时执行，避免配置重载或调度器重启时重复触发 |
+| `internal/scheduler/scheduler.go` | 新增 `firstStart` 和 `hasEverStarted` 标志位控制执行逻辑 |
+
+#### Web 界面优化
+
+| 文件 | 变更 |
+|------|------|
+| `internal/api/web/app.js` | "启动后立即运行"改为"首次启动时立即运行" |
+| `internal/api/web/app.js` | 定时任务保存逻辑优化，支持批量创建/更新/删除 |
+
+#### 文档更新
+
+| 文件 | 变更 |
+|------|------|
+| `doc/API_DOCUMENTATION.md` | 更新 `run_on_start` 字段描述 |
+| `readme.md` | 更新 `run_on_start` 字段描述 |
+
+#### 测试增强
+
+| 文件 | 新增测试 |
+|------|----------|
+| `internal/scheduler/scheduler_test.go` | `TestReloadDoesNotTriggerRunOnStart` - 验证重载不触发 run_on_start |
+| `internal/scheduler/scheduler_test.go` | `TestStopStartDoesNotTriggerRunOnStart` - 验证停止后启动不触发 run_on_start |
+
+### Stats
+
+- **6 个文件变更**
+- **+168 行 / -27 行**
+
+***
+
+## [3.3.3] - 2026-05-04
+
+### Added
+
+#### Web 界面交互优化
+
+| 功能 | 说明 |
+|------|------|
+| 新增项目高亮动画 | 新增定时任务/Cookie 账户时，项目顶部显示 glowPulse 高亮效果 |
+| SSE 连接状态指示器 | 顶部标题栏显示实时连接状态（绿色/红色圆点） |
+
+### Changed
+
+#### Web 界面优化
+
+| 文件 | 变更 |
+|------|------|
+| `internal/api/web/app.js` | 定时任务表单移除"启动后立即运行"默认勾选 |
+| `internal/api/web/app.js` | 新增项目默认添加到列表顶部 |
+| `internal/api/web/app.js` | 定时任务保存逻辑优化，只保存变更项 |
+| `internal/api/web/app.js` | CodeMirror 编辑器销毁优化，防止内存泄漏 |
+| `internal/api/web/app.js` | 服务器关闭流程优化 |
+
+#### 后端功能增强
+
+| 文件 | 变更 |
+|------|------|
+| `internal/scheduler/scheduler.go` | 新增 OnStatusChange 回调机制 |
+| `internal/api/task_manager.go` | 任务管理器优化 |
+| `internal/api/sse.go` | SSE 连接管理优化 |
+
+### Stats
+
+- **13 个文件变更**
+- **+609 行 / -228 行**
+
+***
+
 ## [3.3.2] - 2026-05-04
 
 ### Added

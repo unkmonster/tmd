@@ -2237,7 +2237,7 @@ function renderScheduleForm(items, saving, exists) {
         </label>
         <label style="display:flex;align-items:center;gap:4px;font-size:13px;cursor:pointer;">
           <input type="checkbox" id="sf_run_on_start_${idx}" ${item.run_on_start ? 'checked' : ''} style="margin:0">
-          启动后立即运行
+          首次启动时立即运行
         </label>
       </div>
     </div>
@@ -2646,15 +2646,15 @@ async function saveScheduleForm() {
 
   const schedules = items.map(item => ({
     id: item.id || '',
-    type: item.type || '',
-    target: (item.target || '').trim(),
-    name: (item.name || '').trim(),
-    schedule: `${item.scheduleMode || 'interval'}:${(item.scheduleValue || '').trim()}`,
-    enabled: item.enabled !== false,
-    run_on_start: !!item.run_on_start,
-    auto_follow: !!item.auto_follow,
-    skip_profile: !!item.skip_profile,
-    no_retry: !!item.no_retry,
+    type: item.type,
+    target: item.target.trim(),
+    name: item.name.trim(),
+    schedule: `${item.scheduleMode}:${item.scheduleValue.trim()}`,
+    enabled: item.enabled,
+    run_on_start: item.run_on_start,
+    auto_follow: item.auto_follow,
+    skip_profile: item.skip_profile,
+    no_retry: item.no_retry,
   }));
 
   store.setState({ _scheduleFormItems: items, _scheduleSaving: true });
@@ -2673,45 +2673,60 @@ async function saveScheduleForm() {
   }
 }
 
-function isScheduleEntryEqual(a, b) {
-  if (!a || !b) return false;
-  return (
-    a.type === b.type &&
-    a.target === b.target &&
-    a.name === b.name &&
-    a.schedule === b.schedule &&
-    a.enabled === b.enabled &&
-    a.run_on_start === b.run_on_start &&
-    a.auto_follow === b.auto_follow &&
-    a.skip_profile === b.skip_profile &&
-    a.no_retry === b.no_retry
-  );
-}
-
 async function syncScheduleFormChanges(entries) {
-  const existingEntries = (store.state._schedules || [])
-    .map(status => normalizeScheduleEntry(status.entry));
-  const existingMap = new Map(existingEntries.map(e => [e.id, e]));
-  const existingIds = new Set(existingMap.keys());
-  const submittedIds = new Set(entries.map(entry => entry.id).filter(Boolean));
+  const existingMap = new Map();
+  (store.state._schedules || []).forEach(status => {
+    const entry = normalizeScheduleEntry(status.entry);
+    if (entry.id) {
+      existingMap.set(entry.id, entry);
+    }
+  });
+
+  const submittedIds = new Set(entries.map(e => e.id).filter(Boolean));
+  const toCreate = [];
+  const toUpdate = [];
+  const toDelete = [];
 
   for (const entry of entries) {
-    if (entry.id) {
-      const existing = existingMap.get(entry.id);
-      if (existing && isScheduleEntryEqual(existing, entry)) {
-        continue;
-      }
-      await api.updateSchedule(entry.id, entry);
+    if (!entry.id) {
+      toCreate.push(entry);
     } else {
-      await api.createSchedule(entry);
+      const existing = existingMap.get(entry.id);
+      if (!existing || isScheduleEntryChanged(existing, entry)) {
+        toUpdate.push(entry);
+      }
     }
   }
 
-  for (const id of existingIds) {
+  for (const id of existingMap.keys()) {
     if (!submittedIds.has(id)) {
-      await api.deleteSchedule(id);
+      toDelete.push(id);
     }
   }
+
+  for (const entry of toCreate) {
+    await api.createSchedule(entry);
+  }
+
+  for (const entry of toUpdate) {
+    await api.updateSchedule(entry.id, entry);
+  }
+
+  for (const id of toDelete) {
+    await api.deleteSchedule(id);
+  }
+}
+
+function isScheduleEntryChanged(a, b) {
+  return a.type !== b.type ||
+    a.target !== b.target ||
+    a.name !== b.name ||
+    a.schedule !== b.schedule ||
+    a.enabled !== b.enabled ||
+    a.run_on_start !== b.run_on_start ||
+    a.auto_follow !== b.auto_follow ||
+    a.skip_profile !== b.skip_profile ||
+    a.no_retry !== b.no_retry;
 }
 
 function yamlDump(obj) {

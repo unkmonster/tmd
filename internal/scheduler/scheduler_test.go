@@ -129,6 +129,96 @@ func TestReloadDoesNotStartStoppedScheduler(t *testing.T) {
 	}
 }
 
+func TestReloadDoesNotTriggerRunOnStart(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "schedules.yaml")
+	content := []byte(`schedules:
+  - type: user
+    target: alice
+    name: Alice
+    schedule: "interval:1h"
+    enabled: true
+    run_on_start: true
+`)
+	if err := os.WriteFile(configPath, content, 0600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	var calls atomic.Int32
+	sc, err := New(configPath, func(entry ScheduleEntry) string {
+		calls.Add(1)
+		return "task-1"
+	})
+	if err != nil {
+		t.Fatalf("new scheduler: %v", err)
+	}
+	t.Cleanup(sc.Stop)
+
+	sc.Start()
+	waitFor(t, 200*time.Millisecond, func() bool {
+		return calls.Load() >= 1
+	})
+
+	if got := calls.Load(); got != 1 {
+		t.Fatalf("expected one immediate run on first Start, got %d", got)
+	}
+
+	if err := sc.Reload(); err != nil {
+		t.Fatalf("reload scheduler: %v", err)
+	}
+	time.Sleep(50 * time.Millisecond)
+
+	if got := calls.Load(); got != 1 {
+		t.Fatalf("expected Reload not to trigger run_on_start, got %d calls", got)
+	}
+}
+
+func TestStopStartDoesNotTriggerRunOnStart(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "schedules.yaml")
+	content := []byte(`schedules:
+  - type: user
+    target: alice
+    name: Alice
+    schedule: "interval:1h"
+    enabled: true
+    run_on_start: true
+`)
+	if err := os.WriteFile(configPath, content, 0600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	var calls atomic.Int32
+	sc, err := New(configPath, func(entry ScheduleEntry) string {
+		calls.Add(1)
+		return "task-1"
+	})
+	if err != nil {
+		t.Fatalf("new scheduler: %v", err)
+	}
+
+	sc.Start()
+	waitFor(t, 200*time.Millisecond, func() bool {
+		return calls.Load() >= 1
+	})
+
+	if got := calls.Load(); got != 1 {
+		t.Fatalf("expected one immediate run on first Start, got %d", got)
+	}
+
+	sc.Stop()
+	time.Sleep(50 * time.Millisecond)
+
+	sc.Start()
+	time.Sleep(50 * time.Millisecond)
+
+	if got := calls.Load(); got != 1 {
+		t.Fatalf("expected Stop+Start not to trigger run_on_start again, got %d calls", got)
+	}
+
+	sc.Stop()
+}
+
 func TestIntervalDefaultDelaysFirstRun(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "schedules.yaml")

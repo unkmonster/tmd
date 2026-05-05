@@ -560,7 +560,7 @@ schedules:
 | `name` | string | 否 | 任务显示名称 |
 | `schedule` | string | 是 | 调度规则（`interval:` 或 `daily:`） |
 | `enabled` | bool | 否 | 是否启用（默认 false） |
-| `run_on_start` | bool | 否 | 启动时是否立即执行一次（仅 interval 模式） |
+| `run_on_start` | bool | 否 | 系统首次启动时是否立即执行一次（仅 interval 模式） |
 | `auto_follow` | bool | 否 | 自动关注受保护用户 |
 | `skip_profile` | bool | 否 | 跳过 Profile 下载 |
 | `no_retry` | bool | 否 | 不重试失败推文 |

@@ -1741,7 +1741,7 @@ GET /api/v1/schedules
 | `name` | string | 调度名称 |
 | `schedule` | string | 调度表达式（如 `daily@08:00`、`interval@6h`） |
 | `enabled` | bool | 是否启用 |
-| `run_on_start` | bool | 启动时是否立即执行 |
+| `run_on_start` | bool | 系统首次启动时是否立即执行 |
 | `auto_follow` | bool | 自动关注受保护用户 |
 | `skip_profile` | bool | 跳过 Profile 下载 |
 | `no_retry` | bool | 失败后不重试 |
