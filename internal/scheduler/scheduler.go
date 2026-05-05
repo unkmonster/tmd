@@ -27,18 +27,21 @@ var randomIntervalDelay = func(interval time.Duration) time.Duration {
 	return time.Duration(rand.Int63n(int64(interval-time.Nanosecond))) + time.Nanosecond
 }
 
+type ScheduleStatusChangeFunc func(statuses []ScheduleStatus)
+
 type Scheduler struct {
-	configPath   string
-	downloadFunc DownloadFunc
-	entries      []ScheduleEntry
-	parsed       []*ParsedSchedule
-	statuses     []ScheduleStatus
-	mu           sync.Mutex
-	lifecycleMu  sync.Mutex
-	ctx          context.Context
-	cancel       context.CancelFunc
-	wg           sync.WaitGroup
-	started      bool
+	configPath     string
+	downloadFunc   DownloadFunc
+	entries        []ScheduleEntry
+	parsed         []*ParsedSchedule
+	statuses       []ScheduleStatus
+	mu             sync.Mutex
+	lifecycleMu    sync.Mutex
+	ctx            context.Context
+	cancel         context.CancelFunc
+	wg             sync.WaitGroup
+	started        bool
+	OnStatusChange ScheduleStatusChangeFunc
 }
 
 func New(configPath string, downloadFunc DownloadFunc) (*Scheduler, error) {
@@ -181,6 +184,13 @@ func (sc *Scheduler) Reload() error {
 		if wasStarted {
 			sc.startLocked()
 		}
+		if sc.OnStatusChange != nil {
+			sc.mu.Lock()
+			statusesCopy := make([]ScheduleStatus, len(sc.statuses))
+			copy(statusesCopy, sc.statuses)
+			sc.mu.Unlock()
+			sc.OnStatusChange(statusesCopy)
+		}
 		return err
 	}
 
@@ -193,6 +203,15 @@ func (sc *Scheduler) Reload() error {
 	if wasStarted {
 		sc.startLocked()
 	}
+
+	if sc.OnStatusChange != nil {
+		sc.mu.Lock()
+		statusesCopy := make([]ScheduleStatus, len(sc.statuses))
+		copy(statusesCopy, sc.statuses)
+		sc.mu.Unlock()
+		sc.OnStatusChange(statusesCopy)
+	}
+
 	activeCount := 0
 	for _, e := range entries {
 		if e.Enabled {
@@ -397,14 +416,22 @@ func (sc *Scheduler) execute(idx int, entry ScheduleEntry) {
 
 func (sc *Scheduler) updateStatus(idx int, entry ScheduleEntry, update func(*ScheduleStatus)) bool {
 	sc.mu.Lock()
-	defer sc.mu.Unlock()
 	if idx < 0 || idx >= len(sc.entries) || idx >= len(sc.statuses) {
+		sc.mu.Unlock()
 		return false
 	}
 	if sc.entries[idx] != entry {
+		sc.mu.Unlock()
 		return false
 	}
 	update(&sc.statuses[idx])
+	statuses := make([]ScheduleStatus, len(sc.statuses))
+	copy(statuses, sc.statuses)
+	sc.mu.Unlock()
+
+	if sc.OnStatusChange != nil {
+		sc.OnStatusChange(statuses)
+	}
 	return true
 }
 

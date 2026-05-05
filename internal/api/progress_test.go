@@ -22,7 +22,7 @@ func TestNewSSEProgressReporter(t *testing.T) {
 }
 
 func TestSSEProgressReporter_OnProgress(t *testing.T) {
-	tm := NewTaskManager()
+	tm := NewTaskManager(nil)
 	server := &Server{
 		taskManager: tm,
 	}
@@ -51,7 +51,7 @@ func TestSSEProgressReporter_OnProgress(t *testing.T) {
 
 func TestSSEProgressReporter_OnProgress_NotFound(t *testing.T) {
 	server := &Server{
-		taskManager: NewTaskManager(),
+		taskManager: NewTaskManager(nil),
 	}
 
 	reporter := NewSSEProgressReporter(server)
@@ -65,7 +65,7 @@ func TestSSEProgressReporter_OnProgress_NotFound(t *testing.T) {
 }
 
 func TestSSEProgressReporter_OnComplete(t *testing.T) {
-	tm := NewTaskManager()
+	tm := NewTaskManager(nil)
 	server := &Server{
 		taskManager: tm,
 	}
@@ -103,7 +103,7 @@ func TestSSEProgressReporter_OnComplete(t *testing.T) {
 }
 
 func TestSSEProgressReporter_OnError(t *testing.T) {
-	tm := NewTaskManager()
+	tm := NewTaskManager(nil)
 	server := &Server{
 		taskManager: tm,
 	}
@@ -125,7 +125,7 @@ func TestSSEProgressReporter_OnError(t *testing.T) {
 }
 
 func TestSSEProgressReporter_MultipleProgressUpdates(t *testing.T) {
-	tm := NewTaskManager()
+	tm := NewTaskManager(nil)
 	server := &Server{
 		taskManager: tm,
 	}
@@ -198,7 +198,7 @@ func TestSSEProgressReporter_InterfaceCompliance(t *testing.T) {
 }
 
 func TestSSEProgressReporter_CompleteWorkflow(t *testing.T) {
-	tm := NewTaskManager()
+	tm := NewTaskManager(nil)
 	server := &Server{
 		taskManager: tm,
 	}
@@ -237,7 +237,7 @@ func TestSSEProgressReporter_CompleteWorkflow(t *testing.T) {
 }
 
 func TestSSEProgressReporter_ErrorWorkflow(t *testing.T) {
-	tm := NewTaskManager()
+	tm := NewTaskManager(nil)
 	server := &Server{
 		taskManager: tm,
 	}

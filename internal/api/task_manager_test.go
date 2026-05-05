@@ -11,14 +11,14 @@ import (
 )
 
 func TestNewTaskManager(t *testing.T) {
-	tm := NewTaskManager()
+	tm := NewTaskManager(nil)
 	assert.NotNil(t, tm)
 	assert.NotNil(t, tm.tasks)
 	assert.Empty(t, tm.tasks)
 }
 
 func TestTaskManager_CreateTask(t *testing.T) {
-	tm := NewTaskManager()
+	tm := NewTaskManager(nil)
 
 	tests := []struct {
 		name     string
@@ -89,7 +89,7 @@ func TestTaskManager_CreateTask(t *testing.T) {
 }
 
 func TestTaskManager_CreateTask_ClonesTaskData(t *testing.T) {
-	tm := NewTaskManager()
+	tm := NewTaskManager(nil)
 	now := time.Now()
 	data := &BatchDownloadTaskData{
 		Users:          []string{"user1"},
@@ -127,12 +127,10 @@ func TestTaskManager_CreateTask_ClonesTaskData(t *testing.T) {
 }
 
 func TestTaskManager_GetTask(t *testing.T) {
-	tm := NewTaskManager()
+	tm := NewTaskManager(nil)
 
-	// 创建任务
 	task := tm.CreateTask(TaskTypeUserDownload, &UserDownloadTaskData{ScreenName: "testuser"})
 
-	// 获取存在的任务
 	got, ok := tm.GetTask(task.ID)
 	assert.True(t, ok)
 	assert.Equal(t, task.ID, got.ID)
@@ -140,14 +138,13 @@ func TestTaskManager_GetTask(t *testing.T) {
 	assert.Equal(t, task.Status, got.Status)
 	assert.NotSame(t, task, got)
 
-	// 获取不存在的任务
 	got, ok = tm.GetTask("non_existent_task")
 	assert.False(t, ok)
 	assert.Nil(t, got)
 }
 
 func TestTaskManager_GetTask_ReturnsClone(t *testing.T) {
-	tm := NewTaskManager()
+	tm := NewTaskManager(nil)
 	task := tm.CreateTask(TaskTypeBatchDownload, &BatchDownloadTaskData{
 		Users: []string{"user1"},
 	})
@@ -189,13 +186,11 @@ func TestTaskManager_GetTask_ReturnsClone(t *testing.T) {
 }
 
 func TestTaskManager_GetAllTasks(t *testing.T) {
-	tm := NewTaskManager()
+	tm := NewTaskManager(nil)
 
-	// 初始为空
 	tasks := tm.GetAllTasks()
 	assert.Empty(t, tasks)
 
-	// 创建多个任务
 	task1 := tm.CreateTask(TaskTypeUserDownload, nil)
 	task2 := tm.CreateTask(TaskTypeListDownload, nil)
 	task3 := tm.CreateTask(TaskTypeBatchDownload, nil)
@@ -209,7 +204,6 @@ func TestTaskManager_GetAllTasks(t *testing.T) {
 	assert.Equal(t, task2.ID, tasks[1].ID)
 	assert.Equal(t, task1.ID, tasks[2].ID)
 
-	// 验证包含所有任务
 	taskIDs := make(map[string]bool)
 	for _, task := range tasks {
 		taskIDs[task.ID] = true
@@ -220,7 +214,7 @@ func TestTaskManager_GetAllTasks(t *testing.T) {
 }
 
 func TestTaskManager_GetAllTasks_DeepCopiesTaskData(t *testing.T) {
-	tm := NewTaskManager()
+	tm := NewTaskManager(nil)
 	now := time.Now()
 
 	task := tm.CreateTask(TaskTypeBatchDownload, &BatchDownloadTaskData{
@@ -275,7 +269,7 @@ func TestTaskManager_GetAllTasks_DeepCopiesTaskData(t *testing.T) {
 }
 
 func TestTaskManager_UpdateTaskStatus(t *testing.T) {
-	tm := NewTaskManager()
+	tm := NewTaskManager(nil)
 	task := tm.CreateTask(TaskTypeUserDownload, nil)
 
 	tests := []struct {
@@ -295,21 +289,21 @@ func TestTaskManager_UpdateTaskStatus(t *testing.T) {
 		{
 			name:        "设置为已完成",
 			status:      TaskStatusCompleted,
-			wantStarted: false, // 从 queued 直接到 completed，StartedAt 不会被设置
+			wantStarted: false,
 			wantEnded:   true,
 			expectedOk:  true,
 		},
 		{
 			name:        "设置为失败",
 			status:      TaskStatusFailed,
-			wantStarted: false, // 从 queued 直接到 failed，StartedAt 不会被设置
+			wantStarted: false,
 			wantEnded:   true,
 			expectedOk:  true,
 		},
 		{
 			name:        "设置为已取消",
 			status:      TaskStatusCancelled,
-			wantStarted: false, // 从 queued 直接到 cancelled，StartedAt 不会被设置
+			wantStarted: false,
 			wantEnded:   true,
 			expectedOk:  true,
 		},
@@ -324,7 +318,6 @@ func TestTaskManager_UpdateTaskStatus(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// 为每个测试创建新任务
 			task = tm.CreateTask(TaskTypeUserDownload, nil)
 
 			ok := tm.UpdateTaskStatus(task.ID, tt.status)
@@ -348,14 +341,14 @@ func TestTaskManager_UpdateTaskStatus(t *testing.T) {
 }
 
 func TestTaskManager_UpdateTaskStatus_NotFound(t *testing.T) {
-	tm := NewTaskManager()
+	tm := NewTaskManager(nil)
 
 	ok := tm.UpdateTaskStatus("non_existent", TaskStatusRunning)
 	assert.False(t, ok)
 }
 
 func TestTaskManager_UpdateTaskStatus_RejectsInvalidTransition(t *testing.T) {
-	tm := NewTaskManager()
+	tm := NewTaskManager(nil)
 	task := tm.CreateTask(TaskTypeUserDownload, nil)
 
 	assert.True(t, tm.UpdateTaskStatus(task.ID, TaskStatusCompleted))
@@ -367,7 +360,7 @@ func TestTaskManager_UpdateTaskStatus_RejectsInvalidTransition(t *testing.T) {
 }
 
 func TestTaskManager_SetTaskError(t *testing.T) {
-	tm := NewTaskManager()
+	tm := NewTaskManager(nil)
 	task := tm.CreateTask(TaskTypeUserDownload, nil)
 	tm.UpdateTaskProgress(task.ID, &TaskProgress{Stage: "downloading", Total: 100, Completed: 40, Current: "user1"})
 
@@ -383,13 +376,12 @@ func TestTaskManager_SetTaskError(t *testing.T) {
 	assert.Equal(t, "", got.Progress.Current)
 	assert.Equal(t, 40, got.Progress.Completed)
 
-	// 测试不存在的任务
 	ok = tm.SetTaskError("non_existent", err)
 	assert.False(t, ok)
 }
 
 func TestTaskManager_CompleteTask_DoesNotOverrideFailedTask(t *testing.T) {
-	tm := NewTaskManager()
+	tm := NewTaskManager(nil)
 	task := tm.CreateTask(TaskTypeUserDownload, nil)
 
 	assert.True(t, tm.SetTaskError(task.ID, assert.AnError))
@@ -410,7 +402,7 @@ func TestTaskManager_CompleteTask_DoesNotOverrideFailedTask(t *testing.T) {
 }
 
 func TestTaskManager_SetTaskError_DoesNotOverrideCompletedTask(t *testing.T) {
-	tm := NewTaskManager()
+	tm := NewTaskManager(nil)
 	task := tm.CreateTask(TaskTypeUserDownload, nil)
 
 	result := &TaskResult{
@@ -432,7 +424,7 @@ func TestTaskManager_SetTaskError_DoesNotOverrideCompletedTask(t *testing.T) {
 }
 
 func TestTaskManager_CompleteTask_DoesNotOverrideCompletedTask(t *testing.T) {
-	tm := NewTaskManager()
+	tm := NewTaskManager(nil)
 	task := tm.CreateTask(TaskTypeUserDownload, nil)
 
 	first := &TaskResult{
@@ -467,7 +459,7 @@ func TestTaskManager_CompleteTask_DoesNotOverrideCompletedTask(t *testing.T) {
 }
 
 func TestTaskManager_CompleteTask_ConvergesProgress(t *testing.T) {
-	tm := NewTaskManager()
+	tm := NewTaskManager(nil)
 	task := tm.CreateTask(TaskTypeUserDownload, nil)
 	tm.UpdateTaskProgress(task.ID, &TaskProgress{
 		Stage:     "retrying",
@@ -496,7 +488,7 @@ func TestTaskManager_CompleteTask_ConvergesProgress(t *testing.T) {
 }
 
 func TestTaskManager_UpdateTaskProgress(t *testing.T) {
-	tm := NewTaskManager()
+	tm := NewTaskManager(nil)
 	task := tm.CreateTask(TaskTypeUserDownload, nil)
 
 	progress := &TaskProgress{
@@ -514,13 +506,12 @@ func TestTaskManager_UpdateTaskProgress(t *testing.T) {
 	assert.Equal(t, 50, got.Progress.Completed)
 	assert.Equal(t, 5, got.Progress.Failed)
 
-	// 测试不存在的任务
 	ok = tm.UpdateTaskProgress("non_existent", progress)
 	assert.False(t, ok)
 }
 
 func TestTaskManager_SetTaskResult(t *testing.T) {
-	tm := NewTaskManager()
+	tm := NewTaskManager(nil)
 	task := tm.CreateTask(TaskTypeUserDownload, nil)
 
 	result := &TaskResult{
@@ -548,13 +539,12 @@ func TestTaskManager_SetTaskResult(t *testing.T) {
 	assert.Equal(t, 10, got.Result.Profile.Versioned)
 	assert.Equal(t, "Download completed", got.Result.Message)
 
-	// 测试不存在的任务
 	ok = tm.SetTaskResult("non_existent", result)
 	assert.False(t, ok)
 }
 
 func TestTaskManager_CancelTask(t *testing.T) {
-	tm := NewTaskManager()
+	tm := NewTaskManager(nil)
 
 	t.Run("取消队列中的任务", func(t *testing.T) {
 		task := tm.CreateTask(TaskTypeUserDownload, nil)
@@ -567,10 +557,8 @@ func TestTaskManager_CancelTask(t *testing.T) {
 		assert.Equal(t, TaskStatusCancelled, got.Status)
 		assert.NotNil(t, got.EndedAt)
 
-		// 验证 context 被取消
 		select {
 		case <-got.Ctx.Done():
-			// 预期行为
 		case <-time.After(time.Second):
 			t.Error("Context should be cancelled")
 		}
@@ -625,11 +613,10 @@ func TestTaskManager_CancelTask(t *testing.T) {
 }
 
 func TestTaskManager_ConcurrentAccess(t *testing.T) {
-	tm := NewTaskManager()
+	tm := NewTaskManager(nil)
 	var wg sync.WaitGroup
 	numGoroutines := 100
 
-	// 并发创建任务
 	wg.Add(numGoroutines)
 	for i := 0; i < numGoroutines; i++ {
 		go func(i int) {
@@ -642,7 +629,6 @@ func TestTaskManager_ConcurrentAccess(t *testing.T) {
 	tasks := tm.GetAllTasks()
 	assert.Len(t, tasks, numGoroutines)
 
-	// 并发更新任务状态
 	wg.Add(numGoroutines)
 	for _, task := range tasks {
 		go func(taskID string) {
@@ -653,7 +639,6 @@ func TestTaskManager_ConcurrentAccess(t *testing.T) {
 	}
 	wg.Wait()
 
-	// 验证所有任务都被更新
 	for _, task := range tasks {
 		got, ok := tm.GetTask(task.ID)
 		assert.True(t, ok)
@@ -674,44 +659,36 @@ func TestGenerateTaskID(t *testing.T) {
 }
 
 func TestTask_ContextCancellation(t *testing.T) {
-	tm := NewTaskManager()
+	tm := NewTaskManager(nil)
 	task := tm.CreateTask(TaskTypeUserDownload, nil)
 
-	// 验证 context 初始状态
 	assert.NoError(t, task.Ctx.Err())
 
-	// 取消任务
 	tm.CancelTask(task.ID)
 
-	// 验证 context 被取消
 	assert.Error(t, task.Ctx.Err())
 	assert.Equal(t, context.Canceled, task.Ctx.Err())
 }
 
 func TestTaskManager_TaskLifecycle(t *testing.T) {
-	tm := NewTaskManager()
+	tm := NewTaskManager(nil)
 
-	// 1. 创建任务
 	task := tm.CreateTask(TaskTypeUserDownload, &UserDownloadTaskData{ScreenName: "testuser"})
 	assert.Equal(t, TaskStatusQueued, task.Status)
 
-	// 2. 开始任务
 	tm.UpdateTaskStatus(task.ID, TaskStatusRunning)
 	task, _ = tm.GetTask(task.ID)
 	assert.Equal(t, TaskStatusRunning, task.Status)
 	assert.NotNil(t, task.StartedAt)
 
-	// 3. 更新进度
 	tm.UpdateTaskProgress(task.ID, &TaskProgress{Total: 100, Completed: 30, Failed: 2})
 	task, _ = tm.GetTask(task.ID)
 	assert.Equal(t, 30, task.Progress.Completed)
 
-	// 4. 更新更多进度
 	tm.UpdateTaskProgress(task.ID, &TaskProgress{Total: 100, Completed: 100, Failed: 2})
 	task, _ = tm.GetTask(task.ID)
 	assert.Equal(t, 100, task.Progress.Completed)
 
-	// 5. 设置结果并完成任务
 	tm.SetTaskResult(task.ID, &TaskResult{
 		Main: &TaskMainResult{
 			Downloaded: 98,
@@ -752,23 +729,20 @@ func TestTaskType_Constants(t *testing.T) {
 }
 
 func TestTaskManager_Cleanup(t *testing.T) {
-	// 注意：cleanup 函数在后台运行，这里主要测试其存在性
-	tm := NewTaskManager()
+	tm := NewTaskManager(nil)
 	assert.NotNil(t, tm)
 
-	// 创建一些任务
 	for i := 0; i < 5; i++ {
 		task := tm.CreateTask(TaskTypeUserDownload, nil)
 		tm.UpdateTaskStatus(task.ID, TaskStatusCompleted)
 	}
 
-	// 验证任务存在
 	tasks := tm.GetAllTasks()
 	assert.Len(t, tasks, 5)
 }
 
 func TestTaskManager_Close(t *testing.T) {
-	tm := NewTaskManager()
+	tm := NewTaskManager(nil)
 
 	done := make(chan struct{})
 	go func() {

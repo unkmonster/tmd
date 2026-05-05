@@ -84,23 +84,56 @@ type TaskManager struct {
 	mu        sync.RWMutex
 	stopCh    chan struct{}
 	closeOnce sync.Once
+	eventBus  *EventBus
 }
 
 // NewTaskManager 创建任务管理器
-func NewTaskManager() *TaskManager {
+func NewTaskManager(eventBus *EventBus) *TaskManager {
 	tm := &TaskManager{
-		tasks:  make(map[string]*Task),
-		stopCh: make(chan struct{}),
+		tasks:    make(map[string]*Task),
+		stopCh:   make(chan struct{}),
+		eventBus: eventBus,
 	}
-	// 启动清理 goroutine
 	go tm.cleanupLoop()
 	return tm
+}
+
+func (tm *TaskManager) publishTasks() {
+	if tm.eventBus == nil {
+		return
+	}
+	tasks := tm.GetAllTasks()
+	tm.eventBus.PublishTasks(tasks)
+}
+
+func taskTypeName(t TaskType) string {
+	switch t {
+	case TaskTypeUserDownload:
+		return "用户下载"
+	case TaskTypeListDownload:
+		return "列表下载"
+	case TaskTypeFollowingDownload:
+		return "关注下载"
+	case TaskTypeProfileDownload:
+		return "Profile下载"
+	case TaskTypeMarkDownloaded:
+		return "标记已下载"
+	case TaskTypeJsonFileDownload:
+		return "JSON文件下载"
+	case TaskTypeJsonFolderDownload:
+		return "文件夹下载"
+	case TaskTypeBatchDownload:
+		return "批量下载"
+	case TaskTypeListProfile:
+		return "列表Profile"
+	default:
+		return string(t)
+	}
 }
 
 // CreateTask 创建任务
 func (tm *TaskManager) CreateTask(taskType TaskType, data interface{}) *Task {
 	tm.mu.Lock()
-	defer tm.mu.Unlock()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	task := &Task{
@@ -115,6 +148,9 @@ func (tm *TaskManager) CreateTask(taskType TaskType, data interface{}) *Task {
 	}
 
 	tm.tasks[task.ID] = task
+	tm.mu.Unlock()
+
+	tm.publishTasks()
 	return task
 }
 
@@ -341,17 +377,18 @@ func taskResultFailedCount(result *TaskResult) int {
 // UpdateTaskStatus 更新任务状态
 func (tm *TaskManager) UpdateTaskStatus(id string, status TaskStatus) bool {
 	tm.mu.Lock()
-	defer tm.mu.Unlock()
-
 	task, ok := tm.tasks[id]
 	if !ok {
+		tm.mu.Unlock()
 		return false
 	}
 
 	if !canTransitionStatus(task.Status, status) {
+		tm.mu.Unlock()
 		return false
 	}
 
+	previousStatus := task.Status
 	task.Status = status
 	now := time.Now()
 
@@ -365,6 +402,18 @@ func (tm *TaskManager) UpdateTaskStatus(id string, status TaskStatus) bool {
 			task.Cancel()
 		}
 	}
+	tm.mu.Unlock()
+
+	tm.publishTasks()
+
+	if tm.eventBus != nil && !isTerminalStatus(previousStatus) {
+		switch status {
+		case TaskStatusCompleted:
+			tm.eventBus.PublishNotification("task_completed", taskTypeName(task.Type)+"完成", map[string]string{"task_id": id})
+		case TaskStatusFailed:
+			tm.eventBus.PublishNotification("task_failed", taskTypeName(task.Type)+"失败", map[string]string{"task_id": id})
+		}
+	}
 
 	return true
 }
@@ -372,14 +421,14 @@ func (tm *TaskManager) UpdateTaskStatus(id string, status TaskStatus) bool {
 // SetTaskError 设置任务错误
 func (tm *TaskManager) SetTaskError(id string, err error) bool {
 	tm.mu.Lock()
-	defer tm.mu.Unlock()
-
 	task, ok := tm.tasks[id]
 	if !ok {
+		tm.mu.Unlock()
 		return false
 	}
 
 	if isTerminalStatus(task.Status) {
+		tm.mu.Unlock()
 		return false
 	}
 
@@ -391,6 +440,12 @@ func (tm *TaskManager) SetTaskError(id string, err error) bool {
 	if task.Cancel != nil {
 		task.Cancel()
 	}
+	tm.mu.Unlock()
+
+	tm.publishTasks()
+	if tm.eventBus != nil {
+		tm.eventBus.PublishNotification("task_failed", taskTypeName(task.Type)+"失败: "+err.Error(), map[string]string{"task_id": id})
+	}
 
 	return true
 }
@@ -398,28 +453,30 @@ func (tm *TaskManager) SetTaskError(id string, err error) bool {
 // UpdateTaskProgress 更新任务进度
 func (tm *TaskManager) UpdateTaskProgress(id string, progress *TaskProgress) bool {
 	tm.mu.Lock()
-	defer tm.mu.Unlock()
-
 	task, ok := tm.tasks[id]
 	if !ok {
+		tm.mu.Unlock()
 		return false
 	}
 
 	task.Progress = progress
+	tm.mu.Unlock()
+
+	tm.publishTasks()
 	return true
 }
 
 // CompleteTask 自动完成任务并设置结果，避免 SSE 竞态条件
 func (tm *TaskManager) CompleteTask(id string, result *TaskResult) bool {
 	tm.mu.Lock()
-	defer tm.mu.Unlock()
-
 	task, ok := tm.tasks[id]
 	if !ok {
+		tm.mu.Unlock()
 		return false
 	}
 
 	if !canTransitionStatus(task.Status, TaskStatusCompleted) {
+		tm.mu.Unlock()
 		return false
 	}
 
@@ -431,6 +488,12 @@ func (tm *TaskManager) CompleteTask(id string, result *TaskResult) bool {
 	if task.Cancel != nil {
 		task.Cancel()
 	}
+	tm.mu.Unlock()
+
+	tm.publishTasks()
+	if tm.eventBus != nil {
+		tm.eventBus.PublishNotification("task_completed", taskTypeName(task.Type)+"完成", map[string]string{"task_id": id})
+	}
 
 	return true
 }
@@ -438,28 +501,30 @@ func (tm *TaskManager) CompleteTask(id string, result *TaskResult) bool {
 // SetTaskResult 设置任务结果
 func (tm *TaskManager) SetTaskResult(id string, result *TaskResult) bool {
 	tm.mu.Lock()
-	defer tm.mu.Unlock()
-
 	task, ok := tm.tasks[id]
 	if !ok {
+		tm.mu.Unlock()
 		return false
 	}
 
 	task.Result = result
+	tm.mu.Unlock()
+
+	tm.publishTasks()
 	return true
 }
 
 // CancelTask 取消任务
 func (tm *TaskManager) CancelTask(id string) bool {
 	tm.mu.Lock()
-	defer tm.mu.Unlock()
-
 	task, ok := tm.tasks[id]
 	if !ok {
+		tm.mu.Unlock()
 		return false
 	}
 
 	if task.Status != TaskStatusQueued && task.Status != TaskStatusRunning {
+		tm.mu.Unlock()
 		return false
 	}
 
@@ -468,15 +533,18 @@ func (tm *TaskManager) CancelTask(id string) bool {
 	task.Cancel()
 	now := time.Now()
 	task.EndedAt = &now
+	tm.mu.Unlock()
 
+	tm.publishTasks()
+	if tm.eventBus != nil {
+		tm.eventBus.PublishNotification("task_cancelled", taskTypeName(task.Type)+"已取消", map[string]string{"task_id": id})
+	}
 	return true
 }
 
 // CancelAllTasks 取消所有正在运行或排队中的任务
 func (tm *TaskManager) CancelAllTasks() {
 	tm.mu.Lock()
-	defer tm.mu.Unlock()
-
 	now := time.Now()
 	for _, task := range tm.tasks {
 		if task.Status == TaskStatusQueued || task.Status == TaskStatusRunning {
@@ -486,6 +554,9 @@ func (tm *TaskManager) CancelAllTasks() {
 			task.EndedAt = &now
 		}
 	}
+	tm.mu.Unlock()
+
+	tm.publishTasks()
 }
 
 // Close 停止后台清理 goroutine
@@ -513,8 +584,6 @@ func (tm *TaskManager) cleanupLoop() {
 // cleanup 清理 8 小时前的已完成任务
 func (tm *TaskManager) cleanup() {
 	tm.mu.Lock()
-	defer tm.mu.Unlock()
-
 	cutoff := time.Now().Add(-8 * time.Hour)
 	for id, task := range tm.tasks {
 		if task.Status == TaskStatusCompleted || task.Status == TaskStatusFailed || task.Status == TaskStatusCancelled {
@@ -523,6 +592,9 @@ func (tm *TaskManager) cleanup() {
 			}
 		}
 	}
+	tm.mu.Unlock()
+
+	tm.publishTasks()
 }
 
 func generateTaskID() string {

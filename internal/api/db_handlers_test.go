@@ -33,7 +33,7 @@ func createTestServer(t *testing.T) (*Server, *sqlx.DB) {
 	db := setupTestDB(t)
 	server := &Server{
 		db:          db,
-		taskManager: NewTaskManager(),
+		taskManager: NewTaskManager(nil),
 	}
 	t.Cleanup(server.taskManager.Close)
 	return server, db

@@ -1,4 +1,26 @@
 // ============================================
+// Utility Functions
+// ============================================
+function debounce(fn, delay) {
+  let timer = null;
+  return function(...args) {
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(() => { timer = null; fn.apply(this, args); }, delay);
+  };
+}
+
+function glowNewFirstItem(panelId) {
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    const panel = document.getElementById(panelId);
+    if (!panel) return;
+    const first = panel.querySelector('.config-group');
+    if (!first) return;
+    first.classList.add('glow-new-item');
+    first.addEventListener('animationend', () => first.classList.remove('glow-new-item'), { once: true });
+  }));
+}
+
+// ============================================
 // Search Input Helpers
 // ============================================
 function updateSearchState(stateKey, subKey, value) {
@@ -98,6 +120,10 @@ const store = {
 
   subscribe(fn) {
     this.listeners.push(fn);
+    return () => {
+      const idx = this.listeners.indexOf(fn);
+      if (idx !== -1) this.listeners.splice(idx, 1);
+    };
   },
 
   setState(newState) {
@@ -111,11 +137,25 @@ const store = {
 // ============================================
 const api = {
   base: '',
+  _abortController: null,
+
+  abortAll() {
+    if (this._abortController) {
+      this._abortController.abort();
+      this._abortController = null;
+    }
+  },
+
+  _getAbortSignal() {
+    if (!this._abortController) this._abortController = new AbortController();
+    return this._abortController.signal;
+  },
   
   async request(method, path, body = null) {
     const options = {
       method,
-      headers: { 'Content-Type': 'application/json' }
+      headers: { 'Content-Type': 'application/json' },
+      signal: this._getAbortSignal()
     };
     if (body) options.body = JSON.stringify(body);
     
@@ -242,25 +282,83 @@ const sseManager = {
 
     this.conn.onopen = () => {
       store.setState({ sseConnected: true });
+      this._updateIndicator(true);
+      if (this.reconnectAttempts > 0) {
+        this.refreshCurrentPage();
+      }
     };
 
-    this.conn.onmessage = (e) => {
+    const debouncedTasksUpdate = debounce((tasks) => {
+      store.setState({ tasks });
+    }, 100);
+
+    this.conn.addEventListener('tasks', (e) => {
       try {
         const tasks = JSON.parse(e.data);
-        store.setState({ tasks });
+        debouncedTasksUpdate(tasks);
         this.reconnectDelay = this.baseReconnectDelay;
         this.reconnectAttempts = 0;
       } catch (err) {
-        console.warn('SSE parse error:', err);
+        console.warn('SSE tasks parse error:', err);
       }
-    };
+    });
+
+    const debouncedSchedulesUpdate = debounce((data) => {
+      const entries = data.entries || [];
+      const update = {
+        _schedules: entries,
+        _schedulerRunning: !!data.scheduler_running,
+      };
+      if (entries.length > 0) {
+        update._scheduleFormItems = entries.map(s => scheduleStatusToFormItem(s));
+      }
+      store.setState(update);
+    }, 100);
+
+    this.conn.addEventListener('schedules', (e) => {
+      try {
+        const data = JSON.parse(e.data);
+        debouncedSchedulesUpdate(data);
+      } catch (err) {
+        console.warn('SSE schedules parse error:', err);
+      }
+    });
+
+    this.conn.addEventListener('notification', (e) => {
+      try {
+        const notif = JSON.parse(e.data);
+        const type = notif.type === 'task_completed' ? 'success' :
+                     notif.type === 'task_failed' ? 'error' :
+                     notif.type === 'task_cancelled' ? 'warning' :
+                     notif.type === 'schedule_warning' ? 'warning' : 'success';
+        toast.show(notif.message, type);
+      } catch (err) {
+        console.warn('SSE notification parse error:', err);
+      }
+    });
+
+    this.conn.addEventListener('server_shutdown', (e) => {
+      try {
+        const data = JSON.parse(e.data);
+        handleServerShutdown(data.message);
+      } catch (err) {
+        handleServerShutdown('服务器正在关闭');
+      }
+    });
 
     this.conn.onerror = () => {
       this.conn.close();
       this.conn = null;
       store.setState({ sseConnected: false });
+      this._updateIndicator(false);
       if (this.reconnectDisabled) return;
+      if (store.state.currentPage === 'shutdown') return;
       this.reconnectAttempts++;
+      if (this.reconnectAttempts >= 10 && this.reconnectAttempts % 5 === 0) {
+        api.getHealth().catch(() => {
+          handleServerShutdown('服务器连接丢失');
+        });
+      }
       const delay = Math.min(this.baseReconnectDelay * Math.pow(2, this.reconnectAttempts - 1), this.maxReconnectDelay);
       console.warn(`[SSE] 连接断开，${delay / 1000}s 后重试（第 ${this.reconnectAttempts} 次）`);
       this.reconnectTimer = setTimeout(() => {
@@ -282,11 +380,26 @@ const sseManager = {
       this.conn = null;
     }
     store.setState({ sseConnected: false });
+    this._updateIndicator(false);
   },
 
   resume() {
     this.reconnectDisabled = false;
     this.connect();
+  },
+
+  _updateIndicator(connected) {
+    const el = document.getElementById('sseIndicator');
+    if (!el) return;
+    el.classList.toggle('connected', connected);
+    el.title = connected ? '实时连接正常' : '实时连接已断开';
+  },
+
+  refreshCurrentPage() {
+    const page = store.state.currentPage;
+    if (page === 'schedules' || (page === 'system' && store.state._systemTab === 'schedules')) {
+      loadSchedules();
+    }
   }
 };
 
@@ -298,7 +411,7 @@ const toast = {
   maxToasts: 3,
   
   show(message, type = 'success', title = '') {
-    // 限制最多显示3条消息
+    if (!this.container) return;
     const existingToasts = this.container.querySelectorAll('.toast');
     if (existingToasts.length >= this.maxToasts) {
       // 移除最旧的消息（第一个）
@@ -1480,7 +1593,6 @@ async function handleQuickDownload() {
     await api.createUserDownload(username, { auto_follow: true });
     toast.show(`已创建用户下载任务: @${username}`);
     input.value = '';
-    refreshTasks();
   } catch (err) {
     toast.show(err.message, 'error');
   }
@@ -1498,7 +1610,6 @@ async function createUserTask() {
     });
     toast.show('用户下载任务已创建');
     document.getElementById('userScreenName').value = '';
-    refreshTasks();
   } catch (err) {
     toast.show(err.message, 'error');
   }
@@ -1512,7 +1623,6 @@ async function createProfileTask() {
     await api.createProfileDownload(screenName);
     toast.show('Profile 下载任务已创建');
     document.getElementById('userScreenName').value = '';
-    refreshTasks();
   } catch (err) {
     toast.show(err.message, 'error');
   }
@@ -1530,7 +1640,6 @@ async function createListTask() {
     });
     toast.show('列表下载任务已创建');
     document.getElementById('listId').value = '';
-    refreshTasks();
   } catch (err) {
     toast.show(err.message, 'error');
   }
@@ -1544,7 +1653,6 @@ async function createListProfileTask() {
     await api.createListProfile(listId);
     toast.show('列表 Profile 任务已创建');
     document.getElementById('listId').value = '';
-    refreshTasks();
   } catch (err) {
     toast.show(err.message, 'error');
   }
@@ -1562,7 +1670,6 @@ async function createFollowingTask() {
     });
     toast.show('关注下载任务已创建');
     document.getElementById('followingScreenName').value = '';
-    refreshTasks();
   } catch (err) {
     toast.show(err.message, 'error');
   }
@@ -1597,7 +1704,6 @@ async function createMarkTask() {
     document.getElementById('markLists').value = '';
     document.getElementById('markFollowingNames').value = '';
     document.getElementById('markTimestamp').value = '';
-    refreshTasks();
 
     if (failedResults.length > 0) {
       toast.show(`已创建 ${successCount} 个标记任务，${failedResults.length} 个失败`, 'warning');
@@ -1632,7 +1738,6 @@ async function createBatchTask() {
     document.getElementById('batchUsers').value = '';
     document.getElementById('batchLists').value = '';
     document.getElementById('batchFollowingNames').value = '';
-    refreshTasks();
   } catch (err) {
     toast.show(err.message, 'error');
   }
@@ -1648,7 +1753,6 @@ async function createJsonFileTask() {
       no_retry: document.getElementById('jsonFileNoRetry').checked
     });
     toast.show('JSON 文件任务已创建');
-    refreshTasks();
   } catch (err) {
     toast.show(err.message, 'error');
   }
@@ -1664,7 +1768,6 @@ async function createJsonFolderTask() {
       no_retry: document.getElementById('jsonFolderNoRetry').checked
     });
     toast.show('LoongTweet 任务已创建');
-    refreshTasks();
   } catch (err) {
     toast.show(err.message, 'error');
   }
@@ -2125,16 +2228,16 @@ function renderScheduleForm(items, saving, exists) {
           自动关注
         </label>
         <label style="display:flex;align-items:center;gap:4px;font-size:13px;cursor:pointer;">
-          <input type="checkbox" id="sf_run_on_start_${idx}" ${item.run_on_start ? 'checked' : ''} style="margin:0">
-          启动后立即运行
-        </label>
-        <label style="display:flex;align-items:center;gap:4px;font-size:13px;cursor:pointer;">
           <input type="checkbox" id="sf_skip_profile_${idx}" ${item.skip_profile ? 'checked' : ''} style="margin:0">
           跳过 Profile
         </label>
         <label style="display:flex;align-items:center;gap:4px;font-size:13px;cursor:pointer;">
           <input type="checkbox" id="sf_no_retry_${idx}" ${item.no_retry ? 'checked' : ''} style="margin:0">
           不重试
+        </label>
+        <label style="display:flex;align-items:center;gap:4px;font-size:13px;cursor:pointer;">
+          <input type="checkbox" id="sf_run_on_start_${idx}" ${item.run_on_start ? 'checked' : ''} style="margin:0">
+          启动后立即运行
         </label>
       </div>
     </div>
@@ -2268,11 +2371,14 @@ async function loadSchedules() {
   try {
     const data = await api.getSchedules();
     const entries = data.entries || [];
-    store.setState({
+    const update = {
       _schedules: entries,
-      _scheduleFormItems: entries.map(s => scheduleStatusToFormItem(s)),
       _schedulerRunning: !!data.scheduler_running,
-    });
+    };
+    if (entries.length > 0) {
+      update._scheduleFormItems = entries.map(s => scheduleStatusToFormItem(s));
+    }
+    store.setState(update);
   } catch (e) { /* ignore */ }
 }
 
@@ -2343,12 +2449,8 @@ async function saveScheduleRaw() {
     }
     await api.updateSchedulesRaw(content);
     toast.show('调度配置已保存并重载');
-    const [schedData, rawData] = await Promise.all([api.getSchedules(), api.getSchedulesRaw()]);
-    const entries = schedData.entries || [];
+    const rawData = await api.getSchedulesRaw();
     store.setState({
-      _schedules: entries,
-      _scheduleFormItems: entries.map(s => scheduleStatusToFormItem(s)),
-      _schedulerRunning: !!schedData.scheduler_running,
       _scheduleRaw: rawData.content || '',
       _scheduleExists: rawData.exists || false,
       _scheduleSaving: false,
@@ -2364,8 +2466,6 @@ async function triggerSchedule(id) {
   try {
     const data = await api.triggerSchedule(id);
     toast.show('已触发定时任务: ' + data.task_id);
-    await sleep(1000);
-    await loadSchedules();
   } catch (e) {
     toast.show('触发失败: ' + e.message, 'error');
   }
@@ -2375,7 +2475,6 @@ async function toggleScheduleEnabled(id, currentEnabled) {
   try {
     await api.setScheduleEnabled(id, !currentEnabled);
     toast.show(currentEnabled ? '已禁用定时任务' : '已启用定时任务');
-    await loadSchedules();
   } catch (e) {
     toast.show('操作失败: ' + e.message, 'error');
   }
@@ -2402,7 +2501,7 @@ function navigateToSystemSchedules() {
 
 function setScheduleTab(tab) {
   if (tab !== 'edit' && scheduleCodeMirror) {
-    scheduleCodeMirror = null;
+    scheduleCodeMirror = destroyCodeMirror(scheduleCodeMirror);
     _scheduleCmInitializing = false;
   }
   store.setState({ _scheduleTab: tab });
@@ -2411,20 +2510,21 @@ function setScheduleTab(tab) {
 }
 
 function addScheduleItem() {
-  const items = [...readScheduleFormItemsFromDOM(), {
+  const items = [{
     id: '',
     type: 'list',
     target: '',
     name: '',
     scheduleMode: 'interval',
-    scheduleValue: '2h',
+    scheduleValue: '8h',
     enabled: true,
     run_on_start: false,
-    auto_follow: true,
+    auto_follow: false,
     skip_profile: false,
     no_retry: false,
-  }];
+  }, ...readScheduleFormItemsFromDOM()];
   store.setState({ _scheduleFormItems: items });
+  glowNewFirstItem('systemSchedulesPanel');
 }
 
 function removeScheduleItem(index) {
@@ -2546,27 +2646,23 @@ async function saveScheduleForm() {
 
   const schedules = items.map(item => ({
     id: item.id || '',
-    type: item.type,
-    target: item.target.trim(),
-    name: item.name.trim(),
-    schedule: `${item.scheduleMode}:${item.scheduleValue.trim()}`,
-    enabled: item.enabled,
-    run_on_start: item.run_on_start,
-    auto_follow: item.auto_follow,
-    skip_profile: item.skip_profile,
-    no_retry: item.no_retry,
+    type: item.type || '',
+    target: (item.target || '').trim(),
+    name: (item.name || '').trim(),
+    schedule: `${item.scheduleMode || 'interval'}:${(item.scheduleValue || '').trim()}`,
+    enabled: item.enabled !== false,
+    run_on_start: !!item.run_on_start,
+    auto_follow: !!item.auto_follow,
+    skip_profile: !!item.skip_profile,
+    no_retry: !!item.no_retry,
   }));
 
   store.setState({ _scheduleFormItems: items, _scheduleSaving: true });
   try {
     await syncScheduleFormChanges(schedules);
     toast.show('调度配置已保存并重载');
-    const [schedData, rawData] = await Promise.all([api.getSchedules(), api.getSchedulesRaw()]);
-    const entries = schedData.entries || [];
+    const rawData = await api.getSchedulesRaw();
     store.setState({
-      _schedules: entries,
-      _scheduleFormItems: entries.map(s => scheduleStatusToFormItem(s)),
-      _schedulerRunning: !!schedData.scheduler_running,
       _scheduleRaw: rawData.content || '',
       _scheduleExists: rawData.exists || false,
       _scheduleSaving: false,
@@ -2577,16 +2673,34 @@ async function saveScheduleForm() {
   }
 }
 
-async function syncScheduleFormChanges(entries) {
-  const existingIds = new Set(
-    (store.state._schedules || [])
-      .map(status => normalizeScheduleEntry(status.entry).id)
-      .filter(Boolean)
+function isScheduleEntryEqual(a, b) {
+  if (!a || !b) return false;
+  return (
+    a.type === b.type &&
+    a.target === b.target &&
+    a.name === b.name &&
+    a.schedule === b.schedule &&
+    a.enabled === b.enabled &&
+    a.run_on_start === b.run_on_start &&
+    a.auto_follow === b.auto_follow &&
+    a.skip_profile === b.skip_profile &&
+    a.no_retry === b.no_retry
   );
+}
+
+async function syncScheduleFormChanges(entries) {
+  const existingEntries = (store.state._schedules || [])
+    .map(status => normalizeScheduleEntry(status.entry));
+  const existingMap = new Map(existingEntries.map(e => [e.id, e]));
+  const existingIds = new Set(existingMap.keys());
   const submittedIds = new Set(entries.map(entry => entry.id).filter(Boolean));
 
   for (const entry of entries) {
     if (entry.id) {
+      const existing = existingMap.get(entry.id);
+      if (existing && isScheduleEntryEqual(existing, entry)) {
+        continue;
+      }
       await api.updateSchedule(entry.id, entry);
     } else {
       await api.createSchedule(entry);
@@ -2643,7 +2757,7 @@ async function initScheduleCodeMirror() {
 }
 
 function syncScheduleTabView() {
-  if (store.state._schedules.length === 0) loadSchedules();
+  if (store.state._schedules.length === 0 && !store.state.sseConnected) loadSchedules();
   if (store.state._scheduleTab === 'edit' && !store.state._scheduleRaw) loadScheduleRaw();
   if (store.state._scheduleTab === 'edit' && !scheduleCodeMirror) requestAnimationFrame(() => requestAnimationFrame(initScheduleCodeMirror));
 }
@@ -2660,18 +2774,6 @@ function renderServerClosedState() {
 
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
-}
-
-async function waitForServerShutdown(maxAttempts = 8, intervalMs = 300) {
-  for (let i = 0; i < maxAttempts; i++) {
-    await sleep(intervalMs);
-    try {
-      await api.getHealth();
-    } catch (_) {
-      return true;
-    }
-  }
-  return false;
 }
 
 async function saveConfigForm() {
@@ -2787,15 +2889,16 @@ async function saveCookies() {
 
 function setCookiesMode(mode) {
   if (mode !== 'raw' && cookiesCodeMirror) {
-    cookiesCodeMirror = null;
+    cookiesCodeMirror = destroyCodeMirror(cookiesCodeMirror);
   }
   store.setState({ cookiesMode: mode });
   if (mode === 'raw' && !store.state.cookiesRaw) loadCookiesRaw();
 }
 
 function addCookieAccount() {
-  const items = [...store.state.cookieItems, { index: store.state.cookieItems.length, auth_token: '', ct0: '' }];
+  const items = [{ index: store.state.cookieItems.length, auth_token: '', ct0: '' }, ...store.state.cookieItems];
   store.setState({ cookieItems: items });
+  glowNewFirstItem('systemCookiesPanel');
 }
 
 function removeCookieAccount(index) {
@@ -2809,33 +2912,29 @@ async function shutdownServer() {
   }
 
   toast.show('正在关闭服务器...', 'warning');
-
-  const shouldRestoreLogAutoRefresh = store.state.logAutoRefresh;
   cleanupSystemTimers();
-  sseManager.disconnect();
 
   try {
     await api.shutdownServer();
-    renderServerClosedState();
   } catch (err) {
-    const stopped = await waitForServerShutdown();
-    if (stopped) {
-      renderServerClosedState();
-      return;
-    }
-
-    if (shouldRestoreLogAutoRefresh) {
-      store.setState({ logAutoRefresh: true });
-      startLogStream();
-    }
-    sseManager.resume();
-    toast.show('关闭失败: ' + err.message, 'error');
+    sseManager.disconnect();
+    renderServerClosedState();
   }
+}
+
+function handleServerShutdown(message) {
+  api.abortAll();
+  sseManager.disconnect();
+  configCodeMirror = destroyCodeMirror(configCodeMirror);
+  cookiesCodeMirror = destroyCodeMirror(cookiesCodeMirror);
+  scheduleCodeMirror = destroyCodeMirror(scheduleCodeMirror);
+  _scheduleCmInitializing = false;
+  renderServerClosedState();
 }
 
 function setConfigMode(mode) {
   if (mode !== 'raw' && configCodeMirror) {
-    configCodeMirror = null;
+    configCodeMirror = destroyCodeMirror(configCodeMirror);
   }
   store.setState({ configMode: mode });
   if (mode === 'raw' && !store.state.configRaw) loadConfigRaw();
@@ -2876,13 +2975,16 @@ let logStreamConn = null;
 let configCodeMirror = null;
 let cookiesCodeMirror = null;
 
+let _cmWaitCancelled = false;
+
 function waitForCodeMirror(maxWait) {
+  _cmWaitCancelled = false;
   if (typeof CodeMirror !== 'undefined') return Promise.resolve(true);
   return new Promise(resolve => {
     const start = Date.now();
     const check = () => {
-      if (typeof CodeMirror !== 'undefined' || Date.now() - start > maxWait) {
-        resolve(typeof CodeMirror !== 'undefined');
+      if (_cmWaitCancelled || typeof CodeMirror !== 'undefined' || Date.now() - start > maxWait) {
+        resolve(!_cmWaitCancelled && typeof CodeMirror !== 'undefined');
       } else {
         setTimeout(check, 100);
       }
@@ -2923,6 +3025,12 @@ function initCodeMirror(containerId, content, mode) {
   return cm;
 }
 
+function destroyCodeMirror(editor) {
+  if (!editor) return null;
+  if (typeof editor.toTextArea === 'function') editor.toTextArea();
+  return null;
+}
+
 function getEditorValue(editor, fallback = '') {
   if (!editor) return fallback || '';
   if (typeof editor.getValue === 'function') return editor.getValue();
@@ -2956,6 +3064,7 @@ function toggleLogAutoRefresh() {
 }
 
 function cleanupSystemTimers() {
+  _cmWaitCancelled = true;
   if (logAutoRefreshTimer) {
     clearTimeout(logAutoRefreshTimer);
     logAutoRefreshTimer = null;
@@ -3156,7 +3265,13 @@ function updateURL(page, dataSubPage = null) {
 }
 
 function navigateTo(page) {
-  if (lastPage === 'system' && page !== 'system') cleanupSystemTimers();
+  if (lastPage === 'system' && page !== 'system') {
+    cleanupSystemTimers();
+    configCodeMirror = destroyCodeMirror(configCodeMirror);
+    cookiesCodeMirror = destroyCodeMirror(cookiesCodeMirror);
+    scheduleCodeMirror = destroyCodeMirror(scheduleCodeMirror);
+    _scheduleCmInitializing = false;
+  }
   store.setState({ currentPage: page });
   
   // Update URL
@@ -3187,7 +3302,13 @@ function navigateTo(page) {
 // Handle browser back/forward buttons
 window.onpopstate = (event) => {
   const { page, dataSubPage } = parseRoute();
-  if (lastPage === 'system' && page !== 'system') cleanupSystemTimers();
+  if (lastPage === 'system' && page !== 'system') {
+    cleanupSystemTimers();
+    configCodeMirror = destroyCodeMirror(configCodeMirror);
+    cookiesCodeMirror = destroyCodeMirror(cookiesCodeMirror);
+    scheduleCodeMirror = destroyCodeMirror(scheduleCodeMirror);
+    _scheduleCmInitializing = false;
+  }
   
   if (page === 'data' && dataSubPage !== store.state.dataSubPage) {
     store.setState({ 
@@ -3484,7 +3605,7 @@ store.subscribe((state) => {
         rerenderSystemPanel(
           'systemConfigPanel',
           renderConfigEditor,
-          () => { configCodeMirror = null; },
+          () => { configCodeMirror = destroyCodeMirror(configCodeMirror); },
           state.configMode === 'raw' ? initConfigCodeMirror : null
         );
       }
@@ -3497,7 +3618,7 @@ store.subscribe((state) => {
         rerenderSystemPanel(
           'systemCookiesPanel',
           renderCookiesEditor,
-          () => { cookiesCodeMirror = null; },
+          () => { cookiesCodeMirror = destroyCodeMirror(cookiesCodeMirror); },
           state.cookiesMode === 'raw' ? initCookiesCodeMirror : null
         );
       }
@@ -3523,7 +3644,7 @@ store.subscribe((state) => {
         rerenderSystemPanel(
           'systemSchedulesPanel',
           renderScheduleViewer,
-          () => { scheduleCodeMirror = null; _scheduleCmInitializing = false; },
+          () => { scheduleCodeMirror = destroyCodeMirror(scheduleCodeMirror); _scheduleCmInitializing = false; },
           state._scheduleTab === 'edit' ? initScheduleCodeMirror : null
         );
       }

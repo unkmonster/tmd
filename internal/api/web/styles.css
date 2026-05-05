@@ -321,6 +321,31 @@ ul, ol {
   gap: var(--space-2);
 }
 
+.sse-indicator {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 8px;
+  border-radius: var(--radius-md);
+  cursor: default;
+  transition: background 0.2s;
+}
+.sse-indicator:hover {
+  background: var(--bg-tertiary);
+}
+.sse-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--danger);
+  transition: background 0.3s;
+}
+.sse-indicator.connected .sse-dot {
+  background: var(--success);
+}
+.sse-indicator.connected {
+  /* 连接状态样式由 .sse-dot 控制 */
+}
+
 /* Content Container */
 .content-container {
   flex: 1;
@@ -1145,6 +1170,30 @@ ul, ol {
   to { opacity: 1; }
 }
 
+@keyframes glowPulse {
+  0% { opacity: 0; transform: scaleY(0.8); }
+  15% { opacity: 1; transform: scaleY(1); }
+  80% { opacity: 1; transform: scaleY(1); }
+  100% { opacity: 0; transform: scaleY(0.8); }
+}
+
+.glow-new-item {
+  position: relative;
+}
+
+.glow-new-item::before {
+  content: '';
+  position: absolute;
+  left: -12px;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: var(--accent-primary);
+  border-radius: 2px;
+  opacity: 0;
+  animation: glowPulse 1.2s ease-out forwards;
+}
+
 /* Loading Skeleton */
 .skeleton {
   background: linear-gradient(90deg, var(--bg-tertiary) 25%, var(--bg-elevated) 50%, var(--bg-tertiary) 75%);
@@ -1509,6 +1558,7 @@ ul, ol {
 }
 
 .config-group {
+  position: relative;
   margin-bottom: var(--space-5);
 }
 

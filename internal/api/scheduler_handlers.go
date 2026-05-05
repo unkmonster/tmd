@@ -320,13 +320,7 @@ func (s *Server) handleReloadSchedules(w http.ResponseWriter, _ *http.Request) {
 	s.schedulesMu.Lock()
 	defer s.schedulesMu.Unlock()
 
-	sched := s.getScheduler()
-	if sched == nil {
-		s.writeError(w, http.StatusBadRequest, "Scheduler not initialized")
-		return
-	}
-
-	if err := sched.Reload(); err != nil {
+	if err := s.reloadSchedulesLocked(filepath.Join(s.appRootPath, "schedules.yaml")); err != nil {
 		s.writeError(w, http.StatusInternalServerError, "Failed to reload schedules: "+err.Error())
 		return
 	}
@@ -408,6 +402,7 @@ func (s *Server) reloadSchedulesLocked(schedulesPath string) error {
 	if err != nil {
 		return fmt.Errorf("scheduler initialization failed: %w", err)
 	}
+	newSched.OnStatusChange = s.handleScheduleStatusChange
 
 	s.schedulerMu.Lock()
 	if s.scheduler == nil {
@@ -418,6 +413,7 @@ func (s *Server) reloadSchedulesLocked(schedulesPath string) error {
 	}
 	existingSched := s.scheduler
 	s.schedulerMu.Unlock()
+	existingSched.OnStatusChange = s.handleScheduleStatusChange
 	return existingSched.Reload()
 }
 

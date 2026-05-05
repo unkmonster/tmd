@@ -42,6 +42,7 @@ type Server struct {
 	schedulesMu       sync.Mutex
 	schedulerMu       sync.RWMutex
 	scheduler         *scheduler.Scheduler
+	eventBus          *EventBus
 }
 
 func NewServer(client *resty.Client, additionalClients []*resty.Client, db *sqlx.DB, config *config.Config, appRootPath string, logWriter io.Closer) *Server {
@@ -53,6 +54,8 @@ func NewServerWithConsoleLogHub(client *resty.Client, additionalClients []*resty
 		logHub = consolelog.DefaultHub()
 	}
 
+	eventBus := NewEventBus()
+
 	s := &Server{
 		client:            client,
 		additionalClients: additionalClients,
@@ -61,9 +64,10 @@ func NewServerWithConsoleLogHub(client *resty.Client, additionalClients []*resty
 		appRootPath:       appRootPath,
 		logWriter:         logWriter,
 		logHub:            logHub,
-		taskManager:       NewTaskManager(),
+		taskManager:       NewTaskManager(eventBus),
 		downloadTaskSlots: make(chan struct{}, maxConcurrentDownloadTasks),
 		shutdownDone:      make(chan struct{}),
+		eventBus:          eventBus,
 	}
 
 	downloadService, err := service.NewDownloadService(&service.Dependencies{
@@ -82,6 +86,7 @@ func NewServerWithConsoleLogHub(client *resty.Client, additionalClients []*resty
 	if err != nil {
 		log.Warnf("[scheduler] Failed to initialize scheduler: %v", err)
 	} else {
+		sched.OnStatusChange = s.handleScheduleStatusChange
 		s.scheduler = sched
 	}
 
@@ -264,6 +269,11 @@ func (s *Server) WaitForShutdown() {
 
 func (s *Server) GracefulShutdown(reason string) {
 	s.shutdownOnce.Do(func() {
+		if s.eventBus != nil {
+			s.eventBus.PublishServerShutdown("服务器正在关闭: " + reason)
+			time.Sleep(100 * time.Millisecond)
+		}
+
 		log.Infof("[server] graceful shutdown started (reason: %s)", reason)
 
 		if s.taskManager != nil {
@@ -308,4 +318,29 @@ func (s *Server) GracefulShutdown(reason string) {
 		log.Infoln("[server] shutdown complete")
 		close(s.shutdownDone)
 	})
+}
+
+func (s *Server) handleScheduleStatusChange(statuses []scheduler.ScheduleStatus) {
+	if s.eventBus == nil {
+		return
+	}
+	sched := s.getScheduler()
+	schedulerRunning := sched != nil && sched.IsRunning()
+	s.eventBus.Publish("schedules", map[string]interface{}{
+		"scheduler_running": schedulerRunning,
+		"entries":           statuses,
+	})
+
+	for _, st := range statuses {
+		if st.ConsecutiveFailures == 1 || (st.ConsecutiveFailures >= 3 && st.ConsecutiveFailures%3 == 0) {
+			s.eventBus.PublishNotification(
+				"schedule_warning",
+				fmt.Sprintf("调度 %q 连续失败 %d 次", st.Entry.Name, st.ConsecutiveFailures),
+				map[string]interface{}{
+					"schedule_id":          st.Entry.ID,
+					"consecutive_failures": st.ConsecutiveFailures,
+				},
+			)
+		}
+	}
 }
