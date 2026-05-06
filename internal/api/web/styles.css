@@ -643,6 +643,12 @@ ul, ol {
   font-size: var(--text-sm);
 }
 
+.data-table thead {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
 .data-table th,
 .data-table td {
   padding: var(--space-3) var(--space-4);
@@ -657,14 +663,82 @@ ul, ol {
   font-size: var(--text-xs);
   text-transform: uppercase;
   letter-spacing: 0.5px;
+  white-space: nowrap;
 }
 
-.data-table tr:hover td {
-  background: var(--bg-tertiary);
+.data-table td {
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.data-table td:last-child {
+  max-width: none;
+}
+
+.data-table tbody tr {
+  transition: background var(--duration-fast);
+}
+
+.data-table tbody tr:nth-child(even) td {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.data-table tbody tr:hover td {
+  background: var(--bg-elevated);
 }
 
 .data-table tr:last-child td {
   border-bottom: none;
+}
+
+.data-table th[data-sort-field] {
+  cursor: pointer;
+  user-select: none;
+}
+
+.data-table th[data-sort-field]:hover {
+  color: var(--accent-primary);
+}
+
+.data-table th.sort-active {
+  color: var(--accent-primary);
+}
+
+.sort-icon {
+  font-size: 10px;
+  opacity: 0.4;
+  margin-left: 4px;
+}
+
+.sort-icon.sort-active {
+  opacity: 1;
+  color: var(--accent-primary);
+}
+
+.table-scroll-container {
+  max-height: calc(100vh - 280px);
+  overflow-y: auto;
+  overflow-x: auto;
+}
+
+.table-scroll-container::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.table-scroll-container::-webkit-scrollbar-track {
+  background: var(--bg-secondary);
+}
+
+.table-scroll-container::-webkit-scrollbar-thumb {
+  background: var(--border-secondary);
+  border-radius: 3px;
+}
+
+.table-scroll-container::-webkit-scrollbar-thumb:hover {
+  background: var(--text-tertiary);
 }
 
 /* Pagination */
@@ -1289,7 +1363,11 @@ ul, ol {
   .data-table {
     display: none;
   }
-  
+
+  .table-scroll-container {
+    display: none;
+  }
+
   .mobile-card-list {
     display: flex;
     flex-direction: column;
@@ -1301,6 +1379,11 @@ ul, ol {
     border: 1px solid var(--border-primary);
     border-radius: var(--radius-lg);
     padding: var(--space-4);
+    transition: border-color var(--duration-fast);
+  }
+
+  .mobile-card:active {
+    border-color: var(--border-secondary);
   }
   
   .task-item {

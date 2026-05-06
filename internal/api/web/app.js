@@ -63,18 +63,18 @@ const store = {
     taskSearch: '',
     // Database pagination state
     dbData: {
-      users: { data: [], total: 0, page: 1, pageSize: 20 },
-      lists: { data: [], total: 0, page: 1, pageSize: 20 },
-      entities: { data: [], total: 0, page: 1, pageSize: 20 },
-      listEntities: { data: [], total: 0, page: 1, pageSize: 20 },
-      userLinks: { data: [], total: 0, page: 1, pageSize: 20 }
+      users: { data: [], total: 0, page: 1, pageSize: 200 },
+      lists: { data: [], total: 0, page: 1, pageSize: 200 },
+      entities: { data: [], total: 0, page: 1, pageSize: 200 },
+      listEntities: { data: [], total: 0, page: 1, pageSize: 200 },
+      userLinks: { data: [], total: 0, page: 1, pageSize: 200 }
     },
     dbPagination: {
-      users: { page: 1, pageSize: 20, totalPages: 1 },
-      lists: { page: 1, pageSize: 20, totalPages: 1 },
-      entities: { page: 1, pageSize: 20, totalPages: 1 },
-      listEntities: { page: 1, pageSize: 20, totalPages: 1 },
-      userLinks: { page: 1, pageSize: 20, totalPages: 1 }
+      users: { page: 1, pageSize: 200, totalPages: 1 },
+      lists: { page: 1, pageSize: 200, totalPages: 1 },
+      entities: { page: 1, pageSize: 200, totalPages: 1 },
+      listEntities: { page: 1, pageSize: 200, totalPages: 1 },
+      userLinks: { page: 1, pageSize: 200, totalPages: 1 }
     },
     dbSort: {
       users: { sortBy: 'id', sortOrder: 'desc' },
@@ -635,7 +635,7 @@ const pages = {
     };
     
     const current = dataMap[dataSubPage];
-    const pagination = dbPagination[dataSubPage] || { page: 1, pageSize: 20, totalPages: 1 };
+    const pagination = dbPagination[dataSubPage] || { page: 1, pageSize: 200, totalPages: 1 };
     const sort = dbSort[dataSubPage] || { sortBy: 'id', sortOrder: 'desc' };
     
     return `
@@ -659,7 +659,10 @@ const pages = {
         </div>
         
         <div class="card-body" style="padding: 0;">
-          ${renderDBTable(dataSubPage, current.data, sort)}
+          <div class="table-scroll-container">
+            ${renderDBTable(dataSubPage, current.data, sort)}
+          </div>
+          ${renderDBMobileCards(dataSubPage, current.data)}
         </div>
         
         <div class="pagination">
@@ -1032,7 +1035,7 @@ jsonfolder: `
   return forms[type] || forms.user;
 }
 
-// Database Table Renderer with sorting, actions and mobile support
+// Database Table Renderer with sorting and actions
 function renderDBTable(type, data, sort) {
   if (!data || data.length === 0) {
     return `
@@ -1045,30 +1048,22 @@ function renderDBTable(type, data, sort) {
   }
 
   const sortIcon = (field) => {
-    if (sort.sortBy !== field) return '↕️';
-    return sort.sortOrder === 'asc' ? '↑' : '↓';
+    if (sort.sortBy !== field) return '<span class="sort-icon">↕</span>';
+    return sort.sortOrder === 'asc'
+      ? '<span class="sort-icon sort-active">↑</span>'
+      : '<span class="sort-icon sort-active">↓</span>';
   };
 
   const sortableHeader = (field, label) => `
-    <th data-sort-field="${escapeAttr(field)}" onclick="sortDB(this.dataset.sortField)" style="cursor: pointer; user-select: none;">
+    <th data-sort-field="${escapeAttr(field)}" class="${sort.sortBy === field ? 'sort-active' : ''}" onclick="sortDB(this.dataset.sortField)">
       ${label} ${sortIcon(field)}
     </th>
   `;
 
-  const columns = {
-    users: ['ID', 'Screen Name', 'Name', 'Protected', 'Accessible', 'Friends', 'Actions'],
-    lists: ['ID', 'Name', 'Owner ID', 'Actions'],
-    entities: ['ID', 'User ID', 'Name', 'Latest Release', 'Media Count', 'Actions'],
-    listEntities: ['ID', 'List ID', 'Name', 'Parent Dir', 'Actions'],
-    userLinks: ['ID', 'User ID', 'Name', 'Parent Entity', 'Actions']
-  };
-
   const renderActionButtons = (type, item) => {
-    // userLinks 是关联表，不支持手动编辑/删除
     if (type === 'userLinks') {
       return '<span style="color: var(--text-tertiary);">-</span>';
     }
-    // 将 ID 作为字符串传递，避免 JavaScript 大整数精度丢失
     const idStr = String(item.id);
     return `
       <div class="flex gap-2">
@@ -1124,8 +1119,65 @@ function renderDBTable(type, data, sort) {
     }
   }).join('');
 
-  // Mobile card view
-  const mobileCards = data.map(item => {
+  return `
+    <table class="data-table">
+      <thead>
+        <tr>
+          ${type === 'users' ? `
+            ${sortableHeader('id', 'ID')}
+            ${sortableHeader('screen_name', 'Screen Name')}
+            ${sortableHeader('name', 'Name')}
+            <th>Protected</th>
+            <th>Accessible</th>
+            ${sortableHeader('friends_count', 'Friends')}
+            <th>Actions</th>
+          ` : type === 'lists' ? `
+            ${sortableHeader('id', 'ID')}
+            ${sortableHeader('name', 'Name')}
+            ${sortableHeader('owner_id', 'Owner ID')}
+            <th>Actions</th>
+          ` : type === 'entities' ? `
+            ${sortableHeader('id', 'ID')}
+            ${sortableHeader('user_id', 'User ID')}
+            ${sortableHeader('name', 'Name')}
+            ${sortableHeader('latest_release_time', 'Latest Release')}
+            ${sortableHeader('media_count', 'Media Count')}
+            <th>Actions</th>
+          ` : type === 'listEntities' ? `
+            ${sortableHeader('id', 'ID')}
+            ${sortableHeader('lst_id', 'List ID')}
+            ${sortableHeader('name', 'Name')}
+            <th>Parent Dir</th>
+            <th>Actions</th>
+          ` : `
+            ${sortableHeader('id', 'ID')}
+            ${sortableHeader('user_id', 'User ID')}
+            ${sortableHeader('name', 'Name')}
+            <th>Parent Entity</th>
+            <th>Actions</th>
+          `}
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+  `;
+}
+
+function renderDBMobileCards(type, data) {
+  if (!data || data.length === 0) return '';
+
+  const renderActionButtons = (type, item) => {
+    if (type === 'userLinks') return '';
+    const idStr = String(item.id);
+    return `
+      <div class="flex gap-2">
+        <button class="btn btn-ghost btn-sm" data-db-type="${escapeAttr(type)}" data-db-id="${escapeAttr(idStr)}" onclick="editDBItem(this.dataset.dbType, this.dataset.dbId)">✏️</button>
+        <button class="btn btn-danger btn-sm" data-db-type="${escapeAttr(type)}" data-db-id="${escapeAttr(idStr)}" onclick="deleteDBItem(this.dataset.dbType, this.dataset.dbId)">🗑️</button>
+      </div>
+    `;
+  };
+
+  const cards = data.map(item => {
     if (type === 'users') {
       return `
         <div class="mobile-card">
@@ -1188,51 +1240,7 @@ function renderDBTable(type, data, sort) {
     }
   }).join('');
 
-  return `
-    <table class="data-table">
-      <thead>
-        <tr>
-          ${type === 'users' ? `
-            ${sortableHeader('id', 'ID')}
-            ${sortableHeader('screen_name', 'Screen Name')}
-            ${sortableHeader('name', 'Name')}
-            <th>Protected</th>
-            <th>Accessible</th>
-            ${sortableHeader('friends_count', 'Friends')}
-            <th>Actions</th>
-          ` : type === 'lists' ? `
-            ${sortableHeader('id', 'ID')}
-            ${sortableHeader('name', 'Name')}
-            ${sortableHeader('owner_id', 'Owner ID')}
-            <th>Actions</th>
-          ` : type === 'entities' ? `
-            ${sortableHeader('id', 'ID')}
-            ${sortableHeader('user_id', 'User ID')}
-            ${sortableHeader('name', 'Name')}
-            ${sortableHeader('latest_release_time', 'Latest Release')}
-            ${sortableHeader('media_count', 'Media Count')}
-            <th>Actions</th>
-          ` : type === 'listEntities' ? `
-            ${sortableHeader('id', 'ID')}
-            ${sortableHeader('lst_id', 'List ID')}
-            ${sortableHeader('name', 'Name')}
-            <th>Parent Dir</th>
-            <th>Actions</th>
-          ` : `
-            ${sortableHeader('id', 'ID')}
-            ${sortableHeader('user_id', 'User ID')}
-            ${sortableHeader('name', 'Name')}
-            <th>Parent Entity</th>
-            <th>Actions</th>
-          `}
-        </tr>
-      </thead>
-      <tbody>${rows}</tbody>
-    </table>
-    <div class="mobile-card-list">
-      ${mobileCards}
-    </div>
-  `;
+  return `<div class="mobile-card-list">${cards}</div>`;
 }
 
 function renderPageNumbers(currentPage, totalPages, onClickHandler = 'goToDBPage') {
@@ -1306,14 +1314,14 @@ async function refreshDBData() {
             data: data.data || [],
             total: data.total || 0,
             page: data.page || 1,
-            pageSize: data.pageSize || 20
+            pageSize: data.pageSize || 200
           }
         },
         dbPagination: {
           ...store.state.dbPagination,
           [dataSubPage]: {
             page: data.page || 1,
-            pageSize: data.pageSize || 20,
+            pageSize: data.pageSize || 200,
             totalPages: data.totalPages || 1
           }
         }
@@ -3352,7 +3360,7 @@ function setDataSubPage(subPage) {
     dataSubPage: subPage,
     dbPagination: {
       ...store.state.dbPagination,
-      [subPage]: { page: 1, pageSize: 20, totalPages: 1 }
+      [subPage]: { page: 1, pageSize: 200, totalPages: 1 }
     },
     dbSearch: {
       ...store.state.dbSearch,

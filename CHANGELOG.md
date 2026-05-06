@@ -7,6 +7,55 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ***
 
+## [3.3.5] - 2026-05-04
+
+### Changed
+
+#### Web 界面数据管理优化
+
+| 文件 | 变更 |
+|------|------|
+| `internal/api/web/styles.css` | 数据表格样式优化（表头固定、斑马纹、排序图标样式） |
+| `internal/api/web/styles.css` | 新增表格滚动容器（table-scroll-container） |
+| `internal/api/web/styles.css` | 移动端卡片视图优化 |
+| `internal/api/web/app.js` | 分页默认每页 200 条（从 20 条调整） |
+| `internal/api/web/app.js` | 数据表格排序功能优化 |
+
+#### 定时任务优化
+
+| 文件 | 变更 |
+|------|------|
+| `internal/api/web/app.js` | "启动后立即运行"改为"首次启动时立即运行" |
+| `internal/api/web/app.js` | 定时任务保存逻辑优化（批量创建/更新/删除） |
+
+#### 调度器修复
+
+| 文件 | 修复 |
+|------|------|
+| `internal/scheduler/scheduler.go` | 修复 `run_on_start` 只在系统首次启动时执行 |
+| `internal/scheduler/scheduler.go` | 新增 `firstStart` 和 `hasEverStarted` 标志位 |
+
+#### 测试增强
+
+| 文件 | 新增测试 |
+|------|----------|
+| `internal/scheduler/scheduler_test.go` | `TestReloadDoesNotTriggerRunOnStart` - 验证重载不触发 run_on_start |
+| `internal/scheduler/scheduler_test.go` | `TestStopStartDoesNotTriggerRunOnStart` - 验证停止后启动不触发 run_on_start |
+
+#### 文档更新
+
+| 文件 | 变更 |
+|------|------|
+| `doc/API_DOCUMENTATION.md` | 更新 `run_on_start` 字段描述 |
+| `readme.md` | 更新 `run_on_start` 字段描述 |
+
+### Stats
+
+- **7 个文件变更**
+- **+416 行 / -135 行**
+
+***
+
 ## [3.3.4] - 2026-05-04
 
 ### Fixed

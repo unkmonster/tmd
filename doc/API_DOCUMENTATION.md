@@ -1776,7 +1776,7 @@ Content-Type: application/json
 | `name` | string | 否 | 调度名称 |
 | `schedule` | string | 是 | 调度表达式 |
 | `enabled` | bool | 否 | 是否启用（默认 false） |
-| `run_on_start` | bool | 否 | 启动时执行（默认 false） |
+| `run_on_start` | bool | 否 | 系统首次启动时执行（默认 false） |
 | `auto_follow` | bool | 否 | 自动关注（默认 false） |
 | `skip_profile` | bool | 否 | 跳过 Profile（默认 false） |
 | `no_retry` | bool | 否 | 不重试（默认 false） |
