@@ -1,8 +1,6 @@
 package consolelog
 
 import (
-	"bufio"
-	"fmt"
 	"io"
 	"os"
 	"regexp"
@@ -124,12 +122,31 @@ func startCapture(h *Hub) error {
 }
 
 func capturePipe(reader io.Reader, output *os.File, h *Hub) {
-	scanner := bufio.NewScanner(reader)
-	scanner.Buffer(make([]byte, 1024), 1024*1024)
-	for scanner.Scan() {
-		line := scanner.Text()
-		fmt.Fprintln(output, line)
-		h.Add(line)
+	buf := make([]byte, 4096)
+	var line strings.Builder
+
+	for {
+		n, err := reader.Read(buf)
+		if n > 0 {
+			chunk := buf[:n]
+			_, _ = output.Write(chunk)
+
+			for _, b := range chunk {
+				if b == '\n' {
+					h.Add(strings.TrimSuffix(line.String(), "\r"))
+					line.Reset()
+					continue
+				}
+				line.WriteByte(b)
+			}
+		}
+
+		if err != nil {
+			if line.Len() > 0 {
+				h.Add(strings.TrimSuffix(line.String(), "\r"))
+			}
+			return
+		}
 	}
 }
 

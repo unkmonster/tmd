@@ -123,7 +123,13 @@ func main() {
 	}()
 
 	conf, err := config.ReadConf(confPath)
-	if os.IsNotExist(err) || confArg {
+	if os.IsNotExist(err) {
+		_, _ = os.Stderr.WriteString("Config file not found, creating new configuration...\n")
+		conf, err = config.PromptConfig(confPath)
+		if err != nil {
+			log.Fatalln("config failure with", err)
+		}
+	} else if confArg {
 		conf, err = config.PromptConfig(confPath)
 		if err != nil {
 			log.Fatalln("config failure with", err)

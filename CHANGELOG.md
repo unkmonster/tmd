@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ***
 
+## [3.3.6] - 2026-05-04
+
+### Added
+
+#### 自动配置引导
+
+| 文件 | 变更 |
+|------|------|
+| `main.go` | 配置文件不存在时自动进入配置引导模式，不再报错退出 |
+
+### Changed
+
+#### 配置提示优化
+
+| 文件 | 变更 |
+|------|------|
+| `internal/config/config.go` | 配置引导时显示默认值，提示信息输出到 stderr |
+
+#### 日志系统优化
+
+| 文件 | 变更 |
+|------|------|
+| `internal/consolelog/hub.go` | 改用缓冲区读取代替逐行扫描，提高日志捕获性能 |
+
+### Stats
+
+- **3 个文件变更**
+- **+33 行 / -10 行**
+
+***
+
 ## [3.3.5] - 2026-05-04
 
 ### Changed

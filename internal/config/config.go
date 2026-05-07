@@ -215,7 +215,7 @@ func PromptConfig(saveto string) (*Config, error) {
 	scan := bufio.NewScanner(os.Stdin)
 
 	for _, field := range GetFieldDefs() {
-		fmt.Printf("%s: ", field.Prompt)
+		fmt.Fprintf(os.Stderr, "%s [%s]: ", field.Prompt, field.Default)
 		if !scan.Scan() {
 			if err := scan.Err(); err != nil {
 				return nil, fmt.Errorf("failed to read input for %s: %w", field.Name, err)
