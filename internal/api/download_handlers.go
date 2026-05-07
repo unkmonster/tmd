@@ -137,9 +137,10 @@ func (s *Server) handleUserDownload(w http.ResponseWriter, r *http.Request, scre
 	status := task.Status
 
 	opts := service.DownloadOptions{
-		AutoFollow:  req.AutoFollow,
-		SkipProfile: req.SkipProfile,
-		NoRetry:     req.NoRetry,
+		AutoFollow:    req.AutoFollow,
+		FollowMembers: req.FollowMembers,
+		SkipProfile:   req.SkipProfile,
+		NoRetry:       req.NoRetry,
 	}
 
 	s.enqueueTask(task, func(ctx context.Context, taskID string, reporter service.ProgressReporter) error {
@@ -147,13 +148,14 @@ func (s *Server) handleUserDownload(w http.ResponseWriter, r *http.Request, scre
 	})
 
 	s.writeJSON(w, http.StatusAccepted, NewSuccessResponse(map[string]interface{}{
-		"task_id":      taskID,
-		"status":       status,
-		"screen_name":  req.ScreenName,
-		"auto_follow":  req.AutoFollow,
-		"skip_profile": req.SkipProfile,
-		"no_retry":     req.NoRetry,
-		"message":      "Download task queued successfully",
+		"task_id":        taskID,
+		"status":         status,
+		"screen_name":    req.ScreenName,
+		"auto_follow":    req.AutoFollow,
+		"follow_members": req.FollowMembers,
+		"skip_profile":   req.SkipProfile,
+		"no_retry":       req.NoRetry,
+		"message":        "Download task queued successfully",
 	}))
 }
 
@@ -266,9 +268,10 @@ func (s *Server) handleFollowingDownload(w http.ResponseWriter, r *http.Request,
 	status := task.Status
 
 	opts := service.DownloadOptions{
-		AutoFollow:  req.AutoFollow,
-		SkipProfile: req.SkipProfile,
-		NoRetry:     req.NoRetry,
+		AutoFollow:    req.AutoFollow,
+		FollowMembers: req.FollowMembers,
+		SkipProfile:   req.SkipProfile,
+		NoRetry:       req.NoRetry,
 	}
 
 	s.enqueueTask(task, func(ctx context.Context, taskID string, reporter service.ProgressReporter) error {
@@ -276,13 +279,14 @@ func (s *Server) handleFollowingDownload(w http.ResponseWriter, r *http.Request,
 	})
 
 	s.writeJSON(w, http.StatusAccepted, NewSuccessResponse(map[string]interface{}{
-		"task_id":      taskID,
-		"status":       status,
-		"screen_name":  req.ScreenName,
-		"auto_follow":  req.AutoFollow,
-		"skip_profile": req.SkipProfile,
-		"no_retry":     req.NoRetry,
-		"message":      "Following download task queued successfully",
+		"task_id":        taskID,
+		"status":         status,
+		"screen_name":    req.ScreenName,
+		"auto_follow":    req.AutoFollow,
+		"follow_members": req.FollowMembers,
+		"skip_profile":   req.SkipProfile,
+		"no_retry":       req.NoRetry,
+		"message":        "Following download task queued successfully",
 	}))
 }
 
@@ -338,9 +342,10 @@ func (s *Server) handleListDownload(w http.ResponseWriter, r *http.Request, list
 	status := task.Status
 
 	opts := service.DownloadOptions{
-		AutoFollow:  req.AutoFollow,
-		SkipProfile: req.SkipProfile,
-		NoRetry:     req.NoRetry,
+		AutoFollow:    req.AutoFollow,
+		FollowMembers: req.FollowMembers,
+		SkipProfile:   req.SkipProfile,
+		NoRetry:       req.NoRetry,
 	}
 
 	s.enqueueTask(task, func(ctx context.Context, taskID string, reporter service.ProgressReporter) error {
@@ -348,13 +353,14 @@ func (s *Server) handleListDownload(w http.ResponseWriter, r *http.Request, list
 	})
 
 	s.writeJSON(w, http.StatusAccepted, NewSuccessResponse(map[string]interface{}{
-		"task_id":      taskID,
-		"status":       status,
-		"list_id":      listID,
-		"skip_profile": req.SkipProfile,
-		"auto_follow":  req.AutoFollow,
-		"no_retry":     req.NoRetry,
-		"message":      "List download task queued",
+		"task_id":        taskID,
+		"status":         status,
+		"list_id":        listID,
+		"skip_profile":   req.SkipProfile,
+		"auto_follow":    req.AutoFollow,
+		"follow_members": req.FollowMembers,
+		"no_retry":       req.NoRetry,
+		"message":        "List download task queued",
 	}))
 }
 
@@ -474,9 +480,10 @@ func (s *Server) handleBatchDownload(w http.ResponseWriter, r *http.Request) {
 	status := task.Status
 
 	opts := service.DownloadOptions{
-		AutoFollow:  req.AutoFollow,
-		SkipProfile: req.SkipProfile,
-		NoRetry:     req.NoRetry,
+		AutoFollow:    req.AutoFollow,
+		FollowMembers: req.FollowMembers,
+		SkipProfile:   req.SkipProfile,
+		NoRetry:       req.NoRetry,
 	}
 
 	s.enqueueTask(task, func(ctx context.Context, taskID string, reporter service.ProgressReporter) error {
@@ -493,6 +500,7 @@ func (s *Server) handleBatchDownload(w http.ResponseWriter, r *http.Request) {
 		"list_count":      len(req.Lists),
 		"following_count": len(req.FollowingNames),
 		"auto_follow":     req.AutoFollow,
+		"follow_members":  req.FollowMembers,
 		"skip_profile":    req.SkipProfile,
 		"no_retry":        req.NoRetry,
 		"message":         "Batch download task queued",
@@ -534,9 +542,10 @@ func (s *Server) handleCancelTask(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) scheduledDownload(entry scheduler.ScheduleEntry) string {
 	opts := service.DownloadOptions{
-		AutoFollow:  entry.AutoFollow,
-		SkipProfile: entry.SkipProfile,
-		NoRetry:     entry.NoRetry,
+		AutoFollow:    entry.AutoFollow,
+		FollowMembers: entry.FollowMembers,
+		SkipProfile:   entry.SkipProfile,
+		NoRetry:       entry.NoRetry,
 	}
 
 	switch entry.Type {
@@ -551,10 +560,11 @@ func (s *Server) scheduledDownload(entry scheduler.ScheduleEntry) string {
 			return ""
 		}
 		req := &ListDownloadTaskData{
-			ListID:      listID,
-			AutoFollow:  entry.AutoFollow,
-			SkipProfile: entry.SkipProfile,
-			NoRetry:     entry.NoRetry,
+			ListID:        listID,
+			AutoFollow:    entry.AutoFollow,
+			FollowMembers: entry.FollowMembers,
+			SkipProfile:   entry.SkipProfile,
+			NoRetry:       entry.NoRetry,
 		}
 		task := s.taskManager.CreateTask(TaskTypeListDownload, req)
 		s.enqueueTask(task, func(ctx context.Context, taskID string, reporter service.ProgressReporter) error {
@@ -564,10 +574,11 @@ func (s *Server) scheduledDownload(entry scheduler.ScheduleEntry) string {
 
 	case scheduler.ScheduleTypeUser:
 		req := &UserDownloadTaskData{
-			ScreenName:  entry.Target,
-			AutoFollow:  entry.AutoFollow,
-			SkipProfile: entry.SkipProfile,
-			NoRetry:     entry.NoRetry,
+			ScreenName:    entry.Target,
+			AutoFollow:    entry.AutoFollow,
+			FollowMembers: entry.FollowMembers,
+			SkipProfile:   entry.SkipProfile,
+			NoRetry:       entry.NoRetry,
 		}
 		task := s.taskManager.CreateTask(TaskTypeUserDownload, req)
 		s.enqueueTask(task, func(ctx context.Context, taskID string, reporter service.ProgressReporter) error {
@@ -577,10 +588,11 @@ func (s *Server) scheduledDownload(entry scheduler.ScheduleEntry) string {
 
 	case scheduler.ScheduleTypeFollowing:
 		req := &FollowingDownloadTaskData{
-			ScreenName:  entry.Target,
-			AutoFollow:  entry.AutoFollow,
-			SkipProfile: entry.SkipProfile,
-			NoRetry:     entry.NoRetry,
+			ScreenName:    entry.Target,
+			AutoFollow:    entry.AutoFollow,
+			FollowMembers: entry.FollowMembers,
+			SkipProfile:   entry.SkipProfile,
+			NoRetry:       entry.NoRetry,
 		}
 		task := s.taskManager.CreateTask(TaskTypeFollowingDownload, req)
 		s.enqueueTask(task, func(ctx context.Context, taskID string, reporter service.ProgressReporter) error {

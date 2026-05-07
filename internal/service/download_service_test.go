@@ -296,6 +296,22 @@ func TestDownloadOptions_Combinations(t *testing.T) {
 	}
 }
 
+func TestEffectiveAutoFollowDisabledWhenFollowMembersEnabled(t *testing.T) {
+	assert.True(t, effectiveAutoFollow(DownloadOptions{AutoFollow: true}))
+	assert.False(t, effectiveAutoFollow(DownloadOptions{AutoFollow: true, FollowMembers: true}))
+	assert.False(t, effectiveAutoFollow(DownloadOptions{FollowMembers: true}))
+}
+
+func TestShouldFollowMemberMatchesDownloadFiltering(t *testing.T) {
+	assert.False(t, shouldFollowMember(nil))
+	assert.False(t, shouldFollowMember(&twitter.User{Id: 0, Followstate: twitter.FS_UNFOLLOW}))
+	assert.False(t, shouldFollowMember(&twitter.User{Id: 1, Followstate: twitter.FS_FOLLOWING}))
+	assert.False(t, shouldFollowMember(&twitter.User{Id: 1, Followstate: twitter.FS_REQUESTED}))
+	assert.False(t, shouldFollowMember(&twitter.User{Id: 1, Followstate: twitter.FS_UNFOLLOW, Blocking: true}))
+	assert.False(t, shouldFollowMember(&twitter.User{Id: 1, Followstate: twitter.FS_UNFOLLOW, Muting: true}))
+	assert.True(t, shouldFollowMember(&twitter.User{Id: 1, Followstate: twitter.FS_UNFOLLOW}))
+}
+
 func TestMockProgressReporter_Recording(t *testing.T) {
 	reporter := NewMockProgressReporter()
 

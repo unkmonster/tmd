@@ -30,20 +30,20 @@ var randomIntervalDelay = func(interval time.Duration) time.Duration {
 type ScheduleStatusChangeFunc func(statuses []ScheduleStatus)
 
 type Scheduler struct {
-	configPath       string
-	downloadFunc     DownloadFunc
-	entries          []ScheduleEntry
-	parsed           []*ParsedSchedule
-	statuses         []ScheduleStatus
-	mu               sync.Mutex
-	lifecycleMu      sync.Mutex
-	ctx              context.Context
-	cancel           context.CancelFunc
-	wg               sync.WaitGroup
-	started          bool
-	firstStart       bool
-	hasEverStarted   bool
-	OnStatusChange   ScheduleStatusChangeFunc
+	configPath     string
+	downloadFunc   DownloadFunc
+	entries        []ScheduleEntry
+	parsed         []*ParsedSchedule
+	statuses       []ScheduleStatus
+	mu             sync.Mutex
+	lifecycleMu    sync.Mutex
+	ctx            context.Context
+	cancel         context.CancelFunc
+	wg             sync.WaitGroup
+	started        bool
+	firstStart     bool
+	hasEverStarted bool
+	OnStatusChange ScheduleStatusChangeFunc
 }
 
 func New(configPath string, downloadFunc DownloadFunc) (*Scheduler, error) {
@@ -523,13 +523,14 @@ func uniqueScheduleID(entry ScheduleEntry, used map[string]struct{}) string {
 }
 
 func scheduleIDBase(entry ScheduleEntry) string {
-	key := fmt.Sprintf("%s\n%s\n%s\n%s\n%t\n%t\n%t\n%t",
+	key := fmt.Sprintf("%s\n%s\n%s\n%s\n%t\n%t\n%t\n%t\n%t",
 		entry.Type,
 		strings.TrimSpace(entry.Target),
 		strings.TrimSpace(entry.Name),
 		strings.TrimSpace(entry.Schedule),
 		entry.RunOnStart,
 		entry.AutoFollow,
+		entry.FollowMembers,
 		entry.SkipProfile,
 		entry.NoRetry,
 	)

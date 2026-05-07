@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 
@@ -167,6 +168,49 @@ func (s *downloadServiceImpl) resolveFollowings(ctx context.Context, screenNames
 	return lists
 }
 
+func shouldFollowMember(user *twitter.User) bool {
+	if user == nil || user.Id == 0 {
+		return false
+	}
+	if user.Blocking || user.Muting {
+		return false
+	}
+	return user.Followstate == twitter.FS_UNFOLLOW
+}
+
+func (s *downloadServiceImpl) followMembersIfNeeded(ctx context.Context, users []*twitter.User) error {
+	if len(users) == 0 {
+		return nil
+	}
+
+	seen := make(map[uint64]struct{}, len(users))
+	for _, user := range users {
+		if !shouldFollowMember(user) {
+			continue
+		}
+		if _, ok := seen[user.Id]; ok {
+			continue
+		}
+		seen[user.Id] = struct{}{}
+
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if err := twitter.FollowUser(ctx, s.deps.Client, user); err != nil {
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				return err
+			}
+			log.Warnf("Follow member failed for @%s (%d): %v", user.ScreenName, user.Id, err)
+			continue
+		}
+	}
+	return nil
+}
+
+func effectiveAutoFollow(opts DownloadOptions) bool {
+	return opts.AutoFollow && !opts.FollowMembers
+}
+
 // initDownloader 初始化下载器组件，返回 versionManager, fileWriter, downloader
 func (s *downloadServiceImpl) initDownloader() (*downloader.DefaultVersionManager, *downloader.DefaultFileWriter, *downloader.DefaultDownloader) {
 	versionManager := downloader.NewVersionManagerWithWriter(".versions", nil)
@@ -208,9 +252,14 @@ func (s *downloadServiceImpl) UserDownload(ctx context.Context, taskID string, s
 	retryProgress := s.newRetryProgressCallback(taskID, reporter)
 
 	// 执行批量下载（单个用户）
-	failedTweets, _, summary, err := downloading.BatchDownloadAny(ctx, s.deps.Client, s.deps.DB, nil, []*twitter.User{user}, pathHelper.Root, pathHelper.Users, opts.AutoFollow, s.deps.AdditionalClients, dwn, fileWriter, progress)
+	failedTweets, _, summary, err := downloading.BatchDownloadAny(ctx, s.deps.Client, s.deps.DB, nil, []*twitter.User{user}, pathHelper.Root, pathHelper.Users, effectiveAutoFollow(opts), s.deps.AdditionalClients, dwn, fileWriter, progress)
 	if err != nil {
 		return err
+	}
+	if opts.FollowMembers {
+		if err := s.followMembersIfNeeded(ctx, []*twitter.User{user}); err != nil {
+			return err
+		}
 	}
 	mainFailures := collectFailedTweetSet(failedTweets)
 
@@ -276,9 +325,14 @@ func (s *downloadServiceImpl) ListDownload(ctx context.Context, taskID string, l
 	retryProgress := s.newRetryProgressCallback(taskID, reporter)
 
 	// 执行下载 - BatchDownloadAny 会处理列表同步并返回列表成员
-	failedTweets, listMembers, summary, err := downloading.BatchDownloadAny(ctx, s.deps.Client, s.deps.DB, []twitter.ListBase{list}, nil, pathHelper.Root, pathHelper.Users, opts.AutoFollow, s.deps.AdditionalClients, dwn, fileWriter, progress)
+	failedTweets, listMembers, summary, err := downloading.BatchDownloadAny(ctx, s.deps.Client, s.deps.DB, []twitter.ListBase{list}, nil, pathHelper.Root, pathHelper.Users, effectiveAutoFollow(opts), s.deps.AdditionalClients, dwn, fileWriter, progress)
 	if err != nil {
 		return err
+	}
+	if opts.FollowMembers {
+		if err := s.followMembersIfNeeded(ctx, listMembers); err != nil {
+			return err
+		}
 	}
 	mainFailures := collectFailedTweetSet(failedTweets)
 
@@ -344,9 +398,14 @@ func (s *downloadServiceImpl) FollowingDownload(ctx context.Context, taskID stri
 
 	// 执行批量下载 - 将 Following 作为 List 传递给 BatchDownloadAny
 	// 这样可以通过 syncListAndGetMembers 同步列表成员，并返回完整 User 对象
-	failedTweets, listMembers, summary, err := downloading.BatchDownloadAny(ctx, s.deps.Client, s.deps.DB, []twitter.ListBase{following}, nil, pathHelper.Root, pathHelper.Users, opts.AutoFollow, s.deps.AdditionalClients, dwn, fileWriter, progress)
+	failedTweets, listMembers, summary, err := downloading.BatchDownloadAny(ctx, s.deps.Client, s.deps.DB, []twitter.ListBase{following}, nil, pathHelper.Root, pathHelper.Users, effectiveAutoFollow(opts), s.deps.AdditionalClients, dwn, fileWriter, progress)
 	if err != nil {
 		return err
+	}
+	if opts.FollowMembers {
+		if err := s.followMembersIfNeeded(ctx, listMembers); err != nil {
+			return err
+		}
 	}
 	mainFailures := collectFailedTweetSet(failedTweets)
 
@@ -609,9 +668,17 @@ func (s *downloadServiceImpl) BatchDownload(ctx context.Context, taskID string, 
 	retryProgress := s.newRetryProgressCallback(taskID, reporter)
 
 	// 执行批量下载（返回列表成员用于 Profile 下载）
-	failedTweets, listMembers, summary, err := downloading.BatchDownloadAny(ctx, s.deps.Client, s.deps.DB, lists, users, pathHelper.Root, pathHelper.Users, opts.AutoFollow, s.deps.AdditionalClients, dwn, fileWriter, progress)
+	failedTweets, listMembers, summary, err := downloading.BatchDownloadAny(ctx, s.deps.Client, s.deps.DB, lists, users, pathHelper.Root, pathHelper.Users, effectiveAutoFollow(opts), s.deps.AdditionalClients, dwn, fileWriter, progress)
 	if err != nil {
 		return err
+	}
+	if opts.FollowMembers {
+		followTargets := make([]*twitter.User, 0, len(users)+len(listMembers))
+		followTargets = append(followTargets, users...)
+		followTargets = append(followTargets, listMembers...)
+		if err := s.followMembersIfNeeded(ctx, followTargets); err != nil {
+			return err
+		}
 	}
 	mainFailures := collectFailedTweetSet(failedTweets)
 

@@ -493,10 +493,11 @@ func TestHandleUserDownload_Success(t *testing.T) {
 	defer db.Close()
 
 	reqData := UserDownloadTaskData{
-		ScreenName:  "testuser",
-		AutoFollow:  true,
-		SkipProfile: false,
-		NoRetry:     false,
+		ScreenName:    "testuser",
+		AutoFollow:    true,
+		FollowMembers: true,
+		SkipProfile:   false,
+		NoRetry:       false,
 	}
 	body, _ := json.Marshal(reqData)
 
@@ -518,6 +519,7 @@ func TestHandleUserDownload_Success(t *testing.T) {
 	assert.NotNil(t, data["task_id"])
 	assert.Equal(t, "testuser", data["screen_name"])
 	assert.Equal(t, true, data["auto_follow"])
+	assert.Equal(t, true, data["follow_members"])
 }
 
 func TestHandleUserDownload_AllowsAtPrefixedScreenName(t *testing.T) {
@@ -636,8 +638,9 @@ func TestHandleFollowingDownload_Success(t *testing.T) {
 	defer db.Close()
 
 	reqData := FollowingDownloadTaskData{
-		ScreenName: "testuser",
-		AutoFollow: true,
+		ScreenName:    "testuser",
+		AutoFollow:    true,
+		FollowMembers: true,
 	}
 	body, _ := json.Marshal(reqData)
 
@@ -699,9 +702,10 @@ func TestHandleListDownload_Success(t *testing.T) {
 	defer db.Close()
 
 	reqData := ListDownloadTaskData{
-		ListID:      123,
-		AutoFollow:  true,
-		SkipProfile: false,
+		ListID:        123,
+		AutoFollow:    true,
+		FollowMembers: true,
+		SkipProfile:   false,
 	}
 	body, _ := json.Marshal(reqData)
 
@@ -840,10 +844,11 @@ func TestHandleBatchDownload_OnlyUsers(t *testing.T) {
 	defer db.Close()
 
 	reqData := BatchDownloadTaskData{
-		Users:       []string{"user1", "user2"},
-		Lists:       []uint64{},
-		AutoFollow:  true,
-		SkipProfile: false,
+		Users:         []string{"user1", "user2"},
+		Lists:         []uint64{},
+		AutoFollow:    true,
+		FollowMembers: true,
+		SkipProfile:   false,
 	}
 	body, _ := json.Marshal(reqData)
 
@@ -900,11 +905,12 @@ func TestHandleBatchDownload_BothUsersAndLists(t *testing.T) {
 	defer db.Close()
 
 	reqData := BatchDownloadTaskData{
-		Users:       []string{"user1"},
-		Lists:       []uint64{100},
-		AutoFollow:  true,
-		SkipProfile: true,
-		NoRetry:     true,
+		Users:         []string{"user1"},
+		Lists:         []uint64{100},
+		AutoFollow:    true,
+		FollowMembers: true,
+		SkipProfile:   true,
+		NoRetry:       true,
 	}
 	body, _ := json.Marshal(reqData)
 
@@ -926,6 +932,7 @@ func TestHandleBatchDownload_BothUsersAndLists(t *testing.T) {
 	assert.Equal(t, float64(1), data["user_count"])
 	assert.Equal(t, float64(1), data["list_count"])
 	assert.Equal(t, true, data["auto_follow"])
+	assert.Equal(t, true, data["follow_members"])
 	assert.Equal(t, true, data["skip_profile"])
 	assert.Equal(t, true, data["no_retry"])
 }

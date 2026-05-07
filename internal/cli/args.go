@@ -118,6 +118,7 @@ type CLIConfig struct {
 	JsonFileArgs   JsonFilePathsArgs
 	JsonFolderArgs JsonFolderPathArgs
 	AutoFollow     bool
+	FollowMembers  bool
 	NoRetry        bool
 	MarkDownloaded bool
 	MarkTime       string
@@ -137,6 +138,7 @@ func ParseArgs(args []string) (*flag.FlagSet, *CLIConfig, error) {
 	fs.Var(&cfg.JsonFileArgs, "jsonfile", "download from third-party tool exported JSON file (user list)")
 	fs.Var(&cfg.JsonFolderArgs, "jsonfolder", "download from TMD generated .loongtweet folder")
 	fs.BoolVar(&cfg.AutoFollow, "auto-follow", false, "auto follow")
+	fs.BoolVar(&cfg.FollowMembers, "follow-members", false, "follow target users/members while downloading")
 	fs.BoolVar(&cfg.NoRetry, "no-retry", false, "no retry")
 	fs.BoolVar(&cfg.MarkDownloaded, "mark-downloaded", false, "mark downloaded")
 	fs.StringVar(&cfg.MarkTime, "mark-time", "", "mark time")

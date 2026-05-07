@@ -65,6 +65,7 @@ Content-Type: application/json
 
 {
   "auto_follow": false,
+  "follow_members": false,
   "skip_profile": false,
   "no_retry": false
 }
@@ -81,6 +82,7 @@ Content-Type: application/json
 | 字段             | 类型   | 必填 | 默认值     | 说明                  |
 | -------------- | ---- | -- | ------- | ------------------- |
 | `auto_follow`  | bool | 否  | `false` | 自动关注受保护用户           |
+| `follow_members` | bool | 否 | `false` | 下载时关注目标/成员         |
 | `skip_profile` | bool | 否  | `false` | 跳过 Profile 下载（默认下载） |
 | `no_retry`     | bool | 否  | `false` | 失败后不重试              |
 
@@ -94,6 +96,7 @@ Content-Type: application/json
     "status": "queued",
     "screen_name": "elonmusk",
     "auto_follow": false,
+    "follow_members": false,
     "skip_profile": false,
     "no_retry": false,
     "message": "Download task queued successfully"
@@ -327,6 +330,7 @@ Content-Type: application/json
 
 {
   "auto_follow": false,
+  "follow_members": false,
   "skip_profile": false,
   "no_retry": false
 }
@@ -343,6 +347,7 @@ Content-Type: application/json
 | 字段             | 类型   | 必填 | 默认值     | 说明                       |
 | -------------- | ---- | -- | ------- | ------------------------ |
 | `auto_follow`  | bool | 否  | `false` | 自动关注受保护用户                |
+| `follow_members` | bool | 否 | `false` | 下载时关注目标/成员             |
 | `skip_profile` | bool | 否  | `false` | 跳过关注用户的 Profile 下载（默认下载） |
 | `no_retry`     | bool | 否  | `false` | 失败后不重试                   |
 
@@ -356,6 +361,7 @@ Content-Type: application/json
     "status": "queued",
     "screen_name": "elonmusk",
     "auto_follow": false,
+    "follow_members": false,
     "skip_profile": false,
     "no_retry": false,
     "message": "Following download task queued successfully"
@@ -388,6 +394,7 @@ Content-Type: application/json
 
 {
   "auto_follow": false,
+  "follow_members": false,
   "skip_profile": false,
   "no_retry": false
 }
@@ -404,6 +411,7 @@ Content-Type: application/json
 | 字段             | 类型   | 必填 | 默认值     | 说明                       |
 | -------------- | ---- | -- | ------- | ------------------------ |
 | `auto_follow`  | bool | 否  | `false` | 自动关注受保护用户                |
+| `follow_members` | bool | 否 | `false` | 下载时关注目标/成员             |
 | `skip_profile` | bool | 否  | `false` | 跳过列表成员的 Profile 下载（默认下载） |
 | `no_retry`     | bool | 否  | `false` | 失败后不重试                   |
 
@@ -418,6 +426,7 @@ Content-Type: application/json
     "list_id": 123456789,
     "skip_profile": false,
     "auto_follow": false,
+    "follow_members": false,
     "no_retry": false,
     "message": "List download task queued"
   }
@@ -583,6 +592,7 @@ Content-Type: application/json
   "lists": [123456789, 987654321],
   "following_names": ["userA", "userB"],
   "auto_follow": false,
+  "follow_members": false,
   "skip_profile": false,
   "no_retry": false
 }
@@ -596,6 +606,7 @@ Content-Type: application/json
 | `lists`         | \[]uint64 | 否  | -       | 要下载的列表 ID 列表                |
 | `following_names` | \[]string | 否  | -       | 要下载其关注列表的用户名列表              |
 | `auto_follow`   | bool      | 否  | `false` | 自动关注受保护用户                   |
+| `follow_members` | bool     | 否  | `false` | 下载时关注目标/成员                |
 | `skip_profile`  | bool      | 否  | `false` | 跳过 Profile 下载（默认下载）         |
 | `no_retry`      | bool      | 否  | `false` | 失败后不重试                      |
 
@@ -616,6 +627,7 @@ Content-Type: application/json
     "list_count": 2,
     "following_count": 2,
     "auto_follow": false,
+    "follow_members": false,
     "skip_profile": false,
     "no_retry": false,
     "message": "Batch download task queued"
@@ -1696,14 +1708,15 @@ GET /api/v1/schedules
     "entries": [
       {
         "entry": {
-          "id": "sched_abc123",
+          "id": "sch_abc123",
           "type": "user",
           "target": "elonmusk",
           "name": "每日下载 Elon",
-          "schedule": "daily@08:00",
+          "schedule": "daily:08:00",
           "enabled": true,
           "run_on_start": false,
           "auto_follow": false,
+          "follow_members": false,
           "skip_profile": false,
           "no_retry": false
         },
@@ -1739,10 +1752,11 @@ GET /api/v1/schedules
 | `type` | string | 调度类型：`user`、`list`、`following` |
 | `target` | string | 调度目标（用户名或列表 ID） |
 | `name` | string | 调度名称 |
-| `schedule` | string | 调度表达式（如 `daily@08:00`、`interval@6h`） |
+| `schedule` | string | 调度表达式（如 `daily:08:00`、`interval:6h`） |
 | `enabled` | bool | 是否启用 |
 | `run_on_start` | bool | 系统首次启动时是否立即执行 |
 | `auto_follow` | bool | 自动关注受保护用户 |
+| `follow_members` | bool | 下载时关注目标/成员                |
 | `skip_profile` | bool | 跳过 Profile 下载 |
 | `no_retry` | bool | 失败后不重试 |
 
@@ -1758,10 +1772,11 @@ Content-Type: application/json
   "type": "user",
   "target": "elonmusk",
   "name": "每日下载 Elon",
-  "schedule": "daily@08:00",
+  "schedule": "daily:08:00",
   "enabled": true,
   "run_on_start": false,
   "auto_follow": false,
+  "follow_members": false,
   "skip_profile": false,
   "no_retry": false
 }
@@ -1778,6 +1793,7 @@ Content-Type: application/json
 | `enabled` | bool | 否 | 是否启用（默认 false） |
 | `run_on_start` | bool | 否 | 系统首次启动时执行（默认 false） |
 | `auto_follow` | bool | 否 | 自动关注（默认 false） |
+| `follow_members` | bool | 否 | 下载时关注目标/成员（默认 false） |
 | `skip_profile` | bool | 否 | 跳过 Profile（默认 false） |
 | `no_retry` | bool | 否 | 不重试（默认 false） |
 | `id` | string | 否 | 自定义 ID（不提供则自动生成） |
@@ -1807,7 +1823,7 @@ Content-Type: application/json
   "type": "user",
   "target": "elonmusk",
   "name": "更新后的名称",
-  "schedule": "daily@09:00",
+  "schedule": "daily:09:00",
   "enabled": true
 }
 ```
@@ -1917,7 +1933,7 @@ GET /api/v1/schedules/raw
 {
   "success": true,
   "data": {
-    "content": "schedules:\n  - id: sched_abc123\n    type: user\n    target: elonmusk\n...",
+    "content": "schedules:\n  - id: sch_abc123\n    type: user\n    target: elonmusk\n...",
     "path": "/path/to/schedules.yaml",
     "exists": true
   }
@@ -1933,7 +1949,7 @@ PUT /api/v1/schedules/raw
 Content-Type: application/json
 
 {
-  "content": "schedules:\n  - id: sched_abc123\n    type: user\n    target: elonmusk\n    schedule: daily@08:00\n    enabled: true"
+  "content": "schedules:\n  - id: sch_abc123\n    type: user\n    target: elonmusk\n    schedule: daily:08:00\n    enabled: true"
 }
 ```
 
@@ -1988,7 +2004,7 @@ Content-Type: application/json
   "entry": {
     "type": "user",
     "target": "elonmusk",
-    "schedule": "daily@08:00"
+    "schedule": "daily:08:00"
   }
 }
 ```
@@ -2859,13 +2875,17 @@ TASK_ID=$(curl -s -X POST http://localhost:25556/api/v1/lists/123456789/download
 
 ### 请求体参数
 
-#### 通用下载选项（适用于用户/列表/批量下载）
+#### 
 
 | 参数             | 类型   | 默认值     | 说明                  |
 | -------------- | ---- | ------- | ------------------- |
 | `auto_follow`  | bool | `false` | 自动关注受保护用户           |
+| `follow_members` | bool | `false` | 下载时关注目标/成员         |
 | `skip_profile` | bool | `false` | 跳过 Profile 下载（默认下载） |
 | `no_retry`     | bool | `false` | 失败后不重试              |
+
+**说明：**
+- `auto_follow` 只处理 “受保护且未关注” 的用户；`follow_members` 会对下载目标中所有未关注用户尝试关注（不限是否受保护）。
 
 #### 各端点特有参数
 
@@ -2882,6 +2902,6 @@ TASK_ID=$(curl -s -X POST http://localhost:25556/api/v1/lists/123456789/download
 | `/api/v1/batch/download`        | `lists`        | \[]uint64 | 否  | 列表 ID 列表            |
 | `/api/v1/batch/download`        | `following_names` | \[]string | 否 | 关注列表用户名列表        |
 | `/api/v1/batch/download`        | `auto_follow`  | bool      | 否  | 自动关注受保护用户           |
+| `/api/v1/batch/download`        | `follow_members` | bool     | 否  | 下载时关注目标/成员          |
 | `/api/v1/batch/download`        | `skip_profile` | bool      | 否  | 跳过 Profile 下载（默认下载） |
 | `/api/v1/batch/download`        | `no_retry`     | bool      | 否  | 失败后不重试              |
-

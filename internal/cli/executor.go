@@ -131,9 +131,10 @@ func Execute(ctx context.Context, args []string, deps *Dependencies) error {
 
 	// 构建下载选项
 	opts := service.DownloadOptions{
-		AutoFollow:  cfg.AutoFollow,
-		SkipProfile: cfg.NoProfile,
-		NoRetry:     cfg.NoRetry,
+		AutoFollow:    cfg.AutoFollow,
+		FollowMembers: cfg.FollowMembers,
+		SkipProfile:   cfg.NoProfile,
+		NoRetry:       cfg.NoRetry,
 	}
 
 	var markTime *string

@@ -317,6 +317,7 @@ func TestParseArgs(t *testing.T) {
 			validate: func(t *testing.T, cfg *CLIConfig) {
 				assert.Empty(t, cfg.UsrArgs.ScreenName)
 				assert.False(t, cfg.AutoFollow)
+				assert.False(t, cfg.FollowMembers)
 				assert.False(t, cfg.NoRetry)
 			},
 		},
@@ -378,10 +379,11 @@ func TestParseArgs(t *testing.T) {
 		},
 		{
 			name:        "布尔标志",
-			args:        []string{"-auto-follow", "-no-retry", "-mark-downloaded", "-noprofile"},
+			args:        []string{"-auto-follow", "-follow-members", "-no-retry", "-mark-downloaded", "-noprofile"},
 			expectError: false,
 			validate: func(t *testing.T, cfg *CLIConfig) {
 				assert.True(t, cfg.AutoFollow)
+				assert.True(t, cfg.FollowMembers)
 				assert.True(t, cfg.NoRetry)
 				assert.True(t, cfg.MarkDownloaded)
 				assert.True(t, cfg.NoProfile)
@@ -448,6 +450,7 @@ func TestCLIConfig_DefaultValues(t *testing.T) {
 
 	// 布尔值默认值
 	assert.False(t, cfg.AutoFollow)
+	assert.False(t, cfg.FollowMembers)
 	assert.False(t, cfg.NoRetry)
 	assert.False(t, cfg.MarkDownloaded)
 	assert.Empty(t, cfg.MarkTime)

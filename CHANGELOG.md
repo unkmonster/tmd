@@ -7,6 +7,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ***
 
+## [3.3.7] - 2026-05-04
+
+### Added
+
+#### 新增 `-follow-members` 参数
+
+| 文件 | 变更 |
+|------|------|
+| `internal/cli/args.go` | 新增 `-follow-members` CLI 参数 |
+| `internal/service/download_service.go` | 实现 `followMembersIfNeeded` 方法，下载时关注目标/成员 |
+| `internal/service/interfaces.go` | `DownloadOptions` 新增 `FollowMembers` 字段 |
+| `internal/twitter/user.go` | `FollowUser` 增加状态码和 API 响应检查 |
+| `internal/api/types.go` | API 类型新增 `FollowMembers` 字段 |
+| `internal/api/download_handlers.go` | 下载处理器支持 `follow_members` 参数 |
+| `internal/scheduler/types.go` | 定时任务配置新增 `follow_members` 字段 |
+| `internal/scheduler/scheduler.go` | 调度器支持 `follow_members` 配置 |
+| `internal/api/web/app.js` | Web 界面定时任务表单新增 `follow_members` 选项 |
+
+#### 功能说明
+
+- `-follow-members`：下载时关注目标/成员（用户/列表成员/关注列表成员）
+- 与 `-auto-follow` 区分：
+  - `-auto-follow`：仅关注受保护且未关注的用户
+  - `-follow-members`：关注所有未关注的用户（不限是否受保护）
+- 关注失败仅输出 warning，不阻塞下载流程
+
+### Changed
+
+#### 文档更新
+
+| 文件 | 变更 |
+|------|------|
+| `readme.md` | 新增 `-follow-members` 参数说明和语义区别 |
+| `doc/API_DOCUMENTATION.md` | API 文档新增 `follow_members` 字段说明 |
+
+### Stats
+
+- **17 个文件变更**
+- **+364 行 / -156 行**
+
+***
+
 ## [3.3.6] - 2026-05-04
 
 ### Added

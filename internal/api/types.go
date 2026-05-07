@@ -8,26 +8,29 @@ import (
 
 // UserDownloadTaskData 用户下载任务数据
 type UserDownloadTaskData struct {
-	ScreenName  string `json:"screen_name"`
-	AutoFollow  bool   `json:"auto_follow"`
-	SkipProfile bool   `json:"skip_profile"`
-	NoRetry     bool   `json:"no_retry"`
+	ScreenName    string `json:"screen_name"`
+	AutoFollow    bool   `json:"auto_follow"`
+	FollowMembers bool   `json:"follow_members"`
+	SkipProfile   bool   `json:"skip_profile"`
+	NoRetry       bool   `json:"no_retry"`
 }
 
 // ListDownloadTaskData 列表下载任务数据
 type ListDownloadTaskData struct {
-	ListID      uint64 `json:"list_id"`
-	AutoFollow  bool   `json:"auto_follow"`
-	SkipProfile bool   `json:"skip_profile"`
-	NoRetry     bool   `json:"no_retry"`
+	ListID        uint64 `json:"list_id"`
+	AutoFollow    bool   `json:"auto_follow"`
+	FollowMembers bool   `json:"follow_members"`
+	SkipProfile   bool   `json:"skip_profile"`
+	NoRetry       bool   `json:"no_retry"`
 }
 
 // FollowingDownloadTaskData 关注下载任务数据
 type FollowingDownloadTaskData struct {
-	ScreenName  string `json:"screen_name"`
-	AutoFollow  bool   `json:"auto_follow"`
-	SkipProfile bool   `json:"skip_profile"`
-	NoRetry     bool   `json:"no_retry"`
+	ScreenName    string `json:"screen_name"`
+	AutoFollow    bool   `json:"auto_follow"`
+	FollowMembers bool   `json:"follow_members"`
+	SkipProfile   bool   `json:"skip_profile"`
+	NoRetry       bool   `json:"no_retry"`
 }
 
 // ProfileDownloadTaskData Profile 下载任务数据
@@ -65,6 +68,7 @@ type BatchDownloadTaskData struct {
 	Lists          []uint64 `json:"lists"`
 	FollowingNames []string `json:"following_names"`
 	AutoFollow     bool     `json:"auto_follow"`
+	FollowMembers  bool     `json:"follow_members"`
 	SkipProfile    bool     `json:"skip_profile"`
 	NoRetry        bool     `json:"no_retry"`
 }

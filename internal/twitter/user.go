@@ -288,8 +288,17 @@ func (u *User) Following() UserFollowing {
 
 func FollowUser(ctx context.Context, client *resty.Client, user *User) error {
 	url := "https://x.com/i/api/1.1/friendships/create.json"
-	_, err := client.R().SetFormData(map[string]string{
+	resp, err := client.R().SetFormData(map[string]string{
 		"user_id": fmt.Sprintf("%d", user.Id),
 	}).SetContext(ctx).Post(url)
-	return err
+	if err != nil {
+		return err
+	}
+	if resp.StatusCode() >= 400 {
+		return fmt.Errorf("follow request failed with status %d", resp.StatusCode())
+	}
+	if err := CheckApiResp(resp.Body()); err != nil {
+		return err
+	}
+	return nil
 }

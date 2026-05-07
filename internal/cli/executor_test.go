@@ -209,6 +209,26 @@ func TestExecute_BatchAndProfileDownload(t *testing.T) {
 	mockSvc.AssertExpectations(t)
 }
 
+func TestExecute_UserDownload_WithFollowMembers(t *testing.T) {
+	mockSvc := new(MockDownloadService)
+	opts := service.DownloadOptions{FollowMembers: true}
+	mockSvc.On("UserDownload", mock.Anything, mock.Anything, "user1", opts, mock.Anything).Return(nil)
+
+	deps := &Dependencies{
+		Dependencies: service.Dependencies{
+			Client: resty.New(),
+			Config: &config.Config{},
+		},
+		DownloadService: mockSvc,
+	}
+
+	args := []string{"-user", "user1", "-follow-members"}
+	err := Execute(context.Background(), args, deps)
+
+	assert.NoError(t, err)
+	mockSvc.AssertExpectations(t)
+}
+
 func TestExecute_ListProfileDownload(t *testing.T) {
 	mockSvc := new(MockDownloadService)
 	mockSvc.On("ListProfileDownload", mock.Anything, mock.Anything, uint64(12345), mock.Anything).Return(nil)

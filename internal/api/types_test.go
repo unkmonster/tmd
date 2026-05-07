@@ -18,12 +18,13 @@ func TestUserDownloadTaskData(t *testing.T) {
 		{
 			name: "完整数据",
 			data: UserDownloadTaskData{
-				ScreenName:  "testuser",
-				AutoFollow:  true,
-				SkipProfile: false,
-				NoRetry:     true,
+				ScreenName:    "testuser",
+				AutoFollow:    true,
+				FollowMembers: true,
+				SkipProfile:   false,
+				NoRetry:       true,
 			},
-			wantJSON:   `{"screen_name":"testuser","auto_follow":true,"skip_profile":false,"no_retry":true}`,
+			wantJSON:   `{"screen_name":"testuser","auto_follow":true,"follow_members":true,"skip_profile":false,"no_retry":true}`,
 			wantScreen: "testuser",
 		},
 		{
@@ -31,7 +32,7 @@ func TestUserDownloadTaskData(t *testing.T) {
 			data: UserDownloadTaskData{
 				ScreenName: "user2",
 			},
-			wantJSON:   `{"screen_name":"user2","auto_follow":false,"skip_profile":false,"no_retry":false}`,
+			wantJSON:   `{"screen_name":"user2","auto_follow":false,"follow_members":false,"skip_profile":false,"no_retry":false}`,
 			wantScreen: "user2",
 		},
 	}
@@ -55,17 +56,18 @@ func TestListDownloadTaskData(t *testing.T) {
 		{
 			name: "完整数据",
 			data: ListDownloadTaskData{
-				ListID:      12345,
-				AutoFollow:  true,
-				SkipProfile: true,
-				NoRetry:     false,
+				ListID:        12345,
+				AutoFollow:    true,
+				FollowMembers: true,
+				SkipProfile:   true,
+				NoRetry:       false,
 			},
-			wantJSON: `{"list_id":12345,"auto_follow":true,"skip_profile":true,"no_retry":false}`,
+			wantJSON: `{"list_id":12345,"auto_follow":true,"follow_members":true,"skip_profile":true,"no_retry":false}`,
 		},
 		{
 			name:     "零值",
 			data:     ListDownloadTaskData{},
-			wantJSON: `{"list_id":0,"auto_follow":false,"skip_profile":false,"no_retry":false}`,
+			wantJSON: `{"list_id":0,"auto_follow":false,"follow_members":false,"skip_profile":false,"no_retry":false}`,
 		},
 	}
 
@@ -80,10 +82,11 @@ func TestListDownloadTaskData(t *testing.T) {
 
 func TestFollowingDownloadTaskData(t *testing.T) {
 	data := FollowingDownloadTaskData{
-		ScreenName:  "following_user",
-		AutoFollow:  true,
-		SkipProfile: false,
-		NoRetry:     true,
+		ScreenName:    "following_user",
+		AutoFollow:    true,
+		FollowMembers: true,
+		SkipProfile:   false,
+		NoRetry:       true,
 	}
 
 	bytes, err := json.Marshal(data)
@@ -155,27 +158,28 @@ func TestBatchDownloadTaskData(t *testing.T) {
 		{
 			name: "用户和列表",
 			data: BatchDownloadTaskData{
-				Users:       []string{"user1", "user2"},
-				Lists:       []uint64{100, 200},
-				AutoFollow:  true,
-				SkipProfile: false,
-				NoRetry:     true,
+				Users:         []string{"user1", "user2"},
+				Lists:         []uint64{100, 200},
+				AutoFollow:    true,
+				FollowMembers: true,
+				SkipProfile:   false,
+				NoRetry:       true,
 			},
-			wantJSON: `{"users":["user1","user2"],"lists":[100,200],"following_names":null,"auto_follow":true,"skip_profile":false,"no_retry":true}`,
+			wantJSON: `{"users":["user1","user2"],"lists":[100,200],"following_names":null,"auto_follow":true,"follow_members":true,"skip_profile":false,"no_retry":true}`,
 		},
 		{
 			name: "仅用户",
 			data: BatchDownloadTaskData{
 				Users: []string{"user3"},
 			},
-			wantJSON: `{"users":["user3"],"lists":null,"following_names":null,"auto_follow":false,"skip_profile":false,"no_retry":false}`,
+			wantJSON: `{"users":["user3"],"lists":null,"following_names":null,"auto_follow":false,"follow_members":false,"skip_profile":false,"no_retry":false}`,
 		},
 		{
 			name: "仅列表",
 			data: BatchDownloadTaskData{
 				Lists: []uint64{300},
 			},
-			wantJSON: `{"users":null,"lists":[300],"following_names":null,"auto_follow":false,"skip_profile":false,"no_retry":false}`,
+			wantJSON: `{"users":null,"lists":[300],"following_names":null,"auto_follow":false,"follow_members":false,"skip_profile":false,"no_retry":false}`,
 		},
 	}
 

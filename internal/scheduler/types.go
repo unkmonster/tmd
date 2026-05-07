@@ -22,16 +22,17 @@ type ScheduleConfig struct {
 }
 
 type ScheduleEntry struct {
-	ID          string       `yaml:"id" json:"id"`
-	Type        ScheduleType `yaml:"type" json:"type"`
-	Target      string       `yaml:"target" json:"target"`
-	Name        string       `yaml:"name" json:"name"`
-	Schedule    string       `yaml:"schedule" json:"schedule"`
-	Enabled     bool         `yaml:"enabled" json:"enabled"`
-	RunOnStart  bool         `yaml:"run_on_start" json:"run_on_start"`
-	AutoFollow  bool         `yaml:"auto_follow" json:"auto_follow"`
-	SkipProfile bool         `yaml:"skip_profile" json:"skip_profile"`
-	NoRetry     bool         `yaml:"no_retry" json:"no_retry"`
+	ID            string       `yaml:"id" json:"id"`
+	Type          ScheduleType `yaml:"type" json:"type"`
+	Target        string       `yaml:"target" json:"target"`
+	Name          string       `yaml:"name" json:"name"`
+	Schedule      string       `yaml:"schedule" json:"schedule"`
+	Enabled       bool         `yaml:"enabled" json:"enabled"`
+	RunOnStart    bool         `yaml:"run_on_start" json:"run_on_start"`
+	AutoFollow    bool         `yaml:"auto_follow" json:"auto_follow"`
+	FollowMembers bool         `yaml:"follow_members" json:"follow_members"`
+	SkipProfile   bool         `yaml:"skip_profile" json:"skip_profile"`
+	NoRetry       bool         `yaml:"no_retry" json:"no_retry"`
 }
 
 type ParsedSchedule struct {

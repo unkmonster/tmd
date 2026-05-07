@@ -899,7 +899,10 @@ function renderTaskForm(type) {
       </div>
       <div class="form-group">
         <label class="form-checkbox">
-          <input type="checkbox" id="userAutoFollow"> AutoFollow
+          <input type="checkbox" id="userAutoFollow"> 自动申请受保护账号
+        </label>
+        <label class="form-checkbox">
+          <input type="checkbox" id="userFollowMembers"> 下载时关注目标/成员
         </label>
         <label class="form-checkbox">
           <input type="checkbox" id="userSkipProfile"> SkipProfile
@@ -920,7 +923,10 @@ function renderTaskForm(type) {
       </div>
       <div class="form-group">
         <label class="form-checkbox">
-          <input type="checkbox" id="listAutoFollow"> AutoFollow
+          <input type="checkbox" id="listAutoFollow"> 自动申请受保护账号
+        </label>
+        <label class="form-checkbox">
+          <input type="checkbox" id="listFollowMembers"> 下载时关注目标/成员
         </label>
         <label class="form-checkbox">
           <input type="checkbox" id="listSkipProfile"> SkipProfile
@@ -941,7 +947,10 @@ function renderTaskForm(type) {
       </div>
       <div class="form-group">
         <label class="form-checkbox">
-          <input type="checkbox" id="followingAutoFollow"> AutoFollow
+          <input type="checkbox" id="followingAutoFollow"> 自动申请受保护账号
+        </label>
+        <label class="form-checkbox">
+          <input type="checkbox" id="followingFollowMembers"> 下载时关注目标/成员
         </label>
         <label class="form-checkbox">
           <input type="checkbox" id="followingSkipProfile"> SkipProfile
@@ -990,7 +999,10 @@ function renderTaskForm(type) {
       </div>
       <div class="form-group">
         <label class="form-checkbox">
-          <input type="checkbox" id="batchAutoFollow"> AutoFollow
+          <input type="checkbox" id="batchAutoFollow"> 自动申请受保护账号
+        </label>
+        <label class="form-checkbox">
+          <input type="checkbox" id="batchFollowMembers"> 下载时关注目标/成员
         </label>
         <label class="form-checkbox">
           <input type="checkbox" id="batchSkipProfile"> SkipProfile
@@ -1613,6 +1625,7 @@ async function createUserTask() {
   try {
     await api.createUserDownload(screenName, {
       auto_follow: document.getElementById('userAutoFollow').checked,
+      follow_members: document.getElementById('userFollowMembers').checked,
       skip_profile: document.getElementById('userSkipProfile').checked,
       no_retry: document.getElementById('userNoRetry').checked
     });
@@ -1643,6 +1656,7 @@ async function createListTask() {
   try {
     await api.createListDownload(listId, {
       auto_follow: document.getElementById('listAutoFollow').checked,
+      follow_members: document.getElementById('listFollowMembers').checked,
       skip_profile: document.getElementById('listSkipProfile').checked,
       no_retry: document.getElementById('listNoRetry').checked
     });
@@ -1673,6 +1687,7 @@ async function createFollowingTask() {
   try {
     await api.createFollowingDownload(screenName, {
       auto_follow: document.getElementById('followingAutoFollow').checked,
+      follow_members: document.getElementById('followingFollowMembers').checked,
       skip_profile: document.getElementById('followingSkipProfile').checked,
       no_retry: document.getElementById('followingNoRetry').checked
     });
@@ -1739,6 +1754,7 @@ async function createBatchTask() {
       lists,
       following_names: followingNames,
       auto_follow: document.getElementById('batchAutoFollow').checked,
+      follow_members: document.getElementById('batchFollowMembers').checked,
       skip_profile: document.getElementById('batchSkipProfile').checked,
       no_retry: document.getElementById('batchNoRetry').checked
     });
@@ -2233,7 +2249,11 @@ function renderScheduleForm(items, saving, exists) {
       <div class="config-field" style="display:flex;gap:16px;flex-wrap:wrap;">
         <label style="display:flex;align-items:center;gap:4px;font-size:13px;cursor:pointer;">
           <input type="checkbox" id="sf_auto_follow_${idx}" ${item.auto_follow ? 'checked' : ''} style="margin:0">
-          自动关注
+          自动申请受保护账号
+        </label>
+        <label style="display:flex;align-items:center;gap:4px;font-size:13px;cursor:pointer;">
+          <input type="checkbox" id="sf_follow_members_${idx}" ${item.follow_members ? 'checked' : ''} style="margin:0">
+          下载时关注目标/成员
         </label>
         <label style="display:flex;align-items:center;gap:4px;font-size:13px;cursor:pointer;">
           <input type="checkbox" id="sf_skip_profile_${idx}" ${item.skip_profile ? 'checked' : ''} style="margin:0">
@@ -2412,6 +2432,7 @@ function scheduleStatusToFormItem(status) {
     enabled: e.enabled !== false,
     run_on_start: !!e.run_on_start,
     auto_follow: !!e.auto_follow,
+    follow_members: !!e.follow_members,
     skip_profile: !!e.skip_profile,
     no_retry: !!e.no_retry,
   };
@@ -2427,6 +2448,7 @@ function normalizeScheduleEntry(entry) {
     enabled: readScheduleEntryField(entry, 'enabled', 'Enabled') !== false,
     run_on_start: !!readScheduleEntryField(entry, 'run_on_start', 'RunOnStart'),
     auto_follow: !!readScheduleEntryField(entry, 'auto_follow', 'AutoFollow'),
+    follow_members: !!readScheduleEntryField(entry, 'follow_members', 'FollowMembers'),
     skip_profile: !!readScheduleEntryField(entry, 'skip_profile', 'SkipProfile'),
     no_retry: !!readScheduleEntryField(entry, 'no_retry', 'NoRetry'),
   };
@@ -2528,6 +2550,7 @@ function addScheduleItem() {
     enabled: true,
     run_on_start: false,
     auto_follow: false,
+    follow_members: false,
     skip_profile: false,
     no_retry: false,
   }, ...readScheduleFormItemsFromDOM()];
@@ -2554,6 +2577,7 @@ function readScheduleFormItemsFromDOM() {
       enabled: document.getElementById(`sf_enabled_${idx}`)?.checked ?? fallback.enabled !== false,
       run_on_start: document.getElementById(`sf_run_on_start_${idx}`)?.checked ?? !!fallback.run_on_start,
       auto_follow: document.getElementById(`sf_auto_follow_${idx}`)?.checked ?? !!fallback.auto_follow,
+      follow_members: document.getElementById(`sf_follow_members_${idx}`)?.checked ?? !!fallback.follow_members,
       skip_profile: document.getElementById(`sf_skip_profile_${idx}`)?.checked ?? !!fallback.skip_profile,
       no_retry: document.getElementById(`sf_no_retry_${idx}`)?.checked ?? !!fallback.no_retry,
     };
@@ -2661,6 +2685,7 @@ async function saveScheduleForm() {
     enabled: item.enabled,
     run_on_start: item.run_on_start,
     auto_follow: item.auto_follow,
+    follow_members: item.follow_members,
     skip_profile: item.skip_profile,
     no_retry: item.no_retry,
   }));
@@ -2733,6 +2758,7 @@ function isScheduleEntryChanged(a, b) {
     a.enabled !== b.enabled ||
     a.run_on_start !== b.run_on_start ||
     a.auto_follow !== b.auto_follow ||
+    a.follow_members !== b.follow_members ||
     a.skip_profile !== b.skip_profile ||
     a.no_retry !== b.no_retry;
 }
@@ -2752,6 +2778,7 @@ function yamlDump(obj) {
     yaml += `    enabled: ${s.enabled}\n`;
     yaml += `    run_on_start: ${s.run_on_start}\n`;
     yaml += `    auto_follow: ${s.auto_follow}\n`;
+    yaml += `    follow_members: ${s.follow_members}\n`;
     yaml += `    skip_profile: ${s.skip_profile}\n`;
     yaml += `    no_retry: ${s.no_retry}\n`;
   }

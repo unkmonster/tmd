@@ -50,6 +50,7 @@
 
 - 速率限制：避免触发 Twitter API 速率限制
 - 自动关注受保护的用户
+- 下载时关注目标/成员（`-follow-members`）
 - 添加备用 cookie：提高推文获取速度和总数量
 - **Profile 下载**：下载用户头像、横幅、简介等个人资料，支持版本管理
 - **推文 JSON 保存**：保存推文完整信息为 JSON/TXT 格式
@@ -257,7 +258,12 @@ tmd -conf
 | 参数             | 类型   | 默认值   | 说明                        |
 | -------------- | ---- | ----- | ------------------------- |
 | `-auto-follow` | bool | false | 自动向受保护用户发送关注请求（列表下载时默认启用） |
+| `-follow-members` | bool | false | 下载时关注目标/成员（用户/列表成员/关注列表成员），失败仅 warning 不阻塞下载 |
 | `-no-retry`    | bool | false | 快速退出，不重试失败的推文             |
+
+> 语义区别：
+> - `-auto-follow`：仅在下载过程中遇到 **受保护且未关注** 用户时发送关注请求。
+> - `-follow-members`：对下载目标/成员中 **未关注** 的用户尝试关注（不限是否受保护），并避免与 `-auto-follow` 重复请求。
 
 ### 标记参数
 
@@ -539,6 +545,7 @@ schedules:
     enabled: true
     run_on_start: false
     auto_follow: false
+    follow_members: false
     skip_profile: false
     no_retry: false
   - id: hourly_elon
@@ -548,6 +555,10 @@ schedules:
     schedule: "interval:1h"
     enabled: true
     run_on_start: true
+    auto_follow: false
+    follow_members: false
+    skip_profile: false
+    no_retry: false
 ```
 
 ### ScheduleEntry 字段说明
@@ -562,6 +573,7 @@ schedules:
 | `enabled` | bool | 否 | 是否启用（默认 false） |
 | `run_on_start` | bool | 否 | 系统首次启动时是否立即执行一次（仅 interval 模式） |
 | `auto_follow` | bool | 否 | 自动关注受保护用户 |
+| `follow_members` | bool | 否 | 下载时关注目标/成员（失败仅 warning，不阻塞下载） |
 | `skip_profile` | bool | 否 | 跳过 Profile 下载 |
 | `no_retry` | bool | 否 | 不重试失败推文 |
 
@@ -1279,6 +1291,7 @@ ENTITY_ID:2|USER_ID:23248887|SCREEN_NAME:NASA|STATUS:OK
 | `-dbg`             | 调试模式             |
 | `-server`          | 启动 API Server 模式 |
 | `-auto-follow`     | 自动关注受保护用户        |
+| `-follow-members`  | 下载时关注目标/成员        |
 | `-no-retry`        | 不重试失败推文          |
 | `-mark-downloaded` | 仅标记已下载           |
 | `-noprofile`       | 跳过 Profile 下载    |
@@ -1612,7 +1625,7 @@ tmd -user elonmusk -dbg
 |------------|---------|------|---------|
 | **429** | Too Many Requests | 触发 Twitter API 速率限制 | 等待 15 分钟自动恢复；或添加备用 Cookie |
 | **401** | Unauthorized | Cookie 失效或过期 | 运行 `tmd -conf` 更新 Cookie |
-| **403** | Forbidden | 用户受保护且未关注 | 使用 `-auto-follow` 或手动关注后重试 |
+| **403** | Forbidden | 用户受保护且未关注 | 使用 `-auto-follow` / `-follow-members` 或手动关注后重试 |
 | **404** | Not Found | 用户不存在/已注销/被封禁 | 检查用户名是否正确；用户可能已被封禁 |
 | **500** | Internal Server Error | Twitter 服务器内部错误 | 稍后自动重试；检查网络连接 |
 | **503** | Service Unavailable | Twitter 服务暂时不可用 | 等待服务恢复后重试 |

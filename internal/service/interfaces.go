@@ -6,9 +6,10 @@ import (
 
 // DownloadOptions 下载选项
 type DownloadOptions struct {
-	AutoFollow  bool
-	SkipProfile bool
-	NoRetry     bool
+	AutoFollow    bool
+	FollowMembers bool
+	SkipProfile   bool
+	NoRetry       bool
 }
 
 // DownloadService 下载服务接口
