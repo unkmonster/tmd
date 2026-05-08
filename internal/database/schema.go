@@ -93,6 +93,10 @@ func CreateIndexes(db *sqlx.DB) {
 	db.MustExec(indexes)
 }
 
+// MigrateDatabase keeps idempotent in-place schema upgrades for databases that
+// are already readable by the current SQLite driver. These ALTER/RENAME steps
+// can be removed after support for upgrading pre-is_accessible / pre-user_id /
+// pre-owner_user_id databases is explicitly dropped.
 func MigrateDatabase(db *sqlx.DB) error {
 	migrations := []string{
 		`ALTER TABLE users ADD COLUMN is_accessible BOOLEAN NOT NULL DEFAULT 1`,

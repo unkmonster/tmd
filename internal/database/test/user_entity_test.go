@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/jmoiron/sqlx"
-	_ "github.com/mattn/go-sqlite3"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -16,7 +15,7 @@ import (
 )
 
 func setupUserEntityTestDB(t *testing.T) *sqlx.DB {
-	db, err := sqlx.Connect("sqlite3", ":memory:")
+	db, err := sqlx.Connect(database.DriverName, database.MemoryDSN(true))
 	require.NoError(t, err)
 	database.CreateTables(db)
 
@@ -41,7 +40,7 @@ func TestCreateUserEntity(t *testing.T) {
 	t.Run("create_valid_entity", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		entity := &database.UserEntity{
-			UserId:       1,
+			UserId:    1,
 			Name:      "testuser",
 			ParentDir: tmpDir,
 		}

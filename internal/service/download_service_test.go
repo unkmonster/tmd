@@ -11,7 +11,6 @@ import (
 
 	"github.com/go-resty/resty/v2"
 	"github.com/jmoiron/sqlx"
-	_ "github.com/mattn/go-sqlite3"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -78,7 +77,7 @@ func (m *MockProgressReporter) OnError(taskID string, err error) {
 }
 
 func createTestDependencies(t *testing.T) *Dependencies {
-	db, err := sqlx.Connect("sqlite3", ":memory:")
+	db, err := sqlx.Connect(database.DriverName, database.MemoryDSN(true))
 	require.NoError(t, err)
 	database.CreateTables(db)
 	t.Cleanup(func() {

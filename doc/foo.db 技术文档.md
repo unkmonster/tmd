@@ -9,7 +9,7 @@
 **依赖库**:
 
 - `github.com/jmoiron/sqlx` - SQL 扩展库
-- `github.com/mattn/go-sqlite3` - SQLite3 驱动
+- `modernc.org/sqlite` - 纯 Go SQLite3 驱动
 
 ***
 
@@ -27,13 +27,16 @@
 ### 1.2 连接配置
 
 ```go
-// 连接字符串配置
-dsn := fmt.Sprintf("file:%s?_journal_mode=WAL&busy_timeout=2147483647", path)
-db, err := sqlx.Connect("sqlite3", dsn)
+// 连接字符串配置由 internal/database.FileDSN 统一生成
+dsn, err := database.FileDSN(path, false)
+if err != nil {
+    return err
+}
+db, err := sqlx.Connect(database.DriverName, dsn)
 
 // 关键参数说明:
-// - _journal_mode=WAL: 启用预写日志模式，提升并发读写性能
-// - busy_timeout=2147483647: 设置锁等待超时时间为最大值（约 36 分钟）
+// - _pragma=journal_mode(WAL): 启用预写日志模式，提升并发读写性能
+// - _pragma=busy_timeout(30000): 设置锁等待超时时间为 30 秒
 ```
 
 ### 1.3 初始化流程
@@ -45,8 +48,11 @@ func connectDatabase(path string) (*sqlx.DB, error) {
         return nil, err
     }
 
-    dsn := fmt.Sprintf("file:%s?_journal_mode=WAL&busy_timeout=2147483647", path)
-    db, err := sqlx.Connect("sqlite3", dsn)
+    dsn, err := database.FileDSN(path, false)
+    if err != nil {
+        return nil, err
+    }
+    db, err := sqlx.Connect(database.DriverName, dsn)
     if err != nil {
         return nil, err
     }
@@ -891,4 +897,3 @@ CREATE INDEX IF NOT EXISTS idx_user_previous_names_uid ON user_previous_names(ui
 - **更新日期**: 2026-04-27
 - **作者**: AI Assistant
 - **适用版本**: TMD v3.0.3
-

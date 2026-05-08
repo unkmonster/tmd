@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/jmoiron/sqlx"
-	_ "github.com/mattn/go-sqlite3"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -14,7 +13,7 @@ import (
 )
 
 func setupTestDB(t *testing.T) *sqlx.DB {
-	db, err := sqlx.Connect("sqlite3", ":memory:")
+	db, err := sqlx.Connect(database.DriverName, database.MemoryDSN(true))
 	require.NoError(t, err)
 	database.CreateTables(db)
 	return db
@@ -226,8 +225,8 @@ func TestUserPreviousName_Struct(t *testing.T) {
 
 func TestLstModel_Struct(t *testing.T) {
 	lst := database.Lst{
-		Id:      1,
-		Name:    "Test List",
+		Id:          1,
+		Name:        "Test List",
 		OwnerUserId: 100,
 	}
 

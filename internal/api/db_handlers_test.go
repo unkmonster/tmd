@@ -18,7 +18,7 @@ import (
 
 // setupTestDB 创建测试数据库
 func setupTestDB(t *testing.T) *sqlx.DB {
-	db, err := sqlx.Connect("sqlite3", ":memory:")
+	db, err := sqlx.Connect(database.DriverName, database.MemoryDSN(true))
 	if err != nil {
 		t.Fatalf("Failed to connect to test database: %v", err)
 	}
@@ -342,8 +342,8 @@ func TestHandleDBLists_WithData(t *testing.T) {
 
 	// 创建测试列表
 	lst := &database.Lst{
-		Id:      1,
-		Name:    "Test List",
+		Id:          1,
+		Name:        "Test List",
 		OwnerUserId: 100,
 	}
 	err := database.CreateLst(db, lst)
@@ -362,8 +362,8 @@ func TestHandleDBLists_WithSearch(t *testing.T) {
 	defer db.Close()
 
 	lst := &database.Lst{
-		Id:      1,
-		Name:    "Search List",
+		Id:          1,
+		Name:        "Search List",
 		OwnerUserId: 100,
 	}
 	database.CreateLst(db, lst)
@@ -381,8 +381,8 @@ func TestHandleDBLists_WithOwnerFilter(t *testing.T) {
 	defer db.Close()
 
 	lst := &database.Lst{
-		Id:      1,
-		Name:    "Test List",
+		Id:          1,
+		Name:        "Test List",
 		OwnerUserId: 100,
 	}
 	_ = database.CreateLst(db, lst)
@@ -412,8 +412,8 @@ func TestHandleDBListDetail_Success(t *testing.T) {
 	defer db.Close()
 
 	lst := &database.Lst{
-		Id:      1,
-		Name:    "Detail List",
+		Id:          1,
+		Name:        "Detail List",
 		OwnerUserId: 100,
 	}
 	database.CreateLst(db, lst)
@@ -458,14 +458,14 @@ func TestHandleDBListUpdate_Success(t *testing.T) {
 	defer db.Close()
 
 	lst := &database.Lst{
-		Id:      1,
-		Name:    "Old Name",
+		Id:          1,
+		Name:        "Old Name",
 		OwnerUserId: 100,
 	}
 	database.CreateLst(db, lst)
 
 	updateData := map[string]string{
-		"name":     "New Name",
+		"name":          "New Name",
 		"owner_user_id": "200",
 	}
 	body, _ := json.Marshal(updateData)
@@ -485,8 +485,8 @@ func TestHandleDBListUpdate_InvalidOwnerID(t *testing.T) {
 	defer db.Close()
 
 	lst := &database.Lst{
-		Id:      1,
-		Name:    "Test List",
+		Id:          1,
+		Name:        "Test List",
 		OwnerUserId: 100,
 	}
 	database.CreateLst(db, lst)
@@ -511,8 +511,8 @@ func TestHandleDBListDelete_Success(t *testing.T) {
 	defer db.Close()
 
 	lst := &database.Lst{
-		Id:      1,
-		Name:    "Delete List",
+		Id:          1,
+		Name:        "Delete List",
 		OwnerUserId: 100,
 	}
 	database.CreateLst(db, lst)
@@ -1022,8 +1022,8 @@ func TestHandleDBListUpdate_PartialFields(t *testing.T) {
 
 	// 创建列表
 	lst := &database.Lst{
-		Id:      1,
-		Name:    "Original Name",
+		Id:          1,
+		Name:        "Original Name",
 		OwnerUserId: 100,
 	}
 	database.CreateLst(db, lst)
@@ -1086,8 +1086,8 @@ func TestHandleDBListEntityUpdate_PartialFields(t *testing.T) {
 
 	// 创建列表
 	lst := &database.Lst{
-		Id:      1,
-		Name:    "Test List",
+		Id:          1,
+		Name:        "Test List",
 		OwnerUserId: 100,
 	}
 	database.CreateLst(db, lst)
@@ -1199,7 +1199,7 @@ func TestHandleDBUsers_URLQuery(t *testing.T) {
 
 	// 测试 URL 查询参数解析
 	u := &url.URL{
-		Path: "/api/v1/db/users",
+		Path:     "/api/v1/db/users",
 		RawQuery: "q=test&accessible=true&protected=false&page=1&pageSize=20&sortBy=name&sortOrder=asc",
 	}
 
@@ -1216,7 +1216,7 @@ func TestHandleDBLists_URLQuery(t *testing.T) {
 	defer db.Close()
 
 	u := &url.URL{
-		Path: "/api/v1/db/lists",
+		Path:     "/api/v1/db/lists",
 		RawQuery: "q=test&ownerId=100&page=1&pageSize=20",
 	}
 
@@ -1233,7 +1233,7 @@ func TestHandleDBUserEntities_URLQuery(t *testing.T) {
 	defer db.Close()
 
 	u := &url.URL{
-		Path: "/api/v1/db/user-entities",
+		Path:     "/api/v1/db/user-entities",
 		RawQuery: "q=test&userId=1&page=1&pageSize=20",
 	}
 
@@ -1250,7 +1250,7 @@ func TestHandleDBListEntities_URLQuery(t *testing.T) {
 	defer db.Close()
 
 	u := &url.URL{
-		Path: "/api/v1/db/list-entities",
+		Path:     "/api/v1/db/list-entities",
 		RawQuery: "q=test&listId=1&page=1&pageSize=20",
 	}
 
@@ -1267,7 +1267,7 @@ func TestHandleDBUserLinks_URLQuery(t *testing.T) {
 	defer db.Close()
 
 	u := &url.URL{
-		Path: "/api/v1/db/user-links",
+		Path:     "/api/v1/db/user-links",
 		RawQuery: "userId=1&listEntityId=1&page=1&pageSize=20",
 	}
 

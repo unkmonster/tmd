@@ -7,6 +7,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ***
 
+## [3.3.11] - 2026-05-04
+
+### Changed
+
+#### SQLite 驱动迁移：从 mattn/go-sqlite3 到 modernc.org/sqlite
+
+| 文件 | 变更 |
+|------|------|
+| `go.mod` | 移除 `github.com/mattn/go-sqlite3`，新增 `modernc.org/sqlite` |
+| `go.sum` | 更新依赖校验和 |
+| `main.go` | 移除 CGO sqlite3 导入 |
+| `internal/database/connect.go` | 使用 `database.DriverName` 和 `database.MemoryDSN` |
+| `internal/database/tx/manager.go` | 事务管理器新增 context 检查 |
+| `internal/twitter/client.go` | MFQ 日志优化，记录 rate_limited 和 errors 计数 |
+| 所有测试文件 | 统一使用 `database.DriverName` 和 `database.MemoryDSN/MustFileDSN` |
+
+#### 优势
+
+- **纯 Go 实现**：不再需要 CGO，支持 `CGO_ENABLED=0` 编译
+- **跨平台简化**：交叉编译无需 C 交叉编译器
+- **构建简化**：Windows 不再需要安装 MinGW-w64
+
+#### 文档更新
+
+| 文件 | 变更 |
+|------|------|
+| `AGENTS.md` | 更新 Go 1.25.0 和 modernc.org/sqlite 说明 |
+| `readme.md` | 更新编译说明，移除 CGO 要求 |
+| `.github/workflows/go.yml` | 更新 CI 配置 |
+
+#### 清理
+
+| 文件 | 说明 |
+|------|------|
+| `doc/foo.db 技术文档.md` | 删除过时的数据库文档 |
+
+### Stats
+
+- **28 个文件变更**
+- **+227 行 / -124 行**
+
+***
+
 ## [3.3.10] - 2026-05-04
 
 ### Changed

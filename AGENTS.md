@@ -31,7 +31,7 @@
 
 ## 3. 运行与验证
 
-本仓库使用 Go 1.25.0，并依赖 `mattn/go-sqlite3`。本地构建和 race 测试通常需要 `CGO_ENABLED=1` 以及可用 C 编译器。
+本仓库使用 Go 1.25.0，并依赖 `modernc.org/sqlite` 作为纯 Go SQLite driver。常规构建和测试应支持 `CGO_ENABLED=0`。
 
 常用命令：
 
@@ -45,7 +45,7 @@ go build -o tmd ./main.go
 CI 以 `.github/workflows/go.yml` 为准：
 
 - Windows 构建：`go build -o bin/tmd-${{ runner.os }}-amd64.exe -v -ldflags "-w -s" .`
-- Unix 构建：`GOARCH=amd64 CGO_ENABLED=1 go build -o bin/tmd-${{ runner.os }}-amd64 -v -ldflags "-w -s" .`
+- Unix 构建：`GOARCH=amd64 CGO_ENABLED=0 go build -o bin/tmd-${{ runner.os }}-amd64 -v -ldflags "-w -s" .`
 - 非 tag 构建测试：`go test -race -covermode atomic -coverprofile=covprofile ./...`
 
 验证选择：

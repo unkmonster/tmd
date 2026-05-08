@@ -14,7 +14,6 @@ import (
 	"github.com/go-resty/resty/v2"
 	"github.com/gookit/color"
 	"github.com/jmoiron/sqlx"
-	_ "github.com/mattn/go-sqlite3"
 	"github.com/natefinch/lumberjack"
 	"github.com/rifflock/lfshook"
 	log "github.com/sirupsen/logrus"

@@ -541,7 +541,7 @@ func SelectClientMFQ(ctx context.Context, master *resty.Client, additional []*re
 
 	for ctx.Err() == nil {
 		// 一轮：检查所有账户
-		available := false
+		rateLimited := 0
 		errs := 0
 		for _, cli := range clients {
 			if GetClientError(cli) != nil {
@@ -552,7 +552,7 @@ func SelectClientMFQ(ctx context.Context, master *resty.Client, additional []*re
 			if rl == nil || !rl.wouldBlock(path) {
 				return cli
 			}
-			available = true // 有客户端只是被限速，不是错误
+			rateLimited++ // 有客户端只是被限速，不是错误
 		}
 
 		// 所有客户端都有错误，返回 nil
@@ -561,11 +561,19 @@ func SelectClientMFQ(ctx context.Context, master *resty.Client, additional []*re
 		}
 
 		// 有客户端只是被限速，等待后重试
-		if !available {
+		if rateLimited == 0 {
 			break
 		}
 
 		// 本轮全部失败，指数退避等待
+		log.Debugf(
+			"[MFQ] all clients blocked for path %s: rate_limited=%d, errors=%d, total=%d, backoff=%v",
+			path,
+			rateLimited,
+			errs,
+			len(clients),
+			backoff,
+		)
 		select {
 		case <-ctx.Done():
 			return nil

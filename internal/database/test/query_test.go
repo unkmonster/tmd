@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	"github.com/jmoiron/sqlx"
-	_ "github.com/mattn/go-sqlite3"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -12,7 +11,7 @@ import (
 )
 
 func setupQueryTestDB(t *testing.T) *sqlx.DB {
-	db, err := sqlx.Connect("sqlite3", ":memory:")
+	db, err := sqlx.Connect(database.DriverName, database.MemoryDSN(true))
 	require.NoError(t, err)
 	database.CreateTables(db)
 
@@ -31,8 +30,8 @@ func setupQueryTestDB(t *testing.T) *sqlx.DB {
 
 	for i := 0; i < 5; i++ {
 		lst := &database.Lst{
-			Id:      uint64(i + 1),
-			Name:    "List " + string(rune('0'+i)),
+			Id:          uint64(i + 1),
+			Name:        "List " + string(rune('0'+i)),
 			OwnerUserId: uint64(i + 100),
 		}
 		err := database.CreateLst(db, lst)

@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	_ "github.com/mattn/go-sqlite3"
+	"github.com/jmoiron/sqlx"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -91,4 +91,40 @@ func TestConnect_ConnectionPoolSettings(t *testing.T) {
 	defer db.Close()
 
 	assert.Equal(t, 1, db.Stats().MaxOpenConnections, "MaxOpenConns should be 1 for SQLite")
+}
+
+func TestConnect_RebuildsLegacySchema(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test_legacy.db")
+
+	legacyDB, err := sqlx.Connect(database.DriverName, database.MustFileDSN(dbPath, true))
+	require.NoError(t, err)
+
+	legacyDB.MustExec(`
+CREATE TABLE users (
+	id INTEGER NOT NULL,
+	screen_name VARCHAR NOT NULL,
+	name VARCHAR NOT NULL,
+	protected BOOLEAN NOT NULL,
+	friends_count INTEGER NOT NULL,
+	PRIMARY KEY (id),
+	UNIQUE (screen_name)
+);
+`)
+	legacyDB.MustExec(`INSERT INTO users(id, screen_name, name, protected, friends_count) VALUES(1, 'legacyuser', 'Legacy User', 0, 10)`)
+	require.NoError(t, legacyDB.Close())
+
+	db, err := database.Connect(dbPath)
+	require.NoError(t, err)
+	defer db.Close()
+
+	retrieved, err := database.GetUserById(db, 1)
+	require.NoError(t, err)
+	require.NotNil(t, retrieved)
+	assert.Equal(t, "legacyuser", retrieved.ScreenName)
+	assert.True(t, retrieved.IsAccessible)
+
+	backups, err := filepath.Glob(dbPath + ".backup.*")
+	require.NoError(t, err)
+	assert.NotEmpty(t, backups, "legacy database should be backed up before rebuild")
 }

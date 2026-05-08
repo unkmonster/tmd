@@ -20,7 +20,11 @@ func NewManager(db *sqlx.DB) *Manager {
 // RunInTransaction 在事务中执行函数
 // 自动处理事务开始、提交和回滚
 func (m *Manager) RunInTransaction(ctx context.Context, fn func(*sqlx.Tx) error) (err error) {
-	tx, err := m.db.Beginx()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	tx, err := m.db.BeginTxx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
@@ -32,6 +36,9 @@ func (m *Manager) RunInTransaction(ctx context.Context, fn func(*sqlx.Tx) error)
 	}()
 
 	if err = fn(tx); err != nil {
+		return err
+	}
+	if err = ctx.Err(); err != nil {
 		return err
 	}
 

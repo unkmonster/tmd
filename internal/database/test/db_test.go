@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/jmoiron/sqlx"
-	_ "github.com/mattn/go-sqlite3"
 
 	"github.com/unkmonster/tmd/internal/database"
 )
@@ -26,7 +25,7 @@ func opentmpdb() *sqlx.DB {
 	}
 	path := tmpFile.Name()
 
-	db, err = sqlx.Connect("sqlite3", fmt.Sprintf("file:%s?_journal_mode=WAL&cache=shared", path))
+	db, err = sqlx.Connect(database.DriverName, database.MustFileDSN(path, true))
 
 	if err != nil {
 		panic(err)
@@ -677,7 +676,7 @@ func TestMigrateDatabase(t *testing.T) {
 		path := tmpFile.Name()
 		tmpFile.Close()
 
-		oldDB, err := sqlx.Connect("sqlite3", fmt.Sprintf("file:%s?_journal_mode=WAL&cache=shared", path))
+		oldDB, err := sqlx.Connect(database.DriverName, database.MustFileDSN(path, true))
 		if err != nil {
 			t.Fatal(err)
 		}

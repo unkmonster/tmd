@@ -16,7 +16,6 @@ import (
 
 	"github.com/go-resty/resty/v2"
 	"github.com/jmoiron/sqlx"
-	_ "github.com/mattn/go-sqlite3"
 	"github.com/stretchr/testify/assert"
 
 	"github.com/unkmonster/tmd/internal/config"
@@ -30,7 +29,7 @@ func setupTestServer(t *testing.T) (*Server, *sqlx.DB) {
 }
 
 func setupTestServerWithAppRoot(t *testing.T, appRoot string) (*Server, *sqlx.DB) {
-	db, err := sqlx.Connect("sqlite3", ":memory:")
+	db, err := sqlx.Connect(database.DriverName, database.MemoryDSN(true))
 	if err != nil {
 		t.Fatalf("Failed to connect to test database: %v", err)
 	}
@@ -89,7 +88,7 @@ func serveAPI(server *Server, req *http.Request) *httptest.ResponseRecorder {
 }
 
 func TestNewServer(t *testing.T) {
-	db, err := sqlx.Connect("sqlite3", ":memory:")
+	db, err := sqlx.Connect(database.DriverName, database.MemoryDSN(true))
 	assert.NoError(t, err)
 	defer db.Close()
 
@@ -114,7 +113,7 @@ func TestNewServer(t *testing.T) {
 }
 
 func TestHandleUpdateSchedulesRawInitializesSchedulerAfterStartupParseFailure(t *testing.T) {
-	db, err := sqlx.Connect("sqlite3", ":memory:")
+	db, err := sqlx.Connect(database.DriverName, database.MemoryDSN(true))
 	assert.NoError(t, err)
 	defer db.Close()
 	database.CreateTables(db)
@@ -149,7 +148,7 @@ func TestHandleUpdateSchedulesRawInitializesSchedulerAfterStartupParseFailure(t 
 }
 
 func TestHandleGetSchedulesReturnsFrontendFieldNames(t *testing.T) {
-	db, err := sqlx.Connect("sqlite3", ":memory:")
+	db, err := sqlx.Connect(database.DriverName, database.MemoryDSN(true))
 	assert.NoError(t, err)
 	defer db.Close()
 	database.CreateTables(db)
@@ -197,7 +196,7 @@ func TestHandleGetSchedulesReturnsFrontendFieldNames(t *testing.T) {
 }
 
 func TestStructuredScheduleCRUDUsesStableID(t *testing.T) {
-	db, err := sqlx.Connect("sqlite3", ":memory:")
+	db, err := sqlx.Connect(database.DriverName, database.MemoryDSN(true))
 	assert.NoError(t, err)
 	defer db.Close()
 	database.CreateTables(db)
@@ -424,7 +423,7 @@ func TestHandleConfig_Success(t *testing.T) {
 }
 
 func TestServer_PutRoutesForConfigFieldsAndCookies(t *testing.T) {
-	db, err := sqlx.Connect("sqlite3", ":memory:")
+	db, err := sqlx.Connect(database.DriverName, database.MemoryDSN(true))
 	assert.NoError(t, err)
 	defer db.Close()
 	database.CreateTables(db)
@@ -476,7 +475,7 @@ func TestServer_PutRoutesForConfigFieldsAndCookies(t *testing.T) {
 }
 
 func TestServer_SaveCookiesFailsWhenExistingCookiesUnreadable(t *testing.T) {
-	db, err := sqlx.Connect("sqlite3", ":memory:")
+	db, err := sqlx.Connect(database.DriverName, database.MemoryDSN(true))
 	assert.NoError(t, err)
 	defer db.Close()
 	database.CreateTables(db)

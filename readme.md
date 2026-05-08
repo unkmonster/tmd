@@ -112,7 +112,7 @@ URL 级别的精细化重试控制：
 
 - **Go**: >= 1.25.0（从源码编译时需要）
 - **操作系统**: Windows 10+, macOS 10.15+, Ubuntu 18.04+
-- **编译器**: CGO_ENABLED=1（需要 GCC/MingW for Windows，用于 SQLite）
+- **编译器**: 支持 `CGO_ENABLED=0` 纯 Go 构建
 - **内存**: 建议 >= 512MB
 - **磁盘空间**: 根据下载数量而定
 - **权限**: Windows 需要管理员权限（创建符号链接）
@@ -136,26 +136,17 @@ URL 级别的精细化重试控制：
 git clone https://github.com/unkmonster/tmd.git
 cd tmd
 
-# 编译（Windows，需要安装 MinGW-w64 提供 GCC）
+# 编译 Windows 版本
 go build -o tmd.exe .
 
 # 交叉编译 Linux 版本
-GOOS=linux GOARCH=amd64 CGO_ENABLED=1 go build -o tmd-linux .
+GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o tmd-linux .
 
 # 交叉编译 macOS 版本
-GOOS=darwin GOARCH=amd64 CGO_ENABLED=1 go build -o tmd-macos .
+GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 go build -o tmd-macos .
 ```
 
-> ⚠️ **注意**: 本项目使用 `mattn/go-sqlite3` 驱动，必须启用 CGO 编译。如果遇到编译错误，请确保已安装 GCC 编译器：
-> - **Windows**: 安装 [MinGW-w64](http://mingw-w64.org/) 或 [TDM-GCC](https://jmeubank.github.io/tdm-gcc/)
-> - **Ubuntu**: `sudo apt-get install gcc`
-> - **macOS**: `xcode-select --install`
->
-> **交叉编译额外要求**: `CGO_ENABLED=1` 交叉编译需要对应目标平台的 C 交叉编译器：
-> - **编译 Linux 版**: 需安装 `x86_64-linux-gnu-gcc`（Ubuntu: `sudo apt-get install gcc-x86-64-linux-gnu`）
-> - **编译 Windows 版**: 需安装 `x86_64-w64-mingw32-gcc`（Ubuntu: `sudo apt-get install mingw-w64`）
-> - **编译 macOS 版**: 需安装 `osxcross` 工具链
-> - 在 Windows 上交叉编译到 Linux/macOS 较为复杂，建议使用 Docker 或 GitHub Actions
+> **说明**: SQLite 使用 `modernc.org/sqlite` 纯 Go driver，源码构建不再需要 GCC/MingW 等 C 编译器。
 
 ### 首次运行
 

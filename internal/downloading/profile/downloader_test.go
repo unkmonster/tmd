@@ -9,13 +9,12 @@ import (
 
 	"github.com/go-resty/resty/v2"
 	"github.com/jmoiron/sqlx"
-	_ "github.com/mattn/go-sqlite3"
 	"github.com/unkmonster/tmd/internal/database"
 )
 
 func setupTestDB(t *testing.T) *sqlx.DB {
 	t.Helper()
-	db, err := sqlx.Connect("sqlite3", ":memory:")
+	db, err := sqlx.Connect(database.DriverName, database.MemoryDSN(true))
 	if err != nil {
 		t.Fatalf("Failed to connect to test DB: %v", err)
 	}
