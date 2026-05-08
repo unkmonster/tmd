@@ -7,6 +7,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ***
 
+## [3.3.9] - 2026-05-04
+
+### Added
+
+#### JSON 文件上传功能
+
+| 文件 | 变更 |
+|------|------|
+| `internal/api/download_handlers.go` | 新增 `handleJsonFileDownloadMultipart` 处理文件上传 |
+| `internal/api/download_handlers.go` | 新增 `handleJsonFolderDownloadMultipart` 处理文件夹上传 |
+| `internal/api/download_handlers.go` | 新增 `validateUploadFile` 验证上传文件 |
+| `internal/api/download_handlers.go` | 新增 `uniqueUploadFileName` 避免文件名冲突 |
+| `internal/api/download_handlers.go` | 新增 `copyUploadedFile` 复制上传文件 |
+| `internal/api/server_test.go` | 新增 multipart 上传测试用例 |
+| `internal/api/web/app.js` | JSON 下载任务支持文件上传 |
+| `internal/api/web/app.js` | JSON 文件夹任务支持文件上传 |
+| `internal/api/web/app.js` | 新增 `upload` API 方法支持 FormData |
+
+#### 功能说明
+
+- **JSON 文件上传**：支持多选上传第三方工具导出的 JSON 文件
+- **JSON 文件夹上传**：支持多选上传 LoongTweet 生成的 JSON 文件
+- **文件名冲突处理**：自动添加序号避免覆盖（如 `tweets-2.json`）
+- **文件验证**：仅允许 `.json` 扩展名，拒绝非法文件名
+- **错误处理**：上传失败不删除已创建目录
+
+### Changed
+
+#### Web 界面优化
+
+| 文件 | 变更 |
+|------|------|
+| `internal/api/web/app.js` | JSON 任务表单新增文件上传控件 |
+| `internal/api/web/app.js` | 支持文件上传和服务端路径两种模式 |
+| `internal/api/web/app.js` | 新增 `readTextareaLines` 辅助函数 |
+
+### Stats
+
+- **3 个文件变更**
+- **+537 行 / -18 行**
+
+***
+
 ## [3.3.8] - 2026-05-04
 
 ### Added

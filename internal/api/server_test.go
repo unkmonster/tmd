@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -24,6 +26,10 @@ import (
 
 // setupTestServer 创建测试服务器
 func setupTestServer(t *testing.T) (*Server, *sqlx.DB) {
+	return setupTestServerWithAppRoot(t, "/app")
+}
+
+func setupTestServerWithAppRoot(t *testing.T, appRoot string) (*Server, *sqlx.DB) {
 	db, err := sqlx.Connect("sqlite3", ":memory:")
 	if err != nil {
 		t.Fatalf("Failed to connect to test database: %v", err)
@@ -39,10 +45,41 @@ func setupTestServer(t *testing.T) (*Server, *sqlx.DB) {
 	}
 
 	client := resty.New()
-	server := NewServer(client, []*resty.Client{}, db, cfg, "/app", nil)
+	server := NewServer(client, []*resty.Client{}, db, cfg, appRoot, nil)
 	t.Cleanup(server.taskManager.Close)
 
 	return server, db
+}
+
+type multipartUploadFile struct {
+	name    string
+	content string
+}
+
+func newMultipartUploadRequest(t *testing.T, target string, files []multipartUploadFile, noRetry bool) *http.Request {
+	t.Helper()
+
+	body := &bytes.Buffer{}
+	writer := multipart.NewWriter(body)
+	for _, file := range files {
+		part, err := writer.CreateFormFile("files", file.name)
+		if err != nil {
+			t.Fatalf("failed to create multipart form file: %v", err)
+		}
+		if _, err := part.Write([]byte(file.content)); err != nil {
+			t.Fatalf("failed to write multipart form file: %v", err)
+		}
+	}
+	if err := writer.WriteField("no_retry", strconv.FormatBool(noRetry)); err != nil {
+		t.Fatalf("failed to write multipart field: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("failed to close multipart writer: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, target, body)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	return req
 }
 
 func serveAPI(server *Server, req *http.Request) *httptest.ResponseRecorder {
@@ -805,6 +842,190 @@ func TestHandleJsonFileDownload_Success(t *testing.T) {
 	assert.NotNil(t, data["task_id"])
 	assert.Equal(t, []interface{}{"/path/1.json", "/path/2.json"}, data["paths"])
 	assert.Equal(t, true, data["no_retry"])
+}
+
+func TestHandleJsonFileDownload_MultipartSuccess(t *testing.T) {
+	appRoot := t.TempDir()
+	server, db := setupTestServerWithAppRoot(t, appRoot)
+	defer db.Close()
+
+	req := newMultipartUploadRequest(t, "/api/v1/json/file/download", []multipartUploadFile{
+		{name: "tweets.json", content: "{}"},
+		{name: "notes.json", content: "{}"},
+	}, true)
+	rr := httptest.NewRecorder()
+
+	server.handleJsonFileDownload(rr, req)
+
+	assert.Equal(t, http.StatusAccepted, rr.Code)
+
+	var resp APIResponse
+	err := json.Unmarshal(rr.Body.Bytes(), &resp)
+	assert.NoError(t, err)
+	assert.True(t, resp.Success)
+
+	data, ok := resp.Data.(map[string]interface{})
+	assert.True(t, ok)
+	assert.Equal(t, float64(2), data["file_count"])
+	assert.Equal(t, true, data["no_retry"])
+
+	tasks := server.taskManager.GetAllTasks()
+	if assert.Len(t, tasks, 1) {
+		taskData, ok := tasks[0].Data.(*JsonFileDownloadTaskData)
+		assert.True(t, ok)
+		assert.Len(t, taskData.Paths, 2)
+		assert.True(t, strings.HasPrefix(taskData.Paths[0], filepath.Join(appRoot, "uploads", "json")))
+		assert.True(t, taskData.NoRetry)
+	}
+}
+
+func TestHandleJsonFileDownload_MultipartEmpty(t *testing.T) {
+	appRoot := t.TempDir()
+	server, db := setupTestServerWithAppRoot(t, appRoot)
+	defer db.Close()
+
+	req := newMultipartUploadRequest(t, "/api/v1/json/file/download", nil, false)
+	rr := httptest.NewRecorder()
+
+	server.handleJsonFileDownload(rr, req)
+
+	assert.Equal(t, http.StatusBadRequest, rr.Code)
+}
+
+func TestHandleJsonFileDownload_MultipartRejectsUnsupportedFile(t *testing.T) {
+	appRoot := t.TempDir()
+	server, db := setupTestServerWithAppRoot(t, appRoot)
+	defer db.Close()
+
+	req := newMultipartUploadRequest(t, "/api/v1/json/file/download", []multipartUploadFile{
+		{name: "notes.txt", content: "not-json"},
+	}, false)
+	rr := httptest.NewRecorder()
+
+	server.handleJsonFileDownload(rr, req)
+
+	assert.Equal(t, http.StatusBadRequest, rr.Code)
+}
+
+func TestHandleJsonFileDownload_MultipartRejectsLargeFile(t *testing.T) {
+	_, err := validateUploadFile(&multipart.FileHeader{
+		Filename: "large.json",
+		Size:     maxUploadFileSize + 1,
+	})
+
+	assert.Error(t, err)
+}
+
+func TestHandleJsonFileDownload_MultipartRejectsInvalidFileName(t *testing.T) {
+	_, err := validateUploadFile(&multipart.FileHeader{
+		Filename: `bad:name.json`,
+		Size:     1,
+	})
+
+	assert.Error(t, err)
+}
+
+func TestHandleJsonFileDownload_MultipartAvoidsNameCollisions(t *testing.T) {
+	appRoot := t.TempDir()
+	server, db := setupTestServerWithAppRoot(t, appRoot)
+	defer db.Close()
+
+	req := newMultipartUploadRequest(t, "/api/v1/json/file/download", []multipartUploadFile{
+		{name: "tweets-2.json", content: "{}"},
+		{name: "tweets.json", content: "{}"},
+		{name: "tweets.json", content: "{}"},
+		{name: "TWEETS.json", content: "{}"},
+	}, false)
+	rr := httptest.NewRecorder()
+
+	server.handleJsonFileDownload(rr, req)
+
+	assert.Equal(t, http.StatusAccepted, rr.Code)
+
+	tasks := server.taskManager.GetAllTasks()
+	if assert.Len(t, tasks, 1) {
+		taskData, ok := tasks[0].Data.(*JsonFileDownloadTaskData)
+		assert.True(t, ok)
+		assert.Len(t, taskData.Paths, 4)
+
+		seen := map[string]bool{}
+		for _, path := range taskData.Paths {
+			name := strings.ToLower(filepath.Base(path))
+			assert.False(t, seen[name], "duplicate upload file name: %s", name)
+			seen[name] = true
+		}
+	}
+}
+
+func TestHandleJsonFileDownload_MultipartCreateDirFailureDoesNotRemoveParent(t *testing.T) {
+	appRoot := t.TempDir()
+	uploadParent := filepath.Join(appRoot, "uploads")
+	assert.NoError(t, os.MkdirAll(uploadParent, 0o755))
+	blockingPath := filepath.Join(uploadParent, "json")
+	assert.NoError(t, os.WriteFile(blockingPath, []byte("not a directory"), 0o644))
+
+	server, db := setupTestServerWithAppRoot(t, appRoot)
+	defer db.Close()
+
+	req := newMultipartUploadRequest(t, "/api/v1/json/file/download", []multipartUploadFile{
+		{name: "tweets.json", content: "{}"},
+	}, false)
+	rr := httptest.NewRecorder()
+
+	server.handleJsonFileDownload(rr, req)
+
+	assert.Equal(t, http.StatusInternalServerError, rr.Code)
+	_, err := os.Stat(blockingPath)
+	assert.NoError(t, err)
+}
+
+func TestHandleJsonFolderDownload_MultipartSuccess(t *testing.T) {
+	appRoot := t.TempDir()
+	server, db := setupTestServerWithAppRoot(t, appRoot)
+	defer db.Close()
+
+	req := newMultipartUploadRequest(t, "/api/v1/json/folder/download", []multipartUploadFile{
+		{name: "tweet-1.json", content: "{}"},
+		{name: "tweet-2.json", content: "{}"},
+	}, false)
+	rr := httptest.NewRecorder()
+
+	server.handleJsonFolderDownload(rr, req)
+
+	assert.Equal(t, http.StatusAccepted, rr.Code)
+
+	var resp APIResponse
+	err := json.Unmarshal(rr.Body.Bytes(), &resp)
+	assert.NoError(t, err)
+	assert.True(t, resp.Success)
+
+	data, ok := resp.Data.(map[string]interface{})
+	assert.True(t, ok)
+	assert.Equal(t, float64(2), data["file_count"])
+	assert.Equal(t, false, data["no_retry"])
+
+	tasks := server.taskManager.GetAllTasks()
+	if assert.Len(t, tasks, 1) {
+		taskData, ok := tasks[0].Data.(*JsonFolderDownloadTaskData)
+		assert.True(t, ok)
+		assert.Equal(t, 1, len(taskData.Paths))
+		assert.True(t, strings.HasPrefix(taskData.Paths[0], filepath.Join(appRoot, "uploads", "loongtweet")))
+	}
+}
+
+func TestHandleJsonFolderDownload_MultipartRejectsTextFile(t *testing.T) {
+	appRoot := t.TempDir()
+	server, db := setupTestServerWithAppRoot(t, appRoot)
+	defer db.Close()
+
+	req := newMultipartUploadRequest(t, "/api/v1/json/folder/download", []multipartUploadFile{
+		{name: "tweet.txt", content: "{}"},
+	}, false)
+	rr := httptest.NewRecorder()
+
+	server.handleJsonFolderDownload(rr, req)
+
+	assert.Equal(t, http.StatusBadRequest, rr.Code)
 }
 
 func TestHandleBatchDownload_InvalidBody(t *testing.T) {

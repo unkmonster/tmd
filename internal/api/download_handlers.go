@@ -3,8 +3,16 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"mime"
+	"mime/multipart"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -12,6 +20,12 @@ import (
 	"github.com/unkmonster/tmd/internal/scheduler"
 	"github.com/unkmonster/tmd/internal/service"
 	"github.com/unkmonster/tmd/internal/utils"
+)
+
+const (
+	maxUploadRequestSize = 200 << 20
+	maxUploadFileSize    = 50 << 20
+	maxUploadMemory      = 32 << 20
 )
 
 // executeDownloadTask 执行下载任务的通用辅助方法
@@ -384,6 +398,11 @@ func (s *Server) handleListProfile(w http.ResponseWriter, _ *http.Request, listI
 }
 
 func (s *Server) handleJsonFileDownload(w http.ResponseWriter, r *http.Request) {
+	if isMultipartRequest(r) {
+		s.handleJsonFileUpload(w, r)
+		return
+	}
+
 	var req JsonFileDownloadTaskData
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		s.writeError(w, http.StatusBadRequest, "Invalid request body")
@@ -412,6 +431,11 @@ func (s *Server) handleJsonFileDownload(w http.ResponseWriter, r *http.Request) 
 }
 
 func (s *Server) handleJsonFolderDownload(w http.ResponseWriter, r *http.Request) {
+	if isMultipartRequest(r) {
+		s.handleJsonFolderUpload(w, r)
+		return
+	}
+
 	var req JsonFolderDownloadTaskData
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		s.writeError(w, http.StatusBadRequest, "Invalid request body")
@@ -437,6 +461,212 @@ func (s *Server) handleJsonFolderDownload(w http.ResponseWriter, r *http.Request
 		"no_retry": req.NoRetry,
 		"message":  "JSON folder download task queued",
 	}))
+}
+
+func (s *Server) handleJsonFileUpload(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxUploadRequestSize)
+
+	paths, uploadDir, err := s.saveUploadedJSONFiles(r, "json")
+	if err != nil {
+		if uploadDir != "" {
+			_ = os.RemoveAll(uploadDir)
+		}
+		writeUploadError(w, err)
+		return
+	}
+
+	req := JsonFileDownloadTaskData{
+		Paths:   paths,
+		NoRetry: parseMultipartNoRetry(r),
+	}
+
+	task := s.taskManager.CreateTask(TaskTypeJsonFileDownload, &req)
+	taskID := task.ID
+	status := task.Status
+	s.enqueueTask(task, cleanupUploadDirAfterTask(uploadDir, func(ctx context.Context, taskID string, reporter service.ProgressReporter) error {
+		return s.downloadService.JsonFileDownload(ctx, taskID, req.Paths, req.NoRetry, reporter)
+	}))
+
+	s.writeJSON(w, http.StatusAccepted, NewSuccessResponse(map[string]interface{}{
+		"task_id":    taskID,
+		"status":     status,
+		"file_count": len(paths),
+		"no_retry":   req.NoRetry,
+		"message":    "JSON file upload task queued",
+	}))
+}
+
+func (s *Server) handleJsonFolderUpload(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxUploadRequestSize)
+
+	paths, uploadDir, err := s.saveUploadedJSONFiles(r, "loongtweet")
+	if err != nil {
+		if uploadDir != "" {
+			_ = os.RemoveAll(uploadDir)
+		}
+		writeUploadError(w, err)
+		return
+	}
+
+	req := JsonFolderDownloadTaskData{
+		Paths:   []string{uploadDir},
+		NoRetry: parseMultipartNoRetry(r),
+	}
+
+	task := s.taskManager.CreateTask(TaskTypeJsonFolderDownload, &req)
+	taskID := task.ID
+	status := task.Status
+	s.enqueueTask(task, cleanupUploadDirAfterTask(uploadDir, func(ctx context.Context, taskID string, reporter service.ProgressReporter) error {
+		return s.downloadService.JsonFolderDownload(ctx, taskID, req.Paths, req.NoRetry, reporter)
+	}))
+
+	s.writeJSON(w, http.StatusAccepted, NewSuccessResponse(map[string]interface{}{
+		"task_id":    taskID,
+		"status":     status,
+		"file_count": len(paths),
+		"no_retry":   req.NoRetry,
+		"message":    "LoongTweet upload task queued",
+	}))
+}
+
+func isMultipartRequest(r *http.Request) bool {
+	mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	return err == nil && strings.EqualFold(mediaType, "multipart/form-data")
+}
+
+func parseMultipartNoRetry(r *http.Request) bool {
+	return strings.EqualFold(strings.TrimSpace(r.FormValue("no_retry")), "true")
+}
+
+func cleanupUploadDirAfterTask(uploadDir string, task func(ctx context.Context, taskID string, reporter service.ProgressReporter) error) func(ctx context.Context, taskID string, reporter service.ProgressReporter) error {
+	return func(ctx context.Context, taskID string, reporter service.ProgressReporter) error {
+		if uploadDir != "" {
+			defer os.RemoveAll(uploadDir)
+		}
+		return task(ctx, taskID, reporter)
+	}
+}
+
+func (s *Server) saveUploadedJSONFiles(r *http.Request, uploadKind string) ([]string, string, error) {
+	if err := r.ParseMultipartForm(maxUploadMemory); err != nil {
+		return nil, "", err
+	}
+	defer r.MultipartForm.RemoveAll()
+
+	files := r.MultipartForm.File["files"]
+	if len(files) == 0 {
+		return nil, "", fmt.Errorf("no files uploaded")
+	}
+
+	uploadParent := filepath.Join(s.appRootPath, "uploads", uploadKind)
+	if err := os.MkdirAll(uploadParent, 0o755); err != nil {
+		return nil, "", fmt.Errorf("failed to create upload directory: %w", err)
+	}
+	uploadDir, err := os.MkdirTemp(uploadParent, strconv.FormatInt(time.Now().UnixNano(), 10)+"-*")
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to create upload directory: %w", err)
+	}
+
+	paths := make([]string, 0, len(files))
+	usedNames := make(map[string]struct{}, len(files))
+	for _, fileHeader := range files {
+		name, err := validateUploadFile(fileHeader)
+		if err != nil {
+			return nil, uploadDir, err
+		}
+
+		dstPath := filepath.Join(uploadDir, uniqueUploadFileName(name, usedNames))
+		if err := copyUploadedFile(fileHeader, dstPath); err != nil {
+			return nil, uploadDir, err
+		}
+		paths = append(paths, dstPath)
+	}
+
+	return paths, uploadDir, nil
+}
+
+func validateUploadFile(fileHeader *multipart.FileHeader) (string, error) {
+	if fileHeader.Size > maxUploadFileSize {
+		return "", fmt.Errorf("uploaded file too large: %s exceeds %d bytes", fileHeader.Filename, maxUploadFileSize)
+	}
+	return validateUploadFileName(fileHeader.Filename)
+}
+
+func validateUploadFileName(fileName string) (string, error) {
+	name := strings.TrimSpace(fileName)
+	if name == "" {
+		return "", fmt.Errorf("invalid file name")
+	}
+	if strings.ContainsAny(name, `/\<>:"|?*`) {
+		return "", fmt.Errorf("invalid file name: %s", fileName)
+	}
+
+	ext := strings.ToLower(filepath.Ext(name))
+	if ext == ".json" {
+		return name, nil
+	}
+	return "", fmt.Errorf("unsupported file type: %s", fileName)
+}
+
+func uniqueUploadFileName(fileName string, used map[string]struct{}) string {
+	key := strings.ToLower(fileName)
+	if _, exists := used[key]; !exists {
+		used[key] = struct{}{}
+		return fileName
+	}
+
+	ext := filepath.Ext(fileName)
+	base := strings.TrimSuffix(fileName, ext)
+	for index := 2; ; index++ {
+		candidate := fmt.Sprintf("%s-%d%s", base, index, ext)
+		key := strings.ToLower(candidate)
+		if _, exists := used[key]; !exists {
+			used[key] = struct{}{}
+			return candidate
+		}
+	}
+}
+
+func copyUploadedFile(fileHeader *multipart.FileHeader, dstPath string) error {
+	src, err := fileHeader.Open()
+	if err != nil {
+		return fmt.Errorf("failed to open uploaded file %s: %w", fileHeader.Filename, err)
+	}
+	defer src.Close()
+
+	dst, err := os.OpenFile(dstPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+	if err != nil {
+		return fmt.Errorf("failed to create upload file %s: %w", filepath.Base(dstPath), err)
+	}
+	defer dst.Close()
+
+	if _, err := io.Copy(dst, src); err != nil {
+		return fmt.Errorf("failed to save uploaded file %s: %w", fileHeader.Filename, err)
+	}
+	return nil
+}
+
+func writeUploadError(w http.ResponseWriter, err error) {
+	var maxBytesErr *http.MaxBytesError
+	if errors.As(err, &maxBytesErr) {
+		writeJSONError(w, http.StatusRequestEntityTooLarge, fmt.Sprintf("Upload too large: max %d bytes", maxBytesErr.Limit))
+		return
+	}
+
+	statusCode := http.StatusBadRequest
+	if strings.HasPrefix(err.Error(), "failed to create upload") ||
+		strings.HasPrefix(err.Error(), "failed to save uploaded") ||
+		strings.HasPrefix(err.Error(), "failed to open uploaded") {
+		statusCode = http.StatusInternalServerError
+	}
+
+	writeJSONError(w, statusCode, err.Error())
+}
+
+func writeJSONError(w http.ResponseWriter, statusCode int, message string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(statusCode)
+	_ = json.NewEncoder(w).Encode(NewErrorResponse(message))
 }
 
 func (s *Server) handleBatchDownload(w http.ResponseWriter, r *http.Request) {
