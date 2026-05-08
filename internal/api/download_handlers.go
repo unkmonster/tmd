@@ -23,8 +23,8 @@ import (
 )
 
 const (
-	maxUploadRequestSize = 200 << 20
-	maxUploadFileSize    = 50 << 20
+	maxUploadRequestSize = 1 << 30
+	maxUploadFileSize    = 400 << 20
 	maxUploadMemory      = 32 << 20
 )
 

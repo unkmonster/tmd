@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ***
 
+## [3.3.10] - 2026-05-04
+
+### Changed
+
+#### 上传限制调整
+
+| 文件 | 变更 |
+|------|------|
+| `internal/api/download_handlers.go` | 单文件最大上传大小从 50MB 提升至 400MB |
+| `internal/api/download_handlers.go` | 请求总大小限制从 200MB 提升至 1GB |
+
+#### 文档更新
+
+| 文件 | 变更 |
+|------|------|
+| `doc/API_DOCUMENTATION.md` | 新增 multipart/form-data 上传方式详细说明 |
+| `doc/API_DOCUMENTATION.md` | 明确两种请求模式（multipart vs JSON Body） |
+| `doc/API_DOCUMENTATION.md` | 添加 curl 上传示例 |
+
+#### 启动脚本移除
+
+| 文件 | 说明 |
+|------|------|
+| `start.bat` | 移除 Windows 启动脚本（用户可直接运行二进制） |
+| `start.sh` | 移除 Linux 启动脚本（用户可直接运行二进制） |
+
+### Stats
+
+- **4 个文件变更**
+- **+159 行 / -84 行**
+
+***
+
 ## [3.3.9] - 2026-05-04
 
 ### Added

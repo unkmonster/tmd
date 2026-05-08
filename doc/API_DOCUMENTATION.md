@@ -485,6 +485,76 @@ curl -X POST http://localhost:25556/api/v1/lists/123456789/profile
 
 从 JSON 文件（如其他工具导出的 Twitter 数据）下载媒体。
 
+支持两种请求方式：
+
+#### 方式一：multipart/form-data 上传（推荐）
+
+适用于 Web UI 和远程调用，无需服务端文件路径。
+
+**请求：**
+
+```http
+POST /api/v1/json/file/download
+Content-Type: multipart/form-data; boundary=----WebKitFormBoundary
+
+------WebKitFormBoundary
+Content-Disposition: form-data; name="files"; filename="tweets.json"
+Content-Type: application/json
+
+<文件内容>
+------WebKitFormBoundary
+Content-Disposition: form-data; name="files"; filename="followers.json"
+Content-Type: application/json
+
+<文件内容>
+------WebKitFormBoundary
+Content-Disposition: form-data; name="no_retry"
+
+false
+------WebKitFormBoundary--
+```
+
+**表单字段：**
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `files` | file | 是 | JSON 文件（支持多选，仅限 `.json` 扩展名） |
+| `no_retry` | string | 否 | `"true"` 或 `"false"`，默认 `false` |
+
+**响应：**
+
+```json
+{
+  "success": true,
+  "data": {
+    "task_id": "task_stu901",
+    "status": "queued",
+    "file_count": 2,
+    "no_retry": false,
+    "message": "JSON file upload task queued"
+  }
+}
+```
+
+**示例：**
+
+```bash
+curl -X POST http://localhost:25556/api/v1/json/file/download \
+  -F "files=@/local/path/tweets.json" \
+  -F "files=@/local/path/followers.json" \
+  -F "no_retry=false"
+```
+
+**限制：**
+
+- 单文件最大 400MB
+- 请求总大小最大 1GB
+- 仅支持 `.json` 扩展名
+
+#### 方式二：JSON Body（兼容模式）
+
+用于 CLI 和高级用法，需要服务端文件路径。
+
 **请求：**
 
 ```http
@@ -499,10 +569,10 @@ Content-Type: application/json
 
 **请求体参数：**
 
-| 字段         | 类型        | 必填 | 默认值     | 说明                |
-| ---------- | --------- | -- | ------- | ----------------- |
-| `paths`    | \[]string | 是  | -       | JSON 文件路径列表（绝对路径） |
-| `no_retry` | bool      | 否  | `false` | 失败后不重试            |
+| 字段 | 类型 | 必填 | 默认值 | 说明 |
+|------|------|------|--------|------|
+| `paths` | []string | 是 | - | JSON 文件路径列表（服务端绝对路径） |
+| `no_retry` | bool | 否 | `false` | 失败后不重试 |
 
 **响应：**
 
@@ -533,6 +603,76 @@ curl -X POST http://localhost:25556/api/v1/json/file/download \
 
 从 loongtweet 格式的文件夹下载推文媒体。
 
+支持两种请求方式：
+
+#### 方式一：multipart/form-data 上传（推荐）
+
+直接上传 JSON 文件，无需 ZIP 打包或服务端路径。
+
+**请求：**
+
+```http
+POST /api/v1/json/folder/download
+Content-Type: multipart/form-data; boundary=----WebKitFormBoundary
+
+------WebKitFormBoundary
+Content-Disposition: form-data; name="files"; filename="tweet-1.json"
+Content-Type: application/json
+
+<文件内容>
+------WebKitFormBoundary
+Content-Disposition: form-data; name="files"; filename="tweet-2.json"
+Content-Type: application/json
+
+<文件内容>
+------WebKitFormBoundary
+Content-Disposition: form-data; name="no_retry"
+
+false
+------WebKitFormBoundary--
+```
+
+**表单字段：**
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `files` | file | 是 | JSON 文件（支持多选，仅限 `.json` 扩展名） |
+| `no_retry` | string | 否 | `"true"` 或 `"false"`，默认 `false` |
+
+**响应：**
+
+```json
+{
+  "success": true,
+  "data": {
+    "task_id": "task_stu902",
+    "status": "queued",
+    "file_count": 2,
+    "no_retry": false,
+    "message": "LoongTweet upload task queued"
+  }
+}
+```
+
+**示例：**
+
+```bash
+curl -X POST http://localhost:25556/api/v1/json/folder/download \
+  -F "files=@/local/path/tweet-1.json" \
+  -F "files=@/local/path/tweet-2.json" \
+  -F "no_retry=false"
+```
+
+**限制：**
+
+- 单文件最大 400MB
+- 请求总大小最大 1GB
+- 仅支持 `.json` 扩展名
+
+#### 方式二：JSON Body（兼容模式）
+
+用于 CLI 和高级用法，需要服务端文件夹路径。
+
 **请求：**
 
 ```http
@@ -547,10 +687,10 @@ Content-Type: application/json
 
 **请求体参数：**
 
-| 字段         | 类型        | 必填 | 默认值     | 说明                |
-| ---------- | --------- | -- | ------- | ----------------- |
-| `paths`    | \[]string | 是  | -       | 文件夹路径列表（绝对路径）     |
-| `no_retry` | bool      | 否  | `false` | 失败后不重试            |
+| 字段 | 类型 | 必填 | 默认值 | 说明 |
+|------|------|------|--------|------|
+| `paths` | []string | 是 | - | 文件夹路径列表（服务端绝对路径） |
+| `no_retry` | bool | 否 | `false` | 失败后不重试 |
 
 **响应：**
 
@@ -2894,10 +3034,12 @@ TASK_ID=$(curl -s -X POST http://localhost:25556/api/v1/lists/123456789/download
 | `/api/v1/users/{name}/mark`     | `timestamp`    | string    | 否  | 标记时间（ISO 8601）      |
 | `/api/v1/users/{name}/following/mark` | `timestamp` | string | 否  | 标记时间（ISO 8601）      |
 | `/api/v1/lists/{id}/mark`       | `timestamp`    | string    | 否  | 标记时间（ISO 8601）      |
-| `/api/v1/json/file/download`    | `paths`        | \[]string | 是  | JSON 文件路径列表         |
-| `/api/v1/json/file/download`    | `no_retry`     | bool      | 否  | 失败后不重试              |
-| `/api/v1/json/folder/download`  | `paths`        | \[]string | 是  | 文件夹路径列表            |
-| `/api/v1/json/folder/download`  | `no_retry`     | bool      | 否  | 失败后不重试              |
+| `/api/v1/json/file/download` | `paths` | []string | 是* | JSON 文件路径列表（服务端绝对路径，JSON Body 模式） |
+| `/api/v1/json/file/download` | `files` | file | 是* | JSON 文件（multipart 上传模式，支持多选） |
+| `/api/v1/json/file/download` | `no_retry` | bool/string | 否 | 失败后不重试 |
+| `/api/v1/json/folder/download` | `paths` | []string | 是* | 文件夹路径列表（服务端绝对路径，JSON Body 模式） |
+| `/api/v1/json/folder/download` | `files` | file | 是* | JSON 文件（multipart 上传模式，支持多选） |
+| `/api/v1/json/folder/download` | `no_retry` | bool/string | 否 | 失败后不重试 |
 | `/api/v1/batch/download`        | `users`        | \[]string | 否  | 用户名列表               |
 | `/api/v1/batch/download`        | `lists`        | \[]string | 否  | 列表 ID 列表（uint64 十进制字符串） |
 | `/api/v1/batch/download`        | `following_names` | \[]string | 否 | 关注列表用户名列表        |
@@ -2905,3 +3047,6 @@ TASK_ID=$(curl -s -X POST http://localhost:25556/api/v1/lists/123456789/download
 | `/api/v1/batch/download`        | `follow_members` | bool     | 否  | 下载时关注目标/成员          |
 | `/api/v1/batch/download`        | `skip_profile` | bool      | 否  | 跳过 Profile 下载（默认下载） |
 | `/api/v1/batch/download`        | `no_retry`     | bool      | 否  | 失败后不重试              |
+
+**说明：**
+- `是*` 表示 JSON Body 模式的 `paths` 和 multipart 模式的 `files` 二选一，根据 `Content-Type` 自动判断。
