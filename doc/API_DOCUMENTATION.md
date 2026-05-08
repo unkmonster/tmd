@@ -301,7 +301,7 @@ Content-Type: application/json
   "data": {
     "task_id": "task_ghi791",
     "status": "queued",
-    "list_id": 123456789,
+    "list_id": "123456789",
     "timestamp": "2024-01-15T10:30:00Z",
     "message": "Mark list downloaded task queued"
   }
@@ -423,7 +423,7 @@ Content-Type: application/json
   "data": {
     "task_id": "task_mno345",
     "status": "queued",
-    "list_id": 123456789,
+    "list_id": "123456789",
     "skip_profile": false,
     "auto_follow": false,
     "follow_members": false,
@@ -467,7 +467,7 @@ POST /api/v1/lists/{list_id}/profile
   "data": {
     "task_id": "task_pqr678",
     "status": "queued",
-    "list_id": 123456789,
+    "list_id": "123456789",
     "message": "List profile download task queued"
   }
 }
@@ -589,7 +589,7 @@ Content-Type: application/json
 
 {
   "users": ["elonmusk", "twitter", "github"],
-  "lists": [123456789, 987654321],
+  "lists": ["123456789", "987654321"],
   "following_names": ["userA", "userB"],
   "auto_follow": false,
   "follow_members": false,
@@ -603,7 +603,7 @@ Content-Type: application/json
 | 字段              | 类型        | 必填 | 默认值     | 说明                          |
 | --------------- | --------- | -- | ------- | --------------------------- |
 | `users`         | \[]string | 否  | -       | 要下载的用户名列表                   |
-| `lists`         | \[]uint64 | 否  | -       | 要下载的列表 ID 列表                |
+| `lists`         | \[]string | 否  | -       | 要下载的列表 ID 列表（uint64 十进制字符串） |
 | `following_names` | \[]string | 否  | -       | 要下载其关注列表的用户名列表              |
 | `auto_follow`   | bool      | 否  | `false` | 自动关注受保护用户                   |
 | `follow_members` | bool     | 否  | `false` | 下载时关注目标/成员                |
@@ -621,7 +621,7 @@ Content-Type: application/json
     "task_id": "task_vwx234",
     "status": "queued",
     "users": ["elonmusk", "twitter", "github"],
-    "lists": [123456789, 987654321],
+    "lists": ["123456789", "987654321"],
     "following_names": ["userA", "userB"],
     "user_count": 3,
     "list_count": 2,
@@ -642,7 +642,7 @@ curl -X POST http://localhost:25556/api/v1/batch/download \
   -H "Content-Type: application/json" \
   -d '{
     "users": ["elonmusk", "twitter"],
-    "lists": [123456789]
+    "lists": ["123456789"]
   }'
 
 # 跳过 Profile 下载
@@ -650,7 +650,7 @@ curl -X POST http://localhost:25556/api/v1/batch/download \
   -H "Content-Type: application/json" \
   -d '{
     "users": ["elonmusk", "twitter"],
-    "lists": [123456789],
+    "lists": ["123456789"],
     "skip_profile": true
   }'
 ```
@@ -2899,7 +2899,7 @@ TASK_ID=$(curl -s -X POST http://localhost:25556/api/v1/lists/123456789/download
 | `/api/v1/json/folder/download`  | `paths`        | \[]string | 是  | 文件夹路径列表            |
 | `/api/v1/json/folder/download`  | `no_retry`     | bool      | 否  | 失败后不重试              |
 | `/api/v1/batch/download`        | `users`        | \[]string | 否  | 用户名列表               |
-| `/api/v1/batch/download`        | `lists`        | \[]uint64 | 否  | 列表 ID 列表            |
+| `/api/v1/batch/download`        | `lists`        | \[]string | 否  | 列表 ID 列表（uint64 十进制字符串） |
 | `/api/v1/batch/download`        | `following_names` | \[]string | 否 | 关注列表用户名列表        |
 | `/api/v1/batch/download`        | `auto_follow`  | bool      | 否  | 自动关注受保护用户           |
 | `/api/v1/batch/download`        | `follow_members` | bool     | 否  | 下载时关注目标/成员          |

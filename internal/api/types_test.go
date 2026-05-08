@@ -62,12 +62,12 @@ func TestListDownloadTaskData(t *testing.T) {
 				SkipProfile:   true,
 				NoRetry:       false,
 			},
-			wantJSON: `{"list_id":12345,"auto_follow":true,"follow_members":true,"skip_profile":true,"no_retry":false}`,
+			wantJSON: `{"list_id":"12345","auto_follow":true,"follow_members":true,"skip_profile":true,"no_retry":false}`,
 		},
 		{
 			name:     "零值",
 			data:     ListDownloadTaskData{},
-			wantJSON: `{"list_id":0,"auto_follow":false,"follow_members":false,"skip_profile":false,"no_retry":false}`,
+			wantJSON: `{"list_id":"0","auto_follow":false,"follow_members":false,"skip_profile":false,"no_retry":false}`,
 		},
 	}
 
@@ -78,6 +78,29 @@ func TestListDownloadTaskData(t *testing.T) {
 			assert.JSONEq(t, tt.wantJSON, string(bytes))
 		})
 	}
+}
+
+func TestStringUint64JSON(t *testing.T) {
+	const bigListID = "2033436439346905439"
+
+	value := StringUint64(2033436439346905439)
+	bytes, err := json.Marshal(value)
+	assert.NoError(t, err)
+	assert.Equal(t, `"`+bigListID+`"`, string(bytes))
+
+	var decoded StringUint64
+	err = json.Unmarshal([]byte(`"`+bigListID+`"`), &decoded)
+	assert.NoError(t, err)
+	assert.Equal(t, value, decoded)
+	assert.Equal(t, uint64(2033436439346905439), decoded.Uint64())
+
+	err = json.Unmarshal([]byte(`12345`), &decoded)
+	assert.NoError(t, err)
+	assert.Equal(t, StringUint64(12345), decoded)
+
+	assert.Error(t, json.Unmarshal([]byte(`123.0`), &decoded))
+	assert.Error(t, json.Unmarshal([]byte(`1e3`), &decoded))
+	assert.Error(t, json.Unmarshal([]byte(`"18446744073709551616"`), &decoded))
 }
 
 func TestFollowingDownloadTaskData(t *testing.T) {
@@ -159,13 +182,13 @@ func TestBatchDownloadTaskData(t *testing.T) {
 			name: "用户和列表",
 			data: BatchDownloadTaskData{
 				Users:         []string{"user1", "user2"},
-				Lists:         []uint64{100, 200},
+				Lists:         []StringUint64{100, 200},
 				AutoFollow:    true,
 				FollowMembers: true,
 				SkipProfile:   false,
 				NoRetry:       true,
 			},
-			wantJSON: `{"users":["user1","user2"],"lists":[100,200],"following_names":null,"auto_follow":true,"follow_members":true,"skip_profile":false,"no_retry":true}`,
+			wantJSON: `{"users":["user1","user2"],"lists":["100","200"],"following_names":null,"auto_follow":true,"follow_members":true,"skip_profile":false,"no_retry":true}`,
 		},
 		{
 			name: "仅用户",
@@ -177,9 +200,9 @@ func TestBatchDownloadTaskData(t *testing.T) {
 		{
 			name: "仅列表",
 			data: BatchDownloadTaskData{
-				Lists: []uint64{300},
+				Lists: []StringUint64{300},
 			},
-			wantJSON: `{"users":null,"lists":[300],"following_names":null,"auto_follow":false,"follow_members":false,"skip_profile":false,"no_retry":false}`,
+			wantJSON: `{"users":null,"lists":["300"],"following_names":null,"auto_follow":false,"follow_members":false,"skip_profile":false,"no_retry":false}`,
 		},
 	}
 
@@ -199,7 +222,7 @@ func TestListProfileTaskData(t *testing.T) {
 
 	bytes, err := json.Marshal(data)
 	assert.NoError(t, err)
-	assert.JSONEq(t, `{"list_id":99999}`, string(bytes))
+	assert.JSONEq(t, `{"list_id":"99999"}`, string(bytes))
 }
 
 func TestNewSuccessResponse(t *testing.T) {

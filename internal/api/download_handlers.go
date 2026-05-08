@@ -209,7 +209,7 @@ func (s *Server) handleListMark(w http.ResponseWriter, r *http.Request, listID u
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		req = ListMarkDownloadedTaskData{}
 	}
-	req.ListID = listID
+	req.ListID = StringUint64(listID)
 
 	task := s.taskManager.CreateTask(TaskTypeMarkDownloaded, &req)
 	taskID := task.ID
@@ -224,7 +224,7 @@ func (s *Server) handleListMark(w http.ResponseWriter, r *http.Request, listID u
 	s.writeJSON(w, http.StatusAccepted, NewSuccessResponse(map[string]interface{}{
 		"task_id":   taskID,
 		"status":    status,
-		"list_id":   listID,
+		"list_id":   StringUint64(listID),
 		"timestamp": req.Timestamp,
 		"message":   "Mark list downloaded task queued",
 	}))
@@ -335,7 +335,7 @@ func (s *Server) handleListDownload(w http.ResponseWriter, r *http.Request, list
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		req = ListDownloadTaskData{}
 	}
-	req.ListID = listID
+	req.ListID = StringUint64(listID)
 
 	task := s.taskManager.CreateTask(TaskTypeListDownload, &req)
 	taskID := task.ID
@@ -355,7 +355,7 @@ func (s *Server) handleListDownload(w http.ResponseWriter, r *http.Request, list
 	s.writeJSON(w, http.StatusAccepted, NewSuccessResponse(map[string]interface{}{
 		"task_id":        taskID,
 		"status":         status,
-		"list_id":        listID,
+		"list_id":        StringUint64(listID),
 		"skip_profile":   req.SkipProfile,
 		"auto_follow":    req.AutoFollow,
 		"follow_members": req.FollowMembers,
@@ -365,7 +365,7 @@ func (s *Server) handleListDownload(w http.ResponseWriter, r *http.Request, list
 }
 
 func (s *Server) handleListProfile(w http.ResponseWriter, _ *http.Request, listID uint64) {
-	req := ListProfileTaskData{ListID: listID}
+	req := ListProfileTaskData{ListID: StringUint64(listID)}
 
 	task := s.taskManager.CreateTask(TaskTypeListProfile, &req)
 	taskID := task.ID
@@ -378,7 +378,7 @@ func (s *Server) handleListProfile(w http.ResponseWriter, _ *http.Request, listI
 	s.writeJSON(w, http.StatusAccepted, NewSuccessResponse(map[string]interface{}{
 		"task_id": taskID,
 		"status":  status,
-		"list_id": listID,
+		"list_id": StringUint64(listID),
 		"message": "List profile download task queued",
 	}))
 }
@@ -468,7 +468,8 @@ func (s *Server) handleBatchDownload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 校验所有 listID 有效性
-	for _, listID := range req.Lists {
+	listIDs := stringUint64SliceToUint64(req.Lists)
+	for _, listID := range listIDs {
 		if listID == 0 {
 			s.writeError(w, http.StatusBadRequest, "Invalid list ID: must be greater than 0")
 			return
@@ -487,7 +488,7 @@ func (s *Server) handleBatchDownload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.enqueueTask(task, func(ctx context.Context, taskID string, reporter service.ProgressReporter) error {
-		return s.downloadService.BatchDownload(ctx, taskID, req.Users, req.Lists, req.FollowingNames, opts, reporter)
+		return s.downloadService.BatchDownload(ctx, taskID, req.Users, listIDs, req.FollowingNames, opts, reporter)
 	})
 
 	s.writeJSON(w, http.StatusAccepted, NewSuccessResponse(map[string]interface{}{
@@ -560,7 +561,7 @@ func (s *Server) scheduledDownload(entry scheduler.ScheduleEntry) string {
 			return ""
 		}
 		req := &ListDownloadTaskData{
-			ListID:        listID,
+			ListID:        StringUint64(listID),
 			AutoFollow:    entry.AutoFollow,
 			FollowMembers: entry.FollowMembers,
 			SkipProfile:   entry.SkipProfile,

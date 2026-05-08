@@ -93,7 +93,7 @@ func TestTaskManager_CreateTask_ClonesTaskData(t *testing.T) {
 	now := time.Now()
 	data := &BatchDownloadTaskData{
 		Users:          []string{"user1"},
-		Lists:          []uint64{1},
+		Lists:          []StringUint64{1},
 		FollowingNames: []string{"following1"},
 		AutoFollow:     true,
 	}
@@ -113,7 +113,7 @@ func TestTaskManager_CreateTask_ClonesTaskData(t *testing.T) {
 	data.Lists[0] = 99
 	data.FollowingNames[0] = "changed"
 	assert.Equal(t, "user1", createdData.Users[0])
-	assert.Equal(t, uint64(1), createdData.Lists[0])
+	assert.Equal(t, StringUint64(1), createdData.Lists[0])
 	assert.Equal(t, "following1", createdData.FollowingNames[0])
 
 	createdMarkData, ok := markTask.Data.(*MarkDownloadedTaskData)
@@ -219,7 +219,7 @@ func TestTaskManager_GetAllTasks_DeepCopiesTaskData(t *testing.T) {
 
 	task := tm.CreateTask(TaskTypeBatchDownload, &BatchDownloadTaskData{
 		Users:          []string{"user1"},
-		Lists:          []uint64{42},
+		Lists:          []StringUint64{42},
 		FollowingNames: []string{"following1"},
 	})
 	markTask := tm.CreateTask(TaskTypeMarkDownloaded, &MarkDownloadedTaskData{
@@ -252,7 +252,7 @@ func TestTaskManager_GetAllTasks_DeepCopiesTaskData(t *testing.T) {
 		original, _ := tm.GetTask(task.ID)
 		originalData := original.Data.(*BatchDownloadTaskData)
 		assert.Equal(t, "user1", originalData.Users[0])
-		assert.Equal(t, uint64(42), originalData.Lists[0])
+		assert.Equal(t, StringUint64(42), originalData.Lists[0])
 		assert.Equal(t, "following1", originalData.FollowingNames[0])
 	}
 

@@ -1109,10 +1109,6 @@ ul, ol {
   border-bottom: none;
 }
 
-.task-checkbox {
-  flex-shrink: 0;
-}
-
 .task-info {
   flex: 1;
   min-width: 0;

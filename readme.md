@@ -381,6 +381,8 @@ tmd -server -port 8080
 | **GET** | `/data` | Web 管理界面 - 数据 | ❌ |
 | **GET** | `/system` | Web 管理界面 - 系统 | ❌ |
 
+> API JSON 中的 Twitter list ID 使用十进制字符串传输（例如 `"2033436439346905439"`），避免 JavaScript Number 对 64 位 ID 产生精度丢失；URL 路径参数仍直接使用同一个十进制 ID。
+
 > ⚠️ **安全提示**: 当前版本 API 无需认证，仅建议在本地或可信网络使用。生产环境请配合反向代理（Nginx/Caddy）添加 Basic Auth 或 IP 白名单。
 
 ### API 通用参数

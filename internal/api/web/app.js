@@ -20,6 +20,14 @@ function glowNewFirstItem(panelId) {
   }));
 }
 
+function readListIDsFromTextarea(inputId) {
+  const validListID = /^[1-9]\d{0,19}$/;
+  return document.getElementById(inputId).value
+    .split('\n')
+    .map(s => s.trim())
+    .filter(s => validListID.test(s));
+}
+
 // ============================================
 // Search Input Helpers
 // ============================================
@@ -54,7 +62,6 @@ const store = {
     lists: [],
     entities: [],
     config: null,
-    selectedTasks: new Set(),
     sidebarOpen: false,
     isMobile: window.innerWidth < 768,
     sseConnected: false,
@@ -521,7 +528,7 @@ const pages = {
             <input type="text" class="form-input" id="quickDownloadInput" 
               placeholder="输入用户名，如: elonmusk 或 https://twitter.com/elonmusk" 
               style="flex: 1; min-width: 280px;">
-            <button class="btn btn-primary" onclick="handleQuickDownload()">创建任务</button>
+            <button class="btn btn-primary" onclick="handleQuickDownload()">粘贴并创建任务</button>
           </div>
           <div class="text-sm text-tertiary mt-4">
             支持格式: twitter.com/username | x.com/username | @username
@@ -612,7 +619,7 @@ const pages = {
                 </div>
               ` : `
                 <div class="task-list" id="taskList">
-                  ${tasks.map(t => renderTaskItem(t, true)).join('')}
+                  ${tasks.map(t => renderTaskItem(t)).join('')}
                 </div>
               `}
             </div>
@@ -684,7 +691,7 @@ const pages = {
     const { _schedules, _scheduleExists, _schedulerRunning } = store.state;
 
     const schedulerBanner = !_schedulerRunning
-      ? `<div class="alert alert-warning" style="margin-bottom:var(--space-3)">⚠️ 调度器未启动，定时任务不会自动执行。请在「系统 → 定时任务」中添加并启用规则后重载配置。</div>`
+      ? `<div class="alert alert-warning" style="margin-bottom:var(--space-3)">⚠️ 调度器未启动，定时任务不会自动执行。请在「定时任务」页面中添加并启用规则后重载配置。</div>`
       : '';
 
     return schedulerBanner + renderScheduleTable(_schedules, _scheduleExists);
@@ -846,7 +853,7 @@ function getOptionalTimestamp(inputId) {
   return date.toISOString();
 }
 
-function renderTaskItem(task, showCheckbox = false) {
+function renderTaskItem(task) {
   const statusMap = {
     queued: { tag: 'tag-queued', text: '排队' },
     running: { tag: 'tag-running', text: '运行' },
@@ -865,7 +872,6 @@ function renderTaskItem(task, showCheckbox = false) {
 
   return `
     <div class="task-item" data-task-id="${escapeAttr(task.task_id)}" onclick="showTaskDetail(this.dataset.taskId)">
-      ${showCheckbox ? `<div class="task-checkbox"><input type="checkbox" class="form-checkbox" data-task-id="${escapeAttr(task.task_id)}"></div>` : ''}
       <div class="task-info">
         <div class="task-title">${escapeHtml(task.type)} - ${target}</div>
         <div class="task-meta">
@@ -986,7 +992,7 @@ function renderTaskForm(type) {
     batch: `
       <div class="form-group">
         <label class="form-label">用户列表（每行一个）</label>
-        <textarea class="form-textarea" id="batchUsers" placeholder="user1\nuser2\nuser3" rows="4"></textarea>
+        <textarea class="form-textarea" id="batchUsers" placeholder="user1\nuser2\nuser3" rows="3"></textarea>
       </div>
       <div class="form-group">
         <label class="form-label">List IDs（每行一个）</label>
@@ -1600,10 +1606,21 @@ async function deleteDBItem(type, id) {
 // ============================================
 async function handleQuickDownload() {
   const input = document.getElementById('quickDownloadInput');
-  const value = input.value.trim();
-  if (!value) return toast.show('请输入用户名或链接', 'error');
+  let value = input.value.trim();
+  
+  if (!value) {
+    try {
+      value = await navigator.clipboard.readText();
+      value = value.trim();
+    } catch (err) {
+      return toast.show('请输入用户名或链接，或允许读取剪切板', 'error');
+    }
+    if (!value) {
+      return toast.show('剪切板为空，请输入用户名或链接', 'error');
+    }
+    input.value = value;
+  }
 
-  // Extract username from various formats
   let username = value;
   const match = value.match(/(?:twitter\.com|x\.com)\/([^/\s?]+)/);
   if (match) username = match[1];
@@ -1700,7 +1717,7 @@ async function createFollowingTask() {
 
 async function createMarkTask() {
   const users = document.getElementById('markUsers').value.split('\n').map(s => s.trim()).filter(Boolean);
-  const listIDs = document.getElementById('markLists').value.split('\n').map(s => parseInt(s.trim(), 10)).filter(id => !isNaN(id));
+  const listIDs = readListIDsFromTextarea('markLists');
   const followingNames = document.getElementById('markFollowingNames').value.split('\n').map(s => s.trim()).filter(Boolean);
 
   if (!users.length && !listIDs.length && !followingNames.length) {
@@ -1741,7 +1758,7 @@ async function createMarkTask() {
 
 async function createBatchTask() {
   const users = document.getElementById('batchUsers').value.split('\n').map(s => s.trim()).filter(Boolean);
-  const lists = document.getElementById('batchLists').value.split('\n').map(s => parseInt(s.trim(), 10)).filter(id => !isNaN(id));
+  const lists = readListIDsFromTextarea('batchLists');
   const followingNames = document.getElementById('batchFollowingNames').value.split('\n').map(s => s.trim()).filter(Boolean);
   
   if (!users.length && !lists.length && !followingNames.length) {
@@ -2307,7 +2324,7 @@ function renderScheduleTable(schedules, exists) {
           <div class="empty-state">
             <div class="empty-icon">⏰</div>
             <div class="empty-title">暂无定时任务</div>
-            <div class="empty-desc">在「系统 → 定时任务」中添加定时下载规则</div>
+            <div class="empty-desc">在「定时任务」页面中添加定时下载规则</div>
           </div>
         </div>
       </div>
@@ -2344,15 +2361,14 @@ function renderScheduleTable(schedules, exists) {
           <div class="schedule-meta">${metaParts.join('<span style="color:var(--border-secondary)">·</span>')}</div>
         </div>
         <div class="schedule-status">
-          <span class="tag ${entry.enabled ? 'tag-success' : 'tag-danger'}">${entry.enabled ? '启用' : '禁用'}</span>
+          <span class="tag ${entry.enabled ? 'tag-success' : 'tag-danger'}" style="cursor:pointer" data-schedule-id="${escapeAttr(entry.id)}" data-enabled="${entry.enabled}" onclick="toggleScheduleEnabled(this.dataset.scheduleId, this.dataset.enabled === 'true')">${entry.enabled ? '启用' : '禁用'}</span>
         </div>
         <div class="schedule-time">
-          <div>下次 ${fmtTime(s.next_run_at)}</div>
           <div>上次 ${fmtTime(s.last_run_at)}</div>
+          <div>下次 ${fmtTime(s.next_run_at)}</div>
         </div>
         <div class="schedule-actions">
           <button class="btn btn-ghost btn-sm" data-schedule-id="${escapeAttr(entry.id)}" onclick="triggerSchedule(this.dataset.scheduleId)" ${!entry.enabled ? 'disabled title="规则已禁用"' : ''}>▶️</button>
-          <button class="btn btn-ghost btn-sm" data-schedule-id="${escapeAttr(entry.id)}" data-enabled="${entry.enabled}" onclick="toggleScheduleEnabled(this.dataset.scheduleId, this.dataset.enabled === 'true')">⏯</button>
         </div>
       </div>
     `;
@@ -3751,7 +3767,7 @@ function updateTaskListUI(tasks) {
       </div>
     `;
   } else {
-    taskList.innerHTML = filtered.map(t => renderTaskItem(t, true)).join('');
+    taskList.innerHTML = filtered.map(t => renderTaskItem(t)).join('');
   }
   
   // Update task count subtitle

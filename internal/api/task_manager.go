@@ -288,7 +288,7 @@ func cloneTaskData(data interface{}) interface{} {
 		}
 		copied := *v
 		copied.Users = append([]string(nil), v.Users...)
-		copied.Lists = append([]uint64(nil), v.Lists...)
+		copied.Lists = append([]StringUint64(nil), v.Lists...)
 		copied.FollowingNames = append([]string(nil), v.FollowingNames...)
 		return &copied
 	case *ListProfileTaskData:

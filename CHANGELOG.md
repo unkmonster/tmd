@@ -7,6 +7,59 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ***
 
+## [3.3.8] - 2026-05-04
+
+### Added
+
+#### StringUint64 类型解决精度丢失问题
+
+| 文件 | 变更 |
+|------|------|
+| `internal/api/types.go` | 新增 `StringUint64` 类型，JSON 中以字符串形式传输 64 位整数 |
+| `internal/api/types_test.go` | 新增 `TestStringUint64JSON` 测试用例 |
+| `internal/api/download_handlers.go` | List ID 参数解析使用 `StringUint64` |
+| `internal/api/task_manager.go` | 任务数据克隆使用 `StringUint64` |
+| `internal/api/task_manager_test.go` | 测试用例更新为 `StringUint64` |
+
+#### 快速下载支持剪切板读取
+
+| 文件 | 变更 |
+|------|------|
+| `internal/api/web/app.js` | `handleQuickDownload` 支持自动读取剪切板内容 |
+| `internal/api/web/app.js` | 按钮文案改为"粘贴并创建任务" |
+
+#### List ID 输入验证
+
+| 文件 | 变更 |
+|------|------|
+| `internal/api/web/app.js` | 新增 `readListIDsFromTextarea` 函数验证 List ID 格式 |
+
+### Changed
+
+#### Web 界面优化
+
+| 文件 | 变更 |
+|------|------|
+| `internal/api/web/index.html` | 导航栏调整："定时任务"移到"数据管理"前面 |
+| `internal/api/web/app.js` | 定时任务状态标签支持点击切换启用/禁用 |
+| `internal/api/web/app.js` | 移除任务列表复选框 |
+| `internal/api/web/app.js` | 调度器提示文案更新 |
+| `internal/api/web/styles.css` | 移除 `.task-checkbox` 样式 |
+
+#### 文档更新
+
+| 文件 | 变更 |
+|------|------|
+| `doc/API_DOCUMENTATION.md` | 说明 List ID 使用十进制字符串传输 |
+| `readme.md` | 新增 API JSON 传输说明 |
+
+### Stats
+
+- **11 个文件变更**
+- **+118 行 / -80 行**
+
+***
+
 ## [3.3.7] - 2026-05-04
 
 ### Added

@@ -723,7 +723,7 @@ func TestHandleListDownload_Success(t *testing.T) {
 	data, ok := resp.Data.(map[string]interface{})
 	assert.True(t, ok)
 	assert.NotNil(t, data["task_id"])
-	assert.Equal(t, float64(123), data["list_id"])
+	assert.Equal(t, "123", data["list_id"])
 }
 
 func TestHandleListProfile_Success(t *testing.T) {
@@ -743,7 +743,7 @@ func TestHandleListProfile_Success(t *testing.T) {
 	data, ok := resp.Data.(map[string]interface{})
 	assert.True(t, ok)
 	assert.NotNil(t, data["task_id"])
-	assert.Equal(t, float64(123), data["list_id"])
+	assert.Equal(t, "123", data["list_id"])
 }
 
 func TestHandleJsonFileDownload_InvalidBody(t *testing.T) {
@@ -826,7 +826,7 @@ func TestHandleBatchDownload_EmptyUsersAndLists(t *testing.T) {
 
 	reqData := BatchDownloadTaskData{
 		Users: []string{},
-		Lists: []uint64{},
+		Lists: []StringUint64{},
 	}
 	body, _ := json.Marshal(reqData)
 
@@ -845,7 +845,7 @@ func TestHandleBatchDownload_OnlyUsers(t *testing.T) {
 
 	reqData := BatchDownloadTaskData{
 		Users:         []string{"user1", "user2"},
-		Lists:         []uint64{},
+		Lists:         []StringUint64{},
 		AutoFollow:    true,
 		FollowMembers: true,
 		SkipProfile:   false,
@@ -877,7 +877,7 @@ func TestHandleBatchDownload_OnlyLists(t *testing.T) {
 
 	reqData := BatchDownloadTaskData{
 		Users: []string{},
-		Lists: []uint64{100, 200, 300},
+		Lists: []StringUint64{100, 200, 300},
 	}
 	body, _ := json.Marshal(reqData)
 
@@ -906,7 +906,7 @@ func TestHandleBatchDownload_BothUsersAndLists(t *testing.T) {
 
 	reqData := BatchDownloadTaskData{
 		Users:         []string{"user1"},
-		Lists:         []uint64{100},
+		Lists:         []StringUint64{100},
 		AutoFollow:    true,
 		FollowMembers: true,
 		SkipProfile:   true,
