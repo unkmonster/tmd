@@ -71,6 +71,8 @@ F:\twitter_dl
   - `foo.db-wal`
   - `foo.db-shm`
 
+正式迁移完成后，程序不会另外生成一个新的正式 `foo.db`。它会直接原地更新 `--db` 指向的那个数据库文件，备份文件也放在同一目录下。
+
 ## 4. 支持的路径风格
 
 工具不依赖当前运行平台的 `filepath` 语义，而是自己识别路径风格。因此可以在 Linux 上处理 Windows 风格数据库，也可以在 Windows 上把路径改成 Docker/Linux 风格。
