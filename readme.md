@@ -160,6 +160,7 @@ ghcr.io/<owner>/<repo>:<tag>
 
 ```bash
 docker pull ghcr.io/leeexx2001/tmd:latest
+docker pull ghcr.io/leeexx2001/tmd:v3.4.0
 ```
 
 如果 GHCR 包是私有的，需要先登录：
