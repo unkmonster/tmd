@@ -3,13 +3,12 @@ package database
 import (
 	"database/sql"
 	"fmt"
-	"path/filepath"
 
 	"github.com/jmoiron/sqlx"
 )
 
 func CreateLstEntity(db *sqlx.DB, entity *LstEntity) error {
-	abs, err := filepath.Abs(entity.ParentDir)
+	abs, err := normalizeEntityParentDir(entity.ParentDir)
 	if err != nil {
 		return fmt.Errorf("failed to get absolute path for parent dir %q: %w", entity.ParentDir, err)
 	}
@@ -50,7 +49,7 @@ func GetLstEntityWithTx(queryer interface {
 }
 
 func LocateLstEntity(db *sqlx.DB, lid int64, parentDir string) (*LstEntity, error) {
-	parentDir, err := filepath.Abs(parentDir)
+	parentDir, err := normalizeEntityParentDir(parentDir)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get absolute path for %q: %w", parentDir, err)
 	}

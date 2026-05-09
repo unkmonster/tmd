@@ -3,14 +3,13 @@ package database
 import (
 	"database/sql"
 	"fmt"
-	"path/filepath"
 	"time"
 
 	"github.com/jmoiron/sqlx"
 )
 
 func CreateUserEntity(db *sqlx.DB, entity *UserEntity) error {
-	abs, err := filepath.Abs(entity.ParentDir)
+	abs, err := normalizeEntityParentDir(entity.ParentDir)
 	if err != nil {
 		return fmt.Errorf("failed to get absolute path for parent dir %q: %w", entity.ParentDir, err)
 	}
@@ -34,7 +33,7 @@ func DelUserEntity(db *sqlx.DB, id uint32) error {
 }
 
 func LocateUserEntity(db *sqlx.DB, uid uint64, parentDIr string) (*UserEntity, error) {
-	parentDIr, err := filepath.Abs(parentDIr)
+	parentDIr, err := normalizeEntityParentDir(parentDIr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get absolute path for %q: %w", parentDIr, err)
 	}
