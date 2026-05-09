@@ -29,6 +29,7 @@ bin/
 coverage.txt
 coverage.out
 profile.out
+covprofile
 
 # === Go Vendor (optional) ===
 # vendor/
@@ -54,6 +55,8 @@ logs/
 tmp/
 temp/
 downloads/
+config/
+data/
 
 # === OS Generated Files ===
 .DS_Store

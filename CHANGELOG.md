@@ -7,6 +7,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ***
 
+## [3.4.0] - 2026-05-09
+
+### Added
+
+#### Docker 部署与发布支持
+
+| 文件 | 变更 |
+|------|------|
+| `Dockerfile` | 新增多阶段 Docker 构建，运行镜像内置 `ca-certificates` 和 `tzdata` |
+| `docker-compose.yml` | 新增本地编排示例，固定 `/config` 和 `/data` 卷约定 |
+| `.dockerignore` | 新增 Docker 构建上下文排除规则 |
+| `.github/workflows/docker.yml` | 新增 GHCR 自动构建并发布多架构镜像的 workflow |
+
+#### 跨平台信号处理
+
+| 文件 | 变更 |
+|------|------|
+| `signal_unix.go` | 新增 Unix 信号定义，处理 `SIGHUP`、`SIGINT`、`SIGTERM`、`SIGQUIT` |
+| `signal_windows.go` | 新增 Windows 信号定义，处理 `os.Interrupt` 和 `SIGTERM` |
+
+### Changed
+
+#### 配置与环境变量覆盖
+
+| 文件 | 变更 |
+|------|------|
+| `main.go` | 新增 `TMD_HOME` 和 `TMD_PORT` 支持，启动时可直接使用环境变量配置 |
+| `internal/config/config.go` | 新增 `ApplyEnv` / `HasEnvOverrides`，支持 `TMD_ROOT_PATH`、cookies、代理、并发和文件名长度覆盖 |
+| `internal/config/config_test.go` | 新增环境变量覆盖、错误回滚和空值行为测试 |
+
+#### CI/CD 与发布流程
+
+| 文件 | 变更 |
+|------|------|
+| `.github/workflows/go.yml` | 三平台 CI 收口为 `CGO_ENABLED=0` 构建/测试，并拆分 tag 发布流程 |
+| `Dockerfile` | 构建阶段改为跟随 `buildx` 的 `TARGETOS` / `TARGETARCH`，修复多架构镜像实际产物不一致问题 |
+| `readme.md` | 新增 GHCR 拉取、`docker run`、`docker-compose` 使用示例，并更新版本到 `3.4.0` |
+| `.gitignore` | 新增 `covprofile`、`config/`、`data/` 忽略规则 |
+
+### Stats
+
+- **13 个文件变更**
+- **Docker / GHCR / CI 发布链路已接通**
+
+***
+
 ## [3.3.11] - 2026-05-04
 
 ### Changed

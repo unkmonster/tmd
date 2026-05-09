@@ -1,0 +1,20 @@
+services:
+  tmd:
+    build: .
+    image: tmd:local
+    ports:
+      - "${TMD_PORT:-25556}:${TMD_PORT:-25556}"
+    environment:
+      TMD_HOME: /config
+      TMD_ROOT_PATH: /data
+      TMD_PORT: ${TMD_PORT:-25556}
+      TMD_AUTH_TOKEN: ${TMD_AUTH_TOKEN:-}
+      TMD_CT0: ${TMD_CT0:-}
+      TMD_PROXY_URL: ${TMD_PROXY_URL:-}
+      TMD_MAX_DOWNLOAD_ROUTINE: ${TMD_MAX_DOWNLOAD_ROUTINE:-8}
+      TMD_MAX_FILE_NAME_LEN: ${TMD_MAX_FILE_NAME_LEN:-158}
+      TZ: ${TZ:-Asia/Shanghai}
+    volumes:
+      - ./config:/config
+      - ./data:/data
+    stop_grace_period: 30s

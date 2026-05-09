@@ -5,7 +5,7 @@
 [![CI/CD](https://github.com/unkmonster/tmd/actions/workflows/go.yml/badge.svg)](.github/workflows/go.yml)
 [Release](https://github.com/unkmonster/tmd/releases/latest)
 
-> **版本**: 3.3.0 | **状态**: 活跃维护 | **许可证**: GPL-3.0
+> **版本**: 3.4.0 | **状态**: 活跃维护 | **许可证**: GPL-3.0
 
 本项目的代码基于 [unkmonster/tmd](https://github.com/unkmonster/tmd) 项目，修改了部分代码，添加了新的功能特性。新增的功能见 [CHANGELOG.md文件](CHANGELOG.md)
 
@@ -147,6 +147,97 @@ GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 go build -o tmd-macos .
 ```
 
 > **说明**: SQLite 使用 `modernc.org/sqlite` 纯 Go driver，源码构建不再需要 GCC/MingW 等 C 编译器。
+
+### Docker / GHCR
+
+如果仓库已启用 GitHub Actions 的 Docker 发布 workflow，镜像会发布到 GHCR。镜像名规则为：
+
+```text
+ghcr.io/<owner>/<repo>:<tag>
+```
+
+例如本项目发布后可按下面形式拉取：
+
+```bash
+docker pull ghcr.io/leeexx2001/tmd:latest
+```
+
+如果 GHCR 包是私有的，需要先登录：
+
+```bash
+docker login ghcr.io
+docker pull ghcr.io/leeexx2001/tmd:latest
+```
+
+**最小运行示例**
+
+```bash
+docker run -d \
+  --name tmd \
+  -p 25556:25556 \
+  -v /path/to/config:/config \
+  -v /path/to/data:/data \
+  -e TMD_HOME=/config \
+  -e TMD_ROOT_PATH=/data \
+  -e TMD_AUTH_TOKEN=your_auth_token \
+  -e TMD_CT0=your_ct0 \
+  -e TMD_PORT=25556 \
+  -e TZ=Asia/Shanghai \
+  ghcr.io/leeexx2001/tmd:latest -server
+```
+
+Windows PowerShell 示例：
+
+```powershell
+docker run -d `
+  --name tmd `
+  -p 25556:25556 `
+  -v C:\tmd\config:/config `
+  -v D:\twitter_dl:/data `
+  -e TMD_HOME=/config `
+  -e TMD_ROOT_PATH=/data `
+  -e TMD_AUTH_TOKEN=your_auth_token `
+  -e TMD_CT0=your_ct0 `
+  -e TMD_PORT=25556 `
+  -e TZ=Asia/Shanghai `
+  ghcr.io/leeexx2001/tmd:latest -server
+```
+
+启动后可访问：
+
+```text
+http://localhost:25556/
+http://localhost:25556/api/v1/health
+```
+
+**docker-compose 示例**
+
+```yaml
+services:
+  tmd:
+    image: ghcr.io/leeexx2001/tmd:latest
+    container_name: tmd
+    restart: unless-stopped
+    ports:
+      - "25556:25556"
+    environment:
+      TMD_HOME: /config
+      TMD_ROOT_PATH: /data
+      TMD_AUTH_TOKEN: your_auth_token
+      TMD_CT0: your_ct0
+      TMD_PORT: 25556
+      TZ: Asia/Shanghai
+    volumes:
+      - ./config:/config
+      - ./data:/data
+```
+
+**说明**
+
+- `/config`：配置、额外 cookies、调度文件、日志目录
+- `/data`：下载数据目录，包含 `users/` 和 `.data/foo.db`
+- 同一个 `/data` 卷只建议同时运行一个 TMD 实例
+- 如需代理，可额外设置 `TMD_PROXY_URL=http://host.docker.internal:7897`
 
 ### 首次运行
 

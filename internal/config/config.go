@@ -42,6 +42,20 @@ type Config struct {
 	ProxyURL           string `yaml:"proxy_url"`
 }
 
+type envFieldBinding struct {
+	envName   string
+	fieldName string
+}
+
+var envFieldBindings = []envFieldBinding{
+	{envName: "TMD_ROOT_PATH", fieldName: "root_path"},
+	{envName: "TMD_AUTH_TOKEN", fieldName: "auth_token"},
+	{envName: "TMD_CT0", fieldName: "ct0"},
+	{envName: "TMD_PROXY_URL", fieldName: "proxy_url"},
+	{envName: "TMD_MAX_DOWNLOAD_ROUTINE", fieldName: "max_download_routine"},
+	{envName: "TMD_MAX_FILE_NAME_LEN", fieldName: "max_file_name_len"},
+}
+
 // FieldDef 字段定义，包含 getter/setter 实现双向绑定
 type FieldDef struct {
 	Name    string                      // 字段名（用于日志和状态显示）
@@ -158,6 +172,49 @@ func normalizeProxyURL(raw string) (string, error) {
 	default:
 		return "", nil
 	}
+}
+
+func HasEnvOverrides() bool {
+	for _, binding := range envFieldBindings {
+		if strings.TrimSpace(os.Getenv(binding.envName)) != "" {
+			return true
+		}
+	}
+	return false
+}
+
+func ApplyEnv(conf *Config) (bool, error) {
+	if conf == nil {
+		return false, fmt.Errorf("config is nil")
+	}
+
+	fieldDefs := GetFieldDefs()
+	fieldsByName := make(map[string]FieldDef, len(fieldDefs))
+	for _, field := range fieldDefs {
+		fieldsByName[field.Name] = field
+	}
+
+	next := *conf
+	applied := false
+	for _, binding := range envFieldBindings {
+		rawValue := strings.TrimSpace(os.Getenv(binding.envName))
+		if rawValue == "" {
+			continue
+		}
+
+		field, ok := fieldsByName[binding.fieldName]
+		if !ok {
+			return false, fmt.Errorf("config field %q for %s is not registered", binding.fieldName, binding.envName)
+		}
+		if err := field.Setter(&next, rawValue); err != nil {
+			return false, fmt.Errorf("invalid %s: %w", binding.envName, err)
+		}
+		applied = true
+	}
+	if applied {
+		*conf = next
+	}
+	return applied, nil
 }
 
 // GetFieldValue 获取字段当前值（通过 FieldDef.Getter）

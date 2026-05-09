@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -9,7 +10,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
-	"syscall"
+	"strings"
 
 	"github.com/go-resty/resty/v2"
 	"github.com/gookit/color"
@@ -57,6 +58,8 @@ func main() {
 	var dbg bool
 	var serverMode bool
 	var serverPort int
+	var serverPortSet bool
+	var err error
 
 	// 手动解析已知参数，保留未知参数传递给 cli
 	args := os.Args[1:]
@@ -71,32 +74,35 @@ func main() {
 			serverMode = true
 		case "-port":
 			if i+1 < len(args) {
-				serverPort, _ = strconv.Atoi(args[i+1])
+				if port, parseErr := strconv.Atoi(args[i+1]); parseErr == nil {
+					serverPort = port
+					serverPortSet = true
+				}
 				i++
 			}
 		default:
 			cliArgs = append(cliArgs, args[i])
 		}
 	}
+	if !serverPortSet {
+		serverPort, err = serverPortFromEnv()
+		if err != nil {
+			_, _ = fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+	}
 	if serverPort == 0 {
 		serverPort = 25556
 	}
 
-	var err error
-
 	ctx, cancel := context.WithCancel(context.Background())
 
-	var homepath string
-	if runtime.GOOS == "windows" {
-		homepath = os.Getenv("appdata")
-	} else {
-		homepath = os.Getenv("HOME")
-	}
-	if homepath == "" {
-		panic("failed to get home path from env")
+	appRootPath, err := resolveAppRootPath()
+	if err != nil {
+		_, _ = fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
 	}
 
-	appRootPath := filepath.Join(homepath, ".tmd2")
 	confPath := filepath.Join(appRootPath, "conf.yaml")
 	cliLogPath := filepath.Join(appRootPath, "client.log")
 	logPath := filepath.Join(appRootPath, "tmd2.log")
@@ -123,10 +129,22 @@ func main() {
 
 	conf, err := config.ReadConf(confPath)
 	if os.IsNotExist(err) {
-		_, _ = os.Stderr.WriteString("Config file not found, creating new configuration...\n")
-		conf, err = config.PromptConfig(confPath)
-		if err != nil {
-			log.Fatalln("config failure with", err)
+		if confArg {
+			_, _ = os.Stderr.WriteString("Config file not found, creating new configuration...\n")
+			conf, err = config.PromptConfig(confPath)
+			if err != nil {
+				log.Fatalln("config failure with", err)
+			}
+		} else if config.HasEnvOverrides() {
+			log.Infoln("Config file not found, using TMD_* environment configuration")
+			conf = &config.Config{}
+			err = nil
+		} else {
+			_, _ = os.Stderr.WriteString("Config file not found, creating new configuration...\n")
+			conf, err = config.PromptConfig(confPath)
+			if err != nil {
+				log.Fatalln("config failure with", err)
+			}
 		}
 	} else if confArg {
 		conf, err = config.PromptConfig(confPath)
@@ -136,6 +154,13 @@ func main() {
 	}
 	if err != nil {
 		log.Fatalln("failed to load config:", err)
+	}
+	if !confArg {
+		if applied, err := config.ApplyEnv(conf); err != nil {
+			log.Fatalln("failed to apply environment configuration:", err)
+		} else if applied {
+			log.Infoln("TMD_* environment configuration applied")
+		}
 	}
 	if confArg {
 		log.Println("config done")
@@ -200,7 +225,7 @@ func main() {
 
 	// 信号处理
 	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
+	signal.Notify(sigChan, shutdownSignals()...)
 	defer close(sigChan)
 	defer signal.Stop(sigChan)
 	go func() {
@@ -225,6 +250,39 @@ func main() {
 	if err := cli.Execute(ctx, cliArgs, deps); err != nil {
 		log.Fatalln("execute failed:", err)
 	}
+}
+
+func serverPortFromEnv() (int, error) {
+	raw := strings.TrimSpace(os.Getenv("TMD_PORT"))
+	if raw == "" {
+		return 0, nil
+	}
+	port, err := strconv.Atoi(raw)
+	if err != nil || port <= 0 || port > 65535 {
+		return 0, fmt.Errorf("invalid TMD_PORT %q: must be an integer from 1 to 65535", raw)
+	}
+	return port, nil
+}
+
+func resolveAppRootPath() (string, error) {
+	if tmdHome := strings.TrimSpace(os.Getenv("TMD_HOME")); tmdHome != "" {
+		absPath, err := filepath.Abs(tmdHome)
+		if err != nil {
+			return "", fmt.Errorf("failed to resolve TMD_HOME %q: %w", tmdHome, err)
+		}
+		return absPath, nil
+	}
+
+	var homepath string
+	if runtime.GOOS == "windows" {
+		homepath = os.Getenv("APPDATA")
+	} else {
+		homepath = os.Getenv("HOME")
+	}
+	if homepath == "" {
+		return "", fmt.Errorf("failed to get home path from env; set TMD_HOME to the app config directory")
+	}
+	return filepath.Join(homepath, ".tmd2"), nil
 }
 
 // initializeClients 初始化 Twitter 客户端和数据库连接
@@ -303,7 +361,7 @@ func runServer(conf *config.Config, appRootPath string, port int, loginOpts twit
 
 	// 信号处理
 	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
+	signal.Notify(sigChan, shutdownSignals()...)
 	defer signal.Stop(sigChan)
 	startServerSignalHandler(sigChan, server.GracefulShutdown)
 
