@@ -5,6 +5,9 @@ on:
     branches: ["master"]
     tags:
       - "v*"
+    paths-ignore:
+      - "**/*.md"
+      - "doc/**"
   workflow_dispatch:
 
 permissions:

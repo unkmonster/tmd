@@ -5,8 +5,14 @@ on:
     branches: ["master"]
     tags:
       - "v*"
+    paths-ignore:
+      - "**/*.md"
+      - "doc/**"
   pull_request:
     branches: ["master"]
+    paths-ignore:
+      - "**/*.md"
+      - "doc/**"
 
 permissions:
   contents: read
