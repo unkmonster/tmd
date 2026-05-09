@@ -68,44 +68,6 @@
 
 ***
 
-### 大文件流式下载 (v2.12.3+)
-
-自动根据文件大小选择最优下载策略：
-
-| 文件大小 | 下载模式 | 特性 |
-|---------|---------|------|
-| < 10 MB | Buffer 模式 | 内存缓冲，支持 MD5 去重 |
-| ≥ 10 MB | 流式模式 | 分块写入，节省内存 |
-
-**核心特性：**
-- HEAD 请求预获取文件大小，智能选择策略
-- 带重试机制（最多 2 次，间隔 2 秒递增）
-- 文件大小验证（下载完成后校验完整性）
-- 自动清理不完整文件
-- 失败后回退到 Buffer 模式（容错）
-
-### 智能部分重试机制 (v2.12.0+)
-
-URL 级别的精细化重试控制：
-
-- **成功 URL 跟踪**：记录每个媒体文件的下载成功状态
-- **失败 URL 收集**：仅收集失败 URL 进入重试队列
-- **部分重试**：重试时只下载失败的媒体，不重复下载已成功的
-- **空队列优化**：无待重试任务时直接返回，节省资源
-- **进度显示**：`[成功数/总数]` 格式展示下载进度
-
-### 用户可访问状态管理 (v2.8.0+)
-
-自动识别并标记不可访问的用户：
-
-- 数据库字段：`users.is_accessible`
-- 自动更新时机：获取列表成员时同步检测
-- 检测类型：Twitter API 返回的 `UserUnavailable` 错误
-- 用途：避免浪费时间尝试下载已失效用户的内容
-- 向后兼容：对已有数据库无破坏性影响
-
-***
-
 ## 安装与配置
 
 ### 环境要求
@@ -150,68 +112,52 @@ GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 go build -o tmd-macos .
 
 ### Docker / GHCR
 
-如果仓库已启用 GitHub Actions 的 Docker 发布 workflow，镜像会发布到 GHCR。镜像名规则为：
+项目会通过 GitHub Actions 自动发布 Docker 镜像到 GHCR。镜像名规则为：
 
 ```text
 ghcr.io/<owner>/<repo>:<tag>
 ```
 
-例如本项目发布后可按下面形式拉取：
+当前仓库可直接拉取：
 
 ```bash
 docker pull ghcr.io/leeexx2001/tmd:latest
 docker pull ghcr.io/leeexx2001/tmd:v3.4.0
 ```
 
-如果 GHCR 包是私有的，需要先登录：
+**推荐方式：使用 docker compose**
+
+1. 创建目录：
 
 ```bash
-docker login ghcr.io
-docker pull ghcr.io/leeexx2001/tmd:latest
+mkdir -p config data
 ```
 
-**最小运行示例**
+2. 创建 `.env` 文件或者直接修改yml文件中对应项：
+
+```env
+TMD_AUTH_TOKEN=your_auth_token
+TMD_CT0=your_ct0
+TMD_PROXY_URL=
+TMD_MAX_DOWNLOAD_ROUTINE=8
+TMD_MAX_FILE_NAME_LEN=158
+TZ=Asia/Shanghai
+```
+
+3. 使用 `docker-compose.yml` 启动：
 
 ```bash
-docker run -d \
-  --name tmd \
-  -p 25556:25556 \
-  -v /path/to/config:/config \
-  -v /path/to/data:/data \
-  -e TMD_HOME=/config \
-  -e TMD_ROOT_PATH=/data \
-  -e TMD_AUTH_TOKEN=your_auth_token \
-  -e TMD_CT0=your_ct0 \
-  -e TMD_PORT=25556 \
-  -e TZ=Asia/Shanghai \
-  ghcr.io/leeexx2001/tmd:latest -server
+docker compose up -d
 ```
 
-Windows PowerShell 示例：
+4. 查看状态：
 
-```powershell
-docker run -d `
-  --name tmd `
-  -p 25556:25556 `
-  -v C:\tmd\config:/config `
-  -v D:\twitter_dl:/data `
-  -e TMD_HOME=/config `
-  -e TMD_ROOT_PATH=/data `
-  -e TMD_AUTH_TOKEN=your_auth_token `
-  -e TMD_CT0=your_ct0 `
-  -e TMD_PORT=25556 `
-  -e TZ=Asia/Shanghai `
-  ghcr.io/leeexx2001/tmd:latest -server
+```bash
+docker compose ps
+docker compose logs -f
 ```
 
-启动后可访问：
-
-```text
-http://localhost:25556/
-http://localhost:25556/api/v1/health
-```
-
-**docker-compose 示例**
+README 中的 compose 示例与仓库根目录的 [docker-compose.yml](C:\Users\leeexxx\Documents\trae_projects\tmd\docker-compose.yml) 保持一致：
 
 ```yaml
 services:
@@ -224,21 +170,58 @@ services:
     environment:
       TMD_HOME: /config
       TMD_ROOT_PATH: /data
-      TMD_AUTH_TOKEN: your_auth_token
-      TMD_CT0: your_ct0
+      TMD_AUTH_TOKEN: ${TMD_AUTH_TOKEN}
+      TMD_CT0: ${TMD_CT0}
       TMD_PORT: 25556
-      TZ: Asia/Shanghai
+      TMD_PROXY_URL: ${TMD_PROXY_URL:-}
+      TMD_MAX_DOWNLOAD_ROUTINE: ${TMD_MAX_DOWNLOAD_ROUTINE:-8}
+      TMD_MAX_FILE_NAME_LEN: ${TMD_MAX_FILE_NAME_LEN:-158}
+      TZ: ${TZ:-Asia/Shanghai}
     volumes:
       - ./config:/config
       - ./data:/data
+    stop_grace_period: 30s
 ```
 
-**说明**
+**单容器最小运行示例**
+
+```bash
+docker run -d \
+  --name tmd \
+  -p 25556:25556 \
+  -v /path/to/config:/config \
+  -v /path/to/data:/data \
+  -e TMD_HOME=/config \
+  -e TMD_ROOT_PATH=/data \
+  -e TMD_AUTH_TOKEN=your_auth_token \
+  -e TMD_CT0=your_ct0 \
+  -e TMD_PORT=25556 \
+  -e TMD_PROXY_URL= \
+  -e TMD_MAX_DOWNLOAD_ROUTINE=8 \
+  -e TMD_MAX_FILE_NAME_LEN=158 \
+  -e TZ=Asia/Shanghai \
+  ghcr.io/leeexx2001/tmd:latest -server
+```
+
+启动后可访问：
+
+```text
+http://localhost:25556/
+http://localhost:25556/api/v1/health
+```
+
+**部署说明**
 
 - `/config`：配置、额外 cookies、调度文件、日志目录
 - `/data`：下载数据目录，包含 `users/` 和 `.data/foo.db`
+- `TMD_AUTH_TOKEN`、`TMD_CT0`：必填
+- `TMD_PROXY_URL`：可选，使用代理时设置，例如 `http://host.docker.internal:7897`
+- `TMD_MAX_DOWNLOAD_ROUTINE`：可选，默认 `8`
+- `TMD_MAX_FILE_NAME_LEN`：可选，默认 `158`
+- `TZ`：可选，默认 `Asia/Shanghai`
 - 同一个 `/data` 卷只建议同时运行一个 TMD 实例
-- 如需代理，可额外设置 `TMD_PROXY_URL=http://host.docker.internal:7897`
+- 如果宿主机端口 `25556` 被占用，可改 compose 里的左侧端口，例如 `"8080:25556"`
+- 如果不想把数据放在当前目录，可把 `./config`、`./data` 改成宿主机绝对路径
 
 ### 首次运行
 

@@ -1,20 +1,38 @@
 services:
   tmd:
-    build: .
-    image: tmd:local
+    # 发布镜像地址。默认使用 latest，也可以改成固定版本标签，例如 v3.4.0
+    image: ghcr.io/leeexx2001/tmd:latest
+    # 容器名称，可按需修改
+    container_name: tmd
+    # 容器异常退出后自动重启
+    restart: unless-stopped
     ports:
-      - "${TMD_PORT:-25556}:${TMD_PORT:-25556}"
+      # 左边是宿主机端口，右边是容器内端口
+      # 如果宿主机 25556 已被占用，可改左边，例如 "8080:25556"
+      - "25556:25556"
     environment:
+      # 应用配置目录。除非你同步修改 volumes 挂载目标，否则通常不要改
       TMD_HOME: /config
+      # 下载数据目录。除非你同步修改 volumes 挂载目标，否则通常不要改
       TMD_ROOT_PATH: /data
-      TMD_PORT: ${TMD_PORT:-25556}
-      TMD_AUTH_TOKEN: ${TMD_AUTH_TOKEN:-}
-      TMD_CT0: ${TMD_CT0:-}
+      # 必填：你的 Twitter/X auth_token
+      TMD_AUTH_TOKEN: ${TMD_AUTH_TOKEN}
+      # 必填：你的 Twitter/X ct0
+      TMD_CT0: ${TMD_CT0}
+      # 容器内服务监听端口。通常和 ports 右边保持一致
+      TMD_PORT: 25556
+      # 可选：代理地址。不使用代理可留空
       TMD_PROXY_URL: ${TMD_PROXY_URL:-}
+      # 可选：下载并发数。机器较弱可调低，带宽较高可适当调高
       TMD_MAX_DOWNLOAD_ROUTINE: ${TMD_MAX_DOWNLOAD_ROUTINE:-8}
+      # 可选：最大文件名长度。Windows 或深层目录场景可适当调低
       TMD_MAX_FILE_NAME_LEN: ${TMD_MAX_FILE_NAME_LEN:-158}
+      # 可选：时区
       TZ: ${TZ:-Asia/Shanghai}
     volumes:
+      # 宿主机配置目录。可改成绝对路径，例如 /srv/tmd/config:/config 或 D:\tmd\config:/config
       - ./config:/config
+      # 宿主机数据目录。可改成绝对路径，例如 /srv/tmd/data:/data 或 D:\twitter_dl:/data
       - ./data:/data
+    # 停止容器时给程序 30 秒做优雅关闭，避免数据库和任务中断过于生硬
     stop_grace_period: 30s
