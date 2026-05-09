@@ -47,7 +47,7 @@ F:\twitter_dl
 
 命令入口：
 
-- [C:\Users\leeexxx\Documents\trae_projects\tmd\cmd\tmd-db-migrate\main.go](C:\Users\leeexxx\Documents\trae_projects\tmd\cmd\tmd-db-migrate\main.go)
+- [C:\Users\leeexxx\Documents\trae_projects\tmd\tools\tmd-db-migrate\main.go](C:\Users\leeexxx\Documents\trae_projects\tmd\tools\tmd-db-migrate\main.go)
 
 核心实现：
 
@@ -99,13 +99,13 @@ F:\twitter_dl
 先预演：
 
 ```bash
-go run ./cmd/tmd-db-migrate --db "F:\twitter_dl\.data\foo.db" --from-root "F:\twitter_dl" --to-root "/data" --dry-run
+go run ./tools/tmd-db-migrate --db "F:\twitter_dl\.data\foo.db" --from-root "F:\twitter_dl" --to-root "/data" --dry-run
 ```
 
 正式迁移：
 
 ```bash
-go run ./cmd/tmd-db-migrate --db "F:\twitter_dl\.data\foo.db" --from-root "F:\twitter_dl" --to-root "/data"
+go run ./tools/tmd-db-migrate --db "F:\twitter_dl\.data\foo.db" --from-root "F:\twitter_dl" --to-root "/data"
 ```
 
 命令参数：
