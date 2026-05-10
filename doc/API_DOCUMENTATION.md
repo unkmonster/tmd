@@ -39,9 +39,12 @@ GET /api/v1/health
 
 ```json
 {
-  "status": "ok",
-  "version": "2.0.0",
-  "timestamp": "2024-01-15T10:30:00Z"
+  "success": true,
+  "data": {
+    "status": "ok",
+    "version": "2.0.0",
+    "timestamp": "2024-01-15T10:30:00Z"
+  }
 }
 ```
 

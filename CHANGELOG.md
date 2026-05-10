@@ -7,6 +7,55 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ***
 
+## [3.4.1] - 2026-05-09
+
+### Added
+
+#### Tampermonkey 用户脚本
+
+| 文件 | 说明 |
+|------|------|
+| `tools/tmd-download-button.user.js` | 新增 Tampermonkey 用户脚本，在 Twitter/X 个人资料页面添加 TMD 下载按钮 |
+
+**功能特性：**
+- 在 Twitter/X 个人资料页面的关注按钮旁添加下载按钮
+- 点击按钮可直接将用户推送到 TMD 下载队列
+- 支持状态反馈（加载中、成功、错误）
+- 自动适配页面布局和主题
+
+### Fixed
+
+#### API 文档与 CORS 配置修复
+
+| 文件 | 变更 |
+|------|------|
+| `doc/API_DOCUMENTATION.md` | 修复 `/health` 接口响应格式，添加 `success` 和 `data` 包装 |
+| `internal/api/server.go` | CORS 允许方法列表添加 `PATCH` |
+
+#### Web 界面优化
+
+| 文件 | 变更 |
+|------|------|
+| `internal/api/web/app.js` | 任务统计卡片添加 `data-overview-stat` 属性，支持独立更新 |
+| `internal/api/web/app.js` | 任务计数副标题添加 `data-task-count-subtitle` 属性 |
+| `internal/api/web/app.js` | 新增 `getTaskStats` 和 `updateOverviewStatsUI` 函数 |
+| `internal/api/web/app.js` | 优化空状态和任务列表的 DOM 结构，修复切换时的样式问题 |
+
+#### 文档更新
+
+| 文件 | 变更 |
+|------|------|
+| `doc/call_chain_analysis_report.md` | 路由描述更新为 `http.ServeMux` |
+| `doc/call_chain_analysis_report.md` | CORS 中间件方法列表添加 `PATCH` |
+| `doc/call_chain_analysis_report.md` | 请求大小限制状态更新 |
+
+### Stats
+
+- **5 个文件变更（4 修改 + 1 新增）**
+- **+508 行 / -34 行**
+
+***
+
 ## [3.4.0] - 2026-05-09
 
 ### Added

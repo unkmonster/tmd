@@ -517,14 +517,14 @@ const pages = {
         <div class="stat-card">
           <div class="stat-icon" style="color: var(--info);">🚀</div>
           <div class="stat-content">
-            <div class="stat-value">${taskStats.running}</div>
+            <div class="stat-value" data-overview-stat="running">${taskStats.running}</div>
             <div class="stat-label">运行中任务</div>
           </div>
         </div>
         <div class="stat-card">
           <div class="stat-icon" style="color: var(--success);">✓</div>
           <div class="stat-content">
-            <div class="stat-value">${taskStats.completed}</div>
+            <div class="stat-value" data-overview-stat="completed">${taskStats.completed}</div>
             <div class="stat-label">已完成任务</div>
           </div>
         </div>
@@ -606,7 +606,7 @@ const pages = {
             <div class="card-header">
               <div>
                 <div class="card-title">任务列表</div>
-                <div class="card-subtitle">共 ${tasks.length} 个任务</div>
+                <div class="card-subtitle" data-task-count-subtitle>共 ${tasks.length} 个任务</div>
               </div>
             </div>
             <div class="toolbar">
@@ -625,17 +625,15 @@ const pages = {
               </div>
             </div>
             <div class="card-body" style="padding: 0;">
-              ${tasks.length === 0 ? `
-                <div class="empty-state">
+              <div class="${tasks.length === 0 ? 'empty-state' : 'task-list'}" id="taskListContainer">
+                ${tasks.length === 0 ? `
                   <div class="empty-icon">🚀</div>
                   <div class="empty-title">暂无任务</div>
                   <div class="empty-desc">在左侧创建一个新任务开始下载</div>
-                </div>
-              ` : `
-                <div class="task-list" id="taskList">
+                ` : `
                   ${tasks.map(t => renderTaskItem(t)).join('')}
-                </div>
-              `}
+                `}
+              </div>
             </div>
           </div>
         </div>
@@ -3786,28 +3784,46 @@ store.subscribe((state) => {
   }
 });
 
+function getTaskStats(tasks) {
+  const taskStats = { queued: 0, running: 0, completed: 0, failed: 0, cancelled: 0 };
+  tasks.forEach(t => { if (taskStats[t.status] !== undefined) taskStats[t.status]++; });
+  return taskStats;
+}
+
+function updateOverviewStatsUI(tasks) {
+  const taskStats = getTaskStats(tasks);
+
+  const runningStat = document.querySelector('[data-overview-stat="running"]');
+  if (runningStat) runningStat.textContent = taskStats.running;
+
+  const completedStat = document.querySelector('[data-overview-stat="completed"]');
+  if (completedStat) completedStat.textContent = taskStats.completed;
+}
+
 // Update overview page recent tasks without full re-render
 function updateOverviewTasksUI(tasks) {
   const recentTasks = tasks.slice(0, 5);
   const taskList = document.querySelector('.overview-tasks-list');
   if (!taskList) return;
+
+  updateOverviewStatsUI(tasks);
   
   if (recentTasks.length === 0) {
+    taskList.className = 'empty-state overview-tasks-list';
     taskList.innerHTML = `
-      <div class="empty-state">
-        <div class="empty-icon">📋</div>
-        <div class="empty-title">暂无任务</div>
-        <div class="empty-desc">创建一个新任务开始下载 Twitter 媒体文件</div>
-      </div>
+      <div class="empty-icon">📋</div>
+      <div class="empty-title">暂无任务</div>
+      <div class="empty-desc">创建一个新任务开始下载 Twitter 媒体文件</div>
     `;
   } else {
+    taskList.className = 'task-list overview-tasks-list';
     taskList.innerHTML = recentTasks.map(t => renderTaskItem(t)).join('');
   }
 }
 
 // Update only the task list part of the UI without full re-render
 function updateTaskListUI(tasks) {
-  const taskList = document.getElementById('taskList');
+  const taskList = document.getElementById('taskListContainer');
   if (!taskList) return;
   
   const filter = store.state.taskFilter;
@@ -3827,19 +3843,19 @@ function updateTaskListUI(tasks) {
   }
   
   if (filtered.length === 0) {
+    taskList.className = 'empty-state';
     taskList.innerHTML = `
-      <div class="empty-state">
-        <div class="empty-icon">🔍</div>
-        <div class="empty-title">没有找到匹配的任务</div>
-        <div class="empty-desc">尝试调整筛选条件或搜索关键词</div>
-      </div>
+      <div class="empty-icon">🔍</div>
+      <div class="empty-title">没有找到匹配的任务</div>
+      <div class="empty-desc">尝试调整筛选条件或搜索关键词</div>
     `;
   } else {
+    taskList.className = 'task-list';
     taskList.innerHTML = filtered.map(t => renderTaskItem(t)).join('');
   }
   
   // Update task count subtitle
-  const subtitle = document.querySelector('.card-subtitle');
+  const subtitle = document.querySelector('[data-task-count-subtitle]');
   if (subtitle) {
     subtitle.textContent = `共 ${tasks.length} 个任务`;
   }

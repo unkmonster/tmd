@@ -97,7 +97,9 @@ HTTP Request
     ↓
 [Middleware] CORS (跨域处理)
     ↓
-handleUsers (路径解析: /api/v1/users/{screen_name}/{action})
+Go `http.ServeMux` 路由匹配 (`POST /api/v1/users/{screen_name}/download`)
+    ↓
+handleUserDownloadRoute
     ↓
 handleUserDownload
     ├── 请求解析: json.NewDecoder(r.Body).Decode(&req)
@@ -210,7 +212,7 @@ Client Request
     ↓
 [loggingMiddleware] - 记录请求方法、路径、IP、状态码、耗时
     ↓
-[CORS Middleware] - 处理跨域，允许所有来源
+[CORS Middleware] - 处理跨域，允许所有来源与 `GET/POST/PUT/PATCH/DELETE/OPTIONS`
     ↓
 [Handler] - 业务处理
 ```
@@ -224,7 +226,7 @@ Client Request
 **注意**: 
 - 缺少认证/授权中间件（可能是设计选择）
 - 缺少请求限流中间件
-- 缺少请求大小限制
+- 请求大小限制尚未统一；JSON 上传接口已通过 `http.MaxBytesReader` 限制请求体大小
 
 ### 3.4 边界情况检查
 
@@ -405,13 +407,13 @@ return err
 
 **建议**: 统一使用 `fmt.Errorf("context: %w", err)` 包装错误
 
-### 5.3 缺少输入长度限制
+### 5.3 请求大小限制仍不统一
 
-**问题**: 部分端点未限制输入数据大小
+**问题**: multipart 上传接口已有限制，但这套限制尚未推广到所有需要保护的端点
 
 **建议**: 
-- 添加 `r.Body = http.MaxBytesReader(w, r.Body, maxSize)`
-- 在middleware中添加全局请求大小限制
+- 保持现有上传接口的 `http.MaxBytesReader` 限制
+- 评估是否需要为其他大请求端点补充局部或全局限制
 
 ### 5.4 任务取消机制
 
@@ -455,6 +457,6 @@ return err
 ### 6.3 推荐的改进优先级
 
 1. **高优先级**: 统一数据库事务管理
-2. **中优先级**: 添加请求大小限制
+2. **中优先级**: 统一请求体大小限制策略
 3. **中优先级**: 统一错误处理模式
 4. **低优先级**: 添加更多边界测试用例
