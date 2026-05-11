@@ -781,6 +781,15 @@ func (s *downloadServiceImpl) downloadProfile(ctx context.Context, taskID string
 		dwn,
 		fileWriter,
 	)
+	pd.SetProgressCallback(func(progress profile.DownloadProgress) {
+		reporter.OnProgress(taskID, Progress{
+			Stage:     "profile",
+			Total:     progress.Total,
+			Completed: progress.Completed,
+			Failed:    progress.Failed,
+			Current:   progress.Current,
+		})
+	})
 
 	// 构建下载请求
 	requests := make([]profile.DownloadRequest, len(users))

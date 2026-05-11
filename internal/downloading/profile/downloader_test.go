@@ -3,14 +3,39 @@ package profile
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/go-resty/resty/v2"
 	"github.com/jmoiron/sqlx"
 	"github.com/unkmonster/tmd/internal/database"
+	"github.com/unkmonster/tmd/internal/downloader"
 )
+
+type blockingProfileDownloader struct{}
+
+func (d *blockingProfileDownloader) Download(req downloader.DownloadRequest) (*downloader.DownloadResult, error) {
+	<-req.Context.Done()
+	return &downloader.DownloadResult{Error: req.Context.Err()}, req.Context.Err()
+}
+
+type successfulProfileFileWriter struct{}
+
+func (w *successfulProfileFileWriter) Write(req downloader.WriteRequest) (downloader.WriteResult, error) {
+	if req.Path == "" {
+		return downloader.WriteResult{}, errors.New("empty path")
+	}
+	size := int64(len(req.Data))
+	if req.IsStream() {
+		size = req.Size
+	}
+	return downloader.WriteResult{Success: true, NewSize: size}, nil
+}
 
 func setupTestDB(t *testing.T) *sqlx.DB {
 	t.Helper()
@@ -245,6 +270,118 @@ func TestProfileDownloader_DownloadMultiple_Empty(t *testing.T) {
 
 	if results != nil {
 		t.Error("DownloadMultiple([]) should return nil")
+	}
+}
+
+func TestProfileDownloader_DownloadFileUsesTimeout(t *testing.T) {
+	tempDir := t.TempDir()
+	storage, err := NewFileStorageManager(tempDir)
+	if err != nil {
+		t.Fatalf("NewFileStorageManager() error = %v", err)
+	}
+
+	pd := NewProfileDownloaderWithDB(
+		&Config{
+			EnableVersioning:    false,
+			SkipUnchanged:       false,
+			AvatarQuality:       "400x400",
+			FileDownloadTimeout: 10 * time.Millisecond,
+		},
+		storage,
+		[]*resty.Client{resty.New()},
+		nil,
+		&blockingProfileDownloader{},
+		&successfulProfileFileWriter{},
+	)
+
+	start := time.Now()
+	result, err := pd.Download(context.Background(), DownloadRequest{
+		ScreenName: "slow_user",
+		UserTitle:  "Slow User(slow_user)",
+		Name:       "Slow User",
+		UserID:     12345,
+		AvatarURL:  "https://pbs.twimg.com/profile_images/slow_normal.jpg",
+	})
+	elapsed := time.Since(start)
+
+	if err != nil {
+		t.Fatalf("Download() returned unexpected fatal error: %v", err)
+	}
+	if result == nil || result.Error == nil {
+		t.Fatal("Download() should return a failed result when avatar download times out")
+	}
+	if result.Success {
+		t.Fatal("Download() should not succeed when avatar download times out")
+	}
+	if elapsed > time.Second {
+		t.Fatalf("profile download did not respect timeout, elapsed=%v", elapsed)
+	}
+}
+
+func TestProfileDownloader_DownloadFileTimeoutCancelsHTTPBodyRead(t *testing.T) {
+	blockCh := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Length", "1")
+		w.WriteHeader(http.StatusOK)
+		if flusher, ok := w.(http.Flusher); ok {
+			flusher.Flush()
+		}
+		if r.Method == http.MethodHead {
+			return
+		}
+		close(blockCh)
+		<-r.Context().Done()
+	}))
+	defer server.Close()
+
+	tempDir := t.TempDir()
+	storage, err := NewFileStorageManager(tempDir)
+	if err != nil {
+		t.Fatalf("NewFileStorageManager() error = %v", err)
+	}
+
+	versionManager := downloader.NewVersionManagerWithWriter(".versions", nil)
+	fileWriter := downloader.NewFileWriter(versionManager)
+	pd := NewProfileDownloaderWithDB(
+		&Config{
+			EnableVersioning:    false,
+			SkipUnchanged:       false,
+			AvatarQuality:       "400x400",
+			FileDownloadTimeout: 20 * time.Millisecond,
+		},
+		storage,
+		[]*resty.Client{resty.New()},
+		nil,
+		downloader.NewDownloader(fileWriter),
+		fileWriter,
+	)
+
+	start := time.Now()
+	result, err := pd.Download(context.Background(), DownloadRequest{
+		ScreenName: "slow_http_user",
+		UserTitle:  "Slow HTTP User(slow_http_user)",
+		Name:       "Slow HTTP User",
+		UserID:     12345,
+		AvatarURL:  server.URL + "/avatar_normal.jpg",
+	})
+	elapsed := time.Since(start)
+
+	if err != nil {
+		t.Fatalf("Download() returned unexpected fatal error: %v", err)
+	}
+	if result == nil || result.Error == nil {
+		t.Fatal("Download() should return a failed result when HTTP body read times out")
+	}
+	if result.Success {
+		t.Fatal("Download() should not succeed when HTTP body read times out")
+	}
+	if elapsed > time.Second {
+		t.Fatalf("profile download did not cancel stalled HTTP body read, elapsed=%v", elapsed)
+	}
+	select {
+	case <-blockCh:
+	default:
+		t.Fatal("test server was not reached by avatar GET")
 	}
 }
 

@@ -618,6 +618,42 @@ func TestDownloadServiceImpl_DownloadProfile_ReturnsErrorWhenAllProfilesFail(t *
 	assert.Empty(t, reporter.CompleteCalls)
 }
 
+func TestDownloadServiceImpl_DownloadProfile_ReportsIncrementalProgress(t *testing.T) {
+	deps := createTestDependencies(t)
+	deps.Config.RootPath = t.TempDir()
+
+	service, err := NewDownloadService(deps)
+	require.NoError(t, err)
+	impl := service.(*downloadServiceImpl)
+
+	pathHelper, err := path.NewStorePath(deps.Config.RootPath)
+	require.NoError(t, err)
+
+	versionManager, fileWriter, dwn := impl.initDownloader()
+	reporter := NewMockProgressReporter()
+
+	users := []*twitter.User{
+		{Id: 101, Name: "User One", ScreenName: "user_one", Description: "a"},
+		{Id: 102, Name: "User Two", ScreenName: "user_two", Description: "b"},
+	}
+
+	result, err := impl.downloadProfile(context.Background(), "task-1", users, pathHelper, versionManager, fileWriter, dwn, reporter)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.NotEmpty(t, reporter.ProgressCalls)
+
+	assert.Equal(t, "profile", reporter.ProgressCalls[0].Progress.Stage)
+	assert.Equal(t, 2, reporter.ProgressCalls[0].Progress.Total)
+	assert.Equal(t, 0, reporter.ProgressCalls[0].Progress.Completed)
+
+	last := reporter.ProgressCalls[len(reporter.ProgressCalls)-1].Progress
+	assert.Equal(t, "profile", last.Stage)
+	assert.Equal(t, 2, last.Total)
+	assert.Equal(t, 2, last.Completed)
+	assert.Equal(t, 0, last.Failed)
+	assert.Contains(t, []string{"user_one", "user_two"}, last.Current)
+}
+
 func TestDownloadServiceImpl_ProfileDownload_ReturnsErrorWhenAllUsersFailToResolve(t *testing.T) {
 	deps := createTestDependencies(t)
 	deps.Config.RootPath = t.TempDir()

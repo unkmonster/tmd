@@ -69,6 +69,14 @@ type DownloadResult struct {
 	Profile      *ProfileInfo
 }
 
+// DownloadProgress Profile 批量下载进度
+type DownloadProgress struct {
+	Total     int
+	Completed int
+	Failed    int
+	Current   string
+}
+
 // Config 下载器配置
 type Config struct {
 	// 是否启用版本管理
@@ -77,14 +85,16 @@ type Config struct {
 	SkipUnchanged bool
 	// 头像图片质量 (如 "400x400", "200x200")
 	AvatarQuality string
+	// 单个头像/横幅文件下载超时
+	FileDownloadTimeout time.Duration
 }
 
 // DefaultConfig 返回默认配置
 func DefaultConfig() *Config {
 	return &Config{
-		EnableVersioning: true,
-		SkipUnchanged:    true,
-		AvatarQuality:    "400x400",
+		EnableVersioning:    true,
+		SkipUnchanged:       true,
+		AvatarQuality:       "400x400",
+		FileDownloadTimeout: 2 * time.Minute,
 	}
 }
-

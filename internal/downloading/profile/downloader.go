@@ -71,11 +71,15 @@ type ProfileDownloader struct {
 	db         *sqlx.DB
 	downloader downloader.Downloader
 	fileWriter downloader.FileWriter
+	progress   func(DownloadProgress)
 }
 
 func validateAndDefaultConfig(config *Config, storage *FileStorageManager, dwn downloader.Downloader, fw downloader.FileWriter) *Config {
 	if config == nil {
 		config = DefaultConfig()
+	}
+	if config.FileDownloadTimeout <= 0 {
+		config.FileDownloadTimeout = DefaultConfig().FileDownloadTimeout
 	}
 	if storage == nil {
 		panic("profile: storage cannot be nil")
@@ -114,6 +118,10 @@ func NewProfileDownloaderWithDB(config *Config, storage *FileStorageManager, cli
 		downloader: dwn,
 		fileWriter: fw,
 	}
+}
+
+func (pd *ProfileDownloader) SetProgressCallback(cb func(DownloadProgress)) {
+	pd.progress = cb
 }
 
 type DownloadRequest struct {
@@ -306,6 +314,9 @@ func (pd *ProfileDownloader) DownloadMultiple(ctx context.Context, requests []Do
 	results := make([]*DownloadResult, len(requests))
 	var wg sync.WaitGroup
 	var mu sync.Mutex
+	var progressMu sync.Mutex
+	completedCount := 0
+	failedCount := 0
 
 	numRoutine := min(len(requests), MaxDownloadRoutine)
 
@@ -317,7 +328,7 @@ func (pd *ProfileDownloader) DownloadMultiple(ctx context.Context, requests []Do
 
 	for i := 0; i < numRoutine; i++ {
 		wg.Add(1)
-		go pd.profileDownloader(ctx, cancel, &wg, &mu, results, reqChan)
+		go pd.profileDownloader(ctx, cancel, &wg, &mu, results, reqChan, len(requests), &progressMu, &completedCount, &failedCount)
 	}
 
 	wg.Wait()
@@ -331,6 +342,10 @@ func (pd *ProfileDownloader) profileDownloader(
 	mu *sync.Mutex,
 	results []*DownloadResult,
 	reqChan <-chan indexedRequest,
+	total int,
+	progressMu *sync.Mutex,
+	completedCount *int,
+	failedCount *int,
 ) {
 	defer wg.Done()
 	defer func() {
@@ -380,6 +395,7 @@ func (pd *ProfileDownloader) profileDownloader(
 			mu.Lock()
 			results[ir.index] = result
 			mu.Unlock()
+			pd.reportProgress(total, ir.request.ScreenName, result, progressMu, completedCount, failedCount)
 
 		case <-ctx.Done():
 			// 把 channel 中剩余的任务标记为失败
@@ -397,6 +413,27 @@ func (pd *ProfileDownloader) profileDownloader(
 	}
 }
 
+func (pd *ProfileDownloader) reportProgress(total int, current string, result *DownloadResult, progressMu *sync.Mutex, completedCount *int, failedCount *int) {
+	if pd.progress == nil {
+		return
+	}
+
+	progressMu.Lock()
+	*completedCount = *completedCount + 1
+	if result == nil || result.Error != nil || !result.Success {
+		*failedCount = *failedCount + 1
+	}
+	progress := DownloadProgress{
+		Total:     total,
+		Completed: *completedCount,
+		Failed:    *failedCount,
+		Current:   current,
+	}
+	progressMu.Unlock()
+
+	pd.progress(progress)
+}
+
 func (pd *ProfileDownloader) downloadAvatar(ctx context.Context, userTitle, screenName, url string, fetchedAt time.Time) FileResult {
 	ext := imageExtFromURL(url)
 	return pd.downloadFile(ctx, userTitle, screenName, FileTypeAvatar,
@@ -405,9 +442,18 @@ func (pd *ProfileDownloader) downloadAvatar(ctx context.Context, userTitle, scre
 
 func (pd *ProfileDownloader) downloadFile(ctx context.Context, userTitle, screenName string, fileType FileType, url, defaultExt string, fetchedAt time.Time, label string) FileResult {
 	filePath := pd.storage.GetFilePathWithExt(userTitle, fileType, defaultExt)
+	downloadCtx := ctx
+	if downloadCtx == nil {
+		downloadCtx = context.Background()
+	}
+	if pd.config.FileDownloadTimeout > 0 {
+		var cancel context.CancelFunc
+		downloadCtx, cancel = context.WithTimeout(downloadCtx, pd.config.FileDownloadTimeout)
+		defer cancel()
+	}
 
 	downloadReq := downloader.DownloadRequest{
-		Context:     ctx,
+		Context:     downloadCtx,
 		Client:      pd.client,
 		URL:         url,
 		Destination: filePath,
