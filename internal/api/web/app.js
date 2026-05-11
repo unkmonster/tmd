@@ -22,10 +22,15 @@ function glowNewFirstItem(panelId) {
 
 function readListIDsFromTextarea(inputId) {
   const validListID = /^[1-9]\d{0,19}$/;
-  return document.getElementById(inputId).value
-    .split('\n')
-    .map(s => s.trim())
-    .filter(s => validListID.test(s));
+  const input = document.getElementById(inputId);
+  const lines = input.value.split('\n').map(s => s.trim());
+  const validIDs = [];
+  const invalidCount = lines.filter(s => s && !validListID.test(s)).length;
+  lines.forEach(s => { if (validListID.test(s)) validIDs.push(s); });
+  if (invalidCount > 0) {
+    toast.show(`发现 ${invalidCount} 个无效列表ID，已自动过滤`, 'warning');
+  }
+  return validIDs;
 }
 
 function readTextareaLines(inputId) {
@@ -328,7 +333,7 @@ const sseManager = {
         _schedules: entries,
         _schedulerRunning: !!data.scheduler_running,
       };
-      if (entries.length > 0) {
+      if (!isScheduleFormEditing()) {
         update._scheduleFormItems = entries.map(s => scheduleStatusToFormItem(s));
       }
       store.setState(update);
@@ -416,8 +421,20 @@ const sseManager = {
 
   refreshCurrentPage() {
     const page = store.state.currentPage;
-    if (page === 'schedules' || (page === 'system' && store.state._systemTab === 'schedules')) {
+    if (page === 'schedules') {
       loadSchedules();
+      return;
+    }
+    if (page !== 'system') return;
+
+    if (store.state._systemTab === 'schedules') {
+      loadSchedules({ updateFormItems: !isScheduleFormEditing() });
+    } else if (store.state._systemTab === 'config') {
+      refreshConfigAfterReconnect();
+    } else if (store.state._systemTab === 'cookies') {
+      refreshCookiesAfterReconnect();
+    } else if (store.state._systemTab === 'logs') {
+      loadLogs();
     }
   }
 };
@@ -543,7 +560,7 @@ const pages = {
             <button class="btn btn-primary" onclick="handleQuickDownload()">粘贴并创建任务</button>
           </div>
           <div class="text-sm text-tertiary mt-4">
-            支持格式: twitter.com/username | x.com/username | @username
+            支持格式: twitter.com/username | x.com/username | twitter.com/i/lists/123 | @username
           </div>
         </div>
       </div>
@@ -1633,6 +1650,9 @@ async function handleQuickDownload() {
   let value = input.value.trim();
   
   if (!value) {
+    if (!navigator.clipboard?.readText) {
+      return toast.show('当前环境不支持读取剪切板，请手动输入', 'error');
+    }
     try {
       value = await navigator.clipboard.readText();
       value = value.trim();
@@ -1646,8 +1666,24 @@ async function handleQuickDownload() {
   }
 
   let username = value;
-  const match = value.match(/(?:twitter\.com|x\.com)\/([^/\s?]+)/);
-  if (match) username = match[1];
+  const listMatch = value.match(/(?:twitter\.com|x\.com)\/i\/lists\/(\d+)/);
+  if (listMatch) {
+    try {
+      await api.createListDownload(listMatch[1], { auto_follow: true });
+      toast.show(`已创建列表下载任务: List ${listMatch[1]}`);
+      input.value = '';
+    } catch (err) {
+      toast.show(err.message, 'error');
+    }
+    return;
+  }
+  const userMatch = value.match(/(?:twitter\.com|x\.com)\/([^/\s?]+)/);
+  if (userMatch) {
+    const pathPart = userMatch[1];
+    if (!['i', 'search', 'status', 'home', 'explore', 'notifications', 'messages', 'settings', 'compose'].includes(pathPart.toLowerCase())) {
+      username = pathPart;
+    }
+  }
   if (username.startsWith('@')) username = username.slice(1);
 
   try {
@@ -1914,6 +1950,13 @@ function showTaskDetail(id) {
     <div class="form-group">
       <label class="form-label">类型</label>
       <div>${escapeHtml(task.type)}</div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">目标</label>
+      <div>${escapeHtml(getTaskTarget(task))}</div>
+      ${task.data?.users?.length ? `<div class="text-sm text-secondary" style="margin-top:4px;">用户: ${task.data.users.map(u => '@' + escapeHtml(u)).join(', ')}</div>` : ''}
+      ${task.data?.lists?.length ? `<div class="text-sm text-secondary" style="margin-top:4px;">列表: ${task.data.lists.map(l => escapeHtml(String(l))).join(', ')}</div>` : ''}
+      ${task.data?.following_names?.length ? `<div class="text-sm text-secondary" style="margin-top:4px;">关注: ${task.data.following_names.map(f => '@' + escapeHtml(f)).join(', ')}</div>` : ''}
     </div>
     <div class="form-group">
       <label class="form-label">状态</label>
@@ -2230,6 +2273,32 @@ async function loadConfigRaw() {
   } catch (e) { toast.show('加载配置失败: ' + e.message, 'error'); }
 }
 
+function isPanelInputFocused(panelId) {
+  const panel = document.getElementById(panelId);
+  if (!panel || !document.activeElement || !panel.contains(document.activeElement)) return false;
+  return document.activeElement.matches('input, textarea, select');
+}
+
+function isConfigFormDirty() {
+  if (store.state.configMode !== 'form') return false;
+  return (store.state.configFields || []).some(field => {
+    const input = document.getElementById(`cf_${field.name}`);
+    if (!input) return false;
+    if (field.type === 'password') return input.value.trim() !== '';
+    return input.value !== String(field.value ?? '');
+  });
+}
+
+function isConfigRawDirty() {
+  return store.state.configMode === 'raw' && configCodeMirror && getEditorValue(configCodeMirror, store.state.configRaw) !== (store.state.configRaw || '');
+}
+
+function refreshConfigAfterReconnect() {
+  if (isPanelInputFocused('systemConfigPanel') || isConfigFormDirty() || isConfigRawDirty()) return;
+  if (store.state.configMode === 'raw') loadConfigRaw();
+  else loadConfigFields();
+}
+
 function showManualRestartNotice(subject) {
   toast.show(`✅ ${subject}已保存，需要手动重启服务后生效`, 'success');
 }
@@ -2519,7 +2588,18 @@ function renderScheduleRawEditor(raw, saving, exists) {
   `;
 }
 
-async function loadSchedules() {
+function isScheduleFormEditing() {
+  if (store.state.currentPage !== 'system' || store.state._systemTab !== 'schedules' || store.state._scheduleTab !== 'form') {
+    return false;
+  }
+  const panel = document.getElementById('systemSchedulesPanel');
+  if (!panel || !document.activeElement || !panel.contains(document.activeElement)) {
+    return false;
+  }
+  return document.activeElement.matches('input, textarea, select');
+}
+
+async function loadSchedules(options = {}) {
   try {
     const data = await api.getSchedules();
     const entries = data.entries || [];
@@ -2527,7 +2607,7 @@ async function loadSchedules() {
       _schedules: entries,
       _schedulerRunning: !!data.scheduler_running,
     };
-    if (entries.length > 0) {
+    if (options.updateFormItems !== false) {
       update._scheduleFormItems = entries.map(s => scheduleStatusToFormItem(s));
     }
     store.setState(update);
@@ -2917,7 +2997,7 @@ async function saveScheduleForm() {
         _scheduleFormItems: saved.entries.map(entry => scheduleStatusToFormItem({ entry })),
       });
     }
-    await loadSchedules();
+    await loadSchedules({ updateFormItems: false });
     toast.show('调度配置已保存并重载');
     const rawData = await api.getSchedulesRaw();
     store.setState({
@@ -3027,6 +3107,22 @@ async function loadCookiesRaw() {
   } catch (e) { toast.show('加载额外账户失败: ' + e.message, 'error'); }
 }
 
+function isCookiesFormDirty() {
+  if (store.state.cookiesMode !== 'form') return false;
+  const inputs = document.querySelectorAll('#systemCookiesPanel input.cookie-input');
+  return Array.from(inputs).some(input => input.value.trim() !== '');
+}
+
+function isCookiesRawDirty() {
+  return store.state.cookiesMode === 'raw' && cookiesCodeMirror && getEditorValue(cookiesCodeMirror, store.state.cookiesRaw) !== (store.state.cookiesRaw || '');
+}
+
+function refreshCookiesAfterReconnect() {
+  if (isPanelInputFocused('systemCookiesPanel') || isCookiesFormDirty() || isCookiesRawDirty()) return;
+  if (store.state.cookiesMode === 'raw') loadCookiesRaw();
+  else loadCookiesItems();
+}
+
 async function saveCookiesForm() {
   const cookies = [];
   const items = store.state.cookieItems;
@@ -3111,6 +3207,7 @@ async function shutdownServer() {
 }
 
 function handleServerShutdown(message) {
+  cleanupSystemTimers();
   api.abortAll();
   sseManager.disconnect();
   configCodeMirror = destroyCodeMirror(configCodeMirror);
@@ -3819,7 +3916,11 @@ store.subscribe((state) => {
         }
       }
 
-      if (schedulesChanged || scheduleRawChanged || scheduleExistsChanged || scheduleSavingChanged || scheduleTabChanged || scheduleFormItemsChanged) {
+      const schedulePanelSchedulesChanged = state._scheduleTab !== 'form' && schedulesChanged;
+      if (schedulesChanged && !schedulePanelSchedulesChanged) {
+        lastSchedulesJson = JSON.stringify(state._schedules);
+      }
+      if (schedulePanelSchedulesChanged || scheduleRawChanged || scheduleExistsChanged || scheduleSavingChanged || scheduleTabChanged || scheduleFormItemsChanged) {
         lastSchedulesJson = JSON.stringify(state._schedules);
         lastScheduleRaw = state._scheduleRaw;
         lastScheduleExists = state._scheduleExists;
@@ -3891,7 +3992,12 @@ function updateTaskListUI(tasks) {
   if (search) {
     filtered = filtered.filter(t => {
       const target = (t.data?.screen_name || t.data?.list_id || '').toString().toLowerCase();
-      return target.includes(search) || t.task_id.toLowerCase().includes(search);
+      const batchTargets = [
+        ...(t.data?.users || []),
+        ...(t.data?.lists || []),
+        ...(t.data?.following_names || [])
+      ].join(' ').toLowerCase();
+      return target.includes(search) || batchTargets.includes(search) || t.task_id.toLowerCase().includes(search);
     });
   }
   
