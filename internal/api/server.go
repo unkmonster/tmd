@@ -174,6 +174,7 @@ func (s *Server) buildHandler() http.Handler {
 	mux.HandleFunc("GET /api/v1/logs/stream", s.handleLogStream)
 
 	mux.HandleFunc("GET /api/v1/schedules", s.handleGetSchedules)
+	mux.HandleFunc("PUT /api/v1/schedules", s.handleReplaceSchedules)
 	mux.HandleFunc("POST /api/v1/schedules", s.handleCreateSchedule)
 	mux.HandleFunc("GET /api/v1/schedules/raw", s.handleGetSchedulesRaw)
 	mux.HandleFunc("PUT /api/v1/schedules/raw", s.handleUpdateSchedulesRaw)

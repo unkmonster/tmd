@@ -249,9 +249,7 @@ const api = {
 
   // Schedules
   getSchedules() { return this.get('/api/v1/schedules'); },
-  createSchedule(entry) { return this.post('/api/v1/schedules', entry); },
-  updateSchedule(id, entry) { return this.request('PUT', `/api/v1/schedules/${encodeURIComponent(id)}`, entry); },
-  deleteSchedule(id) { return this.request('DELETE', `/api/v1/schedules/${encodeURIComponent(id)}`); },
+  replaceSchedules(entries) { return this.request('PUT', '/api/v1/schedules', { entries }); },
   setScheduleEnabled(id, enabled) { return this.request('PATCH', `/api/v1/schedules/${encodeURIComponent(id)}/enabled`, { enabled }); },
   getSchedulesRaw() { return this.get('/api/v1/schedules/raw'); },
   updateSchedulesRaw(content) { return this.request('PUT', '/api/v1/schedules/raw', { content }); },
@@ -2443,6 +2441,14 @@ function renderScheduleTable(schedules, exists) {
       if ((entry.lists || []).length) parts.push(`${entry.lists.length} 列表`);
       if ((entry.following_names || []).length) parts.push(`${entry.following_names.length} 关注`);
       displayName = parts.join(' · ') || '混合任务';
+    } else if (!displayName) {
+      displayName = entry.type === 'following'
+        ? '关注任务'
+        : entry.type === 'user'
+          ? '用户任务'
+          : entry.type === 'list'
+            ? '列表任务'
+            : '定时任务';
     }
     const metaParts = [escapeHtml(s.schedule_display), `执行 ${s.run_count} 次`];
     if (entry.type === 'mixed') {
@@ -2690,6 +2696,9 @@ function clearAllScheduleValidationTimers() {
     clearTimeout(_scheduleValidateTimers[k]);
     delete _scheduleValidateTimers[k];
   });
+  Object.keys(_scheduleValidateRequests).forEach(k => {
+    delete _scheduleValidateRequests[k];
+  });
 }
 
 function removeScheduleItem(index) {
@@ -2726,6 +2735,7 @@ function readScheduleFormItemsFromDOM() {
 function clearScheduleValidationState(index) {
   clearTimeout(_scheduleValidateTimers[index]);
   delete _scheduleValidateTimers[index];
+  delete _scheduleValidateRequests[index];
   setScheduleValidationAriaState(index, false);
   const clearHint = () => {
     const hint = document.getElementById(`sf_schedule_hint_${index}`);
@@ -2769,8 +2779,10 @@ function updateScheduleFormItem(index, field, value) {
   if (field === 'scheduleMode') {
     clearScheduleValidationState(index);
     items[index].scheduleMode = value;
+    items[index].scheduleValue = '';
     const scheduleValue = document.getElementById(`sf_schedule_value_${index}`);
     if (scheduleValue) {
+      scheduleValue.value = '';
       const label = scheduleValue.closest('.config-field')?.querySelector('.config-label');
       if (label) label.textContent = value === 'interval' ? '执行间隔' : '执行时间';
       scheduleValue.placeholder = value === 'interval' ? '例如: 2h, 30m, 6h30m, 24h' : '例如: 07:00,21:00 或 02:30';
@@ -2780,6 +2792,8 @@ function updateScheduleFormItem(index, field, value) {
 }
 
 const _scheduleValidateTimers = {};
+const _scheduleValidateRequests = {};
+let _scheduleValidateRequestSeq = 0;
 
 function scheduleFieldChanged(idx) {
   clearTimeout(_scheduleValidateTimers[idx]);
@@ -2812,8 +2826,11 @@ async function validateScheduleField(idx) {
     entry.target = document.getElementById(`sf_target_${idx}`)?.value?.trim() || '';
   }
 
+  const requestSeq = ++_scheduleValidateRequestSeq;
+  _scheduleValidateRequests[idx] = requestSeq;
   try {
     const result = await api.validateSchedule({ entries: [entry] });
+    if (_scheduleValidateRequests[idx] !== requestSeq) return;
     if (result.valid) {
       hint.innerHTML = '';
       setScheduleValidationAriaState(idx, false);
@@ -2823,6 +2840,7 @@ async function validateScheduleField(idx) {
       setScheduleValidationAriaState(idx, true);
     }
   } catch (e) {
+    if (_scheduleValidateRequests[idx] !== requestSeq) return;
     hint.innerHTML = '';
     setScheduleValidationAriaState(idx, false);
   }
@@ -2893,7 +2911,13 @@ async function saveScheduleForm() {
 
   store.setState({ _scheduleFormItems: items, _scheduleSaving: true });
   try {
-    await syncScheduleFormChanges(schedules);
+    const saved = await api.replaceSchedules(schedules);
+    if (saved?.entries) {
+      store.setState({
+        _scheduleFormItems: saved.entries.map(entry => scheduleStatusToFormItem({ entry })),
+      });
+    }
+    await loadSchedules();
     toast.show('调度配置已保存并重载');
     const rawData = await api.getSchedulesRaw();
     store.setState({
@@ -2905,79 +2929,6 @@ async function saveScheduleForm() {
     toast.show('保存失败: ' + e.message, 'error');
     store.setState({ _scheduleSaving: false });
   }
-}
-
-async function syncScheduleFormChanges(entries) {
-  const existingMap = new Map();
-  (store.state._schedules || []).forEach(status => {
-    const entry = normalizeScheduleEntry(status.entry);
-    if (entry.id) {
-      existingMap.set(entry.id, entry);
-    }
-  });
-
-  const submittedIds = new Set(entries.map(e => e.id).filter(Boolean));
-  const toCreate = [];
-  const toUpdate = [];
-  const toDelete = [];
-
-  for (const entry of entries) {
-    if (!entry.id) {
-      toCreate.push(entry);
-    } else {
-      const existing = existingMap.get(entry.id);
-      if (!existing || isScheduleEntryChanged(existing, entry)) {
-        toUpdate.push(entry);
-      }
-    }
-  }
-
-  for (const id of existingMap.keys()) {
-    if (!submittedIds.has(id)) {
-      toDelete.push(id);
-    }
-  }
-
-  for (const entry of toCreate) {
-    await api.createSchedule(entry);
-  }
-
-  for (const entry of toUpdate) {
-    await api.updateSchedule(entry.id, entry);
-  }
-
-  for (const id of toDelete) {
-    await api.deleteSchedule(id);
-  }
-}
-
-function isScheduleEntryChanged(a, b) {
-  if (a.type !== b.type) return true;
-  if (a.target !== b.target) return true;
-  if (a.name !== b.name) return true;
-  if (a.schedule !== b.schedule) return true;
-  if (a.enabled !== b.enabled) return true;
-  if (a.run_on_start !== b.run_on_start) return true;
-  if (a.auto_follow !== b.auto_follow) return true;
-  if (a.follow_members !== b.follow_members) return true;
-  if (a.skip_profile !== b.skip_profile) return true;
-  if (a.no_retry !== b.no_retry) return true;
-
-  if (a.type === 'mixed' || b.type === 'mixed') {
-    if (!arraysEqual(a.users || [], b.users || [])) return true;
-    if (!arraysEqual(a.lists || [], b.lists || [])) return true;
-    if (!arraysEqual(a.following_names || [], b.following_names || [])) return true;
-  }
-
-  return false;
-}
-
-function arraysEqual(a, b) {
-  if (a.length !== b.length) return false;
-  for (let i = 0; i < a.length; i++) {
-    if (a[i] !== b[i]) return false;
-  }
-  return true;
 }
 
 let scheduleCodeMirror = null;

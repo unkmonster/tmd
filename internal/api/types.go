@@ -243,6 +243,10 @@ type SchedulesRawResponse struct {
 	Exists  bool   `json:"exists"`
 }
 
+type SchedulesReplaceRequest struct {
+	Entries []scheduler.ScheduleEntry `json:"entries"`
+}
+
 type ScheduleEnabledRequest struct {
 	Enabled bool `json:"enabled"`
 }

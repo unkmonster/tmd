@@ -1977,6 +1977,51 @@ Content-Type: application/json
 
 #### 更新调度
 
+**批量替换全部调度（表单模式推荐）：**
+
+```http
+PUT /api/v1/schedules
+Content-Type: application/json
+
+{
+  "entries": [
+    {
+      "type": "user",
+      "target": "elonmusk",
+      "name": "每日下载 Elon",
+      "schedule": "daily:08:00",
+      "enabled": true
+    },
+    {
+      "type": "mixed",
+      "name": "批量下载",
+      "schedule": "interval:8h",
+      "enabled": true,
+      "users": ["openai"],
+      "lists": ["123456789"],
+      "following_names": ["someuser"]
+    }
+  ]
+}
+```
+
+该接口会用 `entries` 一次性替换整个 `schedules.yaml` 中的调度列表，并返回规范化后的完整条目。未提供 `id` 的条目会自动生成 ID。请求验证失败时不会写入新配置。
+
+**响应：**
+
+```json
+{
+  "success": true,
+  "data": {
+    "message": "Schedules saved and reloaded successfully.",
+    "backup": "schedules.yaml.backup.1705312345",
+    "entries": [ ... ]
+  }
+}
+```
+
+#### 更新单个调度
+
 **请求：**
 
 ```http
@@ -2983,6 +3028,7 @@ TASK_ID=$(curl -s -X POST http://localhost:25556/api/v1/lists/123456789/download
 | 端点                                        | 方法   | 功能               |
 | ----------------------------------------- | ---- | ---------------- |
 | `/api/v1/schedules`                       | GET  | 获取所有调度         |
+| `/api/v1/schedules`                       | PUT  | 批量替换全部调度      |
 | `/api/v1/schedules`                       | POST | 创建调度           |
 | `/api/v1/schedules/raw`                   | GET  | 获取原始调度文件内容  |
 | `/api/v1/schedules/raw`                   | PUT  | 更新原始调度文件      |

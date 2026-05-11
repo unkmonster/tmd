@@ -118,6 +118,44 @@ func (s *Server) handleCreateSchedule(w http.ResponseWriter, r *http.Request) {
 	}))
 }
 
+func (s *Server) handleReplaceSchedules(w http.ResponseWriter, r *http.Request) {
+	var req SchedulesReplaceRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.writeError(w, http.StatusBadRequest, "Invalid request body: "+err.Error())
+		return
+	}
+
+	cfg, err := normalizeAndValidateScheduleConfig(scheduler.ScheduleConfig{Schedules: req.Entries})
+	if err != nil {
+		s.writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	schedulesPath := filepath.Join(s.appRootPath, "schedules.yaml")
+	s.schedulesMu.Lock()
+	defer s.schedulesMu.Unlock()
+
+	backupName, err := s.writeScheduleConfigLocked(schedulesPath, cfg)
+	if err != nil {
+		s.writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if err := s.reloadSchedulesLocked(schedulesPath); err != nil {
+		s.writeJSON(w, http.StatusOK, NewSuccessResponse(map[string]interface{}{
+			"message": "Schedules saved, but reload failed: " + err.Error(),
+			"backup":  backupName,
+			"entries": cfg.Schedules,
+		}))
+		return
+	}
+
+	s.writeJSON(w, http.StatusOK, NewSuccessResponse(map[string]interface{}{
+		"message": "Schedules saved and reloaded successfully.",
+		"backup":  backupName,
+		"entries": cfg.Schedules,
+	}))
+}
+
 func (s *Server) handleUpdateSchedulesRaw(w http.ResponseWriter, r *http.Request) {
 	var req ConfigUpdateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {

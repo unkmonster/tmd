@@ -361,6 +361,72 @@ func TestStructuredScheduleCRUDSupportsMixedAndNormalizesShape(t *testing.T) {
 	assert.NotContains(t, getBody, `"following_names":["noop"]`)
 }
 
+func TestReplaceSchedulesBulkNormalizesAndReplacesAll(t *testing.T) {
+	server, db := setupTestServerWithAppRoot(t, t.TempDir())
+	defer db.Close()
+
+	body := `{"entries":[
+		{"type":"user","target":"alice","name":"Alice","schedule":"interval:1h","enabled":true},
+		{"type":"mixed","target":"drop-me","users":["@bob"],"lists":["12345"],"following_names":[" carol "],"name":"Mixed","schedule":"daily:07:00","enabled":false}
+	]}`
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/schedules", strings.NewReader(body))
+	rr := serveAPI(server, req)
+	assert.Equal(t, http.StatusOK, rr.Code)
+
+	respBody := rr.Body.String()
+	assert.Contains(t, respBody, `"entries":[`)
+	assert.Contains(t, respBody, `"id":"`)
+	assert.Contains(t, respBody, `"target":"alice"`)
+	assert.Contains(t, respBody, `"users":["bob"]`)
+	assert.Contains(t, respBody, `"lists":["12345"]`)
+	assert.Contains(t, respBody, `"following_names":["carol"]`)
+	assert.NotContains(t, respBody, `"target":"drop-me"`)
+
+	getReq := httptest.NewRequest(http.MethodGet, "/api/v1/schedules", nil)
+	getRR := serveAPI(server, getReq)
+	assert.Equal(t, http.StatusOK, getRR.Code)
+	getBody := getRR.Body.String()
+	assert.Contains(t, getBody, `"total":2`)
+	assert.Contains(t, getBody, `"target":"alice"`)
+	assert.Contains(t, getBody, `"users":["bob"]`)
+
+	replaceBody := `{"entries":[{"type":"list","target":"67890","name":"Replacement","schedule":"interval:2h","enabled":true}]}`
+	replaceReq := httptest.NewRequest(http.MethodPut, "/api/v1/schedules", strings.NewReader(replaceBody))
+	replaceRR := serveAPI(server, replaceReq)
+	assert.Equal(t, http.StatusOK, replaceRR.Code)
+
+	finalRR := serveAPI(server, getReq)
+	assert.Equal(t, http.StatusOK, finalRR.Code)
+	finalBody := finalRR.Body.String()
+	assert.Contains(t, finalBody, `"total":1`)
+	assert.Contains(t, finalBody, `"target":"67890"`)
+	assert.NotContains(t, finalBody, `"target":"alice"`)
+	assert.NotContains(t, finalBody, `"users":["bob"]`)
+}
+
+func TestReplaceSchedulesBulkRejectsInvalidWithoutOverwriting(t *testing.T) {
+	server, db := setupTestServerWithAppRoot(t, t.TempDir())
+	defer db.Close()
+
+	validBody := `{"entries":[{"type":"user","target":"alice","name":"Alice","schedule":"interval:1h","enabled":true}]}`
+	validReq := httptest.NewRequest(http.MethodPut, "/api/v1/schedules", strings.NewReader(validBody))
+	validRR := serveAPI(server, validReq)
+	assert.Equal(t, http.StatusOK, validRR.Code)
+
+	invalidBody := `{"entries":[{"type":"mixed","users":["bad-name"],"schedule":"interval:1h","enabled":true}]}`
+	invalidReq := httptest.NewRequest(http.MethodPut, "/api/v1/schedules", strings.NewReader(invalidBody))
+	invalidRR := serveAPI(server, invalidReq)
+	assert.Equal(t, http.StatusBadRequest, invalidRR.Code)
+
+	getReq := httptest.NewRequest(http.MethodGet, "/api/v1/schedules", nil)
+	getRR := serveAPI(server, getReq)
+	assert.Equal(t, http.StatusOK, getRR.Code)
+	getBody := getRR.Body.String()
+	assert.Contains(t, getBody, `"total":1`)
+	assert.Contains(t, getBody, `"target":"alice"`)
+	assert.NotContains(t, getBody, `"bad-name"`)
+}
+
 func TestValidateScheduleRejectsInvalidMixedScreenName(t *testing.T) {
 	server, db := setupTestServer(t)
 	defer db.Close()
