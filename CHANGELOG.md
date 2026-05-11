@@ -7,6 +7,75 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ***
 
+## [v3.4.2] - 2026-05-09
+
+### Added
+
+#### Profile 下载超时与进度上报
+
+| 文件 | 变更 |
+|------|------|
+| `internal/downloading/profile/downloader.go` | 新增 downloadCtx 超时机制，推进日志上下文 |
+| `internal/downloading/profile/types.go` | 添加 `downloadTimeout` 和 `progressInterval` |
+| `internal/downloading/profile/downloader_test.go` | 新增超时取消和进度上报测试 |
+
+#### 调度器批量更新
+
+| 文件 | 变更 |
+|------|------|
+| `internal/scheduler/scheduler.go` | 支持批量更新（替换式同步），新增 `BulkUpdate` 方法 |
+| `internal/scheduler/scheduler_test.go` | 新增批量更新测试用例 |
+| `internal/scheduler/types.go` | Request 新增 `BulkUpdate` 字段 |
+| `internal/api/scheduler_handlers.go` | 新增 `handleBulkUpdate` 处理器 |
+| `internal/api/server.go` | 注册 `POST /schedules/bulk` 路由 |
+| `internal/api/server_test.go` | 新增批量更新端到端测试 |
+
+#### 下载支持 auto_follow 参数
+
+| 文件 | 变更 |
+|------|------|
+| `internal/api/download_handlers.go` | 用户下载和列表下载支持 `auto_follow` 参数 |
+| `internal/service/download_service.go` | 新增 `auto_follow` 字段传递 |
+| `internal/service/download_service_test.go` | 新增相关测试 |
+
+### Changed
+
+#### Tampermonkey 脚本重写
+
+| 文件 | 说明 |
+|------|------|
+| `tools/tmd-download-button.user.js` | 重构为异步/等待模式，支持 Toast 通知和主题自适配 |
+
+**功能改进：**
+- 替换按钮状态文字为 Toast 通知（更友好的用户反馈）
+- 自动检测 Twitter/X 暗黑/亮色模式并适配按钮样式
+- 按钮位置从关注按钮旁改为"更多"按钮旁，更稳定
+- 使用 `data-testid` 属性检测 DOM，更可靠
+- 添加 `auto_follow: true` 参数支持自动关注
+- 改进错误处理和用户反馈信息
+
+#### API 文档更新
+
+| 文件 | 变更 |
+|------|------|
+| `doc/API_DOCUMENTATION.md` | 新增调度器批量更新接口说明 |
+| `doc/API_DOCUMENTATION.md` | 更新下载参数文档（auto_follow 等） |
+
+#### Web 界面调度器优化
+
+| 文件 | 变更 |
+|------|------|
+| `internal/api/web/app.js` | 调度器 UI 适配批量更新和混合 API |
+| `internal/api/web/index.html` | 页面结构调整 |
+| `internal/api/web/styles.css` | 样式微调 |
+
+### Stats
+
+- **18 个文件变更（15 修改 + 3 新增）**
+- **+1520 行 / -577 行**
+
+***
+
 ## [3.4.1] - 2026-05-09
 
 ### Added
