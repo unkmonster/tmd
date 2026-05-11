@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -20,8 +21,66 @@ import (
 
 	"github.com/unkmonster/tmd/internal/config"
 	"github.com/unkmonster/tmd/internal/database"
+	"github.com/unkmonster/tmd/internal/scheduler"
 	"github.com/unkmonster/tmd/internal/service"
 )
+
+type batchDownloadCall struct {
+	taskID         string
+	users          []string
+	listIDs        []uint64
+	followingNames []string
+	opts           service.DownloadOptions
+}
+
+type fakeDownloadService struct {
+	batchCalls chan batchDownloadCall
+}
+
+func (f *fakeDownloadService) UserDownload(context.Context, string, string, service.DownloadOptions, service.ProgressReporter) error {
+	return errors.New("unexpected UserDownload call")
+}
+
+func (f *fakeDownloadService) ListDownload(context.Context, string, uint64, service.DownloadOptions, service.ProgressReporter) error {
+	return errors.New("unexpected ListDownload call")
+}
+
+func (f *fakeDownloadService) FollowingDownload(context.Context, string, string, service.DownloadOptions, service.ProgressReporter) error {
+	return errors.New("unexpected FollowingDownload call")
+}
+
+func (f *fakeDownloadService) ProfileDownload(context.Context, string, []string, service.ProgressReporter) error {
+	return errors.New("unexpected ProfileDownload call")
+}
+
+func (f *fakeDownloadService) ListProfileDownload(context.Context, string, uint64, service.ProgressReporter) error {
+	return errors.New("unexpected ListProfileDownload call")
+}
+
+func (f *fakeDownloadService) MarkDownloaded(context.Context, string, []string, []uint64, []string, *string, service.ProgressReporter) error {
+	return errors.New("unexpected MarkDownloaded call")
+}
+
+func (f *fakeDownloadService) JsonFileDownload(context.Context, string, []string, bool, service.ProgressReporter) error {
+	return errors.New("unexpected JsonFileDownload call")
+}
+
+func (f *fakeDownloadService) JsonFolderDownload(context.Context, string, []string, bool, service.ProgressReporter) error {
+	return errors.New("unexpected JsonFolderDownload call")
+}
+
+func (f *fakeDownloadService) BatchDownload(_ context.Context, taskID string, screenNames []string, listIDs []uint64, followingNames []string, opts service.DownloadOptions, _ service.ProgressReporter) error {
+	if f.batchCalls != nil {
+		f.batchCalls <- batchDownloadCall{
+			taskID:         taskID,
+			users:          append([]string(nil), screenNames...),
+			listIDs:        append([]uint64(nil), listIDs...),
+			followingNames: append([]string(nil), followingNames...),
+			opts:           opts,
+		}
+	}
+	return nil
+}
 
 // setupTestServer 创建测试服务器
 func setupTestServer(t *testing.T) (*Server, *sqlx.DB) {
@@ -248,6 +307,92 @@ func TestStructuredScheduleCRUDUsesStableID(t *testing.T) {
 	finalRR := serveAPI(server, getReq)
 	assert.Equal(t, http.StatusOK, finalRR.Code)
 	assert.Contains(t, finalRR.Body.String(), `"total":0`)
+}
+
+func TestStructuredScheduleCRUDSupportsMixedAndNormalizesShape(t *testing.T) {
+	db, err := sqlx.Connect(database.DriverName, database.MemoryDSN(true))
+	assert.NoError(t, err)
+	defer db.Close()
+	database.CreateTables(db)
+
+	appRoot := t.TempDir()
+	cfg := &config.Config{
+		RootPath:           "/test",
+		MaxDownloadRoutine: 5,
+		MaxFileNameLen:     100,
+	}
+	server := NewServer(resty.New(), []*resty.Client{}, db, cfg, appRoot, nil)
+	defer server.taskManager.Close()
+
+	createBody := `{"type":"mixed","target":"should-drop","users":["@alice"],"lists":["12345"],"following_names":[" bob "],"name":"Mixed A","schedule":"interval:1h","enabled":true}`
+	createReq := httptest.NewRequest(http.MethodPost, "/api/v1/schedules", strings.NewReader(createBody))
+	createRR := serveAPI(server, createReq)
+	assert.Equal(t, http.StatusCreated, createRR.Code)
+
+	getReq := httptest.NewRequest(http.MethodGet, "/api/v1/schedules", nil)
+	getRR := serveAPI(server, getReq)
+	assert.Equal(t, http.StatusOK, getRR.Code)
+	getBody := getRR.Body.String()
+	assert.Contains(t, getBody, `"type":"mixed"`)
+	assert.Contains(t, getBody, `"users":["alice"]`)
+	assert.Contains(t, getBody, `"lists":["12345"]`)
+	assert.Contains(t, getBody, `"following_names":["bob"]`)
+	assert.NotContains(t, getBody, `"target":"should-drop"`)
+
+	var createResp APIResponse
+	err = json.Unmarshal(createRR.Body.Bytes(), &createResp)
+	assert.NoError(t, err)
+	createData := createResp.Data.(map[string]interface{})
+	createEntry := createData["entry"].(map[string]interface{})
+	id := createEntry["id"].(string)
+
+	updateBody := `{"type":"user","target":"alice","users":["ghost"],"lists":["999"],"following_names":["noop"],"schedule":"daily:07:00","enabled":false}`
+	updateReq := httptest.NewRequest(http.MethodPut, "/api/v1/schedules/"+id, strings.NewReader(updateBody))
+	updateRR := serveAPI(server, updateReq)
+	assert.Equal(t, http.StatusOK, updateRR.Code)
+
+	getRR = serveAPI(server, getReq)
+	assert.Equal(t, http.StatusOK, getRR.Code)
+	getBody = getRR.Body.String()
+	assert.Contains(t, getBody, `"type":"user"`)
+	assert.Contains(t, getBody, `"target":"alice"`)
+	assert.NotContains(t, getBody, `"users":["ghost"]`)
+	assert.NotContains(t, getBody, `"lists":["999"]`)
+	assert.NotContains(t, getBody, `"following_names":["noop"]`)
+}
+
+func TestValidateScheduleRejectsInvalidMixedScreenName(t *testing.T) {
+	server, db := setupTestServer(t)
+	defer db.Close()
+
+	body := `{"entries":[{"type":"mixed","users":["bad-name"],"schedule":"interval:1h"}]}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/schedules/validate", strings.NewReader(body))
+	rr := serveAPI(server, req)
+	assert.Equal(t, http.StatusOK, rr.Code)
+	assert.Contains(t, rr.Body.String(), `"valid":false`)
+}
+
+func TestSchedulesRawSupportsMixed(t *testing.T) {
+	server, db := setupTestServerWithAppRoot(t, t.TempDir())
+	defer db.Close()
+
+	body := `{"content":"schedules:\n  - type: mixed\n    users:\n      - alice\n    lists:\n      - 12345\n    following_names:\n      - bob\n    schedule: interval:1h\n    enabled: true\n"}`
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/schedules/raw", strings.NewReader(body))
+	rr := serveAPI(server, req)
+	assert.Equal(t, http.StatusOK, rr.Code)
+
+	rawReq := httptest.NewRequest(http.MethodGet, "/api/v1/schedules/raw", nil)
+	rawRR := serveAPI(server, rawReq)
+	assert.Equal(t, http.StatusOK, rawRR.Code)
+	rawBody := rawRR.Body.String()
+	assert.Contains(t, rawBody, "users:")
+	assert.Contains(t, rawBody, "lists:")
+	assert.Contains(t, rawBody, "following_names:")
+
+	getReq := httptest.NewRequest(http.MethodGet, "/api/v1/schedules", nil)
+	getRR := serveAPI(server, getReq)
+	assert.Equal(t, http.StatusOK, getRR.Code)
+	assert.Contains(t, getRR.Body.String(), `"type":"mixed"`)
 }
 
 func TestHandleHealth_Success(t *testing.T) {
@@ -1180,6 +1325,51 @@ func TestHandleBatchDownload_NormalizesAtPrefixedScreenNames(t *testing.T) {
 	data := tasks[0].Data.(*BatchDownloadTaskData)
 	assert.Equal(t, []string{"user1"}, data.Users)
 	assert.Equal(t, []string{"user2"}, data.FollowingNames)
+}
+
+func TestScheduledDownloadMixedCreatesBatchTaskAndCallsService(t *testing.T) {
+	server, db := setupTestServer(t)
+	defer db.Close()
+
+	fakeService := &fakeDownloadService{batchCalls: make(chan batchDownloadCall, 1)}
+	server.downloadService = fakeService
+
+	taskID := server.scheduledDownload(scheduler.ScheduleEntry{
+		Type:           scheduler.ScheduleTypeMixed,
+		Users:          []string{"@user1"},
+		Lists:          []string{"123", "456"},
+		FollowingNames: []string{" @user2 "},
+		AutoFollow:     true,
+		FollowMembers:  true,
+		SkipProfile:    true,
+		NoRetry:        true,
+	})
+	assert.NotEmpty(t, taskID)
+
+	task, ok := server.taskManager.GetTask(taskID)
+	assert.True(t, ok)
+	data := task.Data.(*BatchDownloadTaskData)
+	assert.Equal(t, []string{"user1"}, data.Users)
+	assert.Equal(t, []StringUint64{123, 456}, data.Lists)
+	assert.Equal(t, []string{"user2"}, data.FollowingNames)
+	assert.True(t, data.AutoFollow)
+	assert.True(t, data.FollowMembers)
+	assert.True(t, data.SkipProfile)
+	assert.True(t, data.NoRetry)
+
+	select {
+	case call := <-fakeService.batchCalls:
+		assert.Equal(t, taskID, call.taskID)
+		assert.Equal(t, []string{"user1"}, call.users)
+		assert.Equal(t, []uint64{123, 456}, call.listIDs)
+		assert.Equal(t, []string{"user2"}, call.followingNames)
+		assert.True(t, call.opts.AutoFollow)
+		assert.True(t, call.opts.FollowMembers)
+		assert.True(t, call.opts.SkipProfile)
+		assert.True(t, call.opts.NoRetry)
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for batch download call")
+	}
 }
 
 func TestHandleTasks_Success(t *testing.T) {

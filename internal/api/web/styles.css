@@ -620,6 +620,11 @@ ul, ol {
   color: var(--danger);
 }
 
+.tag-primary {
+  background: rgba(47,129,247,0.1);
+  color: #2f81f7;
+}
+
 /* Progress Bar */
 .progress-bar {
   width: 100%;

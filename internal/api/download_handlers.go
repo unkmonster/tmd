@@ -669,6 +669,41 @@ func writeJSONError(w http.ResponseWriter, statusCode int, message string) {
 	_ = json.NewEncoder(w).Encode(NewErrorResponse(message))
 }
 
+func normalizeBatchScreenNames(values []string) ([]string, error) {
+	out := make([]string, len(values))
+	for i, raw := range values {
+		name := utils.NormalizeScreenName(strings.TrimSpace(raw))
+		if !utils.IsValidScreenName(name) {
+			return nil, fmt.Errorf("invalid screen name format: %s", raw)
+		}
+		out[i] = name
+	}
+	return out, nil
+}
+
+func validateBatchListIDs(values []StringUint64) ([]uint64, error) {
+	listIDs := stringUint64SliceToUint64(values)
+	for _, listID := range listIDs {
+		if listID == 0 {
+			return nil, fmt.Errorf("invalid list ID: must be greater than 0")
+		}
+	}
+	return listIDs, nil
+}
+
+func parseScheduledListIDs(values []string) ([]StringUint64, error) {
+	out := make([]StringUint64, 0, len(values))
+	for i, raw := range values {
+		text := strings.TrimSpace(raw)
+		listID, err := strconv.ParseUint(text, 10, 64)
+		if err != nil || listID == 0 {
+			return nil, fmt.Errorf("lists[%d]: invalid list_id %q", i, raw)
+		}
+		out = append(out, StringUint64(listID))
+	}
+	return out, nil
+}
+
 func (s *Server) handleBatchDownload(w http.ResponseWriter, r *http.Request) {
 	var req BatchDownloadTaskData
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -681,30 +716,23 @@ func (s *Server) handleBatchDownload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 校验所有 screenName 格式
-	for i, screenName := range req.Users {
-		req.Users[i] = utils.NormalizeScreenName(screenName)
-		if !utils.IsValidScreenName(req.Users[i]) {
-			s.writeError(w, http.StatusBadRequest, "Invalid screen name format: "+screenName)
-			return
-		}
+	users, err := normalizeBatchScreenNames(req.Users)
+	if err != nil {
+		s.writeError(w, http.StatusBadRequest, err.Error())
+		return
 	}
-	for i, screenName := range req.FollowingNames {
-		req.FollowingNames[i] = utils.NormalizeScreenName(screenName)
-		if !utils.IsValidScreenName(req.FollowingNames[i]) {
-			s.writeError(w, http.StatusBadRequest, "Invalid screen name format: "+screenName)
-			return
-		}
+	followingNames, err := normalizeBatchScreenNames(req.FollowingNames)
+	if err != nil {
+		s.writeError(w, http.StatusBadRequest, err.Error())
+		return
 	}
-
-	// 校验所有 listID 有效性
-	listIDs := stringUint64SliceToUint64(req.Lists)
-	for _, listID := range listIDs {
-		if listID == 0 {
-			s.writeError(w, http.StatusBadRequest, "Invalid list ID: must be greater than 0")
-			return
-		}
+	listIDs, err := validateBatchListIDs(req.Lists)
+	if err != nil {
+		s.writeError(w, http.StatusBadRequest, err.Error())
+		return
 	}
+	req.Users = users
+	req.FollowingNames = followingNames
 
 	task := s.taskManager.CreateTask(TaskTypeBatchDownload, &req)
 	taskID := task.ID
@@ -828,6 +856,47 @@ func (s *Server) scheduledDownload(entry scheduler.ScheduleEntry) string {
 		task := s.taskManager.CreateTask(TaskTypeFollowingDownload, req)
 		s.enqueueTask(task, func(ctx context.Context, taskID string, reporter service.ProgressReporter) error {
 			return s.downloadService.FollowingDownload(ctx, taskID, entry.Target, opts, reporter)
+		})
+		return task.ID
+
+	case scheduler.ScheduleTypeMixed:
+		lists, err := parseScheduledListIDs(entry.Lists)
+		if err != nil {
+			log.Warnf("[scheduler] Invalid mixed schedule %q: %v", entry.Name, err)
+			return ""
+		}
+		users, err := normalizeBatchScreenNames(entry.Users)
+		if err != nil {
+			log.Warnf("[scheduler] Invalid mixed schedule %q: %v", entry.Name, err)
+			return ""
+		}
+		followingNames, err := normalizeBatchScreenNames(entry.FollowingNames)
+		if err != nil {
+			log.Warnf("[scheduler] Invalid mixed schedule %q: %v", entry.Name, err)
+			return ""
+		}
+		listIDs, err := validateBatchListIDs(lists)
+		if err != nil {
+			log.Warnf("[scheduler] Invalid mixed schedule %q: %v", entry.Name, err)
+			return ""
+		}
+		if len(users) == 0 && len(lists) == 0 && len(followingNames) == 0 {
+			log.Warnf("[scheduler] Mixed schedule %q has no targets", entry.Name)
+			return ""
+		}
+
+		req := &BatchDownloadTaskData{
+			Users:          users,
+			Lists:          lists,
+			FollowingNames: followingNames,
+			AutoFollow:     entry.AutoFollow,
+			FollowMembers:  entry.FollowMembers,
+			SkipProfile:    entry.SkipProfile,
+			NoRetry:        entry.NoRetry,
+		}
+		task := s.taskManager.CreateTask(TaskTypeBatchDownload, req)
+		s.enqueueTask(task, func(ctx context.Context, taskID string, reporter service.ProgressReporter) error {
+			return s.downloadService.BatchDownload(ctx, taskID, req.Users, listIDs, req.FollowingNames, opts, reporter)
 		})
 		return task.ID
 

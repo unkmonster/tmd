@@ -1892,8 +1892,11 @@ GET /api/v1/schedules
 | 字段 | 类型 | 说明 |
 |------|------|------|
 | `id` | string | 调度 ID |
-| `type` | string | 调度类型：`user`、`list`、`following` |
-| `target` | string | 调度目标（用户名或列表 ID） |
+| `type` | string | 调度类型：`user`、`list`、`following`、`mixed` |
+| `target` | string | 调度目标（用户名或列表 ID）；`mixed` 类型下为空 |
+| `users` | string[] | `mixed` 类型的用户名列表 |
+| `lists` | string[] | `mixed` 类型的列表 ID 列表 |
+| `following_names` | string[] | `mixed` 类型的 following 用户名列表 |
 | `name` | string | 调度名称 |
 | `schedule` | string | 调度表达式（如 `daily:08:00`、`interval:6h`） |
 | `enabled` | bool | 是否启用 |
@@ -1929,8 +1932,11 @@ Content-Type: application/json
 
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
-| `type` | string | 是 | 调度类型：`user`、`list`、`following` |
-| `target` | string | 是 | 调度目标 |
+| `type` | string | 是 | 调度类型：`user`、`list`、`following`、`mixed` |
+| `target` | string | 否 | 调度目标；`mixed` 类型不使用该字段 |
+| `users` | string[] | 否 | `mixed` 类型的用户名列表 |
+| `lists` | string[] | 否 | `mixed` 类型的列表 ID 列表 |
+| `following_names` | string[] | 否 | `mixed` 类型的 following 用户名列表 |
 | `name` | string | 否 | 调度名称 |
 | `schedule` | string | 是 | 调度表达式 |
 | `enabled` | bool | 否 | 是否启用（默认 false） |
@@ -1940,6 +1946,21 @@ Content-Type: application/json
 | `skip_profile` | bool | 否 | 跳过 Profile（默认 false） |
 | `no_retry` | bool | 否 | 不重试（默认 false） |
 | `id` | string | 否 | 自定义 ID（不提供则自动生成） |
+
+`mixed` 类型示例：
+
+```json
+{
+  "type": "mixed",
+  "name": "批量下载",
+  "schedule": "interval:8h",
+  "enabled": true,
+  "users": ["elonmusk", "openai"],
+  "lists": ["123456789"],
+  "following_names": ["someuser"],
+  "auto_follow": true
+}
+```
 
 **响应：**
 
@@ -2144,11 +2165,15 @@ POST /api/v1/schedules/validate
 Content-Type: application/json
 
 {
-  "entry": {
-    "type": "user",
-    "target": "elonmusk",
-    "schedule": "daily:08:00"
-  }
+  "entries": [
+    {
+      "type": "mixed",
+      "users": ["elonmusk"],
+      "lists": ["123456789"],
+      "following_names": ["openai"],
+      "schedule": "interval:8h"
+    }
+  ]
 }
 ```
 

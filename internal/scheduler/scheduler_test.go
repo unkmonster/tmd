@@ -313,6 +313,54 @@ func TestValidateEntryRejectsZeroListID(t *testing.T) {
 	}
 }
 
+func TestValidateEntryMixedRejectsEmptyTargets(t *testing.T) {
+	err := ValidateEntry(ScheduleEntry{
+		Type:     ScheduleTypeMixed,
+		Schedule: "interval:1h",
+		Enabled:  true,
+	})
+	if err == nil {
+		t.Fatal("expected mixed entry without targets to be invalid")
+	}
+}
+
+func TestValidateEntryMixedRejectsInvalidScreenName(t *testing.T) {
+	err := ValidateEntry(ScheduleEntry{
+		Type:     ScheduleTypeMixed,
+		Users:    []string{"bad-name"},
+		Schedule: "interval:1h",
+		Enabled:  true,
+	})
+	if err == nil {
+		t.Fatal("expected invalid mixed screen name to be rejected")
+	}
+}
+
+func TestValidateEntryMixedRejectsZeroListID(t *testing.T) {
+	err := ValidateEntry(ScheduleEntry{
+		Type:     ScheduleTypeMixed,
+		Lists:    []string{"0"},
+		Schedule: "interval:1h",
+		Enabled:  true,
+	})
+	if err == nil {
+		t.Fatal("expected mixed list id 0 to be rejected")
+	}
+}
+
+func TestValidateEntryMixedAcceptsAtPrefixedScreenName(t *testing.T) {
+	err := ValidateEntry(ScheduleEntry{
+		Type:           ScheduleTypeMixed,
+		Users:          []string{"@alice"},
+		FollowingNames: []string{" @bob "},
+		Schedule:       "interval:1h",
+		Enabled:        true,
+	})
+	if err != nil {
+		t.Fatalf("expected at-prefixed names to be accepted after canonicalization: %v", err)
+	}
+}
+
 func TestNormalizeEntriesAssignsStableUniqueIDs(t *testing.T) {
 	entries, err := NormalizeEntries([]ScheduleEntry{
 		{Type: ScheduleTypeUser, Target: "alice", Name: "Alice", Schedule: "interval:1h", Enabled: true},
@@ -326,6 +374,82 @@ func TestNormalizeEntriesAssignsStableUniqueIDs(t *testing.T) {
 	}
 	if entries[0].ID == entries[1].ID {
 		t.Fatalf("expected duplicate entries to receive unique ids, got %q", entries[0].ID)
+	}
+}
+
+func TestNormalizeEntriesMixedCanonicalizesBeforeID(t *testing.T) {
+	entries, err := NormalizeEntries([]ScheduleEntry{
+		{Type: ScheduleTypeMixed, Users: []string{" @alice "}, Schedule: "interval:1h", Enabled: true},
+	})
+	if err != nil {
+		t.Fatalf("normalize entries: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("expected one entry, got %d", len(entries))
+	}
+	if got := entries[0].Users; len(got) != 1 || got[0] != "alice" {
+		t.Fatalf("expected canonicalized mixed users, got %#v", got)
+	}
+	if entries[0].Target != "" {
+		t.Fatalf("expected mixed target to be cleared, got %q", entries[0].Target)
+	}
+}
+
+func TestNormalizeEntriesNonMixedClearsMixedArrays(t *testing.T) {
+	entries, err := NormalizeEntries([]ScheduleEntry{
+		{
+			Type:           ScheduleTypeUser,
+			Target:         "alice",
+			Users:          []string{"bob"},
+			Lists:          []string{"123"},
+			FollowingNames: []string{"charlie"},
+			Schedule:       "interval:1h",
+			Enabled:        true,
+		},
+	})
+	if err != nil {
+		t.Fatalf("normalize entries: %v", err)
+	}
+	if entries[0].Users != nil || entries[0].Lists != nil || entries[0].FollowingNames != nil {
+		t.Fatalf("expected non-mixed entry to clear mixed arrays, got %#v", entries[0])
+	}
+}
+
+func TestScheduleIDBaseMixedNoGroupCollision(t *testing.T) {
+	a := scheduleIDBase(ScheduleEntry{
+		Type:     ScheduleTypeMixed,
+		Users:    []string{"alice"},
+		Lists:    []string{"123"},
+		Schedule: "interval:1h",
+		Enabled:  true,
+	})
+	b := scheduleIDBase(ScheduleEntry{
+		Type:     ScheduleTypeMixed,
+		Users:    []string{"123"},
+		Lists:    []string{"alice"},
+		Schedule: "interval:1h",
+		Enabled:  true,
+	})
+	if a == b {
+		t.Fatalf("expected mixed schedule id base to distinguish target groups, got %q", a)
+	}
+}
+
+func TestNewEntryIDMixedCanonicalStable(t *testing.T) {
+	a := NewEntryID(ScheduleEntry{
+		Type:     ScheduleTypeMixed,
+		Users:    []string{"@Alice"},
+		Schedule: "interval:1h",
+		Enabled:  true,
+	}, nil)
+	b := NewEntryID(ScheduleEntry{
+		Type:     ScheduleTypeMixed,
+		Users:    []string{" Alice "},
+		Schedule: "interval:1h",
+		Enabled:  true,
+	}, nil)
+	if a != b {
+		t.Fatalf("expected canonical mixed entry ids to match, got %q and %q", a, b)
 	}
 }
 

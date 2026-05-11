@@ -2275,8 +2275,8 @@ function renderScheduleForm(items, saving, exists) {
     `;
   }
 
-  const typeOptions = (selected) => ['list', 'user', 'following'].map(t =>
-    `<option value="${t}" ${t === selected ? 'selected' : ''}>${t === 'list' ? '📋 列表' : t === 'user' ? '👤 用户' : '👥 关注'}</option>`
+  const typeOptions = (selected) => ['list', 'user', 'following', 'mixed'].map(t =>
+    `<option value="${t}" ${t === selected ? 'selected' : ''}>${t === 'list' ? '📋 列表' : t === 'user' ? '👤 用户' : t === 'following' ? '👥 关注' : '🔀 混合'}</option>`
   ).join('');
 
   const scheduleModeOptions = (selected) => ['interval', 'daily'].map(m =>
@@ -2284,7 +2284,7 @@ function renderScheduleForm(items, saving, exists) {
   ).join('');
 
   const renderItem = (item, idx) => {
-    const typeLabel = item.type === 'list' ? '📋 列表' : item.type === 'user' ? '👤 用户' : '👥 关注';
+    const typeLabel = item.type === 'list' ? '📋 列表' : item.type === 'user' ? '👤 用户' : item.type === 'following' ? '👥 关注' : '🔀 混合';
     return `
     <div class="config-group">
       <div class="config-group-title" style="display:flex;justify-content:space-between;align-items:center;">
@@ -2303,12 +2303,33 @@ function renderScheduleForm(items, saving, exists) {
           ${typeOptions(item.type)}
         </select>
       </div>
+      ${item.type === 'mixed' ? `
       <div class="config-field">
-        <label class="config-label">${item.type === 'list' ? '列表 ID' : '用户名 (Screen Name)'}</label>
+        <label class="config-label" for="sf_users_${idx}">用户名 <span style="font-size:11px;color:var(--text-tertiary)">每行一个</span></label>
+        <textarea class="form-textarea config-input" id="sf_users_${idx}" rows="3"
+          aria-describedby="sf_schedule_hint_${idx}"
+          placeholder="elonmusk&#10;openai" oninput="scheduleFieldChanged(${idx})" onblur="validateScheduleField(${idx})">${escapeHtml((item.users || []).join('\n'))}</textarea>
+      </div>
+      <div class="config-field">
+        <label class="config-label" for="sf_lists_${idx}">列表 ID <span style="font-size:11px;color:var(--text-tertiary)">每行一个</span></label>
+        <textarea class="form-textarea config-input" id="sf_lists_${idx}" rows="3"
+          aria-describedby="sf_schedule_hint_${idx}"
+          placeholder="123456789&#10;987654321" oninput="scheduleFieldChanged(${idx})" onblur="validateScheduleField(${idx})">${escapeHtml((item.lists || []).join('\n'))}</textarea>
+      </div>
+      <div class="config-field">
+        <label class="config-label" for="sf_following_${idx}">关注用户名 <span style="font-size:11px;color:var(--text-tertiary)">每行一个</span></label>
+        <textarea class="form-textarea config-input" id="sf_following_${idx}" rows="3"
+          aria-describedby="sf_schedule_hint_${idx}"
+          placeholder="someuser" oninput="scheduleFieldChanged(${idx})" onblur="validateScheduleField(${idx})">${escapeHtml((item.following_names || []).join('\n'))}</textarea>
+      </div>` : `
+      <div class="config-field">
+        <label class="config-label" for="sf_target_${idx}">${item.type === 'list' ? '列表 ID' : '用户名 (Screen Name)'}</label>
         <input type="text" class="form-input config-input" id="sf_target_${idx}"
           value="${escapeAttr(item.target || '')}"
-          placeholder="${item.type === 'list' ? '例如: 123456789' : '例如: elonmusk'}">
-      </div>
+          aria-describedby="sf_schedule_hint_${idx}"
+          placeholder="${item.type === 'list' ? '例如: 123456789' : '例如: elonmusk'}"
+          onblur="validateScheduleField(${idx})" oninput="scheduleFieldChanged(${idx})">
+      </div>`}
       <div class="config-field">
         <label class="config-label">名称（可选）</label>
         <input type="text" class="form-input config-input" id="sf_name_${idx}"
@@ -2322,12 +2343,12 @@ function renderScheduleForm(items, saving, exists) {
         </select>
       </div>
       <div class="config-field">
-        <label class="config-label">${(item.scheduleMode || 'interval') === 'interval' ? '执行间隔' : '执行时间'}</label>
+        <label class="config-label" for="sf_schedule_value_${idx}">${(item.scheduleMode || 'interval') === 'interval' ? '执行间隔' : '执行时间'}</label>
         <input type="text" class="form-input config-input" id="sf_schedule_value_${idx}"
           value="${escapeAttr(item.scheduleValue || '')}"
+          aria-describedby="sf_schedule_hint_${idx}"
           placeholder="${(item.scheduleMode || 'interval') === 'interval' ? '例如: 2h, 30m, 6h30m, 24h' : '例如: 07:00,21:00 或 02:30'}"
           onblur="validateScheduleField(${idx})" oninput="scheduleFieldChanged(${idx})">
-        <div id="sf_schedule_hint_${idx}" class="config-hint" style="font-size:12px;margin-top:4px;min-height:16px"></div>
       </div>
       <div class="config-field" style="display:flex;gap:16px;flex-wrap:wrap;">
         <label style="display:flex;align-items:center;gap:4px;font-size:13px;cursor:pointer;">
@@ -2351,6 +2372,7 @@ function renderScheduleForm(items, saving, exists) {
           首次启动时立即运行
         </label>
       </div>
+      <div id="sf_schedule_hint_${idx}" class="config-hint" aria-live="polite" style="font-size:12px;margin-top:8px;min-height:0"></div>
     </div>
   `;
   };
@@ -2398,7 +2420,7 @@ function renderScheduleTable(schedules, exists) {
   }
 
   const typeTag = (type) => {
-    const map = { list: ['List', 'tag-info'], user: ['User', 'tag-success'], following: ['Following', 'tag-warning'] };
+    const map = { list: ['List', 'tag-info'], user: ['User', 'tag-success'], following: ['Following', 'tag-warning'], mixed: ['Mixed', 'tag-primary'] };
     const [label, cls] = map[type] || [escapeHtml(type), ''];
     return `<span class="tag ${escapeHtml(cls)}">${escapeHtml(label)}</span>`;
   };
@@ -2414,8 +2436,22 @@ function renderScheduleTable(schedules, exists) {
   const renderScheduleItem = (s) => {
     const entry = normalizeScheduleEntry(s.entry);
     const failures = s.consecutive_failures || 0;
-    const displayName = entry.name || entry.target;
+    let displayName = entry.name || entry.target;
+    if (entry.type === 'mixed' && !displayName) {
+      const parts = [];
+      if ((entry.users || []).length) parts.push(`${entry.users.length} 用户`);
+      if ((entry.lists || []).length) parts.push(`${entry.lists.length} 列表`);
+      if ((entry.following_names || []).length) parts.push(`${entry.following_names.length} 关注`);
+      displayName = parts.join(' · ') || '混合任务';
+    }
     const metaParts = [escapeHtml(s.schedule_display), `执行 ${s.run_count} 次`];
+    if (entry.type === 'mixed') {
+      const targetParts = [];
+      if ((entry.users || []).length) targetParts.push(`${entry.users.length}用户`);
+      if ((entry.lists || []).length) targetParts.push(`${entry.lists.length}列表`);
+      if ((entry.following_names || []).length) targetParts.push(`${entry.following_names.length}关注`);
+      if (targetParts.length) metaParts.unshift(targetParts.join('+'));
+    }
     const fTag = failureTag(failures);
     if (fTag) metaParts.push(fTag);
 
@@ -2508,6 +2544,9 @@ function scheduleStatusToFormItem(status) {
     id: e.id || '',
     type: e.type || 'list',
     target: e.target || '',
+    users: e.users || [],
+    lists: e.lists || [],
+    following_names: e.following_names || [],
     name: e.name || '',
     scheduleMode,
     scheduleValue,
@@ -2525,6 +2564,9 @@ function normalizeScheduleEntry(entry) {
     id: readScheduleEntryField(entry, 'id', 'ID') || '',
     type: readScheduleEntryField(entry, 'type', 'Type') || '',
     target: readScheduleEntryField(entry, 'target', 'Target') || '',
+    users: readScheduleEntryField(entry, 'users', 'Users') || [],
+    lists: readScheduleEntryField(entry, 'lists', 'Lists') || [],
+    following_names: readScheduleEntryField(entry, 'following_names', 'FollowingNames') || [],
     name: readScheduleEntryField(entry, 'name', 'Name') || '',
     schedule: readScheduleEntryField(entry, 'schedule', 'Schedule') || '',
     enabled: readScheduleEntryField(entry, 'enabled', 'Enabled') !== false,
@@ -2626,6 +2668,9 @@ function addScheduleItem() {
     id: '',
     type: 'list',
     target: '',
+    users: [],
+    lists: [],
+    following_names: [],
     name: '',
     scheduleMode: 'interval',
     scheduleValue: '8h',
@@ -2640,7 +2685,15 @@ function addScheduleItem() {
   glowNewFirstItem('systemSchedulesPanel');
 }
 
+function clearAllScheduleValidationTimers() {
+  Object.keys(_scheduleValidateTimers).forEach(k => {
+    clearTimeout(_scheduleValidateTimers[k]);
+    delete _scheduleValidateTimers[k];
+  });
+}
+
 function removeScheduleItem(index) {
+  clearAllScheduleValidationTimers();
   const items = readScheduleFormItemsFromDOM().filter((_, i) => i !== index);
   store.setState({ _scheduleFormItems: items });
 }
@@ -2649,10 +2702,11 @@ function readScheduleFormItemsFromDOM() {
   return store.state._scheduleFormItems.map((fallback, idx) => {
     const type = document.getElementById(`sf_type_${idx}`)?.value || fallback.type || 'list';
     const scheduleMode = document.getElementById(`sf_schedule_mode_${idx}`)?.value || fallback.scheduleMode || 'interval';
+    const readLines = (id) => (document.getElementById(id)?.value || '').split('\n').map(s => s.trim()).filter(Boolean);
     return {
       id: fallback.id || '',
       type,
-      target: document.getElementById(`sf_target_${idx}`)?.value || '',
+      target: type !== 'mixed' ? (document.getElementById(`sf_target_${idx}`)?.value || '') : '',
       name: document.getElementById(`sf_name_${idx}`)?.value || '',
       scheduleMode,
       scheduleValue: document.getElementById(`sf_schedule_value_${idx}`)?.value || '',
@@ -2662,22 +2716,58 @@ function readScheduleFormItemsFromDOM() {
       follow_members: document.getElementById(`sf_follow_members_${idx}`)?.checked ?? !!fallback.follow_members,
       skip_profile: document.getElementById(`sf_skip_profile_${idx}`)?.checked ?? !!fallback.skip_profile,
       no_retry: document.getElementById(`sf_no_retry_${idx}`)?.checked ?? !!fallback.no_retry,
+      users: type === 'mixed' ? readLines(`sf_users_${idx}`) : [],
+      lists: type === 'mixed' ? readLines(`sf_lists_${idx}`) : [],
+      following_names: type === 'mixed' ? readLines(`sf_following_${idx}`) : [],
     };
+  });
+}
+
+function clearScheduleValidationState(index) {
+  clearTimeout(_scheduleValidateTimers[index]);
+  delete _scheduleValidateTimers[index];
+  setScheduleValidationAriaState(index, false);
+  const clearHint = () => {
+    const hint = document.getElementById(`sf_schedule_hint_${index}`);
+    if (hint) hint.innerHTML = '';
+  };
+  clearHint();
+  setTimeout(clearHint, 0);
+}
+
+function setScheduleValidationAriaState(index, invalid) {
+  const fieldIds = [
+    `sf_target_${index}`,
+    `sf_users_${index}`,
+    `sf_lists_${index}`,
+    `sf_following_${index}`,
+    `sf_schedule_value_${index}`,
+  ];
+  fieldIds.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.setAttribute('aria-invalid', invalid ? 'true' : 'false');
   });
 }
 
 function updateScheduleFormItem(index, field, value) {
   const items = readScheduleFormItemsFromDOM();
   if (field === 'type') {
+    clearScheduleValidationState(index);
+    const prevType = items[index].type;
     items[index].type = value;
-    const target = document.getElementById(`sf_target_${index}`);
-    if (target) {
-      const label = target.closest('.config-field')?.querySelector('.config-label');
-      if (label) label.textContent = value === 'list' ? '列表 ID' : '用户名 (Screen Name)';
-      target.placeholder = value === 'list' ? '例如: 123456789' : '例如: elonmusk';
+    if (value === 'mixed') {
+      items[index].target = '';
+    } else {
+      items[index].users = [];
+      items[index].lists = [];
+      items[index].following_names = [];
+      if (prevType === 'mixed') {
+        items[index].target = '';
+      }
     }
   }
   if (field === 'scheduleMode') {
+    clearScheduleValidationState(index);
     items[index].scheduleMode = value;
     const scheduleValue = document.getElementById(`sf_schedule_value_${index}`);
     if (scheduleValue) {
@@ -2689,35 +2779,52 @@ function updateScheduleFormItem(index, field, value) {
   store.setState({ _scheduleFormItems: items });
 }
 
-let _scheduleValidateTimer = null;
+const _scheduleValidateTimers = {};
 
 function scheduleFieldChanged(idx) {
-  clearTimeout(_scheduleValidateTimer);
-  _scheduleValidateTimer = setTimeout(() => validateScheduleField(idx), 600);
+  clearTimeout(_scheduleValidateTimers[idx]);
+  _scheduleValidateTimers[idx] = setTimeout(() => validateScheduleField(idx), 600);
 }
 
 async function validateScheduleField(idx) {
-  const mode = document.getElementById(`sf_schedule_mode_${idx}`)?.value || 'interval';
-  const value = document.getElementById(`sf_schedule_value_${idx}`)?.value?.trim() || '';
   const hint = document.getElementById(`sf_schedule_hint_${idx}`);
   if (!hint) return;
 
-  if (!value) {
+  const type = document.getElementById(`sf_type_${idx}`)?.value || 'list';
+  const mode = document.getElementById(`sf_schedule_mode_${idx}`)?.value || 'interval';
+  const scheduleValue = document.getElementById(`sf_schedule_value_${idx}`)?.value?.trim() || '';
+  if (!scheduleValue) {
     hint.innerHTML = '';
+    setScheduleValidationAriaState(idx, false);
     return;
   }
 
-  const schedule = `${mode}:${value}`;
+  const entry = { type, schedule: `${mode}:${scheduleValue}` };
+
+  if (type === 'mixed') {
+    const usersRaw = document.getElementById(`sf_users_${idx}`)?.value || '';
+    const listsRaw = document.getElementById(`sf_lists_${idx}`)?.value || '';
+    const followingRaw = document.getElementById(`sf_following_${idx}`)?.value || '';
+    entry.users = usersRaw.split('\n').map(s => s.trim()).filter(Boolean);
+    entry.lists = listsRaw.split('\n').map(s => s.trim()).filter(Boolean);
+    entry.following_names = followingRaw.split('\n').map(s => s.trim()).filter(Boolean);
+  } else {
+    entry.target = document.getElementById(`sf_target_${idx}`)?.value?.trim() || '';
+  }
+
   try {
-    const result = await api.validateSchedule({ entry: { type: 'list', target: '1', schedule } });
+    const result = await api.validateSchedule({ entries: [entry] });
     if (result.valid) {
-      hint.innerHTML = '<span style="color:var(--success, #22c55e)">✓ 格式正确</span>';
+      hint.innerHTML = '';
+      setScheduleValidationAriaState(idx, false);
     } else {
       const msg = (result.errors || []).join('; ');
       hint.innerHTML = `<span style="color:var(--danger, #ef4444)">✗ ${escapeHtml(msg)}</span>`;
+      setScheduleValidationAriaState(idx, true);
     }
   } catch (e) {
     hint.innerHTML = '';
+    setScheduleValidationAriaState(idx, false);
   }
 }
 
@@ -2725,8 +2832,13 @@ async function validateScheduleForm() {
   const items = readScheduleFormItemsFromDOM();
   const entries = items.map(item => ({
     type: item.type,
-    target: item.type === 'list' ? (item.target.trim() || '1') : item.target.trim(),
+    target: item.type === 'mixed' ? '' : item.target.trim(),
     schedule: `${item.scheduleMode}:${item.scheduleValue.trim()}`,
+    ...(item.type === 'mixed' ? {
+      users: item.users || [],
+      lists: item.lists || [],
+      following_names: item.following_names || [],
+    } : {}),
   }));
   try {
     const result = await api.validateSchedule({ entries });
@@ -2746,8 +2858,12 @@ async function saveScheduleForm() {
 
   for (let i = 0; i < items.length; i++) {
     const item = items[i];
-    if (!item.target.trim()) {
+    if (item.type !== 'mixed' && !item.target.trim()) {
       toast.show(`规则 #${i + 1}: 目标不能为空`, 'error');
+      return;
+    }
+    if (item.type === 'mixed' && !item.users.length && !item.lists.length && !item.following_names.length) {
+      toast.show(`规则 #${i + 1}: 混合任务至少需要一个目标`, 'error');
       return;
     }
     if (!item.scheduleValue.trim()) {
@@ -2761,7 +2877,10 @@ async function saveScheduleForm() {
   const schedules = items.map(item => ({
     id: item.id || '',
     type: item.type,
-    target: item.target.trim(),
+    target: item.type === 'mixed' ? '' : item.target.trim(),
+    users: item.type === 'mixed' ? (item.users || []) : undefined,
+    lists: item.type === 'mixed' ? (item.lists || []) : undefined,
+    following_names: item.type === 'mixed' ? (item.following_names || []) : undefined,
     name: item.name.trim(),
     schedule: `${item.scheduleMode}:${item.scheduleValue.trim()}`,
     enabled: item.enabled,
@@ -2833,46 +2952,32 @@ async function syncScheduleFormChanges(entries) {
 }
 
 function isScheduleEntryChanged(a, b) {
-  return a.type !== b.type ||
-    a.target !== b.target ||
-    a.name !== b.name ||
-    a.schedule !== b.schedule ||
-    a.enabled !== b.enabled ||
-    a.run_on_start !== b.run_on_start ||
-    a.auto_follow !== b.auto_follow ||
-    a.follow_members !== b.follow_members ||
-    a.skip_profile !== b.skip_profile ||
-    a.no_retry !== b.no_retry;
+  if (a.type !== b.type) return true;
+  if (a.target !== b.target) return true;
+  if (a.name !== b.name) return true;
+  if (a.schedule !== b.schedule) return true;
+  if (a.enabled !== b.enabled) return true;
+  if (a.run_on_start !== b.run_on_start) return true;
+  if (a.auto_follow !== b.auto_follow) return true;
+  if (a.follow_members !== b.follow_members) return true;
+  if (a.skip_profile !== b.skip_profile) return true;
+  if (a.no_retry !== b.no_retry) return true;
+
+  if (a.type === 'mixed' || b.type === 'mixed') {
+    if (!arraysEqual(a.users || [], b.users || [])) return true;
+    if (!arraysEqual(a.lists || [], b.lists || [])) return true;
+    if (!arraysEqual(a.following_names || [], b.following_names || [])) return true;
+  }
+
+  return false;
 }
 
-function yamlDump(obj) {
-  const schedules = obj.schedules || [];
-  if (schedules.length === 0) {
-    return 'schedules: []\n';
+function arraysEqual(a, b) {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) return false;
   }
-  let yaml = 'schedules:\n';
-  for (const s of schedules) {
-    yaml += `  - type: ${s.type}\n`;
-    if (s.id) yaml += `    id: ${yamlStr(s.id)}\n`;
-    yaml += `    target: ${yamlStr(s.target)}\n`;
-    yaml += `    name: ${yamlStr(s.name)}\n`;
-    yaml += `    schedule: ${yamlStr(s.schedule)}\n`;
-    yaml += `    enabled: ${s.enabled}\n`;
-    yaml += `    run_on_start: ${s.run_on_start}\n`;
-    yaml += `    auto_follow: ${s.auto_follow}\n`;
-    yaml += `    follow_members: ${s.follow_members}\n`;
-    yaml += `    skip_profile: ${s.skip_profile}\n`;
-    yaml += `    no_retry: ${s.no_retry}\n`;
-  }
-  return yaml;
-}
-
-function yamlStr(s) {
-  if (!s) return '""';
-  if (/[:#{}[\],&*?|<>=!%@\\"]/.test(s) || s.includes('\n')) {
-    return '"' + s.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n') + '"';
-  }
-  return '"' + s + '"';
+  return true;
 }
 
 let scheduleCodeMirror = null;
@@ -3201,10 +3306,7 @@ function cleanupSystemTimers() {
     clearTimeout(logAutoRefreshTimer);
     logAutoRefreshTimer = null;
   }
-  if (_scheduleValidateTimer) {
-    clearTimeout(_scheduleValidateTimer);
-    _scheduleValidateTimer = null;
-  }
+  clearAllScheduleValidationTimers();
   stopLogStream();
 }
 

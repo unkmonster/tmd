@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math/rand"
 	"os"
+	"reflect"
 	"regexp"
 	"sort"
 	"strconv"
@@ -16,6 +17,8 @@ import (
 
 	log "github.com/sirupsen/logrus"
 	"gopkg.in/yaml.v3"
+
+	"github.com/unkmonster/tmd/internal/utils"
 )
 
 var scheduleIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
@@ -428,7 +431,7 @@ func (sc *Scheduler) updateStatus(idx int, entry ScheduleEntry, update func(*Sch
 		sc.mu.Unlock()
 		return false
 	}
-	if sc.entries[idx] != entry {
+	if !reflect.DeepEqual(sc.entries[idx], entry) {
 		sc.mu.Unlock()
 		return false
 	}
@@ -465,12 +468,93 @@ func nextDailyTrigger(times []time.Time) time.Time {
 	return time.Date(tomorrow.Year(), tomorrow.Month(), tomorrow.Day(), first.Hour(), first.Minute(), 0, 0, tomorrow.Location())
 }
 
-func ValidateEntry(entry ScheduleEntry) error {
-	switch entry.Type {
-	case ScheduleTypeList, ScheduleTypeUser, ScheduleTypeFollowing:
-	default:
-		return fmt.Errorf("invalid type %q (must be list, user, or following)", entry.Type)
+func canonicalizeScheduleEntry(entry ScheduleEntry) ScheduleEntry {
+	entry.ID = strings.TrimSpace(entry.ID)
+	entry.Name = strings.TrimSpace(entry.Name)
+	entry.Schedule = strings.TrimSpace(entry.Schedule)
+
+	if entry.Type == ScheduleTypeMixed {
+		entry.Target = ""
+		entry.Users = canonicalizeScreenNameSlice(entry.Users)
+		entry.Lists = trimStringSliceKeepEmpty(entry.Lists)
+		entry.FollowingNames = canonicalizeScreenNameSlice(entry.FollowingNames)
+		return entry
 	}
+
+	entry.Target = strings.TrimSpace(entry.Target)
+	entry.Users = nil
+	entry.Lists = nil
+	entry.FollowingNames = nil
+	return entry
+}
+
+func canonicalizeScreenNameSlice(values []string) []string {
+	if values == nil {
+		return nil
+	}
+	out := make([]string, len(values))
+	for i, value := range values {
+		out[i] = utils.NormalizeScreenName(strings.TrimSpace(value))
+	}
+	return out
+}
+
+func trimStringSliceKeepEmpty(values []string) []string {
+	if values == nil {
+		return nil
+	}
+	out := make([]string, len(values))
+	for i, value := range values {
+		out[i] = strings.TrimSpace(value)
+	}
+	return out
+}
+
+func ValidateEntry(entry ScheduleEntry) error {
+	entry = canonicalizeScheduleEntry(entry)
+
+	switch entry.Type {
+	case ScheduleTypeList, ScheduleTypeUser, ScheduleTypeFollowing, ScheduleTypeMixed:
+	default:
+		return fmt.Errorf("invalid type %q (must be list, user, following, or mixed)", entry.Type)
+	}
+
+	if entry.Type == ScheduleTypeMixed {
+		hasUsers := len(entry.Users) > 0
+		hasLists := len(entry.Lists) > 0
+		hasFollowing := len(entry.FollowingNames) > 0
+		if !hasUsers && !hasLists && !hasFollowing {
+			return fmt.Errorf("mixed type requires at least one of users, lists, or following_names")
+		}
+
+		for i, name := range entry.Users {
+			if name == "" {
+				return fmt.Errorf("mixed users[%d]: empty value", i)
+			}
+			if !utils.IsValidScreenName(name) {
+				return fmt.Errorf("mixed users[%d]: invalid screen name format %q", i, name)
+			}
+		}
+		for i, raw := range entry.Lists {
+			if raw == "" {
+				return fmt.Errorf("mixed lists[%d]: empty value", i)
+			}
+			listID, err := strconv.ParseUint(raw, 10, 64)
+			if err != nil || listID == 0 {
+				return fmt.Errorf("mixed lists[%d]: invalid list_id %q (must be a positive integer)", i, raw)
+			}
+		}
+		for i, name := range entry.FollowingNames {
+			if name == "" {
+				return fmt.Errorf("mixed following_names[%d]: empty value", i)
+			}
+			if !utils.IsValidScreenName(name) {
+				return fmt.Errorf("mixed following_names[%d]: invalid screen name format %q", i, name)
+			}
+		}
+		return nil
+	}
+
 	if strings.TrimSpace(entry.Target) == "" {
 		return fmt.Errorf("target cannot be empty")
 	}
@@ -489,7 +573,8 @@ func NormalizeEntries(entries []ScheduleEntry) ([]ScheduleEntry, error) {
 
 	used := make(map[string]struct{}, len(entries))
 	for i := range normalized {
-		id := strings.TrimSpace(normalized[i].ID)
+		normalized[i] = canonicalizeScheduleEntry(normalized[i])
+		id := normalized[i].ID
 		if id == "" {
 			id = uniqueScheduleID(normalized[i], used)
 		} else if !scheduleIDPattern.MatchString(id) {
@@ -523,11 +608,29 @@ func uniqueScheduleID(entry ScheduleEntry, used map[string]struct{}) string {
 }
 
 func scheduleIDBase(entry ScheduleEntry) string {
+	entry = canonicalizeScheduleEntry(entry)
+
+	targetsKey := entry.Target
+	if entry.Type == ScheduleTypeMixed {
+		parts := make([]string, 0, len(entry.Users)+len(entry.Lists)+len(entry.FollowingNames))
+		for _, value := range entry.Users {
+			parts = append(parts, "u:"+value)
+		}
+		for _, value := range entry.Lists {
+			parts = append(parts, "l:"+value)
+		}
+		for _, value := range entry.FollowingNames {
+			parts = append(parts, "f:"+value)
+		}
+		sort.Strings(parts)
+		targetsKey = strings.Join(parts, "|")
+	}
+
 	key := fmt.Sprintf("%s\n%s\n%s\n%s\n%t\n%t\n%t\n%t\n%t",
 		entry.Type,
-		strings.TrimSpace(entry.Target),
-		strings.TrimSpace(entry.Name),
-		strings.TrimSpace(entry.Schedule),
+		targetsKey,
+		entry.Name,
+		entry.Schedule,
 		entry.RunOnStart,
 		entry.AutoFollow,
 		entry.FollowMembers,
