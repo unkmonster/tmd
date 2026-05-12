@@ -208,9 +208,32 @@ func BatchUserDownload(ctx context.Context, client *resty.Client, db *sqlx.DB, u
 
 	totalUsers := userEntityHeap.Size()
 	summary := BatchDownloadSummary{TotalEntities: totalUsers}
-	var totalTweets atomic.Int64
-	var completedTweets atomic.Int64
+	var completedUsers atomic.Int64
 	var failedTweets atomic.Int64
+	type userProgressState struct {
+		total     int
+		completed int
+		current   string
+	}
+	userProgress := make(map[int]*userProgressState)
+	var progressMu sync.Mutex
+
+	reportProgress := func(current string) {
+		if progress == nil {
+			return
+		}
+		progress(BatchProgress{
+			Total:     totalUsers,
+			Completed: int(completedUsers.Load()),
+			Failed:    int(failedTweets.Load()),
+			Current:   current,
+		})
+	}
+
+	markUserDone := func(current string) {
+		completedUsers.Add(1)
+		reportProgress(current)
+	}
 
 	producer := func(ent *entity.UserEntity) {
 		defer prodwg.Done()
@@ -219,12 +242,14 @@ func BatchUserDownload(ctx context.Context, client *resty.Client, db *sqlx.DB, u
 		user := uidToUser[ent.UserId()]
 		if user == nil {
 			log.Warnln("✗", fmt.Sprintf("(uid:%d)", ent.UserId()), "-", "user not found in uidToUser, skipping")
+			markUserDone("")
 			return
 		}
 
 		entityName, nameErr := ent.Name()
 		if nameErr != nil {
 			log.Warnln("✗", user.Title(), "-", "failed to get entity name:", nameErr)
+			markUserDone(user.ScreenName)
 			return
 		}
 
@@ -242,6 +267,7 @@ func BatchUserDownload(ctx context.Context, client *resty.Client, db *sqlx.DB, u
 		minTime, err := ent.LatestReleaseTime()
 		if err != nil {
 			log.Warnln("✗", entityName, "-", "failed to get latest release time:", err)
+			markUserDone(user.ScreenName)
 			return
 		}
 		tweets, err := user.GetMedias(ctx, cli, &utils.TimeRange{Min: minTime})
@@ -268,12 +294,14 @@ func BatchUserDownload(ctx context.Context, client *resty.Client, db *sqlx.DB, u
 		}
 		if err != nil {
 			log.Warnln("✗", entityName, "-", "failed to get user medias:", err)
+			markUserDone(user.ScreenName)
 			return
 		}
 
 		eid, idErr := ent.Id()
 		if idErr != nil {
 			log.Warnln("✗", entityName, "-", "failed to get entity id:", idErr)
+			markUserDone(user.ScreenName)
 			return
 		}
 
@@ -281,16 +309,13 @@ func BatchUserDownload(ctx context.Context, client *resty.Client, db *sqlx.DB, u
 			if err := database.UpdateUserEntityMediCount(db, eid, user.MediaCount); err != nil {
 				log.Errorln("✗", entityName, "-", "failed to update user medias count:", err)
 			}
+			markUserDone(user.ScreenName)
 			return
 		}
-		if progress != nil {
-			progress(BatchProgress{
-				Total:     int(totalTweets.Add(int64(len(tweets)))),
-				Completed: int(completedTweets.Load()),
-				Failed:    int(failedTweets.Load()),
-				Current:   user.ScreenName,
-			})
-		}
+		progressMu.Lock()
+		userProgress[eid] = &userProgressState{total: len(tweets), current: user.ScreenName}
+		progressMu.Unlock()
+		reportProgress(user.ScreenName)
 
 		for _, tw := range tweets {
 			pt := TweetInEntity{Tweet: tw, Entity: ent}
@@ -315,21 +340,46 @@ func BatchUserDownload(ctx context.Context, client *resty.Client, db *sqlx.DB, u
 		client:     client,
 	}
 	if progress != nil {
-		config.onTweetDone = func(tweet *twitter.Tweet, failed bool) {
+		config.onTweetDone = func(pt PackagedTweet, failed bool) {
 			current := ""
+			tweet := pt.GetTweet()
 			if tweet != nil && tweet.Creator != nil {
 				current = tweet.Creator.ScreenName
 			}
 
-			completed := int(completedTweets.Add(1))
 			failedCount := int(failedTweets.Load())
 			if failed {
 				failedCount = int(failedTweets.Add(1))
 			}
 
+			userDone := false
+			if tie, ok := pt.(*TweetInEntity); ok && tie.Entity != nil {
+				if current == "" {
+					if user := uidToUser[tie.Entity.UserId()]; user != nil {
+						current = user.ScreenName
+					}
+				}
+				if eid, err := tie.Entity.Id(); err == nil {
+					progressMu.Lock()
+					if state, ok := userProgress[eid]; ok {
+						state.completed++
+						if current == "" {
+							current = state.current
+						}
+						if state.completed >= state.total {
+							delete(userProgress, eid)
+							userDone = true
+						}
+					}
+					progressMu.Unlock()
+				}
+			}
+			if userDone {
+				completedUsers.Add(1)
+			}
 			progress(BatchProgress{
-				Total:     int(totalTweets.Load()),
-				Completed: completed,
+				Total:     totalUsers,
+				Completed: int(completedUsers.Load()),
 				Failed:    failedCount,
 				Current:   current,
 			})
@@ -363,6 +413,7 @@ func BatchUserDownload(ctx context.Context, client *resty.Client, db *sqlx.DB, u
 					}
 					log.Warnln("user depth exceeds limit:", entityName, "- depth:", depth)
 					userEntityHeap.Pop()
+					markUserDone(entityName)
 					continue
 				}
 

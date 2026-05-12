@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ***
 
+## [v3.4.3] - 2026-05-09
+
+### Fixed
+
+#### 批量下载进度统计修复
+
+| 文件 | 变更 |
+|------|------|
+| `internal/downloading/batch_download.go` | 修复按用户维度统计完成数的逻辑，新增 `userProgressState` 跟踪每个用户的进度 |
+| `internal/downloading/batch_download.go` | 新增 `completedUsers` 原子计数器，正确计算已完成用户数 |
+| `internal/downloading/batch_download.go` | 修复 `markUserDone` 在错误路径的调用，确保失败用户也被统计 |
+
+#### 下载回调接口调整
+
+| 文件 | 变更 |
+|------|------|
+| `internal/downloading/types.go` | `onTweetDone` 回调签名从 `func(tweet *twitter.Tweet, failed bool)` 改为 `func(pt PackagedTweet, failed bool)` |
+| `internal/downloading/tweet_download.go` | 适配新的回调签名，传递 `PackagedTweet` 以获取实体信息 |
+| `internal/downloading/retry.go` | 适配新的回调签名 |
+| `internal/downloading/tweet_download_test.go` | 更新测试用例适配新签名 |
+
+#### 日志与界面文案统一
+
+| 文件 | 变更 |
+|------|------|
+| `internal/service/progress.go` | 日志字段名统一：`failed` → `Failedtweet`，`versioned` → `versionedfile` |
+| `internal/service/progress_test.go` | 更新测试期望输出 |
+| `internal/api/web/app.js` | Web 界面统计文案同步更新 |
+
+### Stats
+
+- **8 个文件变更**
+- **+79 行 / -28 行**
+
+***
+
 ## [v3.4.2] - 2026-05-09
 
 ### Added

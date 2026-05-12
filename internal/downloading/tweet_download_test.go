@@ -273,9 +273,10 @@ func TestBatchDownloadTweet_ReportsFailedTweet(t *testing.T) {
 		},
 	}
 
-	result := BatchDownloadTweet(ctx, nil, false, nil, nil, func(tweet *twitter.Tweet, failed bool) {
+	result := BatchDownloadTweet(ctx, nil, false, nil, nil, func(pt PackagedTweet, failed bool) {
 		called = true
 		gotFailed = failed
+		tweet := pt.GetTweet()
 		if tweet != nil {
 			gotTweetID = tweet.Id
 		}
@@ -430,7 +431,7 @@ func TestBatchDownloadTweet_404DoesNotReturnFailedTweet(t *testing.T) {
 			},
 		}},
 		nil,
-		func(tweet *twitter.Tweet, failed bool) {
+		func(pt PackagedTweet, failed bool) {
 			callbackCalled = true
 			gotFailed = failed
 		},

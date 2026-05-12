@@ -8,7 +8,6 @@ import (
 	"github.com/jmoiron/sqlx"
 	log "github.com/sirupsen/logrus"
 	"github.com/unkmonster/tmd/internal/downloader"
-	"github.com/unkmonster/tmd/internal/twitter"
 )
 
 type RetryProgress struct {
@@ -66,7 +65,7 @@ func RetryFailedTweets(ctx context.Context, dumper *TweetDumper, db *sqlx.DB, cl
 	var remainingTweets atomic.Int64
 	remainingTweets.Store(int64(totalTweets))
 
-	newFails := BatchDownloadTweet(ctx, client, true, dwn, fileWriter, func(tweet *twitter.Tweet, failed bool) {
+	newFails := BatchDownloadTweet(ctx, client, true, dwn, fileWriter, func(pt PackagedTweet, failed bool) {
 		if progress == nil {
 			return
 		}

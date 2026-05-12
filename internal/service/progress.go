@@ -72,7 +72,7 @@ func (l *LogReporter) OnProgress(taskID string, p Progress) {
 		l.logger("[%s] Syncing: %s", taskID, p.Current)
 	case "retrying":
 		if p.Total > 0 {
-			l.logger("[%s] Retrying failed tweets (%d/%d, remaining=%d)", taskID, p.Completed, p.Total, p.Failed)
+			l.logger("[%s] Retrying failed tweets (%d/%d, Failedtweet=%d)", taskID, p.Completed, p.Total, p.Failed)
 		} else {
 			l.logger("[%s] Retrying failed tweets...", taskID)
 		}
@@ -114,9 +114,9 @@ func (l *LogReporter) OnError(taskID string, err error) {
 }
 
 func formatMainResult(r MainResult) string {
-	return fmt.Sprintf("main(downloaded=%d, failed=%d)", r.Downloaded, r.Failed)
+	return fmt.Sprintf("main(downloaded=%d, Failedtweet=%d)", r.Downloaded, r.Failed)
 }
 
 func formatProfileResult(r ProfileResult) string {
-	return fmt.Sprintf("profile(downloaded=%d, failed=%d, versioned=%d)", r.Downloaded, r.Failed, r.Versioned)
+	return fmt.Sprintf("profile(downloaded=%d, failed=%d, versionedfile=%d)", r.Downloaded, r.Failed, r.Versioned)
 }

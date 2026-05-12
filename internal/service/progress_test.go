@@ -265,7 +265,7 @@ func TestLogReporter_OnComplete_WithStats(t *testing.T) {
 	assert.Len(t, loggedMessages, 1)
 	assert.Equal(t, "[%s] Completed (%s)", loggedMessages[0])
 	assert.Equal(t, "task-123", loggedArgs[0])
-	assert.Equal(t, "main(downloaded=100, failed=5), profile(downloaded=12, failed=1, versioned=10)", loggedArgs[1])
+	assert.Equal(t, "main(downloaded=100, Failedtweet=5), profile(downloaded=12, failed=1, versionedfile=10)", loggedArgs[1])
 }
 
 func TestLogReporter_OnComplete_WithoutStats(t *testing.T) {

@@ -849,7 +849,7 @@ function renderTaskResult(task) {
     sections.push(`
       <div class="text-sm">
         <strong>Profile</strong>
-        <span class="text-secondary">下载: ${escapeHtml(result.profile.downloaded || 0)} · 失败: ${escapeHtml(result.profile.failed || 0)} · 版本: ${escapeHtml(result.profile.versioned || 0)}</span>
+        <span class="text-secondary">下载: ${escapeHtml(result.profile.downloaded || 0)} · 失败: ${escapeHtml(result.profile.failed || 0)} · Versionedfile: ${escapeHtml(result.profile.versioned || 0)}</span>
       </div>
     `);
   }
@@ -1968,7 +1968,7 @@ function showTaskDetail(id) {
         <div class="progress-fill" style="width: ${pct}%"></div>
       </div>
       <div class="text-sm text-secondary">${task.progress?.completed || 0} / ${task.progress?.total || 0} (${pct}%)${stageText}${currentText}</div>
-      ${task.progress?.failed ? `<div class="text-sm" style="color: var(--danger); margin-top: 4px;">失败: ${escapeHtml(task.progress.failed)}</div>` : ''}
+      ${task.progress?.failed ? `<div class="text-sm" style="color: var(--danger); margin-top: 4px;">Failedtweet: ${escapeHtml(task.progress.failed)}</div>` : ''}
     </div>
     <div class="form-group">
       <label class="form-label">创建时间</label>

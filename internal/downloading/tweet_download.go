@@ -418,7 +418,7 @@ func tweetDownloader(config *workerConfig, errch chan<- PackagedTweet, twech <-c
 			}
 			errch <- pt
 			if config.onTweetDone != nil {
-				config.onTweetDone(pt.GetTweet(), true)
+				config.onTweetDone(pt, true)
 			}
 			continue
 		}
@@ -428,7 +428,7 @@ func tweetDownloader(config *workerConfig, errch chan<- PackagedTweet, twech <-c
 			errch <- pt
 		}
 		if config.onTweetDone != nil {
-			config.onTweetDone(pt.GetTweet(), failed)
+			config.onTweetDone(pt, failed)
 		}
 
 		if errors.Is(err, syscall.ENOSPC) {
@@ -437,7 +437,7 @@ func tweetDownloader(config *workerConfig, errch chan<- PackagedTweet, twech <-c
 	}
 }
 
-func BatchDownloadTweet(ctx context.Context, client *resty.Client, skipLoongTweet bool, dwn downloader.Downloader, fileWriter downloader.FileWriter, onTweetDone func(tweet *twitter.Tweet, failed bool), pts ...PackagedTweet) []PackagedTweet {
+func BatchDownloadTweet(ctx context.Context, client *resty.Client, skipLoongTweet bool, dwn downloader.Downloader, fileWriter downloader.FileWriter, onTweetDone func(pt PackagedTweet, failed bool), pts ...PackagedTweet) []PackagedTweet {
 	if len(pts) == 0 {
 		return nil
 	}
