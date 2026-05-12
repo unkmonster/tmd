@@ -44,6 +44,12 @@ type MarkDownloadedTaskData struct {
 	Timestamp  *time.Time `json:"timestamp,omitempty"`
 }
 
+// FollowingMarkDownloadedTaskData 标记 following 已下载任务数据
+type FollowingMarkDownloadedTaskData struct {
+	ScreenName string     `json:"screen_name"`
+	Timestamp  *time.Time `json:"timestamp,omitempty"`
+}
+
 // ListMarkDownloadedTaskData 标记列表已下载任务数据
 type ListMarkDownloadedTaskData struct {
 	ListID    StringUint64 `json:"list_id"`

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -24,6 +25,8 @@ import (
 
 // MockProgressReporter 用于测试的进度报告器
 type MockProgressReporter struct {
+	mu sync.Mutex
+
 	ProgressCalls []struct {
 		TaskID   string
 		Progress Progress
@@ -56,6 +59,8 @@ func NewMockProgressReporter() *MockProgressReporter {
 }
 
 func (m *MockProgressReporter) OnProgress(taskID string, p Progress) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.ProgressCalls = append(m.ProgressCalls, struct {
 		TaskID   string
 		Progress Progress
@@ -63,6 +68,8 @@ func (m *MockProgressReporter) OnProgress(taskID string, p Progress) {
 }
 
 func (m *MockProgressReporter) OnComplete(taskID string, r Result) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.CompleteCalls = append(m.CompleteCalls, struct {
 		TaskID string
 		Result Result
@@ -70,6 +77,8 @@ func (m *MockProgressReporter) OnComplete(taskID string, r Result) {
 }
 
 func (m *MockProgressReporter) OnError(taskID string, err error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.ErrorCalls = append(m.ErrorCalls, struct {
 		TaskID string
 		Err    error
@@ -103,6 +112,60 @@ func newFailedTweet(entityID int, tweetID uint64) *downloading.TweetInEntity {
 		Tweet:  &twitter.Tweet{Id: tweetID, CreatedAt: time.Now()},
 		Entity: entity.NewUserEntityFromRecord(nil, record),
 	}
+}
+
+func TestDownloadServiceImpl_SaveDumperMergesExistingFile(t *testing.T) {
+	deps := createTestDependencies(t)
+	impl := &downloadServiceImpl{deps: deps}
+
+	dumpPath := filepath.Join(t.TempDir(), "errors.json")
+	now := time.Now()
+
+	existing := downloading.NewDumper()
+	existing.Push(1, &twitter.Tweet{Id: 10, CreatedAt: now})
+	require.NoError(t, existing.Dump(dumpPath))
+
+	incoming := downloading.NewDumper()
+	incoming.Push(1, &twitter.Tweet{Id: 10, CreatedAt: now})
+	incoming.Push(1, &twitter.Tweet{Id: 11, CreatedAt: now})
+
+	impl.saveDumper(incoming, dumpPath)
+
+	loaded := downloading.NewDumper()
+	require.NoError(t, loaded.Load(dumpPath))
+	assert.Equal(t, 2, loaded.Count())
+	assert.True(t, loaded.HasTweet(1, 10))
+	assert.True(t, loaded.HasTweet(1, 11))
+}
+
+func TestDownloadServiceImpl_SaveDumperConcurrentWritesPreserveData(t *testing.T) {
+	deps := createTestDependencies(t)
+	impl := &downloadServiceImpl{deps: deps}
+
+	dumpPath := filepath.Join(t.TempDir(), "errors.json")
+	now := time.Now()
+	left := downloading.NewDumper()
+	right := downloading.NewDumper()
+	left.Push(1, &twitter.Tweet{Id: 101, CreatedAt: now})
+	right.Push(2, &twitter.Tweet{Id: 202, CreatedAt: now})
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		impl.saveDumper(left, dumpPath)
+	}()
+	go func() {
+		defer wg.Done()
+		impl.saveDumper(right, dumpPath)
+	}()
+	wg.Wait()
+
+	loaded := downloading.NewDumper()
+	require.NoError(t, loaded.Load(dumpPath))
+	assert.Equal(t, 2, loaded.Count())
+	assert.True(t, loaded.HasTweet(1, 101))
+	assert.True(t, loaded.HasTweet(2, 202))
 }
 
 func TestDownloadServiceImpl_Struct(t *testing.T) {

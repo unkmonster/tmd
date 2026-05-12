@@ -22,8 +22,6 @@ import (
 	"github.com/unkmonster/tmd/internal/service"
 )
 
-const maxConcurrentDownloadTasks = 1
-
 type Server struct {
 	client            *resty.Client
 	additionalClients []*resty.Client
@@ -33,7 +31,7 @@ type Server struct {
 	configMu          sync.RWMutex
 	taskManager       *TaskManager
 	downloadService   service.DownloadService
-	downloadTaskSlots chan struct{}
+	downloadQueue     *DownloadQueue
 	logWriter         io.Closer
 	logHub            *consolelog.Hub
 	httpServer        *http.Server
@@ -65,7 +63,6 @@ func NewServerWithConsoleLogHub(client *resty.Client, additionalClients []*resty
 		logWriter:         logWriter,
 		logHub:            logHub,
 		taskManager:       NewTaskManager(eventBus),
-		downloadTaskSlots: make(chan struct{}, maxConcurrentDownloadTasks),
 		shutdownDone:      make(chan struct{}),
 		eventBus:          eventBus,
 	}
@@ -80,6 +77,7 @@ func NewServerWithConsoleLogHub(client *resty.Client, additionalClients []*resty
 		log.Fatalf("failed to create download service: %v", err)
 	}
 	s.downloadService = downloadService
+	s.downloadQueue = NewDownloadQueue(s)
 
 	schedulesPath := filepath.Join(appRootPath, "schedules.yaml")
 	sched, err := scheduler.New(schedulesPath, s.scheduledDownload)
@@ -282,6 +280,9 @@ func (s *Server) GracefulShutdown(reason string) {
 			s.taskManager.Close()
 			log.Infoln("[server] all running tasks cancelled")
 			time.Sleep(1 * time.Second)
+		}
+		if s.downloadQueue != nil {
+			s.downloadQueue.CloseAndWait(15 * time.Second)
 		}
 
 		if sched := s.getScheduler(); sched != nil {

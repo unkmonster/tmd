@@ -84,8 +84,17 @@ func UpdateUserEntityMediCount(db *sqlx.DB, eid int, count int) error {
 }
 
 func UpdateUserEntityTweetStat(db *sqlx.DB, eid int, baseline time.Time, count int) error {
-	stmt := `UPDATE user_entities SET latest_release_time=?, media_count=? WHERE id=?`
-	result, err := db.Exec(stmt, baseline, count, eid)
+	stmt := `UPDATE user_entities
+SET latest_release_time=CASE
+		WHEN latest_release_time IS NULL OR latest_release_time < ? THEN ?
+		ELSE latest_release_time
+	END,
+	media_count=CASE
+		WHEN media_count IS NULL OR media_count < ? THEN ?
+		ELSE media_count
+	END
+WHERE id=?`
+	result, err := db.Exec(stmt, baseline, baseline, count, count, eid)
 	if err != nil {
 		return fmt.Errorf("failed to update tweet stat for user entity %d: %w", eid, err)
 	}

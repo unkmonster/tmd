@@ -95,6 +95,6 @@ func DefaultConfig() *Config {
 		EnableVersioning:    true,
 		SkipUnchanged:       true,
 		AvatarQuality:       "400x400",
-		FileDownloadTimeout: 2 * time.Minute,
+		FileDownloadTimeout: 40 * time.Second,
 	}
 }

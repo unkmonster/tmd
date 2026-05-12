@@ -508,6 +508,10 @@ func TestTaskManager_UpdateTaskProgress(t *testing.T) {
 
 	ok = tm.UpdateTaskProgress("non_existent", progress)
 	assert.False(t, ok)
+
+	assert.True(t, tm.UpdateTaskStatus(task.ID, TaskStatusCompleted))
+	ok = tm.UpdateTaskProgress(task.ID, &TaskProgress{Total: 200, Completed: 200})
+	assert.False(t, ok)
 }
 
 func TestTaskManager_SetTaskResult(t *testing.T) {

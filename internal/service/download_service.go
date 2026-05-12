@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sync"
 
 	"github.com/go-resty/resty/v2"
 	log "github.com/sirupsen/logrus"
@@ -18,7 +19,8 @@ import (
 )
 
 type downloadServiceImpl struct {
-	deps *Dependencies
+	deps     *Dependencies
+	dumperMu sync.Mutex
 }
 
 func (s *downloadServiceImpl) getReporterOrDefault(reporter ProgressReporter) ProgressReporter {
@@ -734,15 +736,24 @@ func (s *downloadServiceImpl) BatchDownload(ctx context.Context, taskID string, 
 
 // saveDumper 保存 Dumper 到文件
 func (s *downloadServiceImpl) saveDumper(dumper *downloading.TweetDumper, path string) {
-	if dumper.Count() > 0 {
-		if err := dumper.Dump(path); err != nil {
+	s.dumperMu.Lock()
+	defer s.dumperMu.Unlock()
+
+	merged := downloading.NewDumper()
+	if err := merged.Load(path); err != nil {
+		log.Warnf("Failed to load dumper for merge: %v", err)
+	}
+	merged.Merge(dumper)
+
+	if merged.Count() > 0 {
+		if err := merged.Dump(path); err != nil {
 			log.Warnf("Failed to save dumper: %v", err)
 		} else {
-			log.Infof("%d tweets have been dumped", dumper.Count())
+			log.Infof("%d tweets have been dumped", merged.Count())
 		}
-	} else {
-		os.Remove(path)
+		return
 	}
+	_ = os.Remove(path)
 }
 
 // collectFailedTweets 收集失败的推文到 Dumper

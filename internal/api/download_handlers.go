@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -28,56 +29,11 @@ const (
 	maxUploadMemory      = 32 << 20
 )
 
-// executeDownloadTask 执行下载任务的通用辅助方法
-func (s *Server) executeDownloadTask(task *Task, downloadFunc func() error) {
-	taskID := task.ID
-	go func() {
-		if !s.acquireDownloadTaskSlot(task.Ctx) {
-			return
-		}
-		defer s.releaseDownloadTaskSlot()
-
-		if !s.taskManager.UpdateTaskStatus(taskID, TaskStatusRunning) {
-			return
-		}
-		if err := downloadFunc(); err != nil {
-			taskSnapshot, ok := s.taskManager.GetTask(taskID)
-			if ok && !isTerminalStatus(taskSnapshot.Status) {
-				s.taskManager.SetTaskError(taskID, err)
-			}
-		}
-	}()
-}
-
-func (s *Server) acquireDownloadTaskSlot(ctx context.Context) bool {
-	if s.downloadTaskSlots == nil {
-		return true
-	}
-	select {
-	case s.downloadTaskSlots <- struct{}{}:
-		return true
-	case <-ctx.Done():
-		return false
-	}
-}
-
-func (s *Server) releaseDownloadTaskSlot() {
-	if s.downloadTaskSlots == nil {
+func (s *Server) enqueueTask(task *Task, run func(ctx context.Context, taskID string, reporter service.ProgressReporter) error) {
+	if s.downloadQueue == nil {
 		return
 	}
-	select {
-	case <-s.downloadTaskSlots:
-	default:
-	}
-}
-
-func (s *Server) enqueueTask(task *Task, run func(ctx context.Context, taskID string, reporter service.ProgressReporter) error) {
-	reporter := NewSSEProgressReporter(s)
-	taskCtx := task.Ctx
-	taskID := task.ID
-	s.executeDownloadTask(task, func() error {
-		return run(taskCtx, taskID, reporter)
-	})
+	s.downloadQueue.Enqueue(task, run)
 }
 
 func formatTaskMarkTime(timestamp *time.Time) *string {
@@ -141,8 +97,9 @@ func (s *Server) handleFollowingMarkRoute(w http.ResponseWriter, r *http.Request
 
 func (s *Server) handleUserDownload(w http.ResponseWriter, r *http.Request, screenName string) {
 	var req UserDownloadTaskData
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		req = UserDownloadTaskData{}
+	if err := decodeOptionalJSON(r, &req); err != nil {
+		s.writeError(w, http.StatusBadRequest, "Invalid request body")
+		return
 	}
 	req.ScreenName = screenName
 
@@ -194,8 +151,9 @@ func (s *Server) handleUserProfile(w http.ResponseWriter, _ *http.Request, scree
 
 func (s *Server) handleUserMark(w http.ResponseWriter, r *http.Request, screenName string) {
 	var req MarkDownloadedTaskData
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		req = MarkDownloadedTaskData{}
+	if err := decodeOptionalJSON(r, &req); err != nil {
+		s.writeError(w, http.StatusBadRequest, "Invalid request body")
+		return
 	}
 	req.ScreenName = screenName
 
@@ -220,8 +178,9 @@ func (s *Server) handleUserMark(w http.ResponseWriter, r *http.Request, screenNa
 
 func (s *Server) handleListMark(w http.ResponseWriter, r *http.Request, listID uint64) {
 	var req ListMarkDownloadedTaskData
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		req = ListMarkDownloadedTaskData{}
+	if err := decodeOptionalJSON(r, &req); err != nil {
+		s.writeError(w, http.StatusBadRequest, "Invalid request body")
+		return
 	}
 	req.ListID = StringUint64(listID)
 
@@ -245,9 +204,10 @@ func (s *Server) handleListMark(w http.ResponseWriter, r *http.Request, listID u
 }
 
 func (s *Server) handleFollowingMark(w http.ResponseWriter, r *http.Request, screenName string) {
-	var req MarkDownloadedTaskData
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		req = MarkDownloadedTaskData{}
+	var req FollowingMarkDownloadedTaskData
+	if err := decodeOptionalJSON(r, &req); err != nil {
+		s.writeError(w, http.StatusBadRequest, "Invalid request body")
+		return
 	}
 	req.ScreenName = screenName
 
@@ -272,8 +232,9 @@ func (s *Server) handleFollowingMark(w http.ResponseWriter, r *http.Request, scr
 
 func (s *Server) handleFollowingDownload(w http.ResponseWriter, r *http.Request, screenName string) {
 	var req FollowingDownloadTaskData
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		req = FollowingDownloadTaskData{}
+	if err := decodeOptionalJSON(r, &req); err != nil {
+		s.writeError(w, http.StatusBadRequest, "Invalid request body")
+		return
 	}
 	req.ScreenName = screenName
 
@@ -346,8 +307,9 @@ func (s *Server) handleListMarkRoute(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleListDownload(w http.ResponseWriter, r *http.Request, listID uint64) {
 	var req ListDownloadTaskData
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		req = ListDownloadTaskData{}
+	if err := decodeOptionalJSON(r, &req); err != nil {
+		s.writeError(w, http.StatusBadRequest, "Invalid request body")
+		return
 	}
 	req.ListID = StringUint64(listID)
 
@@ -540,11 +502,53 @@ func parseMultipartNoRetry(r *http.Request) bool {
 
 func cleanupUploadDirAfterTask(uploadDir string, task func(ctx context.Context, taskID string, reporter service.ProgressReporter) error) func(ctx context.Context, taskID string, reporter service.ProgressReporter) error {
 	return func(ctx context.Context, taskID string, reporter service.ProgressReporter) error {
-		if uploadDir != "" {
-			defer os.RemoveAll(uploadDir)
+		if uploadDir == "" {
+			return task(ctx, taskID, reporter)
 		}
+
+		var once sync.Once
+		cleanup := func() {
+			once.Do(func() {
+				_ = os.RemoveAll(uploadDir)
+			})
+		}
+
+		done := make(chan struct{})
+		go func() {
+			select {
+			case <-ctx.Done():
+				cleanup()
+			case <-done:
+			}
+		}()
+		defer func() {
+			close(done)
+			cleanup()
+		}()
+
 		return task(ctx, taskID, reporter)
 	}
+}
+
+func decodeOptionalJSON(r *http.Request, dest interface{}) error {
+	if r == nil || r.Body == nil {
+		return nil
+	}
+	dec := json.NewDecoder(r.Body)
+	if err := dec.Decode(dest); err != nil {
+		if errors.Is(err, io.EOF) {
+			return nil
+		}
+		return err
+	}
+	var extra json.RawMessage
+	if err := dec.Decode(&extra); err != nil {
+		if errors.Is(err, io.EOF) {
+			return nil
+		}
+		return err
+	}
+	return errors.New("multiple JSON values are not allowed")
 }
 
 func (s *Server) saveUploadedJSONFiles(r *http.Request, uploadKind string) ([]string, string, error) {
@@ -832,8 +836,13 @@ func (s *Server) scheduledDownload(entry scheduler.ScheduleEntry) string {
 		return task.ID
 
 	case scheduler.ScheduleTypeUser:
+		screenName := utils.NormalizeScreenName(strings.TrimSpace(entry.Target))
+		if !utils.IsValidScreenName(screenName) {
+			log.Warnf("[scheduler] Invalid user screen_name %q", entry.Target)
+			return ""
+		}
 		req := &UserDownloadTaskData{
-			ScreenName:    entry.Target,
+			ScreenName:    screenName,
 			AutoFollow:    entry.AutoFollow,
 			FollowMembers: entry.FollowMembers,
 			SkipProfile:   entry.SkipProfile,
@@ -841,13 +850,18 @@ func (s *Server) scheduledDownload(entry scheduler.ScheduleEntry) string {
 		}
 		task := s.taskManager.CreateTask(TaskTypeUserDownload, req)
 		s.enqueueTask(task, func(ctx context.Context, taskID string, reporter service.ProgressReporter) error {
-			return s.downloadService.UserDownload(ctx, taskID, entry.Target, opts, reporter)
+			return s.downloadService.UserDownload(ctx, taskID, screenName, opts, reporter)
 		})
 		return task.ID
 
 	case scheduler.ScheduleTypeFollowing:
+		screenName := utils.NormalizeScreenName(strings.TrimSpace(entry.Target))
+		if !utils.IsValidScreenName(screenName) {
+			log.Warnf("[scheduler] Invalid following screen_name %q", entry.Target)
+			return ""
+		}
 		req := &FollowingDownloadTaskData{
-			ScreenName:    entry.Target,
+			ScreenName:    screenName,
 			AutoFollow:    entry.AutoFollow,
 			FollowMembers: entry.FollowMembers,
 			SkipProfile:   entry.SkipProfile,
@@ -855,7 +869,7 @@ func (s *Server) scheduledDownload(entry scheduler.ScheduleEntry) string {
 		}
 		task := s.taskManager.CreateTask(TaskTypeFollowingDownload, req)
 		s.enqueueTask(task, func(ctx context.Context, taskID string, reporter service.ProgressReporter) error {
-			return s.downloadService.FollowingDownload(ctx, taskID, entry.Target, opts, reporter)
+			return s.downloadService.FollowingDownload(ctx, taskID, screenName, opts, reporter)
 		})
 		return task.ID
 

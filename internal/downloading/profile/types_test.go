@@ -24,6 +24,10 @@ func TestDefaultConfig(t *testing.T) {
 	if config.AvatarQuality != "400x400" {
 		t.Errorf("AvatarQuality = %s, want 400x400", config.AvatarQuality)
 	}
+
+	if config.FileDownloadTimeout != 40*time.Second {
+		t.Errorf("FileDownloadTimeout = %v, want 40s", config.FileDownloadTimeout)
+	}
 }
 
 func TestFileStatus_String(t *testing.T) {

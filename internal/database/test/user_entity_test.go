@@ -289,6 +289,18 @@ func TestUpdateUserEntityTweetStat(t *testing.T) {
 		assert.Equal(t, int32(25), retrieved.MediaCount.Int32)
 	})
 
+	t.Run("update_tweet_stat_does_not_regress", func(t *testing.T) {
+		newer := time.Now()
+		older := newer.Add(-2 * time.Hour)
+		require.NoError(t, database.UpdateUserEntityTweetStat(db, int(entity.Id.Int32), newer, 40))
+		require.NoError(t, database.UpdateUserEntityTweetStat(db, int(entity.Id.Int32), older, 10))
+
+		retrieved, _ := database.GetUserEntity(db, int(entity.Id.Int32))
+		assert.True(t, retrieved.LatestReleaseTime.Valid)
+		assert.WithinDuration(t, newer, retrieved.LatestReleaseTime.Time, time.Second)
+		assert.Equal(t, int32(40), retrieved.MediaCount.Int32)
+	})
+
 	t.Run("update_nonexistent_entity", func(t *testing.T) {
 		err := database.UpdateUserEntityTweetStat(db, 99999, time.Now(), 10)
 		assert.NoError(t, err)

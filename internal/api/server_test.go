@@ -18,6 +18,7 @@ import (
 	"github.com/go-resty/resty/v2"
 	"github.com/jmoiron/sqlx"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/unkmonster/tmd/internal/config"
 	"github.com/unkmonster/tmd/internal/database"
@@ -105,6 +106,11 @@ func setupTestServerWithAppRoot(t *testing.T, appRoot string) (*Server, *sqlx.DB
 	client := resty.New()
 	server := NewServer(client, []*resty.Client{}, db, cfg, appRoot, nil)
 	t.Cleanup(server.taskManager.Close)
+	t.Cleanup(func() {
+		if server.downloadQueue != nil {
+			server.downloadQueue.CloseAndWait(2 * time.Second)
+		}
+	})
 
 	return server, db
 }
@@ -167,7 +173,7 @@ func TestNewServer(t *testing.T) {
 	assert.NotNil(t, server.config)
 	assert.NotNil(t, server.taskManager)
 	assert.NotNil(t, server.downloadService)
-	assert.NotNil(t, server.downloadTaskSlots)
+	assert.NotNil(t, server.downloadQueue)
 	assert.Equal(t, "/app", server.appRootPath)
 }
 
@@ -538,7 +544,7 @@ func TestServer_EnqueueTaskPassesTaskContextAndReporter(t *testing.T) {
 	assert.NotNil(t, gotReporter)
 }
 
-func TestServer_ExecuteDownloadTaskSkipsCancelledTask(t *testing.T) {
+func TestServer_QueueSkipsCancelledTask(t *testing.T) {
 	server, db := setupTestServer(t)
 	defer db.Close()
 
@@ -546,7 +552,7 @@ func TestServer_ExecuteDownloadTaskSkipsCancelledTask(t *testing.T) {
 	assert.True(t, server.taskManager.CancelTask(task.ID))
 
 	executed := make(chan struct{}, 1)
-	server.executeDownloadTask(task, func() error {
+	server.enqueueTask(task, func(context.Context, string, service.ProgressReporter) error {
 		executed <- struct{}{}
 		return nil
 	})
@@ -558,7 +564,7 @@ func TestServer_ExecuteDownloadTaskSkipsCancelledTask(t *testing.T) {
 	}
 }
 
-func TestServer_ExecuteDownloadTaskLimitsConcurrentTasks(t *testing.T) {
+func TestServer_QueueSerializesRunningTasks(t *testing.T) {
 	server, db := setupTestServer(t)
 	defer db.Close()
 
@@ -569,7 +575,7 @@ func TestServer_ExecuteDownloadTaskLimitsConcurrentTasks(t *testing.T) {
 	releaseFirst := make(chan struct{})
 	secondStarted := make(chan struct{})
 
-	server.executeDownloadTask(firstTask, func() error {
+	server.enqueueTask(firstTask, func(context.Context, string, service.ProgressReporter) error {
 		close(firstStarted)
 		<-releaseFirst
 		server.taskManager.CompleteTask(firstTask.ID, &TaskResult{Message: "first done"})
@@ -582,7 +588,7 @@ func TestServer_ExecuteDownloadTaskLimitsConcurrentTasks(t *testing.T) {
 		t.Fatal("first task did not start")
 	}
 
-	server.executeDownloadTask(secondTask, func() error {
+	server.enqueueTask(secondTask, func(context.Context, string, service.ProgressReporter) error {
 		close(secondStarted)
 		server.taskManager.CompleteTask(secondTask.ID, &TaskResult{Message: "second done"})
 		return nil
@@ -606,6 +612,187 @@ func TestServer_ExecuteDownloadTaskLimitsConcurrentTasks(t *testing.T) {
 	case <-secondStarted:
 	case <-time.After(2 * time.Second):
 		t.Fatal("second task did not start after slot was released")
+	}
+}
+
+func TestServer_QueueAllowsDifferentTargetWhenCancelledTaskDetached(t *testing.T) {
+	server, db := setupTestServer(t)
+	defer db.Close()
+	server.downloadQueue.cancelGrace = 50 * time.Millisecond
+
+	firstTask := server.taskManager.CreateTask(TaskTypeUserDownload, &UserDownloadTaskData{ScreenName: "alice"})
+	secondTask := server.taskManager.CreateTask(TaskTypeUserDownload, &UserDownloadTaskData{ScreenName: "bob"})
+
+	firstStarted := make(chan struct{})
+	releaseFirst := make(chan struct{})
+	secondStarted := make(chan struct{})
+
+	server.enqueueTask(firstTask, func(context.Context, string, service.ProgressReporter) error {
+		close(firstStarted)
+		<-releaseFirst
+		return nil
+	})
+
+	select {
+	case <-firstStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("first task did not start")
+	}
+
+	server.enqueueTask(secondTask, func(context.Context, string, service.ProgressReporter) error {
+		close(secondStarted)
+		server.taskManager.CompleteTask(secondTask.ID, &TaskResult{Message: "second done"})
+		return nil
+	})
+
+	select {
+	case <-secondStarted:
+		t.Fatal("second task should wait while first task holds the slot")
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	assert.True(t, server.taskManager.CancelTask(firstTask.ID))
+
+	select {
+	case <-secondStarted:
+	case <-time.After(3 * time.Second):
+		t.Fatal("second task did not start after first task was cancelled and detached")
+	}
+
+	close(releaseFirst)
+}
+
+func TestServer_QueueBlocksSameTargetWhenCancelledTaskDetached(t *testing.T) {
+	server, db := setupTestServer(t)
+	defer db.Close()
+	server.downloadQueue.cancelGrace = 50 * time.Millisecond
+
+	firstTask := server.taskManager.CreateTask(TaskTypeUserDownload, &UserDownloadTaskData{ScreenName: "alice"})
+	secondTask := server.taskManager.CreateTask(TaskTypeUserDownload, &UserDownloadTaskData{ScreenName: "alice"})
+
+	firstStarted := make(chan struct{})
+	releaseFirst := make(chan struct{})
+	secondStarted := make(chan struct{})
+
+	server.enqueueTask(firstTask, func(context.Context, string, service.ProgressReporter) error {
+		close(firstStarted)
+		<-releaseFirst
+		return nil
+	})
+
+	select {
+	case <-firstStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("first task did not start")
+	}
+
+	server.enqueueTask(secondTask, func(context.Context, string, service.ProgressReporter) error {
+		close(secondStarted)
+		server.taskManager.CompleteTask(secondTask.ID, &TaskResult{Message: "second done"})
+		return nil
+	})
+
+	assert.True(t, server.taskManager.CancelTask(firstTask.ID))
+
+	select {
+	case <-secondStarted:
+		t.Fatal("second task should remain blocked while detached task holds same target")
+	case <-time.After(300 * time.Millisecond):
+	}
+
+	close(releaseFirst)
+
+	select {
+	case <-secondStarted:
+	case <-time.After(3 * time.Second):
+		t.Fatal("second task did not start after detached same-target task exited")
+	}
+}
+
+func TestServer_QueueCancelledTaskExitsWithinGraceWithoutDetach(t *testing.T) {
+	server, db := setupTestServer(t)
+	defer db.Close()
+	server.downloadQueue.cancelGrace = 300 * time.Millisecond
+
+	firstTask := server.taskManager.CreateTask(TaskTypeUserDownload, &UserDownloadTaskData{ScreenName: "alice"})
+	secondTask := server.taskManager.CreateTask(TaskTypeUserDownload, &UserDownloadTaskData{ScreenName: "alice"})
+
+	firstStarted := make(chan struct{})
+	secondStarted := make(chan struct{})
+
+	server.enqueueTask(firstTask, func(ctx context.Context, _ string, _ service.ProgressReporter) error {
+		close(firstStarted)
+		<-ctx.Done()
+		return context.Canceled
+	})
+
+	select {
+	case <-firstStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("first task did not start")
+	}
+
+	server.enqueueTask(secondTask, func(context.Context, string, service.ProgressReporter) error {
+		close(secondStarted)
+		server.taskManager.CompleteTask(secondTask.ID, &TaskResult{Message: "second done"})
+		return nil
+	})
+
+	assert.True(t, server.taskManager.CancelTask(firstTask.ID))
+
+	select {
+	case <-secondStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("second task did not start after first task exited within grace")
+	}
+
+	server.downloadQueue.mu.Lock()
+	detachedCount := len(server.downloadQueue.detached)
+	server.downloadQueue.mu.Unlock()
+	assert.Equal(t, 0, detachedCount)
+}
+
+func TestServer_QueueWildcardTargetBlocksSpecificTarget(t *testing.T) {
+	server, db := setupTestServer(t)
+	defer db.Close()
+
+	firstTask := server.taskManager.CreateTask(TaskTypeListDownload, &ListDownloadTaskData{ListID: 1})
+	secondTask := server.taskManager.CreateTask(TaskTypeUserDownload, &UserDownloadTaskData{ScreenName: "alice"})
+
+	firstStarted := make(chan struct{})
+	releaseFirst := make(chan struct{})
+	secondStarted := make(chan struct{})
+
+	server.enqueueTask(firstTask, func(context.Context, string, service.ProgressReporter) error {
+		close(firstStarted)
+		<-releaseFirst
+		server.taskManager.CompleteTask(firstTask.ID, &TaskResult{Message: "first done"})
+		return nil
+	})
+
+	select {
+	case <-firstStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("first task did not start")
+	}
+
+	server.enqueueTask(secondTask, func(context.Context, string, service.ProgressReporter) error {
+		close(secondStarted)
+		server.taskManager.CompleteTask(secondTask.ID, &TaskResult{Message: "second done"})
+		return nil
+	})
+
+	select {
+	case <-secondStarted:
+		t.Fatal("second task should be blocked by wildcard target")
+	case <-time.After(200 * time.Millisecond):
+	}
+
+	close(releaseFirst)
+	select {
+	case <-secondStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("second task did not start after wildcard task finished")
 	}
 }
 
@@ -1368,6 +1555,19 @@ func TestHandleBatchDownload_BothUsersAndLists(t *testing.T) {
 	assert.Equal(t, true, data["no_retry"])
 }
 
+func TestHandleUserDownload_InvalidJSONReturnsBadRequest(t *testing.T) {
+	server, db := setupTestServer(t)
+	defer db.Close()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/users/alice/download", strings.NewReader("{"))
+	rr := httptest.NewRecorder()
+
+	server.handleUserDownload(rr, req, "alice")
+
+	assert.Equal(t, http.StatusBadRequest, rr.Code)
+	assert.Len(t, server.taskManager.GetAllTasks(), 0)
+}
+
 func TestHandleBatchDownload_NormalizesAtPrefixedScreenNames(t *testing.T) {
 	server, db := setupTestServer(t)
 	defer db.Close()
@@ -1435,6 +1635,94 @@ func TestScheduledDownloadMixedCreatesBatchTaskAndCallsService(t *testing.T) {
 		assert.True(t, call.opts.NoRetry)
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out waiting for batch download call")
+	}
+}
+
+func TestScheduledDownloadUser_NormalizesAndValidatesTarget(t *testing.T) {
+	server, db := setupTestServer(t)
+	defer db.Close()
+
+	taskID := server.scheduledDownload(scheduler.ScheduleEntry{
+		Type:   scheduler.ScheduleTypeUser,
+		Target: " @Alice ",
+	})
+	assert.NotEmpty(t, taskID)
+
+	task, ok := server.taskManager.GetTask(taskID)
+	assert.True(t, ok)
+	data, ok := task.Data.(*UserDownloadTaskData)
+	assert.True(t, ok)
+	assert.Equal(t, "Alice", data.ScreenName)
+
+	invalidTaskID := server.scheduledDownload(scheduler.ScheduleEntry{
+		Type:   scheduler.ScheduleTypeUser,
+		Target: "坏名字",
+	})
+	assert.Empty(t, invalidTaskID)
+}
+
+func TestScheduledDownloadFollowing_NormalizesAndValidatesTarget(t *testing.T) {
+	server, db := setupTestServer(t)
+	defer db.Close()
+
+	taskID := server.scheduledDownload(scheduler.ScheduleEntry{
+		Type:   scheduler.ScheduleTypeFollowing,
+		Target: " @Bob ",
+	})
+	assert.NotEmpty(t, taskID)
+
+	task, ok := server.taskManager.GetTask(taskID)
+	assert.True(t, ok)
+	data, ok := task.Data.(*FollowingDownloadTaskData)
+	assert.True(t, ok)
+	assert.Equal(t, "Bob", data.ScreenName)
+
+	invalidTaskID := server.scheduledDownload(scheduler.ScheduleEntry{
+		Type:   scheduler.ScheduleTypeFollowing,
+		Target: "??bad??",
+	})
+	assert.Empty(t, invalidTaskID)
+}
+
+func TestCleanupUploadDirAfterTask_CleansOnContextCancel(t *testing.T) {
+	uploadDir := filepath.Join(t.TempDir(), "upload")
+	require.NoError(t, os.MkdirAll(uploadDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(uploadDir, "a.json"), []byte("{}"), 0o644))
+
+	taskDone := make(chan struct{})
+	unblock := make(chan struct{})
+	wrapped := cleanupUploadDirAfterTask(uploadDir, func(ctx context.Context, taskID string, reporter service.ProgressReporter) error {
+		defer close(taskDone)
+		<-unblock
+		return nil
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		_ = wrapped(ctx, "task-1", nil)
+	}()
+
+	cancel()
+
+	deadline := time.After(2 * time.Second)
+	for {
+		_, err := os.Stat(uploadDir)
+		if os.IsNotExist(err) {
+			break
+		}
+		select {
+		case <-deadline:
+			t.Fatal("upload dir was not cleaned after context cancel")
+		default:
+			time.Sleep(20 * time.Millisecond)
+		}
+	}
+
+	close(unblock)
+	select {
+	case <-taskDone:
+	case <-time.After(time.Second):
+		t.Fatal("wrapped task did not exit")
 	}
 }
 
@@ -1628,6 +1916,48 @@ func TestServer_GracefulShutdownCompletes(t *testing.T) {
 	server, _ := setupTestServer(t)
 	server.GracefulShutdown("shutdown")
 	server.WaitForShutdown()
+}
+
+func TestServer_GracefulShutdownWaitsForDetachedTaskExit(t *testing.T) {
+	server, db := setupTestServer(t)
+	defer db.Close()
+	server.downloadQueue.cancelGrace = 50 * time.Millisecond
+
+	task := server.taskManager.CreateTask(TaskTypeUserDownload, &UserDownloadTaskData{ScreenName: "alice"})
+	started := make(chan struct{})
+	release := make(chan struct{})
+
+	server.enqueueTask(task, func(context.Context, string, service.ProgressReporter) error {
+		close(started)
+		<-release
+		return nil
+	})
+
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("task did not start")
+	}
+
+	shutdownDone := make(chan struct{})
+	go func() {
+		server.GracefulShutdown("test")
+		close(shutdownDone)
+	}()
+
+	select {
+	case <-shutdownDone:
+		t.Fatal("shutdown completed before detached task exited")
+	case <-time.After(300 * time.Millisecond):
+	}
+
+	close(release)
+
+	select {
+	case <-shutdownDone:
+	case <-time.After(3 * time.Second):
+		t.Fatal("shutdown did not complete after detached task exited")
+	}
 }
 
 func TestServer_RestartRouteRemoved(t *testing.T) {

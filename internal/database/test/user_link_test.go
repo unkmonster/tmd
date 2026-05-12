@@ -67,7 +67,8 @@ func TestCreateUserLink(t *testing.T) {
 			ParentLstEntityId: database.NullInt32(le.Id),
 		}
 		err := database.CreateUserLink(db, link)
-		assert.Error(t, err)
+		assert.NoError(t, err)
+		assert.Greater(t, link.Id, int32(0))
 	})
 
 	t.Run("create_link_nonexistent_user", func(t *testing.T) {

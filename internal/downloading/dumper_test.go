@@ -332,3 +332,23 @@ func TestTweetDumper_Push_ReturnValue(t *testing.T) {
 		t.Errorf("Push() with duplicate = %d, want 1", added)
 	}
 }
+
+func TestTweetDumper_Merge(t *testing.T) {
+	left := NewDumper()
+	right := NewDumper()
+	now := time.Now()
+
+	left.Push(1, &twitter.Tweet{Id: 10, CreatedAt: now})
+	right.Push(1, &twitter.Tweet{Id: 10, CreatedAt: now})
+	right.Push(1, &twitter.Tweet{Id: 11, CreatedAt: now})
+	right.Push(2, &twitter.Tweet{Id: 20, CreatedAt: now})
+
+	left.Merge(right)
+
+	if left.Count() != 3 {
+		t.Fatalf("Merge() count = %d, want 3", left.Count())
+	}
+	if !left.HasTweet(1, 10) || !left.HasTweet(1, 11) || !left.HasTweet(2, 20) {
+		t.Fatal("Merge() did not include expected tweets")
+	}
+}

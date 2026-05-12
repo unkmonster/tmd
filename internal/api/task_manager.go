@@ -261,6 +261,13 @@ func cloneTaskData(data interface{}) interface{} {
 		copied := *v
 		copied.Timestamp = cloneTimePtr(v.Timestamp)
 		return &copied
+	case *FollowingMarkDownloadedTaskData:
+		if v == nil {
+			return (*FollowingMarkDownloadedTaskData)(nil)
+		}
+		copied := *v
+		copied.Timestamp = cloneTimePtr(v.Timestamp)
+		return &copied
 	case *ListMarkDownloadedTaskData:
 		if v == nil {
 			return (*ListMarkDownloadedTaskData)(nil)
@@ -335,7 +342,7 @@ func canTransitionStatus(from, to TaskStatus) bool {
 	}
 }
 
-func applyTerminalProgress(task *Task, status TaskStatus, result *TaskResult) {
+func applyTerminalProgress(task *Task, status TaskStatus, _ *TaskResult) {
 	if task.Progress == nil {
 		task.Progress = &TaskProgress{}
 	}
@@ -347,31 +354,10 @@ func applyTerminalProgress(task *Task, status TaskStatus, result *TaskResult) {
 		if task.Progress.Total > 0 {
 			task.Progress.Completed = task.Progress.Total
 		}
-		if result != nil {
-			failed := taskResultFailedCount(result)
-			if failed > task.Progress.Failed {
-				task.Progress.Failed = failed
-			}
-		}
 	case TaskStatusFailed, TaskStatusCancelled:
 		task.Progress.Stage = ""
 		task.Progress.Current = ""
 	}
-}
-
-func taskResultFailedCount(result *TaskResult) int {
-	if result == nil {
-		return 0
-	}
-
-	failed := 0
-	if result.Main != nil {
-		failed += result.Main.Failed
-	}
-	if result.Profile != nil {
-		failed += result.Profile.Failed
-	}
-	return failed
 }
 
 // UpdateTaskStatus 更新任务状态
@@ -455,6 +441,10 @@ func (tm *TaskManager) UpdateTaskProgress(id string, progress *TaskProgress) boo
 	tm.mu.Lock()
 	task, ok := tm.tasks[id]
 	if !ok {
+		tm.mu.Unlock()
+		return false
+	}
+	if isTerminalStatus(task.Status) {
 		tm.mu.Unlock()
 		return false
 	}

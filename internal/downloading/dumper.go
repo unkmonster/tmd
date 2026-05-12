@@ -86,6 +86,15 @@ func (td *TweetDumper) Clear() {
 	td.count = 0
 }
 
+func (td *TweetDumper) Merge(other *TweetDumper) {
+	if td == nil || other == nil {
+		return
+	}
+	for eid, tweets := range other.data {
+		td.Push(eid, tweets...)
+	}
+}
+
 func (td *TweetDumper) GetTotal(db *sqlx.DB) ([]*TweetInEntity, error) {
 	results := make([]*TweetInEntity, 0, td.count)
 

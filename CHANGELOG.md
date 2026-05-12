@@ -7,6 +7,69 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ***
 
+## [v3.4.4] - 2026-05-09
+
+### Changed
+
+#### 数据库层优化
+
+| 文件 | 变更 |
+|------|------|
+| `internal/database/user_entity.go` | `UpdateUserEntityTweetStat` 改为条件更新，只更新更大的 `latest_release_time` 和 `media_count` |
+| `internal/database/user_link.go` | `CreateUserLink` 使用 `INSERT OR IGNORE` 避免重复插入错误，返回已存在的记录 |
+
+#### 下载服务优化
+
+| 文件 | 变更 |
+|------|------|
+| `internal/service/download_service.go` | `saveDumper` 支持合并已有文件，避免数据丢失 |
+| `internal/service/download_service.go` | 添加 `dumperMu` 互斥锁保证并发写入安全 |
+| `internal/downloading/dumper.go` | 新增 `Merge` 方法合并两个 Dumper 的数据 |
+
+#### Profile 下载优化
+
+| 文件 | 变更 |
+|------|------|
+| `internal/downloading/profile/types.go` | 文件下载超时从 2 分钟缩短至 40 秒 |
+
+#### API 层优化
+
+| 文件 | 变更 |
+|------|------|
+| `internal/api/download_handlers.go` | 下载处理器优化 |
+| `internal/api/task_manager.go` | 任务管理器优化 |
+| `internal/api/types.go` | 类型定义优化 |
+| `internal/api/server.go` | 服务器配置优化 |
+
+### Fixed
+
+#### 测试修复
+
+| 文件 | 变更 |
+|------|------|
+| `internal/database/test/user_link_test.go` | 修复 `CreateUserLink` 重复插入测试期望 |
+| `internal/database/test/user_entity_test.go` | 更新测试用例 |
+
+### Added
+
+#### 测试增强
+
+| 文件 | 说明 |
+|------|------|
+| `internal/downloading/dumper_test.go` | 新增 `TweetDumper_Merge` 测试 |
+| `internal/service/download_service_test.go` | 新增 `saveDumper` 合并测试 |
+| `internal/service/download_service_test.go` | 新增 `saveDumper` 并发写入测试 |
+| `internal/downloading/profile/types_test.go` | 新增超时配置测试 |
+| `internal/api/server_test.go` | 新增 API 测试用例 |
+| `internal/api/task_manager_test.go` | 新增任务管理器测试 |
+
+### Stats
+
+- **16 个文件变更**
+- **+601 行 / -111 行**
+
+***
+
 ## [v3.4.3] - 2026-05-09
 
 ### Fixed

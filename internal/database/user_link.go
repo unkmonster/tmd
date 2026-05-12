@@ -8,12 +8,28 @@ import (
 )
 
 func CreateUserLink(db *sqlx.DB, lnk *UserLink) error {
-	stmt := `INSERT INTO user_links(user_id, name, parent_lst_entity_id) VALUES(:user_id, :name, :parent_lst_entity_id)`
+	stmt := `INSERT OR IGNORE INTO user_links(user_id, name, parent_lst_entity_id) VALUES(:user_id, :name, :parent_lst_entity_id)`
 	res, err := db.NamedExec(stmt, lnk)
 	if err != nil {
 		return fmt.Errorf("failed to create user link for user %d in list entity %d: %w", lnk.UserId, lnk.ParentLstEntityId, err)
 	}
-	return handleInsertWithId(res, err, func(id int64) { lnk.Id = int32(id) })
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected for user link insert: %w", err)
+	}
+	if affected > 0 {
+		return handleInsertWithId(res, err, func(id int64) { lnk.Id = int32(id) })
+	}
+
+	existing, err := GetUserLink(db, lnk.UserId, lnk.ParentLstEntityId)
+	if err != nil {
+		return err
+	}
+	if existing == nil {
+		return fmt.Errorf("failed to locate existing user link for user %d in list entity %d after insert ignore", lnk.UserId, lnk.ParentLstEntityId)
+	}
+	lnk.Id = existing.Id
+	return nil
 }
 
 func GetUserLinks(db *sqlx.DB, uid uint64) ([]*UserLink, error) {
