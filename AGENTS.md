@@ -29,6 +29,89 @@
 - `internal/entity`、`internal/naming`、`internal/path`、`internal/utils`：实体抽象、命名、路径和通用工具。
 - `doc`：重要设计说明和历史行为记录。涉及用户名变更、数据库、mark-downloaded、API 时先查对应文档。
 
+### 2.1 分层关系
+
+```text
+main.go
+  ├─ 读取配置、环境变量、日志、数据库、Twitter 客户端
+  ├─ CLI 模式  -> internal/cli
+  └─ Server 模式 -> internal/api
+
+internal/cli / internal/api
+  ├─ 参数解析、HTTP 路由、任务队列、SSE、Web UI
+  └─ 统一调用 internal/service.DownloadService
+
+internal/service
+  ├─ 统一业务入口
+  ├─ 编排下载、重试、Profile、进度上报
+  └─ 协调 downloading / downloader / twitter / database / path
+
+internal/downloading
+  ├─ 用户/列表/关注/JSON 导入/标记已下载等业务流程
+  └─ profile 子包负责头像、横幅、profile.json 和版本备份
+
+internal/downloader
+  ├─ 单文件下载
+  ├─ 原子写入、跳过未变化文件、版本备份
+  └─ 大文件流式下载
+
+internal/twitter + internal/database
+  ├─ Twitter/X 私有接口访问、多账号和限流
+  └─ SQLite schema、迁移、查询、实体同步
+```
+
+### 2.2 两条主调用链
+
+CLI 模式：
+
+```text
+main.go
+  -> internal/cli.Execute()
+  -> internal/service.DownloadService
+  -> internal/downloading / internal/downloader / internal/twitter / internal/database
+```
+
+API Server 模式：
+
+```text
+main.go
+  -> internal/api.Server
+  -> TaskManager / DownloadQueue / SSE / Web UI
+  -> internal/service.DownloadService
+  -> internal/downloading / internal/downloader / internal/twitter / internal/database
+```
+
+### 2.3 运行时数据流
+
+一次 CLI 下载的大致流程：
+
+```text
+命令行参数
+  -> internal/cli.ParseArgs()
+  -> internal/cli.Execute()
+  -> service.DownloadService.*
+  -> downloading.* 组织业务流程
+  -> twitter.* 拉取用户/列表/推文
+  -> database.* 同步元数据与增量状态
+  -> downloader.* 写入媒体文件 / Profile / JSON
+  -> 日志输出到控制台和日志文件
+```
+
+一次 API 下载的大致流程：
+
+```text
+HTTP 请求
+  -> internal/api handler
+  -> TaskManager.CreateTask()
+  -> DownloadQueue.Enqueue()
+  -> goroutine 中调用 service.DownloadService.*
+  -> ProgressReporter 推送进度
+  -> Task 状态更新 + /api/v1/sse/tasks 实时广播
+  -> Web UI 轮询/订阅后刷新任务状态
+```
+
+核心区别：CLI 直接等待执行结果；API 先返回 `task_id`，实际下载在后台继续。
+
 ## 3. 运行与验证
 
 本仓库使用 Go 1.25.0，并依赖 `modernc.org/sqlite` 作为纯 Go SQLite driver。常规构建和测试应支持 `CGO_ENABLED=0`。

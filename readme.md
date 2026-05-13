@@ -28,43 +28,67 @@
 
 ## 功能特性
 
-### 推文下载
+### 下载入口
 
-- 下载指定用户的媒体推文 (video, img, gif)
-- 保留推文标题
-- 保留推文发布日期，设置为文件的修改时间
-- 以列表为单位批量下载
-- 关注中的用户批量下载
-- 在文件系统中保留列表/关注结构
-- 同步用户/列表信息：名称，是否受保护，等...
-- 记录用户曾用名
+- 按用户下载媒体推文（图片、视频、GIF）
+- 按列表下载列表成员的媒体推文
+- 按关注下载某个用户关注列表中的媒体推文
+- 支持混合批量任务：用户、列表、关注源可组合提交
+- 支持单独下载 Profile：头像、横幅、简介、`profile.json`
+- 支持下载列表成员的 Profile
 
-### 避免重复
+### 下载过程与行为
 
-- 每次工作后记录用户的最新发布时间，下次工作仅从这个时间点开始拉取用户推文
-- 向列表目录发送指向用户目录的符号链接，无论多少列表包含同一用户，本地仅保存一份用户存档
-- 避免重复获取时间线：任意一段时间内的推文仅仅会从 twitter 上拉取一次，即使这些推文下载失败。如果下载失败将它们存储到本地，以待重试或丢弃
-- 避免重复同步用户（更新用户信息，获取时间线，下载推文）
+- 媒体文件按推文时间设置修改时间
+- 保存推文侧车文件：`.txt` / `.json`
+- 下载时可选跳过 Profile（`-noprofile` / `skip_profile`）
+- 下载失败后可选关闭重试（`-no-retry` / `no_retry`）
+- 支持下载时主动关注目标或成员（`-follow-members`）
+- 支持对受保护账号自动发起关注请求（`-auto-follow`）
+- 支持附加 Cookie 多账号分摊请求压力
+- 内置速率限制处理与重试逻辑，降低触发 X/Twitter 限流后的失败率
 
-### 其他特性
+### 增量、去重与失败处理
 
-- 速率限制：避免触发 Twitter API 速率限制
-- 自动关注受保护的用户
-- 下载时关注目标/成员（`-follow-members`）
-- 添加备用 cookie：提高推文获取速度和总数量
-- **Profile 下载**：下载用户头像、横幅、简介等个人资料，支持版本管理
-- **推文 JSON 保存**：保存推文完整信息为 JSON/TXT 格式
-- **JSON 文件导入**：从第三方工具导出的 JSON 文件下载用户资料（`-jsonfile`）
-- **LoongTweet 文件夹导入**：从 TMD 生成的 `.loongtweet` 文件夹下载推文媒体（`-jsonfolder`）
-- **标记已下载**：标记用户为已下载状态，跳过历史推文
-- **API Server 模式**：提供 HTTP REST API 和 Web 管理界面，支持远程控制和监控
-- **定时任务调度器**：支持 interval/daily 两种调度模式，自动执行下载任务
-- **Cookie 管理 API**：独立管理主 Cookie 和备用 Cookie，支持表单和原始 YAML 编辑
-- **服务器远程控制**：支持通过 API 优雅关闭服务器
-- **实时日志流**：SSE 推送实时日志，支持级别筛选和关键词搜索
-- **大文件流式下载**：≥10MB 文件自动启用流式模式，节省内存（v2.12.3+）
-- **智能部分重试**：仅重试失败的媒体文件，跳过已成功的（v2.12.0+）
-- **用户可访问状态检测**：自动识别封禁/注销用户，避免无效请求（v2.8.0+）
+- 基于数据库中的 `latest_release_time` 做增量拉取，避免重复抓取历史推文
+- 同一用户在多个列表中只维护一份用户目录，列表目录通过链接复用
+- 失败推文记录到 `.data/errors.json`，后续下载时只重试失败项
+- 403/404 类媒体错误不进入重试队列
+- 用户/列表元数据会同步到 SQLite，包括用户名、历史用户名、受保护状态、可访问状态等
+- 可将用户、列表或关注源直接标记为“已下载”，跳过历史推文（`-mark-downloaded`）
+- `mark-time` 支持指定时间戳，或设为 `null` / `nil` 以清空增量游标
+
+### 导入与补录
+
+- **第三方 JSON 导入**（`-jsonfile`）：读取外部导出的推文 JSON，转换为内部推文结构后下载媒体，并保存 `.txt` / `.json`
+- **LoongTweet 文件夹导入**（`-jsonfolder`）：递归读取 `.loongtweet` / JSON 目录中的推文数据并补下载媒体
+- JSON 导入与文件夹导入都复用统一的推文下载与命名逻辑
+
+### 文件写入与资料版本
+
+- 小文件使用内存缓冲下载，大文件（≥10MB）自动切换流式下载
+- 文件写入采用原子替换，减少中断时的半写入风险
+- 对未变化文件可跳过重写
+- Profile 与需要版本化的文件支持写入前备份到 `.versions/`
+- Profile 数据保存在用户目录下 `.loongtweet/.profile/`
+
+### API Server 与 Web UI
+
+- 提供 HTTP API 与内置 Web 管理界面
+- Server 模式中的下载任务异步执行，先返回 `task_id`
+- 任务支持排队、运行、完成、失败、取消等状态流转
+- 通过 SSE 实时推送任务进度与任务列表更新
+- 提供实时日志流，支持按级别和关键词过滤
+- 提供配置、附加 Cookie、调度任务的表单/原始 YAML 编辑
+- 提供数据库浏览与基础维护接口（用户、列表、实体、关联）
+- 支持通过 API 触发优雅关闭
+
+### 调度与自动化
+
+- 内置调度器，支持 `interval` 和 `daily` 两种调度模式
+- 支持 `user`、`list`、`following`、`mixed` 四种调度目标类型
+- 调度项支持 `auto_follow`、`follow_members`、`skip_profile`、`no_retry`
+- 调度配置可热重载、校验、启停和手动触发
 
 ***
 
@@ -1062,29 +1086,44 @@ chmod +x start.sh
 ***
 ## 项目架构
 
-本项目采用分层架构设计，以 **Service 层** 为核心实现业务逻辑复用：
+本项目当前的主干调用关系是：
+
+```text
+main.go
+  ├─ 读取配置 / 环境变量 / 日志 / 数据库 / Twitter 客户端
+  ├─ CLI 模式 -> internal/cli
+  └─ Server 模式 -> internal/api
+
+internal/cli / internal/api
+  └─ 统一调用 internal/service.DownloadService
+
+internal/service
+  └─ 编排 downloading / downloader / twitter / database / path
+```
+
+整体上采用“入口层 + 应用服务层 + 业务层 + 基础设施层”的结构，核心复用点是 **`internal/service`**：CLI 和 API Server 共用同一套下载编排逻辑，避免两边各自维护一份下载流程。
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │  main.go (应用入口层)                                        │
-│  - 命令行解析、依赖注入、流程编排                              │
+│  - 预解析全局参数                                             │
+│  - 初始化配置、日志、数据库、Twitter 客户端                    │
 │  - 模式选择：Server / CLI                                    │
 └──────────┬──────────────────────────────────────────────────┘
            │
 ┌──────────▼──────────────────────────────────────────────────┐
 │  internal/config (配置层)                                    │
-│  - config.go: 配置结构、读写、Cookie 管理                     │
-│  - partial_update.go: 配置部分更新                          │
+│  - config.go: 配置结构、读写、环境变量覆盖、交互式配置         │
 └──────────┬──────────────────────────────────────────────────┘
            │
 ┌──────────▼──────────────────┐  ┌────────────────────────────▼┐
 │  internal/twitter           │  │  internal/database          │
 │  (API 客户端层)              │  │  (数据持久化层)               │
 │                             │  │                             │
-│  - api.go: REST API 封装     │  │  - connect/schema/model     │
-│  - client.go: 客户端管理     │  │  - query/user/lst           │
-│  - user/tweet/list 接口      │  │  - entity/sync/link         │
-│  - batch_login.go: 多账号    │  │  - tx/manager.go: 事务管理  │
+│  - client.go: 登录与客户端管理 │  │  - connect/sqlite/schema    │
+│  - api.go: 请求封装与通用能力 │  │  - model/query/helpers      │
+│  - user/tweet/list/timeline  │  │  - user/lst/entity/link     │
+│  - batch_login.go: 多账号     │  │  - *_migration / tx/manager │
 └──────────┬──────────────────┘  └─────────────┬───────────────┘
            │                                    │
            └──────────────┬─────────────────────┘
@@ -1094,45 +1133,42 @@ chmod +x start.sh
           │        ★ 核心业务编排层 ★               │
           │                                         │
           │  - interfaces.go: DownloadService 接口   │
-          │  - download_service.go: 统一业务实现     │
-          │  - deps.go: 依赖注入与构造函数            │
-          │  - progress.go: 进度报告接口              │
+          │  - download_service.go: 用户/列表/关注/   │
+          │    JSON/Profile/重试等统一入口            │
+          │  - deps.go: 依赖注入与构造                │
+          │  - progress.go: 进度上报                  │
           └───────────────┬───────────────────────┘
                           │
-          ┌───────────────┼───────────────────────┐
-          │               │                       │
-┌─────────▼────────┐ ┌────▼───────────┐ ┌─────────▼─────────┐
-│  internal/api   │ │  internal/cli   │ │  internal/path    │
-│  (Server 层)     │ │  (CLI 命令层)   │ │  (路径管理层)      │
-│                  │ │                 │ │                   │
-│  - server.go     │ │  - executor.go  │ │  - store.go       │
-│  - handlers.go   │ │  - args.go      │ │                   │
-│  - db_handlers   │ │                 │ │                   │
-│  - task_manager  │ │                 │ │                   │
-│  - sse/middleware│ │                 │ │                   │
-│  - scheduler_*   │ │                 │ │                   │
-│  - cookie_*      │ │                 │ │                   │
-│  - log_handlers  │ │                 │ │                   │
-│  - config_*      │ │                 │ │                   │
-└────────┬─────────┘ └─────────────────┘ └───────────────────┘
+          ┌───────────────┼───────────────────────────────┐
+          │               │                               │
+┌─────────▼────────┐ ┌────▼───────────┐         ┌─────────▼─────────┐
+│  internal/api    │ │  internal/cli  │         │  internal/path    │
+│  (Server 层)      │ │  (CLI 层)       │         │  (路径工具)        │
+│                   │ │                 │         │                   │
+│  - server.go      │ │  - args.go      │         │  - store.go       │
+│  - download_*     │ │  - executor.go  │         │                   │
+│  - task_manager   │ │                 │         │                   │
+│  - download_queue │ │                 │         │                   │
+│  - progress / sse │ │                 │         │                   │
+│  - db/config/     │ │                 │         │                   │
+│    cookie/log_*   │ │                 │         │                   │
+│  - scheduler_*    │ │                 │         │                   │
+│  - event_bus.go   │ │                 │         │                   │
+└────────┬─────────┘ └─────────────────┘         └───────────────────┘
          │
          ▼
 ┌─────────────────────────────────────────────────────────────┐
-│  internal/downloading (业务层 - 推文下载)                    │
+│  internal/downloading (业务流程层)                           │
 │                                                             │
-│  - tweet_download.go: 单推文下载与 JSON/TXT 保存             │
-│  - user_sync.go: 用户信息同步与时间线下载                    │
-│  - list_sync.go: 列表成员获取与同步                          │
-│  - batch_download.go: 批量用户下载（优先级队列+并发池）       │
-│  - batch_any.go: 统一入口 (BatchDownloadAny)                │
-│  - json_file_download.go: 第三方 JSON 媒体下载（-jsonfile）  │
-│  - json_folder_download.go: LoongTweet 文件夹下载            │
-│  - tweet_json_converter.go: JSON 格式转换                    │
-│  - mark_downloaded.go / retry.go / dumper.go                │
+│  - batch_any.go / batch_download.go                          │
+│  - tweet_download.go / user_sync.go / list_sync.go           │
+│  - json_file_download.go / json_folder_download.go           │
+│  - mark_downloaded.go / retry.go / dumper.go                 │
+│  - 负责抓取、同步实体、组织批量下载、失败重试                │
 ├─────────────────────────────────────────────────────────────┤
-│  internal/downloading/profile (业务层 - 用户资料)            │
-│  - downloader.go: Profile 下载调度                           │
-│  - storage.go: 文件存储与版本管理                            │
+│  internal/downloading/profile (Profile 业务子包)             │
+│  - downloader.go / storage.go / types.go                     │
+│  - 负责头像、横幅、简介、profile.json 与版本备份             │
 └──────────┬──────────────────────────────────────────────────┘
            │
 ┌──────────▼──────────────────────────────────────────────────┐
@@ -1140,15 +1176,15 @@ chmod +x start.sh
 │  - interface.go / user.go / list.go / sync.go               │
 ├─────────────────────────────────────────────────────────────┤
 │  internal/downloader (基础设施层 - 通用下载)                 │
-│  - downloader.go: HTTP 下载、批量下载、流式下载（≥10MB）      │
-│  - file_writer.go: 原子写入、MD5 去重、并发锁管理            │
+│  - downloader.go: 单文件下载、流式下载、大小校验             │
+│  - file_writer.go: 原子写入、跳过未变化文件、并发锁管理       │
 │  - version_manager.go: 版本备份管理                          │
 ├─────────────────────────────────────────────────────────────┤
 │  internal/naming (命名服务)                                  │
 │  - tweet_naming.go / user_naming.go / list_naming.go        │
 ├─────────────────────────────────────────────────────────────┤
 │  internal/scheduler (定时任务调度器)                          │
-│  - scheduler.go: 调度器核心（interval/daily 模式）            │
+│  - scheduler.go: 调度执行与状态维护                           │
 │  - types.go: ScheduleEntry / ScheduleStatus / ParsedSchedule │
 ├─────────────────────────────────────────────────────────────┤
 │  internal/consolelog (控制台日志)                             │
@@ -1162,16 +1198,15 @@ chmod +x start.sh
 
 ### 核心设计原则
 
-| 原则       | 实现                                                                    |
-| -------- | --------------------------------------------------------------------- |
-| **分层解耦** | 应用层 → 配置层 → Service 层 → API/CLI/数据层 → 业务层 → 基础设施层              |
-| **Service 层** | CLI 和 API 共享 `DownloadService` 接口，统一业务逻辑编排                     |
-| **依赖注入** | `downloader.Downloader` 接口注入到业务层，构造函数支持多客户端                   |
-| **单一职责** | 每个包职责明确，配置/Service/下载/命名/存储/数据分离                              |
-| **接口隔离** | 小接口设计（DownloadService, Downloader, FileWriter, VersionManager）       |
-| **逻辑复用** | `database.SyncUser()` 统一用户同步，`database.MarkUserInaccessible()` 统一标记逻辑 |
-| **并发安全** | `sync.Mutex`/`sync.Map`/`atomic`/`context.Context`，`ants` 协程池控制并发 |
-| **增量下载** | 基于 `latest_release_time` 的增量拉取，避免重复下载                                 |
+| 原则 | 实现 |
+| --- | --- |
+| **Service 复用** | CLI 和 API 统一走 `DownloadService`，避免重复维护下载逻辑 |
+| **入口与业务分离** | `internal/cli` / `internal/api` 只负责参数、HTTP、任务编排和响应 |
+| **业务与下载器分离** | `internal/downloading` 负责“下载什么、按什么流程下载”，`internal/downloader` 负责“文件怎么下、怎么写” |
+| **数据库集中管理** | SQLite schema、迁移、查询和实体同步集中在 `internal/database` |
+| **任务异步化** | Server 模式通过 TaskManager、DownloadQueue、SSE 推进长任务 |
+| **增量与重试** | 基于数据库和 `.data/errors.json` 做增量抓取与失败重试 |
+| **跨入口一致性** | 用户下载、列表下载、关注下载、JSON 导入、Profile 下载都通过 service 层统一暴露 |
 
 ***
 
