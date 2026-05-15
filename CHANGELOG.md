@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ***
 
+## [v3.4.7] - 2026-05-15
+
+### Added
+
+#### Profile 下载用户去重
+- `internal/service/download_service.go` - 新增 `dedupeProfileUsers` 函数，对 Profile 下载用户列表进行去重
+  - 优先按用户 ID 去重
+  - 其次按 ScreenName（不区分大小写）去重
+  - 处理 nil 用户和无效用户的情况
+- `internal/service/download_service_test.go` - 新增去重功能单元测试
+
+### Changed
+
+#### Web 界面优化
+- `internal/api/web/index.html` - Sidebar 版本号改为动态获取，添加 `appVersion` span 元素
+- `internal/api/web/app.js` - 在 `setState` 中自动更新 sidebar 版本号显示
+- `internal/api/web/app.js` - 配置页面 (`renderConfigForm`) 密码输入框移除 `config-mask-hint` div，提示整合到 placeholder
+- `internal/api/web/app.js` - 额外账户页面 (`renderCookiesForm`) 密码输入框同样优化 placeholder 显示
+
+### Stats
+
+- **4 个文件变更**
+- **+99 行 / -9 行**
+
+***
+
 ## [v3.4.6] - 2026-05-15
 
 ### Changed

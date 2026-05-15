@@ -391,6 +391,28 @@ func TestShouldFollowMemberMatchesDownloadFiltering(t *testing.T) {
 	assert.True(t, shouldFollowMember(&twitter.User{Id: 1, Followstate: twitter.FS_UNFOLLOW}))
 }
 
+func TestDedupeProfileUsersUsesStableIdentity(t *testing.T) {
+	invalidA := &twitter.User{Name: "invalid-a"}
+	invalidB := &twitter.User{Name: "invalid-b"}
+	users := []*twitter.User{
+		{Id: 1, ScreenName: "alice"},
+		{Id: 1, ScreenName: "alice_renamed"},
+		{ScreenName: "Bob"},
+		{ScreenName: "bob"},
+		nil,
+		invalidA,
+		invalidB,
+	}
+
+	got := dedupeProfileUsers(users)
+
+	require.Len(t, got, 4)
+	assert.Equal(t, uint64(1), got[0].Id)
+	assert.Equal(t, "Bob", got[1].ScreenName)
+	assert.Same(t, invalidA, got[2])
+	assert.Same(t, invalidB, got[3])
+}
+
 func TestMockProgressReporter_Recording(t *testing.T) {
 	reporter := NewMockProgressReporter()
 
@@ -734,6 +756,38 @@ func TestDownloadServiceImpl_DownloadProfile_ReportsIncrementalProgress(t *testi
 	assert.Equal(t, 2, last.Completed)
 	assert.Equal(t, 0, last.Failed)
 	assert.Contains(t, []string{"user_one", "user_two"}, last.Current)
+}
+
+func TestDownloadServiceImpl_DownloadProfile_DedupesDuplicateUsers(t *testing.T) {
+	deps := createTestDependencies(t)
+	deps.Config.RootPath = t.TempDir()
+
+	service, err := NewDownloadService(deps)
+	require.NoError(t, err)
+	impl := service.(*downloadServiceImpl)
+
+	pathHelper, err := path.NewStorePath(deps.Config.RootPath)
+	require.NoError(t, err)
+
+	versionManager, fileWriter, dwn := impl.initDownloader()
+	reporter := NewMockProgressReporter()
+
+	users := []*twitter.User{
+		{Id: 101, Name: "User One", ScreenName: "user_one", Description: "a"},
+		{Id: 101, Name: "User One Changed", ScreenName: "user_one_new", Description: "b"},
+		{Id: 102, Name: "User Two", ScreenName: "user_two", Description: "c"},
+	}
+
+	result, err := impl.downloadProfile(context.Background(), "task-1", users, pathHelper, versionManager, fileWriter, dwn, reporter)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+
+	assert.Equal(t, 2, result.Downloaded)
+	require.NotEmpty(t, reporter.ProgressCalls)
+	assert.Equal(t, 2, reporter.ProgressCalls[0].Progress.Total)
+	last := reporter.ProgressCalls[len(reporter.ProgressCalls)-1].Progress
+	assert.Equal(t, 2, last.Total)
+	assert.Equal(t, 2, last.Completed)
 }
 
 func TestDownloadServiceImpl_ProfileDownload_ReturnsErrorWhenAllUsersFailToResolve(t *testing.T) {

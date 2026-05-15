@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 
 	"github.com/go-resty/resty/v2"
@@ -213,11 +214,38 @@ func effectiveAutoFollow(opts DownloadOptions) bool {
 	return opts.AutoFollow && !opts.FollowMembers
 }
 
+func dedupeProfileUsers(users []*twitter.User) []*twitter.User {
+	if len(users) <= 1 {
+		return users
+	}
+
+	seen := make(map[string]struct{}, len(users))
+	deduped := make([]*twitter.User, 0, len(users))
+	for _, user := range users {
+		if user == nil {
+			continue
+		}
+		key := ""
+		if user.Id != 0 {
+			key = fmt.Sprintf("id:%d", user.Id)
+		} else if screenName := strings.ToLower(strings.TrimSpace(user.ScreenName)); screenName != "" {
+			key = "screen:" + screenName
+		} else {
+			key = fmt.Sprintf("ptr:%p", user)
+		}
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		deduped = append(deduped, user)
+	}
+	return deduped
+}
+
 // initDownloader 初始化下载器组件，返回 versionManager, fileWriter, downloader
 func (s *downloadServiceImpl) initDownloader() (*downloader.DefaultVersionManager, *downloader.DefaultFileWriter, *downloader.DefaultDownloader) {
 	versionManager := downloader.NewVersionManagerWithWriter(".versions", nil)
 	fileWriter := downloader.NewFileWriter(versionManager)
-	versionManager.SetFileWriter(fileWriter)
 	dwn := downloader.NewDownloader(fileWriter)
 	return versionManager, fileWriter, dwn
 }
@@ -770,6 +798,7 @@ func (s *downloadServiceImpl) collectFailedTweets(dumper *downloading.TweetDumpe
 
 // 内部辅助方法：下载 Profile
 func (s *downloadServiceImpl) downloadProfile(ctx context.Context, taskID string, users []*twitter.User, pathHelper *path.StorePath, versionManager downloader.VersionManager, fileWriter downloader.FileWriter, dwn downloader.Downloader, reporter ProgressReporter) (*ProfileResult, error) {
+	users = dedupeProfileUsers(users)
 	if len(users) == 0 {
 		return nil, nil
 	}
