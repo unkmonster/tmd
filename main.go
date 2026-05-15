@@ -342,6 +342,9 @@ func runServer(conf *config.Config, appRootPath string, port int, loginOpts twit
 	ctx := context.Background()
 
 	client, additional, _, db := initializeClients(ctx, conf, appRootPath, loginOpts, false)
+	if client == nil {
+		return
+	}
 
 	// 设置客户端日志
 	cliLogPath := filepath.Join(appRootPath, "client.log")
