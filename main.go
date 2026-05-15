@@ -324,7 +324,8 @@ func initializeClients(
 	// 初始化路径和数据库
 	pathHelper, err := path.NewStorePath(conf.RootPath)
 	if err != nil {
-		log.Fatalln("failed to make store dir:", err)
+		log.Warnln("failed to make store dir:", err)
+		return nil, nil, nil, nil
 	}
 
 	db, err := database.Connect(pathHelper.DB)
