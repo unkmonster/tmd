@@ -147,6 +147,13 @@ const store = {
 
   setState(newState) {
     this.state = { ...this.state, ...newState };
+    // Update sidebar version when health changes
+    if (newState.health && newState.health.version) {
+      const versionEl = document.getElementById('appVersion');
+      if (versionEl) {
+        versionEl.textContent = newState.health.version;
+      }
+    }
     this.listeners.forEach(fn => fn(this.state));
   }
 };
@@ -2043,13 +2050,15 @@ function renderConfigForm(fields, saving, exists, loading = false) {
 
   const renderField = f => {
     const inputType = f.type === 'password' ? 'password' : (f.type === 'number' ? 'number' : 'text');
+    const placeholder = f.type === 'password' && f.value
+      ? `当前值: ${escapeHtml(f.value)}`
+      : escapeAttr(f.placeholder || f.prompt);
     return `
       <div class="config-field">
         <label class="config-label">${escapeHtml(f.label)}</label>
-        ${f.type === 'password' ? `<div class="config-mask-hint">当前值: ${escapeHtml(f.value)}</div>` : ''}
         <input type="${inputType}" class="form-input config-input" id="cf_${escapeAttr(f.name)}"
           name="${escapeAttr(f.name)}" value="${escapeAttr(f.type === 'password' ? '' : f.value)}"
-          placeholder="${escapeAttr(f.placeholder || f.prompt)}"
+          placeholder="${placeholder}"
           ${f.type === 'number' ? `min="1" max="${f.name.includes('routine') ? '100' : '250'}"` : ''}>
       </div>
     `;
@@ -2145,15 +2154,13 @@ function renderCookiesForm(items, saving, exists) {
       </div>
       <div class="config-field">
         <label class="config-label">Auth Token</label>
-        ${item.auth_token ? `<div class="config-mask-hint">当前值: ${escapeHtml(item.auth_token)}</div>` : ''}
         <input type="password" class="form-input config-input cookie-input" id="cookie_auth_${idx}"
-          name="auth_token_${idx}" value="" placeholder="输入新的 Auth Token 或留空保留原值">
+          name="auth_token_${idx}" value="" placeholder="${item.auth_token ? '当前值: ' + escapeHtml(item.auth_token) : '请输入 auth_token'}">
       </div>
       <div class="config-field">
         <label class="config-label">CT0</label>
-        ${item.ct0 ? `<div class="config-mask-hint">当前值: ${escapeHtml(item.ct0)}</div>` : ''}
         <input type="password" class="form-input config-input cookie-input" id="cookie_ct0_${idx}"
-          name="ct0_${idx}" value="" placeholder="输入新的 CT0 或留空保留原值">
+          name="ct0_${idx}" value="" placeholder="${item.ct0 ? '当前值: ' + escapeHtml(item.ct0) : '请输入 ct0'}">
       </div>
     </div>
   `;
