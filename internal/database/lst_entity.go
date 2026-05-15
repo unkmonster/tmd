@@ -1,7 +1,6 @@
 package database
 
 import (
-	"database/sql"
 	"fmt"
 
 	"github.com/jmoiron/sqlx"
@@ -42,10 +41,7 @@ func GetLstEntityWithTx(queryer interface {
 	stmt := `SELECT * FROM lst_entities WHERE id=?`
 	result := &LstEntity{}
 	err := queryer.Get(result, stmt, id)
-	if err != nil && err != sql.ErrNoRows {
-		return nil, fmt.Errorf("failed to get list entity %d: %w", id, err)
-	}
-	return handleGetResult(result, err)
+	return handleGetResultWithContext(result, err, "failed to get list entity %d: %w", id)
 }
 
 func LocateLstEntity(db *sqlx.DB, lid int64, parentDir string) (*LstEntity, error) {
@@ -57,10 +53,7 @@ func LocateLstEntity(db *sqlx.DB, lid int64, parentDir string) (*LstEntity, erro
 	stmt := `SELECT * FROM lst_entities WHERE lst_id=? AND parent_dir=?`
 	result := &LstEntity{}
 	err = db.Get(result, stmt, lid, parentDir)
-	if err != nil && err != sql.ErrNoRows {
-		return nil, fmt.Errorf("failed to locate list entity for list %d in %q: %w", lid, parentDir, err)
-	}
-	return handleGetResult(result, err)
+	return handleGetResultWithContext(result, err, "failed to locate list entity for list %d in %q: %w", lid, parentDir)
 }
 
 func UpdateLstEntity(db *sqlx.DB, entity *LstEntity) error {

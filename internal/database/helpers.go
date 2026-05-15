@@ -2,6 +2,7 @@ package database
 
 import (
 	"database/sql"
+	"fmt"
 )
 
 func handleGetResult[T any](result *T, err error) (*T, error) {
@@ -10,6 +11,17 @@ func handleGetResult[T any](result *T, err error) (*T, error) {
 	}
 	if err != nil {
 		return nil, err
+	}
+	return result, nil
+}
+
+func handleGetResultWithContext[T any](result *T, err error, format string, args ...any) (*T, error) {
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		args = append(args, err)
+		return nil, fmt.Errorf(format, args...)
 	}
 	return result, nil
 }

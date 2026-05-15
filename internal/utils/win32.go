@@ -20,8 +20,8 @@ func SetConsoleTitle(title string) error {
 		return err
 	}
 
-	_, _, err = setConsoleTitle.Call(uintptr(unsafe.Pointer(titlePtr)))
-	if err != nil && err.Error() != "The operation completed successfully." {
+	ret, _, err := setConsoleTitle.Call(uintptr(unsafe.Pointer(titlePtr)))
+	if ret == 0 {
 		return err
 	}
 	return nil

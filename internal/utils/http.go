@@ -3,10 +3,12 @@ package utils
 import (
 	"errors"
 	"fmt"
-	"strings"
+	"regexp"
 
 	"github.com/go-resty/resty/v2"
 )
+
+var avatarSuffixRe = regexp.MustCompile(`_(normal|bigger|mini)(\.[^/?#]+)([?#].*)?$`)
 
 func CheckRespStatus(resp *resty.Response) error {
 	if resp.StatusCode() >= 400 {
@@ -33,8 +35,5 @@ func IsStatusCode(err error, code int) bool {
 }
 
 func StripAvatarSuffix(url string) string {
-	url = strings.Replace(url, "_normal", "", 1)
-	url = strings.Replace(url, "_bigger", "", 1)
-	url = strings.Replace(url, "_mini", "", 1)
-	return url
+	return avatarSuffixRe.ReplaceAllString(url, "$2$3")
 }

@@ -1,7 +1,6 @@
 package database
 
 import (
-	"database/sql"
 	"fmt"
 
 	"github.com/jmoiron/sqlx"
@@ -20,10 +19,7 @@ func GetLst(db *sqlx.DB, lid uint64) (*Lst, error) {
 	stmt := `SELECT * FROM lsts WHERE id = ?`
 	result := &Lst{}
 	err := db.Get(result, stmt, lid)
-	if err != nil && err != sql.ErrNoRows {
-		return nil, fmt.Errorf("failed to get list %d: %w", lid, err)
-	}
-	return handleGetResult(result, err)
+	return handleGetResultWithContext(result, err, "failed to get list %d: %w", lid)
 }
 
 func UpdateLst(db *sqlx.DB, lst *Lst) error {

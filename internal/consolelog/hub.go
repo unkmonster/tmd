@@ -1,6 +1,7 @@
 package consolelog
 
 import (
+	"bytes"
 	"io"
 	"os"
 	"regexp"
@@ -13,14 +14,29 @@ const DefaultLimit = 5000
 var (
 	defaultHub = NewHub(DefaultLimit)
 
-	captureOnce sync.Once
-	captureErr  error
-	ansiRegex   = regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]`)
+	captureMu      sync.Mutex
+	activeCapture  *captureSession
+	startCaptureFn = startCaptureSession
+	ansiRegex      = regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]`)
 )
+
+// captureSession owns the redirected stdout/stderr pipes for the lifetime of
+// an installed capture. In the current application flow capture stays active
+// until process exit, but tests may stop it explicitly to restore stdio.
+type captureSession struct {
+	originalStdout *os.File
+	originalStderr *os.File
+	stdoutReader   *os.File
+	stdoutWriter   *os.File
+	stderrReader   *os.File
+	stderrWriter   *os.File
+}
 
 type Hub struct {
 	mu          sync.Mutex
 	lines       []string
+	start       int
+	count       int
 	limit       int
 	subscribers map[chan string]struct{}
 }
@@ -35,6 +51,7 @@ func NewHub(limit int) *Hub {
 	}
 
 	return &Hub{
+		lines:       make([]string, limit),
 		limit:       limit,
 		subscribers: make(map[chan string]struct{}),
 	}
@@ -49,10 +66,13 @@ func (h *Hub) Add(line string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	h.lines = append(h.lines, line)
-	if len(h.lines) > h.limit {
-		copy(h.lines, h.lines[len(h.lines)-h.limit:])
-		h.lines = h.lines[:h.limit]
+	if h.count < h.limit {
+		idx := (h.start + h.count) % h.limit
+		h.lines[idx] = line
+		h.count++
+	} else {
+		h.lines[h.start] = line
+		h.start = (h.start + 1) % h.limit
 	}
 
 	for ch := range h.subscribers {
@@ -67,8 +87,18 @@ func (h *Hub) Snapshot() []string {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	lines := make([]string, len(h.lines))
-	copy(lines, h.lines)
+	lines := make([]string, h.count)
+	if h.count == 0 {
+		return lines
+	}
+
+	if h.start+h.count <= h.limit {
+		copy(lines, h.lines[h.start:h.start+h.count])
+		return lines
+	}
+
+	n := copy(lines, h.lines[h.start:])
+	copy(lines[n:], h.lines[:(h.start+h.count)%h.limit])
 	return lines
 }
 
@@ -92,25 +122,35 @@ func StartCapture(h *Hub) error {
 		h = DefaultHub()
 	}
 
-	captureOnce.Do(func() {
-		captureErr = startCapture(h)
-	})
-	return captureErr
+	captureMu.Lock()
+	defer captureMu.Unlock()
+
+	if activeCapture != nil {
+		return nil
+	}
+
+	session, err := startCaptureFn(h)
+	if err != nil {
+		return err
+	}
+
+	activeCapture = session
+	return nil
 }
 
-func startCapture(h *Hub) error {
+func startCaptureSession(h *Hub) (*captureSession, error) {
 	originalStdout := os.Stdout
 	originalStderr := os.Stderr
 
 	stdoutReader, stdoutWriter, err := os.Pipe()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	stderrReader, stderrWriter, err := os.Pipe()
 	if err != nil {
 		stdoutReader.Close()
 		stdoutWriter.Close()
-		return err
+		return nil, err
 	}
 
 	os.Stdout = stdoutWriter
@@ -118,7 +158,39 @@ func startCapture(h *Hub) error {
 
 	go capturePipe(stdoutReader, originalStdout, h)
 	go capturePipe(stderrReader, originalStderr, h)
-	return nil
+
+	return &captureSession{
+		originalStdout: originalStdout,
+		originalStderr: originalStderr,
+		stdoutReader:   stdoutReader,
+		stdoutWriter:   stdoutWriter,
+		stderrReader:   stderrReader,
+		stderrWriter:   stderrWriter,
+	}, nil
+}
+
+func stopCaptureLocked() {
+	if activeCapture == nil {
+		return
+	}
+
+	os.Stdout = activeCapture.originalStdout
+	os.Stderr = activeCapture.originalStderr
+
+	if activeCapture.stdoutWriter != nil {
+		_ = activeCapture.stdoutWriter.Close()
+	}
+	if activeCapture.stderrWriter != nil {
+		_ = activeCapture.stderrWriter.Close()
+	}
+	if activeCapture.stdoutReader != nil {
+		_ = activeCapture.stdoutReader.Close()
+	}
+	if activeCapture.stderrReader != nil {
+		_ = activeCapture.stderrReader.Close()
+	}
+
+	activeCapture = nil
 }
 
 func capturePipe(reader io.Reader, output *os.File, h *Hub) {
@@ -131,13 +203,18 @@ func capturePipe(reader io.Reader, output *os.File, h *Hub) {
 			chunk := buf[:n]
 			_, _ = output.Write(chunk)
 
-			for _, b := range chunk {
-				if b == '\n' {
-					h.Add(strings.TrimSuffix(line.String(), "\r"))
-					line.Reset()
-					continue
+			remaining := chunk
+			for len(remaining) > 0 {
+				idx := bytes.IndexByte(remaining, '\n')
+				if idx < 0 {
+					_, _ = line.Write(remaining)
+					break
 				}
-				line.WriteByte(b)
+
+				_, _ = line.Write(remaining[:idx])
+				h.Add(strings.TrimSuffix(line.String(), "\r"))
+				line.Reset()
+				remaining = remaining[idx+1:]
 			}
 		}
 

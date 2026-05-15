@@ -5,14 +5,15 @@ import (
 )
 
 type ListNaming struct {
-	baseNaming
+	sanitized string
 }
 
-func NewListNamingFromBase(lst interface{ GetId() int64; Title() string }) *ListNaming {
+func NewListNamingFromBase(lst interface {
+	GetId() int64
+	Title() string
+}) *ListNaming {
 	return &ListNaming{
-		baseNaming: baseNaming{
-			sanitized: utils.WinFileNameWithMaxLen(lst.Title(), MaxFileNameLen),
-		},
+		sanitized: utils.WinFileNameWithMaxLen(lst.Title(), MaxFileNameLen),
 	}
 }
 

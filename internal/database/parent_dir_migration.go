@@ -389,13 +389,10 @@ func buildPortablePath(root portablePath, remainder []string) string {
 
 	switch root.style {
 	case portablePathStyleWindows:
-		if strings.HasPrefix(root.rootPrefix, `\\`) {
-			if len(allSegments) == 0 {
+		if len(allSegments) == 0 {
+			if strings.HasPrefix(root.rootPrefix, `\\`) {
 				return root.rootPrefix
 			}
-			return root.rootPrefix + `\` + strings.Join(allSegments, `\`)
-		}
-		if len(allSegments) == 0 {
 			return root.rootPrefix + `\`
 		}
 		return root.rootPrefix + `\` + strings.Join(allSegments, `\`)

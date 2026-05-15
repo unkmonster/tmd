@@ -400,25 +400,12 @@ func BatchUserDownload(ctx context.Context, client *resty.Client, db *sqlx.DB, u
 		for !userEntityHeap.Empty() && ctx.Err() == nil {
 			selected := []int{}
 			for count := 0; count < userTweetRateLimit && ctx.Err() == nil; {
-				if userEntityHeap.Empty() {
+				entity, depth, ok := popNextBatchEntity(userEntityHeap, depthByEntity, count, userTweetRateLimit, markUserDone)
+				if !ok {
 					break
 				}
-
-				entity := userEntityHeap.Peek()
-				depth := depthByEntity[entity]
-				if depth > userTweetRateLimit {
-					entityName, nameErr := entity.Name()
-					if nameErr != nil {
-						entityName = fmt.Sprintf("(uid:%d)", entity.UserId())
-					}
-					log.Warnln("user depth exceeds limit:", entityName, "- depth:", depth)
-					userEntityHeap.Pop()
-					markUserDone(entityName)
+				if entity == nil {
 					continue
-				}
-
-				if depth+count > userTweetRateLimit {
-					break
 				}
 
 				prodwg.Add(1)
@@ -428,7 +415,6 @@ func BatchUserDownload(ctx context.Context, client *resty.Client, db *sqlx.DB, u
 				selected = append(selected, depth)
 
 				count += depth
-				userEntityHeap.Pop()
 			}
 			log.Debugln(selected)
 			prodwg.Wait()
@@ -446,4 +432,35 @@ func BatchUserDownload(ctx context.Context, client *resty.Client, db *sqlx.DB, u
 	}
 	log.Debugf("%d users unable to start", userEntityHeap.Size())
 	return fails, summary, context.Cause(ctx)
+}
+
+func popNextBatchEntity(
+	userEntityHeap *utils.Heap[*entity.UserEntity],
+	depthByEntity map[*entity.UserEntity]int,
+	currentDepth int,
+	limit int,
+	markUserDone func(string),
+) (*entity.UserEntity, int, bool) {
+	if userEntityHeap.Empty() {
+		return nil, 0, false
+	}
+
+	next := userEntityHeap.Peek()
+	depth := depthByEntity[next]
+	if depth > limit {
+		entityName, nameErr := next.Name()
+		if nameErr != nil {
+			entityName = fmt.Sprintf("(uid:%d)", next.UserId())
+		}
+		log.Warnln("user depth exceeds limit:", entityName, "- depth:", depth)
+		userEntityHeap.Pop()
+		markUserDone(entityName)
+		return nil, 0, true
+	}
+
+	if currentDepth+depth > limit {
+		return nil, 0, false
+	}
+
+	return userEntityHeap.Pop(), depth, true
 }

@@ -4,6 +4,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/unkmonster/tmd/internal/utils"
 )
 
 // ============================================================================
@@ -279,6 +281,28 @@ func TestTweetNaming_FilePath(t *testing.T) {
 				t.Errorf("FilePath() = %q, want suffix %q", got, tt.wantSuffix)
 			}
 		})
+	}
+}
+
+func TestTweetNaming_FilePathWithResolver(t *testing.T) {
+	tempDir := t.TempDir()
+	tn := NewTweetNaming("test", 123, "creator")
+	resolver := utils.NewUniquePathResolver()
+
+	first, err := tn.FilePathWithResolver(tempDir, ".jpg", resolver)
+	if err != nil {
+		t.Fatalf("FilePathWithResolver() error = %v", err)
+	}
+	second, err := tn.FilePathWithResolver(tempDir, ".jpg", resolver)
+	if err != nil {
+		t.Fatalf("FilePathWithResolver() error = %v", err)
+	}
+
+	if filepath.Base(first) != "test_123.jpg" {
+		t.Fatalf("first path = %q, want %q", filepath.Base(first), "test_123.jpg")
+	}
+	if filepath.Base(second) != "test_123(1).jpg" {
+		t.Fatalf("second path = %q, want %q", filepath.Base(second), "test_123(1).jpg")
 	}
 }
 

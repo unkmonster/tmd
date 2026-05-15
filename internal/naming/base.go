@@ -7,7 +7,3 @@ import (
 const ExtReserveLen = 8
 
 var MaxFileNameLen = utils.DefaultMaxFileNameLen
-
-type baseNaming struct {
-	sanitized string
-}

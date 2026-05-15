@@ -1,7 +1,6 @@
 package database
 
 import (
-	"database/sql"
 	"fmt"
 
 	"github.com/jmoiron/sqlx"
@@ -46,10 +45,7 @@ func GetUserLink(db *sqlx.DB, uid uint64, parentLstEntityId int32) (*UserLink, e
 	stmt := `SELECT * FROM user_links WHERE user_id = ? AND parent_lst_entity_id = ?`
 	res := &UserLink{}
 	err := db.Get(res, stmt, uid, parentLstEntityId)
-	if err != nil && err != sql.ErrNoRows {
-		return nil, fmt.Errorf("failed to get user link for user %d in list entity %d: %w", uid, parentLstEntityId, err)
-	}
-	return handleGetResult(res, err)
+	return handleGetResultWithContext(res, err, "failed to get user link for user %d in list entity %d: %w", uid, parentLstEntityId)
 }
 
 func UpdateUserLink(db *sqlx.DB, id int32, name string) error {
@@ -65,10 +61,7 @@ func GetUserLinkById(db *sqlx.DB, id int32) (*UserLink, error) {
 	stmt := `SELECT * FROM user_links WHERE id = ?`
 	res := &UserLink{}
 	err := db.Get(res, stmt, id)
-	if err != nil && err != sql.ErrNoRows {
-		return nil, fmt.Errorf("failed to get user link %d: %w", id, err)
-	}
-	return handleGetResult(res, err)
+	return handleGetResultWithContext(res, err, "failed to get user link %d: %w", id)
 }
 
 func DelUserLink(db *sqlx.DB, id int32) error {

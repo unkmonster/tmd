@@ -1,7 +1,6 @@
 package database
 
 import (
-	"database/sql"
 	"fmt"
 	"time"
 
@@ -41,20 +40,14 @@ func LocateUserEntity(db *sqlx.DB, uid uint64, parentDIr string) (*UserEntity, e
 	stmt := `SELECT * FROM user_entities WHERE user_id=? AND parent_dir=?`
 	result := &UserEntity{}
 	err = db.Get(result, stmt, uid, parentDIr)
-	if err != nil && err != sql.ErrNoRows {
-		return nil, fmt.Errorf("failed to locate user entity for user %d in %q: %w", uid, parentDIr, err)
-	}
-	return handleGetResult(result, err)
+	return handleGetResultWithContext(result, err, "failed to locate user entity for user %d in %q: %w", uid, parentDIr)
 }
 
 func GetUserEntity(db *sqlx.DB, id int) (*UserEntity, error) {
 	result := &UserEntity{}
 	stmt := `SELECT * FROM user_entities WHERE id=?`
 	err := db.Get(result, stmt, id)
-	if err != nil && err != sql.ErrNoRows {
-		return nil, fmt.Errorf("failed to get user entity %d: %w", id, err)
-	}
-	return handleGetResult(result, err)
+	return handleGetResultWithContext(result, err, "failed to get user entity %d: %w", id)
 }
 
 func UpdateUserEntity(db *sqlx.DB, entity *UserEntity) error {

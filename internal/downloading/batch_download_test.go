@@ -4,7 +4,10 @@ import (
 	"context"
 	"testing"
 
+	"github.com/unkmonster/tmd/internal/database"
+	"github.com/unkmonster/tmd/internal/entity"
 	"github.com/unkmonster/tmd/internal/twitter"
+	"github.com/unkmonster/tmd/internal/utils"
 )
 
 func TestCalcUserDepth(t *testing.T) {
@@ -297,6 +300,45 @@ func TestBatchUserDownload_UserHeap(t *testing.T) {
 
 	if !users[1].user.IsProtected || users[1].user.Followstate != twitter.FS_FOLLOWING {
 		t.Error("User 2 should be protected and following")
+	}
+}
+
+func TestPopNextBatchEntityKeepsDeferredEntityInHeap(t *testing.T) {
+	first := entity.NewUserEntityFromRecord(nil, &database.UserEntity{
+		UserId: 1,
+		Name:   "first",
+	})
+	second := entity.NewUserEntityFromRecord(nil, &database.UserEntity{
+		UserId: 2,
+		Name:   "second",
+	})
+
+	depthByEntity := map[*entity.UserEntity]int{
+		first:  1000,
+		second: 800,
+	}
+	heap := utils.NewHeap(func(lhs, rhs *entity.UserEntity) bool {
+		return depthByEntity[lhs] > depthByEntity[rhs]
+	})
+	heap.Push(first)
+	heap.Push(second)
+
+	selected, depth, ok := popNextBatchEntity(heap, depthByEntity, 0, userTweetRateLimit, func(string) {})
+	if !ok || selected != first || depth != 1000 {
+		t.Fatalf("first selection = (%v, %d, %v), want first, 1000, true", selected, depth, ok)
+	}
+
+	selected, depth, ok = popNextBatchEntity(heap, depthByEntity, 1000, userTweetRateLimit, func(string) {})
+	if ok || selected != nil || depth != 0 {
+		t.Fatalf("deferred selection = (%v, %d, %v), want nil, 0, false", selected, depth, ok)
+	}
+	if heap.Size() != 1 || heap.Peek() != second {
+		t.Fatal("deferred entity was removed from heap")
+	}
+
+	selected, depth, ok = popNextBatchEntity(heap, depthByEntity, 0, userTweetRateLimit, func(string) {})
+	if !ok || selected != second || depth != 800 {
+		t.Fatalf("next round selection = (%v, %d, %v), want second, 800, true", selected, depth, ok)
 	}
 }
 

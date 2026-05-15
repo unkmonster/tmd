@@ -309,5 +309,3 @@ func (d *DefaultDownloader) doDownloadStream(req DownloadRequest, contentLength 
 
 	return result, nil
 }
-
-// fileExists 检查文件是否存在

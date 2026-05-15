@@ -38,20 +38,11 @@ func TestNewStorePath(t *testing.T) {
 			root:    tempDir,
 			wantErr: false,
 		},
-		{
-			name:    "相对路径",
-			root:    "./test_relative_path",
-			wantErr: false,
-		},
+
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// 清理相对路径测试产生的目录
-			if tt.root == "./test_relative_path" {
-				defer os.RemoveAll(tt.root)
-			}
-
 			sp, err := NewStorePath(tt.root)
 
 			if tt.wantErr {

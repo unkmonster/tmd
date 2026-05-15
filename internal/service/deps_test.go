@@ -12,16 +12,17 @@ import (
 )
 
 func TestDependencies_Struct(t *testing.T) {
+	tempDir := t.TempDir()
 	deps := &Dependencies{
 		Client:            resty.New(),
 		AdditionalClients: []*resty.Client{resty.New(), resty.New()},
-		Config:            &config.Config{RootPath: "/test/path"},
+		Config:            &config.Config{RootPath: tempDir},
 	}
 
 	assert.NotNil(t, deps.Client)
 	assert.Len(t, deps.AdditionalClients, 2)
 	assert.NotNil(t, deps.Config)
-	assert.Equal(t, "/test/path", deps.Config.RootPath)
+	assert.Equal(t, tempDir, deps.Config.RootPath)
 }
 
 func TestDependencies_Validate(t *testing.T) {
@@ -36,7 +37,7 @@ func TestDependencies_Validate(t *testing.T) {
 			deps: &Dependencies{
 				Client: resty.New(),
 				DB:     &sqlx.DB{},
-				Config: &config.Config{RootPath: "/test"},
+				Config: &config.Config{RootPath: t.TempDir()},
 			},
 			wantErr: false,
 		},
@@ -51,7 +52,7 @@ func TestDependencies_Validate(t *testing.T) {
 			deps: &Dependencies{
 				Client: nil,
 				DB:     &sqlx.DB{},
-				Config: &config.Config{RootPath: "/test"},
+				Config: &config.Config{RootPath: t.TempDir()},
 			},
 			wantErr: true,
 			errMsg:  "client is required",
@@ -80,7 +81,7 @@ func TestDependencies_Validate(t *testing.T) {
 			name: "nil db",
 			deps: &Dependencies{
 				Client: resty.New(),
-				Config: &config.Config{RootPath: "/test"},
+				Config: &config.Config{RootPath: t.TempDir()},
 				DB:     nil,
 			},
 			wantErr: true,
@@ -92,7 +93,7 @@ func TestDependencies_Validate(t *testing.T) {
 				Client:            resty.New(),
 				AdditionalClients: []*resty.Client{resty.New(), nil},
 				DB:                &sqlx.DB{},
-				Config:            &config.Config{RootPath: "/test"},
+				Config:            &config.Config{RootPath: t.TempDir()},
 			},
 			wantErr: true,
 			errMsg:  "additional client 1 is nil",
@@ -113,11 +114,12 @@ func TestDependencies_Validate(t *testing.T) {
 }
 
 func TestNewDownloadService(t *testing.T) {
+	tempDir := t.TempDir()
 	deps := &Dependencies{
 		Client:            resty.New(),
 		AdditionalClients: []*resty.Client{},
 		DB:                &sqlx.DB{},
-		Config:            &config.Config{RootPath: "/test"},
+		Config:            &config.Config{RootPath: tempDir},
 	}
 
 	service, err := NewDownloadService(deps)
@@ -131,11 +133,12 @@ func TestNewDownloadService(t *testing.T) {
 }
 
 func TestNewDownloadService_WithNilDB(t *testing.T) {
+	tempDir := t.TempDir()
 	deps := &Dependencies{
 		Client:            resty.New(),
 		AdditionalClients: []*resty.Client{},
 		DB:                nil,
-		Config:            &config.Config{RootPath: "/test"},
+		Config:            &config.Config{RootPath: tempDir},
 	}
 
 	service, err := NewDownloadService(deps)
@@ -145,11 +148,12 @@ func TestNewDownloadService_WithNilDB(t *testing.T) {
 }
 
 func TestNewDownloadService_WithNilClient(t *testing.T) {
+	tempDir := t.TempDir()
 	deps := &Dependencies{
 		Client:            nil,
 		AdditionalClients: []*resty.Client{},
 		DB:                &sqlx.DB{},
-		Config:            &config.Config{RootPath: "/test"},
+		Config:            &config.Config{RootPath: tempDir},
 	}
 
 	service, err := NewDownloadService(deps)
@@ -187,6 +191,7 @@ func TestNewDownloadService_WithEmptyRootPath(t *testing.T) {
 }
 
 func TestNewDownloadService_WithMultipleAdditionalClients(t *testing.T) {
+	tempDir := t.TempDir()
 	deps := &Dependencies{
 		Client: resty.New(),
 		AdditionalClients: []*resty.Client{
@@ -195,7 +200,7 @@ func TestNewDownloadService_WithMultipleAdditionalClients(t *testing.T) {
 			resty.New(),
 		},
 		DB:     &sqlx.DB{},
-		Config: &config.Config{RootPath: "/test"},
+		Config: &config.Config{RootPath: tempDir},
 	}
 
 	service, err := NewDownloadService(deps)
@@ -209,11 +214,12 @@ func TestNewDownloadService_WithMultipleAdditionalClients(t *testing.T) {
 }
 
 func TestDependencies_EmptyAdditionalClients(t *testing.T) {
+	tempDir := t.TempDir()
 	deps := &Dependencies{
 		Client:            resty.New(),
 		AdditionalClients: []*resty.Client{},
 		DB:                &sqlx.DB{},
-		Config:            &config.Config{RootPath: "/test"},
+		Config:            &config.Config{RootPath: tempDir},
 	}
 
 	assert.NotNil(t, deps)

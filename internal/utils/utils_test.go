@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"github.com/go-resty/resty/v2"
+	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -232,6 +234,27 @@ func TestUniquePath_WithFiles(t *testing.T) {
 	assert.Equal(t, "testfile(2).txt", filepath.Base(path3))
 }
 
+func TestUniquePathResolver_ReservesPathsBeforeWrite(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "unique_path_resolver_test")
+	require.NoError(t, err)
+	defer os.RemoveAll(tempDir)
+
+	resolver := NewUniquePathResolver()
+	basePath := filepath.Join(tempDir, "tweet.jpg")
+
+	path1, err := resolver.UniquePath(basePath)
+	require.NoError(t, err)
+	assert.Equal(t, "tweet.jpg", filepath.Base(path1))
+
+	path2, err := resolver.UniquePath(basePath)
+	require.NoError(t, err)
+	assert.Equal(t, "tweet(1).jpg", filepath.Base(path2))
+
+	path3, err := resolver.UniquePath(basePath)
+	require.NoError(t, err)
+	assert.Equal(t, "tweet(2).jpg", filepath.Base(path3))
+}
+
 // ==================== WinFileNameWithMaxLen 测试 ====================
 
 func TestWinFileNameWithMaxLen(t *testing.T) {
@@ -441,8 +464,7 @@ func TestHeap(t *testing.T) {
 		assert.Equal(t, len(wants), heap.Size())
 
 		for _, want := range wants {
-			assert.Equal(t, want, heap.Peek())
-			heap.Pop()
+			assert.Equal(t, want, heap.Pop())
 		}
 
 		assert.True(t, heap.Empty())
@@ -458,8 +480,7 @@ func TestHeap(t *testing.T) {
 		}
 
 		for _, want := range wants {
-			assert.Equal(t, want, heap.Peek())
-			heap.Pop()
+			assert.Equal(t, want, heap.Pop())
 		}
 	})
 
@@ -490,13 +511,11 @@ func TestHeap(t *testing.T) {
 		assert.Equal(t, numGoroutines*numPushes, heap.Size())
 
 		// 验证堆的性质
-		prev := heap.Peek()
-		heap.Pop()
+		prev := heap.Pop()
 		for !heap.Empty() {
-			curr := heap.Peek()
+			curr := heap.Pop()
 			assert.LessOrEqual(t, prev, curr)
 			prev = curr
-			heap.Pop()
 		}
 	})
 
@@ -510,8 +529,7 @@ func TestHeap(t *testing.T) {
 		}
 
 		for _, want := range wants {
-			assert.Equal(t, want, heap.Peek())
-			heap.Pop()
+			assert.Equal(t, want, heap.Pop())
 		}
 	})
 
@@ -521,7 +539,7 @@ func TestHeap(t *testing.T) {
 
 		assert.Equal(t, 1, heap.Size())
 		assert.Equal(t, 42, heap.Peek())
-		heap.Pop()
+		assert.Equal(t, 42, heap.Pop())
 		assert.True(t, heap.Empty())
 	})
 }
@@ -767,9 +785,9 @@ func TestStripAvatarSuffix(t *testing.T) {
 			expected: "https://example.com/avatar.jpg",
 		},
 		{
-			name:     "多个后缀替换所有",
-			input:    "https://example.com/avatar_normal_bigger_mini.jpg",
-			expected: "https://example.com/avatar.jpg", // 所有后缀都会被替换
+			name:     "保留查询参数",
+			input:    "https://example.com/avatar_normal.jpg?format=jpg&name=small",
+			expected: "https://example.com/avatar.jpg?format=jpg&name=small",
 		},
 		{
 			name:     "空字符串",
@@ -777,9 +795,14 @@ func TestStripAvatarSuffix(t *testing.T) {
 			expected: "",
 		},
 		{
-			name:     "只有后缀",
-			input:    "_normal",
-			expected: "",
+			name:     "不修改中间路径段",
+			input:    "https://example.com/path_normal/avatar.jpg",
+			expected: "https://example.com/path_normal/avatar.jpg",
+		},
+		{
+			name:     "不修改非文件名位置的后缀文本",
+			input:    "https://example.com/avatar_normal_bigger_mini.jpg",
+			expected: "https://example.com/avatar_normal_bigger.jpg",
 		},
 	}
 
@@ -864,6 +887,13 @@ func TestRecoverWithLog(t *testing.T) {
 	t.Run("恢复panic", func(t *testing.T) {
 		// RecoverWithLog 会捕获panic并记录日志，不会重新抛出
 		// 测试验证函数正常结束没有panic传出
+		var logBuf bytes.Buffer
+		originalOut := log.StandardLogger().Out
+		log.SetOutput(&logBuf)
+		t.Cleanup(func() {
+			log.SetOutput(originalOut)
+		})
+
 		executed := true
 		func() {
 			defer RecoverWithLog("test")
@@ -871,6 +901,8 @@ func TestRecoverWithLog(t *testing.T) {
 		}()
 		// 如果能执行到这里，说明panic被恢复了
 		assert.True(t, executed)
+		assert.Contains(t, logBuf.String(), "[test] panic recovered: test panic")
+		assert.Contains(t, logBuf.String(), "goroutine ")
 	})
 
 	t.Run("无panic", func(t *testing.T) {

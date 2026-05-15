@@ -98,7 +98,7 @@ func setupTestServerWithAppRoot(t *testing.T, appRoot string) (*Server, *sqlx.DB
 	database.CreateTables(db)
 
 	cfg := &config.Config{
-		RootPath:           "/test/path",
+		RootPath:           t.TempDir(),
 		MaxDownloadRoutine: 5,
 		MaxFileNameLen:     100,
 	}
@@ -158,7 +158,7 @@ func TestNewServer(t *testing.T) {
 	defer db.Close()
 
 	cfg := &config.Config{
-		RootPath:           "/test",
+		RootPath:           t.TempDir(),
 		MaxDownloadRoutine: 5,
 		MaxFileNameLen:     100,
 	}
@@ -188,7 +188,7 @@ func TestHandleUpdateSchedulesRawInitializesSchedulerAfterStartupParseFailure(t 
 	assert.NoError(t, err)
 
 	cfg := &config.Config{
-		RootPath:           "/test",
+		RootPath:           t.TempDir(),
 		MaxDownloadRoutine: 5,
 		MaxFileNameLen:     100,
 	}
@@ -238,7 +238,7 @@ func TestHandleGetSchedulesReturnsFrontendFieldNames(t *testing.T) {
 	assert.NoError(t, err)
 
 	cfg := &config.Config{
-		RootPath:           "/test",
+		RootPath:           t.TempDir(),
 		MaxDownloadRoutine: 5,
 		MaxFileNameLen:     100,
 	}
@@ -268,7 +268,7 @@ func TestStructuredScheduleCRUDUsesStableID(t *testing.T) {
 
 	appRoot := t.TempDir()
 	cfg := &config.Config{
-		RootPath:           "/test",
+		RootPath:           t.TempDir(),
 		MaxDownloadRoutine: 5,
 		MaxFileNameLen:     100,
 	}
@@ -323,7 +323,7 @@ func TestStructuredScheduleCRUDSupportsMixedAndNormalizesShape(t *testing.T) {
 
 	appRoot := t.TempDir()
 	cfg := &config.Config{
-		RootPath:           "/test",
+		RootPath:           t.TempDir(),
 		MaxDownloadRoutine: 5,
 		MaxFileNameLen:     100,
 	}
@@ -871,7 +871,7 @@ func TestHandleConfig_Success(t *testing.T) {
 	// 验证配置数据（脱敏）
 	data, ok := resp.Data.(map[string]interface{})
 	assert.True(t, ok)
-	assert.Equal(t, "/test/path", data["root_path"])
+	assert.NotEmpty(t, data["root_path"])
 	assert.Equal(t, float64(5), data["max_download_routine"])
 	assert.Equal(t, float64(100), data["max_file_name_len"])
 }

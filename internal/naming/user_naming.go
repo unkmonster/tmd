@@ -5,15 +5,13 @@ import (
 )
 
 type UserNaming struct {
-	baseNaming
+	sanitized string
 }
 
 func NewUserNaming(name, screenName string) *UserNaming {
 	title := name + "(" + screenName + ")"
 	return &UserNaming{
-		baseNaming: baseNaming{
-			sanitized: utils.WinFileNameWithMaxLen(title, MaxFileNameLen),
-		},
+		sanitized: utils.WinFileNameWithMaxLen(title, MaxFileNameLen),
 	}
 }
 

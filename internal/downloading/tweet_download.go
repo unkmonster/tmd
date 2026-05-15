@@ -50,7 +50,7 @@ func saveTweetJson(cfg *workerConfig, dir string, tweet *twitter.Tweet, namingOb
 
 		loongDir := filepath.Join(dir, ".loongtweet")
 
-		jsonPath, err := namingObj.FilePath(loongDir, ".json")
+		jsonPath, err := namingObj.FilePathWithResolver(loongDir, ".json", cfg.pathResolver)
 		if err != nil {
 			return
 		}
@@ -88,7 +88,7 @@ func saveLoongTweet(cfg *workerConfig, dir string, tweet *twitter.Tweet, namingO
 
 		loongDir := filepath.Join(dir, ".loongtweet")
 
-		txtPath, err := namingObj.FilePath(loongDir, ".txt")
+		txtPath, err := namingObj.FilePathWithResolver(loongDir, ".txt", cfg.pathResolver)
 		if err != nil {
 			return
 		}
@@ -275,7 +275,7 @@ func downloadTweetMedia(cfg *workerConfig, dir string, tweet *twitter.Tweet, ski
 
 		queryParams := utils.GetTwitterImageQualityParams(u)
 
-		path, err := tweetNaming.FilePath(dir, ext)
+		path, err := tweetNaming.FilePathWithResolver(dir, ext, cfg.pathResolver)
 		if err != nil {
 			log.Warnln("failed to build media path:", u, "-", err)
 			retryableFailedUrls = append(retryableFailedUrls, u)
@@ -467,6 +467,7 @@ func BatchDownloadTweet(ctx context.Context, client *resty.Client, skipLoongTwee
 		fileWriter:     fileWriter,
 		client:         client,
 		onTweetDone:    onTweetDone,
+		pathResolver:   utils.NewUniquePathResolver(),
 	}
 	for i := 0; i < numRoutine; i++ {
 		wg.Add(1)

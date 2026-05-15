@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"unicode/utf8"
 )
 
@@ -44,6 +45,9 @@ const DefaultMaxFileNameLen = 158
 func WinFileNameWithMaxLen(name string, maxLen int) string {
 	name = reUrl.ReplaceAllString(name, "")
 	name = reWinNonSupport.ReplaceAllString(name, "")
+	if maxLen <= 0 {
+		return ""
+	}
 
 	var buffer bytes.Buffer
 
@@ -53,12 +57,12 @@ func WinFileNameWithMaxLen(name string, maxLen int) string {
 			continue
 		case '\n':
 			if buffer.Len()+1 > maxLen {
-				break
+				return buffer.String()
 			}
 			buffer.WriteRune(' ')
 		default:
 			if buffer.Len()+utf8.RuneLen(ch) > maxLen {
-				break
+				return buffer.String()
 			}
 			buffer.WriteRune(ch)
 		}
@@ -77,28 +81,68 @@ func UniquePath(path string) (string, error) {
 			return path, nil
 		}
 
-		dir := filepath.Dir(path)
-		base := filepath.Base(path)
-		ext := filepath.Ext(path)
-		stem, _ := strings.CutSuffix(base, ext)
-		stemlen := len(stem)
+		path = nextUniquePathCandidate(path)
+	}
+}
 
-		// 处理已括号结尾的文件名
-		if stemlen > 0 && stem[stemlen-1] == ')' {
-			if left := strings.LastIndex(stem, "("); left != -1 {
+type UniquePathResolver struct {
+	mu       sync.Mutex
+	reserved map[string]struct{}
+}
 
-				index, err := strconv.Atoi(stem[left+1 : stemlen-1])
-				if err == nil {
-					index++
-					stem = fmt.Sprintf("%s(%d)", stem[:left], index)
-					path = filepath.Join(dir, stem+ext)
-					continue
-				}
-			}
+func NewUniquePathResolver() *UniquePathResolver {
+	return &UniquePathResolver{
+		reserved: make(map[string]struct{}),
+	}
+}
+
+func (r *UniquePathResolver) UniquePath(path string) (string, error) {
+	if r == nil {
+		return UniquePath(path)
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	for {
+		if _, exists := r.reserved[path]; exists {
+			path = nextUniquePathCandidate(path)
+			continue
 		}
 
-		path = filepath.Join(dir, stem+"(1)"+ext)
+		exist, err := PathExists(path)
+		if err != nil {
+			return "", err
+		}
+		if !exist {
+			r.reserved[path] = struct{}{}
+			return path, nil
+		}
+
+		path = nextUniquePathCandidate(path)
 	}
+}
+
+func nextUniquePathCandidate(path string) string {
+	dir := filepath.Dir(path)
+	base := filepath.Base(path)
+	ext := filepath.Ext(path)
+	stem, _ := strings.CutSuffix(base, ext)
+	stemlen := len(stem)
+
+	// 处理已括号结尾的文件名
+	if stemlen > 0 && stem[stemlen-1] == ')' {
+		if left := strings.LastIndex(stem, "("); left != -1 {
+			index, err := strconv.Atoi(stem[left+1 : stemlen-1])
+			if err == nil {
+				index++
+				stem = fmt.Sprintf("%s(%d)", stem[:left], index)
+				return filepath.Join(dir, stem+ext)
+			}
+		}
+	}
+
+	return filepath.Join(dir, stem+"(1)"+ext)
 }
 
 func GetExtFromUrl(u string) (string, error) {
@@ -133,11 +177,8 @@ func GetTwitterImageQualityParams(u string) map[string]string {
 	case "orig", "4096x4096":
 		// 已是最高质量，不添加参数
 		return nil
-	case "":
-		// 无 name 参数，添加高清
-		return map[string]string{"name": "4096x4096"}
 	default:
-		// small/medium/large 等，替换为 4096x4096
+		// 无 name 参数或为 small/medium/large 等，统一替换为 4096x4096
 		return map[string]string{"name": "4096x4096"}
 	}
 }

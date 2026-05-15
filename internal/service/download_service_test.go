@@ -97,7 +97,7 @@ func createTestDependencies(t *testing.T) *Dependencies {
 		Client:            resty.New(),
 		AdditionalClients: []*resty.Client{},
 		DB:                db,
-		Config:            &config.Config{RootPath: "/test/path"},
+		Config:            &config.Config{RootPath: t.TempDir()},
 	}
 }
 
@@ -433,6 +433,7 @@ func TestMockProgressReporter_EmptyCalls(t *testing.T) {
 }
 
 func TestDownloadServiceImpl_WithAdditionalClients(t *testing.T) {
+	tempDir := t.TempDir()
 	deps := &Dependencies{
 		Client: resty.New(),
 		AdditionalClients: []*resty.Client{
@@ -441,7 +442,7 @@ func TestDownloadServiceImpl_WithAdditionalClients(t *testing.T) {
 			resty.New(),
 		},
 		DB:     &sqlx.DB{},
-		Config: &config.Config{RootPath: "/test"},
+		Config: &config.Config{RootPath: tempDir},
 	}
 
 	service, err := NewDownloadService(deps)
@@ -506,6 +507,7 @@ func TestDownloadServiceImpl_ContextHandling(t *testing.T) {
 }
 
 func TestDownloadServiceImpl_DependenciesVariations(t *testing.T) {
+	tempDir := t.TempDir()
 	testCases := []struct {
 		name string
 		deps *Dependencies
@@ -516,7 +518,7 @@ func TestDownloadServiceImpl_DependenciesVariations(t *testing.T) {
 				Client:            resty.New(),
 				AdditionalClients: []*resty.Client{},
 				DB:                nil,
-				Config:            &config.Config{RootPath: "/test"},
+				Config:            &config.Config{RootPath: tempDir},
 			},
 		},
 		{
@@ -525,7 +527,7 @@ func TestDownloadServiceImpl_DependenciesVariations(t *testing.T) {
 				Client:            resty.New(),
 				AdditionalClients: []*resty.Client{},
 				DB:                &sqlx.DB{},
-				Config:            &config.Config{RootPath: "/test"},
+				Config:            &config.Config{RootPath: tempDir},
 			},
 		},
 		{
@@ -537,7 +539,7 @@ func TestDownloadServiceImpl_DependenciesVariations(t *testing.T) {
 					resty.New(),
 				},
 				DB:     &sqlx.DB{},
-				Config: &config.Config{RootPath: "/test"},
+				Config: &config.Config{RootPath: tempDir},
 			},
 		},
 		{

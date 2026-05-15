@@ -9,20 +9,18 @@ import (
 )
 
 type TweetNaming struct {
-	baseNaming
-	text    string
-	tweetID uint64
-	creator string
+	sanitized string
+	text      string
+	tweetID   uint64
+	creator   string
 }
 
 func NewTweetNaming(text string, tweetID uint64, creator string) *TweetNaming {
 	return &TweetNaming{
-		baseNaming: baseNaming{
-			sanitized: utils.WinFileNameWithMaxLen(text, MaxFileNameLen),
-		},
-		text:    text,
-		tweetID: tweetID,
-		creator: creator,
+		sanitized: utils.WinFileNameWithMaxLen(text, MaxFileNameLen),
+		text:      text,
+		tweetID:   tweetID,
+		creator:   creator,
 	}
 }
 
@@ -59,4 +57,12 @@ func (tn *TweetNaming) FileName(ext string) string {
 func (tn *TweetNaming) FilePath(dir string, ext string) (string, error) {
 	fullPath := filepath.Join(dir, tn.FileName(ext))
 	return utils.UniquePath(fullPath)
+}
+
+func (tn *TweetNaming) FilePathWithResolver(dir string, ext string, resolver *utils.UniquePathResolver) (string, error) {
+	fullPath := filepath.Join(dir, tn.FileName(ext))
+	if resolver == nil {
+		return utils.UniquePath(fullPath)
+	}
+	return resolver.UniquePath(fullPath)
 }

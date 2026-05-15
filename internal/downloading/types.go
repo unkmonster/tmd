@@ -9,6 +9,7 @@ import (
 	"github.com/unkmonster/tmd/internal/downloader"
 	"github.com/unkmonster/tmd/internal/entity"
 	"github.com/unkmonster/tmd/internal/twitter"
+	"github.com/unkmonster/tmd/internal/utils"
 )
 
 type PackagedTweet interface {
@@ -92,6 +93,7 @@ type workerConfig struct {
 	fileWriter     downloader.FileWriter
 	client         *resty.Client
 	onTweetDone    func(pt PackagedTweet, failed bool)
+	pathResolver   *utils.UniquePathResolver
 }
 
 const userTweetRateLimit = 1500

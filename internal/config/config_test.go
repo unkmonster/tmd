@@ -72,11 +72,13 @@ func TestProxyURLFieldNormalizesAndValidates(t *testing.T) {
 		assert.NoError(t, field.Setter(conf, "socks5://127.0.0.1:7890"))
 		assert.Equal(t, "socks5://127.0.0.1:7890", conf.ProxyURL)
 
-		assert.NoError(t, field.Setter(conf, "127.0.0.1:7897"))
-		assert.Equal(t, "", conf.ProxyURL)
+		err := field.Setter(conf, "127.0.0.1:7897")
+		assert.EqualError(t, err, `invalid proxy URL "127.0.0.1:7897": missing scheme or host`)
+		assert.Equal(t, "socks5://127.0.0.1:7890", conf.ProxyURL)
 
-		assert.NoError(t, field.Setter(conf, "ftp://127.0.0.1:21"))
-		assert.Equal(t, "", conf.ProxyURL)
+		err = field.Setter(conf, "ftp://127.0.0.1:21")
+		assert.EqualError(t, err, `invalid proxy URL "ftp://127.0.0.1:21": unsupported scheme "ftp"`)
+		assert.Equal(t, "socks5://127.0.0.1:7890", conf.ProxyURL)
 		return
 	}
 
@@ -155,4 +157,16 @@ func TestApplyEnvDoesNotPartiallyApplyOnError(t *testing.T) {
 	assert.False(t, applied)
 	assert.Equal(t, "old-root", conf.RootPath)
 	assert.Equal(t, 5, conf.MaxDownloadRoutine)
+}
+
+func TestApplyEnvInvalidProxyURL(t *testing.T) {
+	clearConfigEnv(t)
+
+	conf := &Config{ProxyURL: "http://127.0.0.1:7897"}
+	t.Setenv("TMD_PROXY_URL", "ftp://127.0.0.1:21")
+
+	applied, err := ApplyEnv(conf)
+	assert.EqualError(t, err, `invalid TMD_PROXY_URL: invalid proxy URL "ftp://127.0.0.1:21": unsupported scheme "ftp"`)
+	assert.False(t, applied)
+	assert.Equal(t, "http://127.0.0.1:7897", conf.ProxyURL)
 }

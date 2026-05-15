@@ -70,7 +70,7 @@ func GetFieldDefs() []FieldDef {
 		{
 			Name:    "root_path",
 			Prompt:  "enter storage dir",
-			Default: func() string { return "" }(),
+			Default: "",
 			Getter:  func(c *Config) string { return c.RootPath },
 			Setter: func(c *Config, v string) error {
 				if strings.TrimSpace(v) == "" {
@@ -90,14 +90,14 @@ func GetFieldDefs() []FieldDef {
 		{
 			Name:    "auth_token",
 			Prompt:  "enter auth_token",
-			Default: func() string { return "" }(),
+			Default: "",
 			Getter:  func(c *Config) string { return c.Cookie.AuthToken },
 			Setter:  func(c *Config, v string) error { c.Cookie.AuthToken = v; return nil },
 		},
 		{
 			Name:    "ct0",
 			Prompt:  "enter ct0",
-			Default: func() string { return "" }(),
+			Default: "",
 			Getter:  func(c *Config) string { return c.Cookie.Ct0 },
 			Setter:  func(c *Config, v string) error { c.Cookie.Ct0 = v; return nil },
 		},
@@ -142,7 +142,7 @@ func GetFieldDefs() []FieldDef {
 		{
 			Name:    "proxy_url",
 			Prompt:  "enter proxy url (e.g., http://127.0.0.1:7897, leave empty for system proxy)",
-			Default: func() string { return "" }(),
+			Default: "",
 			Getter:  func(c *Config) string { return c.ProxyURL },
 			Setter: func(c *Config, v string) error {
 				proxyURL, err := normalizeProxyURL(v)
@@ -161,16 +161,22 @@ func normalizeProxyURL(raw string) (string, error) {
 	if raw == "" {
 		return "", nil
 	}
+	if !strings.Contains(raw, "://") {
+		return "", fmt.Errorf("invalid proxy URL %q: missing scheme or host", raw)
+	}
 
 	parsed, err := url.Parse(raw)
-	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
-		return "", nil
+	if err != nil {
+		return "", fmt.Errorf("invalid proxy URL %q: %w", raw, err)
 	}
-	switch parsed.Scheme {
+	if parsed.Scheme == "" || parsed.Host == "" {
+		return "", fmt.Errorf("invalid proxy URL %q: missing scheme or host", raw)
+	}
+	switch strings.ToLower(parsed.Scheme) {
 	case "http", "https", "socks5":
 		return parsed.String(), nil
 	default:
-		return "", nil
+		return "", fmt.Errorf("invalid proxy URL %q: unsupported scheme %q", raw, parsed.Scheme)
 	}
 }
 
