@@ -7,6 +7,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ***
 
+## [v3.4.6] - 2026-05-15
+
+### Changed
+
+#### 配置验证增强
+- `internal/config/config.go` - 新增配置字段验证：MaxRetries 限制在 0-10，MaxConcurrency/BatchSize/ProfileTimeout 必须大于 0
+
+#### 日志系统改进
+- `internal/consolelog/hub.go` - 新增线程安全的 `Clear()` 方法，支持日志历史管理和清理
+- `internal/consolelog/hub_test.go` - 新增完整测试覆盖
+
+#### 数据库层优化
+- `internal/database/helpers.go` - 新增通用数据库辅助函数
+- `internal/database/lst.go`, `lst_entity.go`, `user_entity.go`, `user_link.go` - 优化实体操作
+- `internal/database/parent_dir_migration.go` - 改进迁移逻辑
+
+#### 下载功能修复
+- `internal/downloading/batch_download.go` - 修复空指针检查，优化并发下载文件名冲突处理
+- `internal/downloading/tweet_download.go` - 优化推文下载逻辑
+- `internal/downloading/types.go` - 新增错误类型标记
+
+#### 命名规则改进
+- `internal/naming/base.go`, `list_naming.go`, `tweet_naming.go`, `user_naming.go` - 优化命名规则，增强边界情况处理
+
+#### 工具函数增强
+- `internal/utils/algo.go` - `Heap.Pop()` 现在返回被弹出的值
+- `internal/utils/fs.go` - 新增 `UniquePathResolver` 支持并发安全的唯一路径分配，优化 `WinFileNameWithMaxLen`
+- `internal/utils/http.go` - `StripAvatarSuffix` 改用正则表达式实现
+- `internal/utils/recovery.go` - panic 恢复时增加堆栈跟踪输出
+- `internal/utils/win32.go` - 修复 `SetConsoleTitle` Windows API 调用返回值判断
+
+#### 测试改进
+- 多个测试文件使用 `t.TempDir()` 替代硬编码路径
+- 新增大量单元测试，提升测试稳定性和可靠性
+
+### Fixed
+- 修复测试中使用硬编码路径导致的不稳定性
+- 修复 Windows 控制台标题设置的错误处理
+- 修复批量下载中的并发文件名冲突问题
+
+### Stats
+
+- **31 个文件变更**
+- **+623 行 / -202 行**
+
+***
+
 ## [v3.4.5] - 2026-05-09
 
 ### Added
