@@ -26,7 +26,7 @@ type DownloadService interface {
 
 	MarkDownloaded(ctx context.Context, taskID string, screenNames []string, listIDs []uint64, followingNames []string, markTime *string, reporter ProgressReporter) error
 
-	// JsonFileDownload 从第三方工具导出的JSON文件下载用户资料（头像/横幅/metadata）
+	// JsonFileDownload 从第三方工具导出的 JSON 文件下载推文媒体，并按需保存推文 .json/.txt 元数据。
 	JsonFileDownload(ctx context.Context, taskID string, paths []string, noRetry bool, reporter ProgressReporter) error
 
 	// JsonFolderDownload 从TMD生成的.loongtweet文件夹下载推文媒体

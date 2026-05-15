@@ -322,12 +322,11 @@ func TestHealthResponse(t *testing.T) {
 func TestTaskListResponse(t *testing.T) {
 	resp := TaskListResponse{
 		Tasks: []*Task{},
-		Total: 0,
 	}
 
 	bytes, err := json.Marshal(resp)
 	assert.NoError(t, err)
-	assert.JSONEq(t, `{"tasks":[],"total":0}`, string(bytes))
+	assert.JSONEq(t, `{"tasks":[]}`, string(bytes))
 
 	// 测试带任务的情况
 	task := &Task{
@@ -336,11 +335,11 @@ func TestTaskListResponse(t *testing.T) {
 		Status: TaskStatusQueued,
 	}
 	resp.Tasks = append(resp.Tasks, task)
-	resp.Total = 1
 
 	bytes, err = json.Marshal(resp)
 	assert.NoError(t, err)
-	assert.Contains(t, string(bytes), `"total":1`)
+	assert.Contains(t, string(bytes), `"tasks":[`)
+	assert.NotContains(t, string(bytes), `"total"`)
 }
 
 func TestDBUserItem(t *testing.T) {

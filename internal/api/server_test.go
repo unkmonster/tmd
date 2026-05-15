@@ -470,6 +470,9 @@ func TestSchedulesRawSupportsMixed(t *testing.T) {
 func TestHandleHealth_Success(t *testing.T) {
 	server, db := setupTestServer(t)
 	defer db.Close()
+	oldVersion := Version
+	Version = "test-version"
+	t.Cleanup(func() { Version = oldVersion })
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/health", nil)
 	rr := httptest.NewRecorder()
@@ -487,7 +490,7 @@ func TestHandleHealth_Success(t *testing.T) {
 	data, ok := resp.Data.(map[string]interface{})
 	assert.True(t, ok)
 	assert.Equal(t, "ok", data["status"])
-	assert.Equal(t, "2.0.0", data["version"])
+	assert.Equal(t, "test-version", data["version"])
 	assert.NotNil(t, data["timestamp"])
 }
 
@@ -612,6 +615,59 @@ func TestServer_QueueSerializesRunningTasks(t *testing.T) {
 	case <-secondStarted:
 	case <-time.After(2 * time.Second):
 		t.Fatal("second task did not start after slot was released")
+	}
+}
+
+func TestServer_QueueSkipsCancelledPendingTaskAndRunsNextSameTarget(t *testing.T) {
+	server, db := setupTestServer(t)
+	defer db.Close()
+
+	firstTask := server.taskManager.CreateTask(TaskTypeUserDownload, &UserDownloadTaskData{ScreenName: "alice"})
+	cancelledTask := server.taskManager.CreateTask(TaskTypeUserDownload, &UserDownloadTaskData{ScreenName: "alice"})
+	nextTask := server.taskManager.CreateTask(TaskTypeUserDownload, &UserDownloadTaskData{ScreenName: "alice"})
+
+	firstStarted := make(chan struct{})
+	releaseFirst := make(chan struct{})
+	cancelledStarted := make(chan struct{}, 1)
+	nextStarted := make(chan struct{})
+
+	server.enqueueTask(firstTask, func(context.Context, string, service.ProgressReporter) error {
+		close(firstStarted)
+		<-releaseFirst
+		server.taskManager.CompleteTask(firstTask.ID, &TaskResult{Message: "first done"})
+		return nil
+	})
+
+	select {
+	case <-firstStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("first task did not start")
+	}
+
+	server.enqueueTask(cancelledTask, func(context.Context, string, service.ProgressReporter) error {
+		cancelledStarted <- struct{}{}
+		return nil
+	})
+	server.enqueueTask(nextTask, func(context.Context, string, service.ProgressReporter) error {
+		close(nextStarted)
+		server.taskManager.CompleteTask(nextTask.ID, &TaskResult{Message: "next done"})
+		return nil
+	})
+
+	assert.True(t, server.taskManager.CancelTask(cancelledTask.ID))
+
+	close(releaseFirst)
+
+	select {
+	case <-nextStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("next same-target task did not start after cancelled pending task was skipped")
+	}
+
+	select {
+	case <-cancelledStarted:
+		t.Fatal("cancelled pending task should not execute download function")
+	default:
 	}
 }
 
@@ -899,6 +955,47 @@ func TestServer_SaveCookiesFailsWhenExistingCookiesUnreadable(t *testing.T) {
 	handler.ServeHTTP(rr, req)
 
 	assert.Equal(t, http.StatusInternalServerError, rr.Code)
+}
+
+func TestServer_SaveCookiesKeepsOldValuesByOriginalIndex(t *testing.T) {
+	db, err := sqlx.Connect(database.DriverName, database.MemoryDSN(true))
+	assert.NoError(t, err)
+	defer db.Close()
+	database.CreateTables(db)
+
+	appRoot := t.TempDir()
+	cfg := &config.Config{
+		RootPath:           appRoot,
+		MaxDownloadRoutine: 5,
+		MaxFileNameLen:     100,
+	}
+
+	server := NewServer(resty.New(), []*resty.Client{}, db, cfg, appRoot, nil)
+	defer server.taskManager.Close()
+	handler := server.buildHandler()
+
+	cookiesPath := filepath.Join(appRoot, "additional_cookies.yaml")
+	require.NoError(t, config.WriteAdditionalCookies(cookiesPath, []*config.Cookie{
+		{AuthToken: "auth-0", Ct0: "ct0-0"},
+		{AuthToken: "auth-1", Ct0: "ct0-1"},
+		{AuthToken: "auth-2", Ct0: "ct0-2"},
+	}))
+
+	cookiesBody := `{"cookies":[{"index":0,"auth_token":"__KEEP_OLD__","ct0":"__KEEP_OLD__"},{"index":2,"auth_token":"__KEEP_OLD__","ct0":"ct0-new"}]}`
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/cookies", bytes.NewBufferString(cookiesBody))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	assert.Equal(t, http.StatusOK, rr.Code)
+
+	saved, err := config.ReadAdditionalCookies(cookiesPath)
+	require.NoError(t, err)
+	require.Len(t, saved, 2)
+	assert.Equal(t, "auth-0", saved[0].AuthToken)
+	assert.Equal(t, "ct0-0", saved[0].Ct0)
+	assert.Equal(t, "auth-2", saved[1].AuthToken)
+	assert.Equal(t, "ct0-new", saved[1].Ct0)
 }
 
 func TestHandleUsers_InvalidPath(t *testing.T) {
@@ -1684,15 +1781,16 @@ func TestScheduledDownloadFollowing_NormalizesAndValidatesTarget(t *testing.T) {
 	assert.Empty(t, invalidTaskID)
 }
 
-func TestCleanupUploadDirAfterTask_CleansOnContextCancel(t *testing.T) {
+func TestCleanupUploadDirAfterTask_CleansAfterTaskReturns(t *testing.T) {
 	uploadDir := filepath.Join(t.TempDir(), "upload")
 	require.NoError(t, os.MkdirAll(uploadDir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(uploadDir, "a.json"), []byte("{}"), 0o644))
 
-	taskDone := make(chan struct{})
+	taskStarted := make(chan struct{})
+	runDone := make(chan struct{})
 	unblock := make(chan struct{})
 	wrapped := cleanupUploadDirAfterTask(uploadDir, func(ctx context.Context, taskID string, reporter service.ProgressReporter) error {
-		defer close(taskDone)
+		close(taskStarted)
 		<-unblock
 		return nil
 	})
@@ -1700,9 +1798,28 @@ func TestCleanupUploadDirAfterTask_CleansOnContextCancel(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	go func() {
 		_ = wrapped(ctx, "task-1", nil)
+		close(runDone)
 	}()
 
+	select {
+	case <-taskStarted:
+	case <-time.After(time.Second):
+		t.Fatal("wrapped task did not start")
+	}
+
 	cancel()
+
+	time.Sleep(50 * time.Millisecond)
+	if _, err := os.Stat(uploadDir); err != nil {
+		t.Fatalf("upload dir should remain while task is still running, got: %v", err)
+	}
+
+	close(unblock)
+	select {
+	case <-runDone:
+	case <-time.After(time.Second):
+		t.Fatal("wrapped task did not exit")
+	}
 
 	deadline := time.After(2 * time.Second)
 	for {
@@ -1716,13 +1833,6 @@ func TestCleanupUploadDirAfterTask_CleansOnContextCancel(t *testing.T) {
 		default:
 			time.Sleep(20 * time.Millisecond)
 		}
-	}
-
-	close(unblock)
-	select {
-	case <-taskDone:
-	case <-time.After(time.Second):
-		t.Fatal("wrapped task did not exit")
 	}
 }
 
@@ -1748,7 +1858,9 @@ func TestHandleTasks_Success(t *testing.T) {
 
 	data, ok := resp.Data.(map[string]interface{})
 	assert.True(t, ok)
-	assert.Equal(t, float64(2), data["total"])
+	tasks, ok := data["tasks"].([]interface{})
+	assert.True(t, ok)
+	assert.Len(t, tasks, 2)
 }
 
 func TestHandleGetTask_Success(t *testing.T) {
@@ -1820,7 +1932,7 @@ func TestHandleCancelTask_NotFound(t *testing.T) {
 
 	server.handleCancelTask(rr, req)
 
-	assert.Equal(t, http.StatusBadRequest, rr.Code)
+	assert.Equal(t, http.StatusNotFound, rr.Code)
 }
 
 func TestHandleCancelTask_AlreadyCompleted(t *testing.T) {
@@ -1837,7 +1949,7 @@ func TestHandleCancelTask_AlreadyCompleted(t *testing.T) {
 
 	server.handleCancelTask(rr, req)
 
-	assert.Equal(t, http.StatusBadRequest, rr.Code)
+	assert.Equal(t, http.StatusConflict, rr.Code)
 }
 
 func TestWriteJSON(t *testing.T) {
@@ -2117,7 +2229,7 @@ func TestServer_TaskProgressAndResult(t *testing.T) {
 		},
 		Message: "Done",
 	}
-	ok = server.taskManager.SetTaskResult(task.ID, result)
+	ok = server.taskManager.CompleteTask(task.ID, result)
 	assert.True(t, ok)
 
 	task, _ = server.taskManager.GetTask(task.ID)

@@ -34,6 +34,11 @@ func (d *Dependencies) Validate() error {
 	if d.Config.RootPath == "" {
 		return errors.New("config.RootPath is required")
 	}
+	for i, client := range d.AdditionalClients {
+		if client == nil {
+			return fmt.Errorf("additional client %d is nil", i)
+		}
+	}
 	return nil
 }
 

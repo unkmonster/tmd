@@ -5,11 +5,28 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/unkmonster/tmd/internal/database"
 	"github.com/unkmonster/tmd/internal/database/tx"
 )
+
+func resetGlobalListSyncManagerForTest(t *testing.T) {
+	t.Helper()
+
+	globalListSyncManagerMu.Lock()
+	globalListSyncManager = nil
+	globalListSyncManagerOnce = sync.Once{}
+	globalListSyncManagerMu.Unlock()
+
+	t.Cleanup(func() {
+		globalListSyncManagerMu.Lock()
+		globalListSyncManager = nil
+		globalListSyncManagerOnce = sync.Once{}
+		globalListSyncManagerMu.Unlock()
+	})
+}
 
 func TestListSyncManager_SyncListMembers(t *testing.T) {
 	db := setupTestDB(t)
@@ -417,4 +434,37 @@ func TestListSyncManager_ConcurrentAccess(t *testing.T) {
 
 	// Result may vary due to race conditions, but shouldn't crash
 	t.Logf("Links after concurrent syncs: %d", len(links))
+}
+
+func TestInitListSyncManagerConcurrent(t *testing.T) {
+	resetGlobalListSyncManagerForTest(t)
+
+	db := setupTestDB(t)
+	defer db.Close()
+
+	var wg sync.WaitGroup
+	for i := 0; i < 20; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			InitListSyncManager(db)
+		}()
+	}
+	wg.Wait()
+
+	manager := GetListSyncManager()
+	if manager == nil {
+		t.Fatal("expected global list sync manager to be initialized")
+	}
+
+	for i := 0; i < 20; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if got := GetListSyncManager(); got != manager {
+				t.Errorf("expected singleton manager %p, got %p", manager, got)
+			}
+		}()
+	}
+	wg.Wait()
 }

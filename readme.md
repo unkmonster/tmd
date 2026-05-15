@@ -5,7 +5,7 @@
 [![CI/CD](https://github.com/unkmonster/tmd/actions/workflows/go.yml/badge.svg)](.github/workflows/go.yml)
 [Release](https://github.com/unkmonster/tmd/releases/latest)
 
-> **版本**: 3.4.0 | **状态**: 活跃维护 | **许可证**: GPL-3.0
+> **版本**: 3.4.4 | **状态**: 活跃维护 | **许可证**: GPL-3.0
 
 本项目的代码基于 [unkmonster/tmd](https://github.com/unkmonster/tmd) 项目，修改了部分代码，添加了新的功能特性。新增的功能见 [CHANGELOG.md文件](CHANGELOG.md)
 
@@ -146,7 +146,7 @@ ghcr.io/<owner>/<repo>:<tag>
 
 ```bash
 docker pull ghcr.io/leeexx2001/tmd:latest
-docker pull ghcr.io/leeexx2001/tmd:v3.4.0
+docker pull ghcr.io/leeexx2001/tmd:v3.4.4
 ```
 
 **推荐方式：使用 docker compose**
@@ -181,7 +181,7 @@ docker compose ps
 docker compose logs -f
 ```
 
-README 中的 compose 示例与仓库根目录的 [docker-compose.yml](C:\Users\leeexxx\Documents\trae_projects\tmd\docker-compose.yml) 保持一致：
+README 中的 compose 示例与仓库根目录的 [docker-compose.yml](./docker-compose.yml) 保持一致：
 
 ```yaml
 services:
@@ -416,12 +416,12 @@ tmd -server -port 8080
 | **POST** | `/api/v1/lists/{list_id}/download` | 下载列表推文 | ❌ |
 | **POST** | `/api/v1/lists/{list_id}/profile` | 下载列表 Profile | ❌ |
 | **POST** | `/api/v1/lists/{list_id}/mark` | 标记列表已下载 | ❌ |
-| **POST** | `/api/v1/json/file/download` | JSON 文件导入下载 | ❌ |
-| **POST** | `/api/v1/json/folder/download` | LoongTweet 文件夹下载 | ❌ |
+| **POST** | `/api/v1/json/file/download` | JSON 文件导入下载（支持路径列表/文件上传） | ❌ |
+| **POST** | `/api/v1/json/folder/download` | LoongTweet 文件夹下载（支持路径列表/文件上传） | ❌ |
 | **POST** | `/api/v1/batch/download` | 批量下载（多用户/列表） | ❌ |
 | **GET** | `/api/v1/tasks` | 任务列表 | ❌ |
-| **GET** | `/api/v1/tasks/{id}` | 任务详情 | ❌ |
-| **POST** | `/api/v1/tasks/{id}/cancel` | 取消任务 | ❌ |
+| **GET** | `/api/v1/tasks/{task_id}` | 任务详情 | ❌ |
+| **POST** | `/api/v1/tasks/{task_id}/cancel` | 取消任务 | ❌ |
 | **GET** | `/api/v1/sse/tasks` | SSE 实时任务推送 | ❌ |
 | **GET** | `/api/v1/db/users` | 用户列表（分页） | ❌ |
 | **GET** | `/api/v1/db/users/{id}` | 用户详情 | ❌ |
@@ -457,6 +457,7 @@ tmd -server -port 8080
 | **GET** | `/api/v1/logs` | 获取系统日志（支持筛选/分页） | ❌ |
 | **GET** | `/api/v1/logs/stream` | SSE 实时日志流 | ❌ |
 | **GET** | `/api/v1/schedules` | 获取定时任务列表和状态 | ❌ |
+| **PUT** | `/api/v1/schedules` | 替换全部调度配置 | ❌ |
 | **POST** | `/api/v1/schedules` | 创建定时任务 | ❌ |
 | **GET** | `/api/v1/schedules/raw` | 获取原始调度配置 | ❌ |
 | **PUT** | `/api/v1/schedules/raw` | 更新原始调度配置 (YAML) | ❌ |
@@ -469,11 +470,23 @@ tmd -server -port 8080
 | **GET** | `/` | Web 管理界面 - 仪表盘 | ❌ |
 | **GET** | `/tasks` | Web 管理界面 - 任务 | ❌ |
 | **GET** | `/data` | Web 管理界面 - 数据 | ❌ |
+| **GET** | `/schedules` | Web 管理界面 - 调度 | ❌ |
 | **GET** | `/system` | Web 管理界面 - 系统 | ❌ |
+| **GET** | `/static/{$}` | 静态资源文件（精确匹配） | ❌ |
+| **GET** | `/static/{path...}` | 静态资源文件（路径匹配） | ❌ |
 
 > API JSON 中的 Twitter list ID 使用十进制字符串传输（例如 `"2033436439346905439"`），避免 JavaScript Number 对 64 位 ID 产生精度丢失；URL 路径参数仍直接使用同一个十进制 ID。
 
 > ⚠️ **安全提示**: 当前版本 API 无需认证，仅建议在本地或可信网络使用。生产环境请配合反向代理（Nginx/Caddy）添加 Basic Auth 或 IP 白名单。
+
+### JSON 导入 API 详细说明
+
+JSON 导入端点（`/api/v1/json/file/download` 和 `/api/v1/json/folder/download`）支持**两种请求格式**，根据 `Content-Type` 自动分发：
+
+- **multipart/form-data**（推荐）：适用于 Web UI 和远程调用，直接上传 JSON 文件，无需服务端路径
+- **application/json**：用于 CLI 和高级用法，提供服务端文件/文件夹路径列表
+
+> 📖 **完整文档**：详细的请求/响应格式、参数说明、curl 示例和上传限制请参考 [API_DOCUMENTATION.md - 第8节](doc/API_DOCUMENTATION.md#8-从-json-文件下载)
 
 ### API 通用参数
 
@@ -674,6 +687,7 @@ schedules:
 | 方法 | 端点 | 说明 |
 |------|------|------|
 | **GET** | `/api/v1/schedules` | 获取调度器状态和任务列表 |
+| **PUT** | `/api/v1/schedules` | 替换全部调度配置 |
 | **POST** | `/api/v1/schedules` | 创建定时任务 |
 | **GET** | `/api/v1/schedules/raw` | 获取原始调度配置 |
 | **PUT** | `/api/v1/schedules/raw` | 更新原始调度配置 (YAML) |
@@ -1027,32 +1041,19 @@ Twitter API 限制一段时间内过快的请求（例如某端点每15分钟仅
 
 ### 启动脚本
 
-项目提供自动重启的启动脚本，当 Server 异常崩溃时自动拉起：
+项目提供 Server 模式的启动脚本：
 
-**Windows (`start.bat`)**：
+**Windows (`start-server.bat`)**：
 
 ```bash
 # 直接运行
-start.bat
+start-server.bat
 
 # 指定额外参数
-start.bat -port 8080
+start-server.bat -port 8080
 ```
 
-**Linux/macOS (`start.sh`)**：
-
-```bash
-# 添加执行权限
-chmod +x start.sh
-
-# 直接运行
-./start.sh
-
-# 指定额外参数
-./start.sh -port 8080
-```
-
-> 脚本行为：正常关闭（Exit 0）→ 退出脚本；异常崩溃（非 0）→ 等待 5 秒后自动重启。
+> 脚本行为：自动查找同目录下的 `tmd.exe` 并以 `-server` 模式启动，额外参数会透传给 tmd。
 
 ***
 
@@ -1106,37 +1107,40 @@ internal/service
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │  main.go (应用入口层)                                        │
-│  - 预解析全局参数                                             │
+│  - 预解析全局参数                                            │
 │  - 初始化配置、日志、数据库、Twitter 客户端                    │
 │  - 模式选择：Server / CLI                                    │
 └──────────┬──────────────────────────────────────────────────┘
            │
 ┌──────────▼──────────────────────────────────────────────────┐
-│  internal/config (配置层)                                    │
-│  - config.go: 配置结构、读写、环境变量覆盖、交互式配置         │
+│  internal/config (配置层)                                   │
+│  - config.go: 配置结构、读写、环境变量覆盖、交互式配置          │
 └──────────┬──────────────────────────────────────────────────┘
            │
-┌──────────▼──────────────────┐  ┌────────────────────────────▼┐
-│  internal/twitter           │  │  internal/database          │
-│  (API 客户端层)              │  │  (数据持久化层)               │
-│                             │  │                             │
-│  - client.go: 登录与客户端管理 │  │  - connect/sqlite/schema    │
-│  - api.go: 请求封装与通用能力 │  │  - model/query/helpers      │
-│  - user/tweet/list/timeline  │  │  - user/lst/entity/link     │
-│  - batch_login.go: 多账号     │  │  - *_migration / tx/manager │
-└──────────┬──────────────────┘  └─────────────┬───────────────┘
+┌──────────▼───────────────────┐  ┌────────────────────────────▼┐
+│  internal/twitter            │  │  internal/database          │
+│  (API 客户端层)               │  │  (数据持久化层)              │
+│                              │  │                             │
+│  - client.go: 登录与客户端管理 │  │  - connect/sqlite/schema     │
+│  - api.go: 请求封装与通用能力  │  │  - sqlite_schema/sqlite_migration │
+│  - user/tweet/list/timeline  │  │  - model/query/helpers       │
+│  - batch_login.go: 多账号     │  │  - user/lst/user_entity/lst_entity │
+│                              │  │  - user_link/user_sync       │
+│                              │  │  - parent_dir_migration/path_validation │
+│                              │  │  - tx/manager                │
+└──────────┬───────────────────┘  └─────────────┬───────────────┘
            │                                    │
            └──────────────┬─────────────────────┘
                           │
           ┌───────────────▼───────────────────────┐
-          │  🎯 internal/service (Service 层)       │
-          │        ★ 核心业务编排层 ★               │
-          │                                         │
-          │  - interfaces.go: DownloadService 接口   │
-          │  - download_service.go: 用户/列表/关注/   │
-          │    JSON/Profile/重试等统一入口            │
-          │  - deps.go: 依赖注入与构造                │
-          │  - progress.go: 进度上报                  │
+          │  🎯 internal/service (Service 层)     │
+          │        ★ 核心业务编排层 ★             │
+          │                                       │
+          │  - interfaces.go: DownloadService 接口 │
+          │  - download_service.go: 用户/列表/关注/ │
+          │    JSON/Profile/重试等统一入口          │
+          │  - deps.go: 依赖注入与构造              │
+          │  - progress.go: 进度上报               │
           └───────────────┬───────────────────────┘
                           │
           ┌───────────────┼───────────────────────────────┐
@@ -1160,39 +1164,40 @@ internal/service
 ┌─────────────────────────────────────────────────────────────┐
 │  internal/downloading (业务流程层)                           │
 │                                                             │
-│  - batch_any.go / batch_download.go                          │
-│  - tweet_download.go / user_sync.go / list_sync.go           │
-│  - json_file_download.go / json_folder_download.go           │
-│  - mark_downloaded.go / retry.go / dumper.go                 │
-│  - 负责抓取、同步实体、组织批量下载、失败重试                │
+│  - batch_any.go / batch_download.go                         │
+│  - tweet_download.go / user_sync.go / list_sync.go          │
+│  - list_download.go / json_file_download.go / json_folder_download.go │
+│  - mark_downloaded.go / retry.go / dumper.go                │
+│  - entity.go / types.go / tweet_json_converter.go           │
+│  - 负责抓取、同步实体、组织批量下载、失败重试                   │
 ├─────────────────────────────────────────────────────────────┤
 │  internal/downloading/profile (Profile 业务子包)             │
-│  - downloader.go / storage.go / types.go                     │
-│  - 负责头像、横幅、简介、profile.json 与版本备份             │
+│  - downloader.go / storage.go / types.go                    │
+│  - 负责头像、横幅、简介、profile.json 与版本备份               │
 └──────────┬──────────────────────────────────────────────────┘
            │
 ┌──────────▼──────────────────────────────────────────────────┐
 │  internal/entity (数据实体层)                                │
 │  - interface.go / user.go / list.go / sync.go               │
 ├─────────────────────────────────────────────────────────────┤
-│  internal/downloader (基础设施层 - 通用下载)                 │
-│  - downloader.go: 单文件下载、流式下载、大小校验             │
-│  - file_writer.go: 原子写入、跳过未变化文件、并发锁管理       │
+│  internal/downloader (基础设施层 - 通用下载)                  │
+│  - downloader.go: 单文件下载、流式下载、大小校验               │
+│  - file_writer.go: 原子写入、跳过未变化文件、并发锁管理         │
 │  - version_manager.go: 版本备份管理                          │
 ├─────────────────────────────────────────────────────────────┤
 │  internal/naming (命名服务)                                  │
-│  - tweet_naming.go / user_naming.go / list_naming.go        │
+│  - base.go / tweet_naming.go / user_naming.go / list_naming.go │
 ├─────────────────────────────────────────────────────────────┤
-│  internal/scheduler (定时任务调度器)                          │
+│  internal/scheduler (定时任务调度器)                         │
 │  - scheduler.go: 调度执行与状态维护                           │
-│  - types.go: ScheduleEntry / ScheduleStatus / ParsedSchedule │
+│  - types.go: ScheduleEntry / ScheduleStatus / ParsedSchedule│
 ├─────────────────────────────────────────────────────────────┤
-│  internal/consolelog (控制台日志)                             │
-│  - hub.go: 日志捕获和分发中心，支持 SSE 实时推送              │
+│  internal/consolelog (控制台日志)                            │
+│  - hub.go: 日志捕获和分发中心，支持 SSE 实时推送               │
 ├─────────────────────────────────────────────────────────────┤
 │  internal/utils (工具层)                                     │
-│  - fs.go / http.go / algo.go / time_range.go / recovery.go   │
-│  - win32.go (Windows) / stub.go (!Windows)                   │
+│  - fs.go / http.go / algo.go / time_range.go / recovery.go  │
+│  - user.go / win32.go (Windows) / stub.go (!Windows)        │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -1260,8 +1265,8 @@ type DownloadService interface {
 
 ```
 ┌─────────────┐     ┌─────────────────┐     ┌─────────────────┐
-│   CLI 层    │────▶│  DownloadService │────▶│  downloading包  │
-│  executor   │     │  (业务编排)      │     │  (具体实现)     │
+│   CLI 层    │────▶│  DownloadService│────▶│  downloading包   │
+│  executor   │     │  (业务编排)      │     │  (具体实现)      │
 └─────────────┘     └─────────────────┘     └─────────────────┘
                            ▲
 ┌─────────────┐            │
@@ -1426,8 +1431,7 @@ ENTITY_ID:2|USER_ID:23248887|SCREEN_NAME:NASA|STATUS:OK
 ```
 tmd/
 ├── main.go                      # 应用入口（命令行解析、模式选择）
-├── start.bat                    # Windows 启动脚本（自动重启）
-├── start.sh                     # Linux/macOS 启动脚本（自动重启）
+├── start-server.bat              # Windows Server 模式启动脚本
 ├── internal/
 │   ├── api/                     # API Server 模块
 │   ├── cli/                     # CLI 命令模块

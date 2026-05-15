@@ -452,10 +452,10 @@ func (s *downloadServiceImpl) ProfileDownload(ctx context.Context, taskID string
 	versionManager, fileWriter, dwn := s.initDownloader()
 
 	unique := make([]string, 0)
-	seen := make(map[string]bool)
+	seen := make(map[string]struct{})
 	for _, name := range screenNames {
-		if !seen[name] {
-			seen[name] = true
+		if _, ok := seen[name]; !ok {
+			seen[name] = struct{}{}
 			unique = append(unique, name)
 		}
 	}
@@ -498,10 +498,10 @@ func (s *downloadServiceImpl) ListProfileDownload(ctx context.Context, taskID st
 	versionManager, fileWriter, dwn := s.initDownloader()
 
 	users := make([]*twitter.User, 0, len(membersResult.Users))
-	seen := make(map[string]bool)
+	seen := make(map[string]struct{})
 	for _, user := range membersResult.Users {
-		if !seen[user.ScreenName] {
-			seen[user.ScreenName] = true
+		if _, ok := seen[user.ScreenName]; !ok {
+			seen[user.ScreenName] = struct{}{}
 			users = append(users, user)
 		}
 	}
@@ -571,7 +571,7 @@ func (s *downloadServiceImpl) JsonFileDownload(ctx context.Context, taskID strin
 
 	_, fileWriter, dwn := s.initDownloader()
 
-	// 使用 pathHelper.Users 确保与 profile 下载目录一致
+	// 使用 pathHelper.Users 确保导入 JSON 与常规推文下载落在同一 users 目录结构下
 	// 日志已在 downloading 层打印
 	results := downloading.DownloadThirdPartyTweets(ctx, s.deps.Client, pathHelper.Users, dwn, fileWriter, paths...)
 
@@ -611,7 +611,7 @@ func (s *downloadServiceImpl) JsonFolderDownload(ctx context.Context, taskID str
 
 	_, fileWriter, dwn := s.initDownloader()
 
-	// 使用 pathHelper.Users 确保与 profile 下载目录结构一致
+	// 使用 pathHelper.Users 确保 .loongtweet 导入与常规推文下载落在同一 users 目录结构下
 	// 日志已在 downloading 层打印
 	results := downloading.DownloadFromLoongTweetFolder(ctx, s.deps.Client, pathHelper.Users, dwn, fileWriter, paths...)
 
@@ -699,20 +699,20 @@ func (s *downloadServiceImpl) BatchDownload(ctx context.Context, taskID string, 
 	profileWarning := ""
 	if !opts.SkipProfile && (len(users) > 0 || len(listMembers) > 0) {
 		profileUsers := make([]*twitter.User, 0)
-		seen := make(map[string]bool) // 使用 screenName 去重（与稳定版一致）
+		seen := make(map[string]struct{}) // 使用 screenName 去重（与稳定版一致）
 
 		// 添加直接传入的用户
 		for _, user := range users {
-			if !seen[user.ScreenName] {
-				seen[user.ScreenName] = true
+			if _, ok := seen[user.ScreenName]; !ok {
+				seen[user.ScreenName] = struct{}{}
 				profileUsers = append(profileUsers, user)
 			}
 		}
 
 		// 复用 BatchDownloadAny 返回的列表成员（无需再次调用 GetMembers）
 		for _, member := range listMembers {
-			if !seen[member.ScreenName] {
-				seen[member.ScreenName] = true
+			if _, ok := seen[member.ScreenName]; !ok {
+				seen[member.ScreenName] = struct{}{}
 				profileUsers = append(profileUsers, member)
 			}
 		}
@@ -759,10 +759,11 @@ func (s *downloadServiceImpl) saveDumper(dumper *downloading.TweetDumper, path s
 // collectFailedTweets 收集失败的推文到 Dumper
 func (s *downloadServiceImpl) collectFailedTweets(dumper *downloading.TweetDumper, failedTweets []*downloading.TweetInEntity) {
 	for _, tweet := range failedTweets {
-		if tweet.Entity != nil {
-			if id, err := tweet.Entity.Id(); err == nil {
-				dumper.Push(id, tweet.Tweet)
-			}
+		if tweet == nil || tweet.Tweet == nil || tweet.Entity == nil {
+			continue
+		}
+		if id, err := tweet.Entity.Id(); err == nil {
+			dumper.Push(id, tweet.Tweet)
 		}
 	}
 }

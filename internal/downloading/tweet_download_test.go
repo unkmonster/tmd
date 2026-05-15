@@ -41,6 +41,12 @@ func (m *mockTweetDownloader) Download(req downloader.DownloadRequest) (*downloa
 	return &downloader.DownloadResult{Success: true}, nil
 }
 
+type panicTweetDownloader struct{}
+
+func (p panicTweetDownloader) Download(req downloader.DownloadRequest) (*downloader.DownloadResult, error) {
+	panic("download panic")
+}
+
 type testPackagedTweet struct {
 	tweet *twitter.Tweet
 	path  string
@@ -293,6 +299,66 @@ func TestBatchDownloadTweet_ReportsFailedTweet(t *testing.T) {
 	}
 	if gotTweetID != 1 {
 		t.Fatalf("BatchDownloadTweet() reported tweet id %d, want 1", gotTweetID)
+	}
+}
+
+func TestBatchDownloadTweet_WorkerPanicDoesNotDeadlock(t *testing.T) {
+	originalMaxDownloadRoutine := MaxDownloadRoutine
+	MaxDownloadRoutine = 4
+	t.Cleanup(func() {
+		MaxDownloadRoutine = originalMaxDownloadRoutine
+	})
+
+	tempDir := t.TempDir()
+	tweets := make([]PackagedTweet, 8)
+	for i := range tweets {
+		tweetID := uint64(i + 1)
+		tweets[i] = testPackagedTweet{
+			tweet: &twitter.Tweet{
+				Id:        tweetID,
+				Text:      "tweet",
+				Urls:      []string{"https://example.com/panic.jpg"},
+				CreatedAt: time.Now(),
+				Creator: &twitter.User{
+					Name:       "alice",
+					ScreenName: "alice",
+				},
+			},
+			path: filepath.Join(tempDir, "alice"),
+		}
+	}
+
+	done := make(chan []PackagedTweet, 1)
+	go func() {
+		done <- BatchDownloadTweet(
+			context.Background(),
+			nil,
+			true,
+			panicTweetDownloader{},
+			nil,
+			nil,
+			tweets...,
+		)
+	}()
+
+	select {
+	case failedTweets := <-done:
+		if len(failedTweets) != len(tweets) {
+			t.Fatalf("BatchDownloadTweet() returned %d failed tweets, want %d", len(failedTweets), len(tweets))
+		}
+		seen := make(map[uint64]struct{}, len(failedTweets))
+		for _, pt := range failedTweets {
+			tweet := pt.GetTweet()
+			if tweet == nil {
+				t.Fatal("failed tweet should contain tweet data")
+			}
+			if _, ok := seen[tweet.Id]; ok {
+				t.Fatalf("tweet %d reported more than once", tweet.Id)
+			}
+			seen[tweet.Id] = struct{}{}
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("BatchDownloadTweet deadlocked after worker panic")
 	}
 }
 

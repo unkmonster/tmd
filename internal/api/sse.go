@@ -2,13 +2,26 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 )
 
+func disableSSEWriteTimeout(w http.ResponseWriter) {
+	if err := http.NewResponseController(w).SetWriteDeadline(time.Time{}); err != nil {
+		if errors.Is(err, http.ErrNotSupported) {
+			return
+		}
+		log.Warnf("[SSE] Failed to disable write deadline: %v", err)
+	}
+}
+
 func (s *Server) handleSSETasks(w http.ResponseWriter, r *http.Request) {
+	disableSSEWriteTimeout(w)
+
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")

@@ -6,9 +6,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
-	"time"
 
 	log "github.com/sirupsen/logrus"
 	"gopkg.in/yaml.v3"
@@ -59,11 +57,9 @@ func (s *Server) handleUpdateCookiesRaw(w http.ResponseWriter, r *http.Request) 
 
 	cookiesPath := filepath.Join(s.appRootPath, "additional_cookies.yaml")
 
-	backupPath := cookiesPath + ".backup." + strconv.FormatInt(time.Now().Unix(), 10)
-	if data, err := os.ReadFile(cookiesPath); err == nil {
-		if writeErr := os.WriteFile(backupPath, data, 0600); writeErr != nil {
-			log.Warnf("Failed to create cookies backup: %v", writeErr)
-		}
+	backupName, err := createBackup(cookiesPath)
+	if err != nil {
+		log.Warnf("Failed to create cookies backup: %v", err)
 	}
 
 	if err := config.WriteAdditionalCookies(cookiesPath, testCookies); err != nil {
@@ -75,7 +71,7 @@ func (s *Server) handleUpdateCookiesRaw(w http.ResponseWriter, r *http.Request) 
 
 	s.writeJSON(w, http.StatusOK, NewSuccessResponse(map[string]interface{}{
 		"message": "Additional cookies saved successfully. Please restart TMD manually for changes to take effect.",
-		"backup":  filepath.Base(backupPath),
+		"backup":  backupName,
 	}))
 }
 
@@ -126,19 +122,29 @@ func (s *Server) handleSaveCookies(w http.ResponseWriter, r *http.Request) {
 
 	cookies := make([]*config.Cookie, 0, len(req.Cookies))
 	for i, c := range req.Cookies {
-		authToken := c["auth_token"]
-		ct0 := c["ct0"]
+		sourceIndex := i
+		if c.Index != nil {
+			sourceIndex = *c.Index
+		}
+
+		authToken, err := resolveCookieSaveValue(c.AuthToken, existingCookies, sourceIndex, func(cookie *config.Cookie) string {
+			return cookie.AuthToken
+		})
+		if err != nil {
+			s.writeError(w, http.StatusBadRequest, fmt.Sprintf("账户 #%d 的 Auth Token %s", i+1, err.Error()))
+			return
+		}
+		ct0, err := resolveCookieSaveValue(c.Ct0, existingCookies, sourceIndex, func(cookie *config.Cookie) string {
+			return cookie.Ct0
+		})
+		if err != nil {
+			s.writeError(w, http.StatusBadRequest, fmt.Sprintf("账户 #%d 的 CT0 %s", i+1, err.Error()))
+			return
+		}
 
 		if strings.TrimSpace(authToken) == "" && strings.TrimSpace(ct0) == "" {
 			s.writeError(w, http.StatusBadRequest, fmt.Sprintf("账户 #%d 的 Auth Token 和 CT0 不能同时为空", i+1))
 			return
-		}
-
-		if authToken == "__KEEP_OLD__" && existingCookies != nil && i < len(existingCookies) {
-			authToken = existingCookies[i].AuthToken
-		}
-		if ct0 == "__KEEP_OLD__" && existingCookies != nil && i < len(existingCookies) {
-			ct0 = existingCookies[i].Ct0
 		}
 
 		cookies = append(cookies, &config.Cookie{
@@ -147,11 +153,9 @@ func (s *Server) handleSaveCookies(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	backupPath := cookiesPath + ".backup." + strconv.FormatInt(time.Now().Unix(), 10)
-	if data, err := os.ReadFile(cookiesPath); err == nil {
-		if writeErr := os.WriteFile(backupPath, data, 0600); writeErr != nil {
-			log.Warnf("Failed to create cookies backup: %v", writeErr)
-		}
+	backupName, err := createBackup(cookiesPath)
+	if err != nil {
+		log.Warnf("Failed to create cookies backup: %v", err)
 	}
 
 	if err := config.WriteAdditionalCookies(cookiesPath, cookies); err != nil {
@@ -163,6 +167,16 @@ func (s *Server) handleSaveCookies(w http.ResponseWriter, r *http.Request) {
 
 	s.writeJSON(w, http.StatusOK, NewSuccessResponse(map[string]interface{}{
 		"message": "Additional cookies saved successfully. Please restart TMD manually for changes to take effect.",
-		"backup":  filepath.Base(backupPath),
+		"backup":  backupName,
 	}))
+}
+
+func resolveCookieSaveValue(value string, existingCookies []*config.Cookie, sourceIndex int, get func(*config.Cookie) string) (string, error) {
+	if value != "__KEEP_OLD__" {
+		return value, nil
+	}
+	if sourceIndex < 0 || sourceIndex >= len(existingCookies) || existingCookies[sourceIndex] == nil {
+		return "", fmt.Errorf("无法保留原值：原账户不存在")
+	}
+	return get(existingCookies[sourceIndex]), nil
 }

@@ -26,11 +26,7 @@ func updateUserLink(lnk *database.UserLink, db *sqlx.DB, path string) error {
 	}
 
 	if lnk.Name == name {
-		err = os.Symlink(path, linkpath)
-		if os.IsExist(err) {
-			err = nil
-		}
-		return err
+		return ensureUserSymlink(path, linkpath)
 	}
 
 	newlinkpath := filepath.Join(linkDir, name)
@@ -38,7 +34,7 @@ func updateUserLink(lnk *database.UserLink, db *sqlx.DB, path string) error {
 	if err = os.RemoveAll(linkpath); err != nil {
 		return err
 	}
-	if err = os.Symlink(path, newlinkpath); err != nil && !os.IsExist(err) {
+	if err = ensureUserSymlink(path, newlinkpath); err != nil {
 		return err
 	}
 
@@ -48,4 +44,50 @@ func updateUserLink(lnk *database.UserLink, db *sqlx.DB, path string) error {
 
 	lnk.Name = name
 	return nil
+}
+
+func ensureUserSymlink(targetPath, linkPath string) error {
+	if err := os.Symlink(targetPath, linkPath); err != nil {
+		if !os.IsExist(err) {
+			return err
+		}
+		return replaceStaleUserSymlink(targetPath, linkPath, err)
+	}
+	return nil
+}
+
+func replaceStaleUserSymlink(targetPath, linkPath string, existErr error) error {
+	currentTarget, err := os.Readlink(linkPath)
+	if err != nil {
+		return existErr
+	}
+	if !filepath.IsAbs(currentTarget) {
+		currentTarget = filepath.Join(filepath.Dir(linkPath), currentTarget)
+	}
+	currentTarget, err = filepath.Abs(currentTarget)
+	if err != nil {
+		return err
+	}
+	targetPath, err = filepath.Abs(targetPath)
+	if err != nil {
+		return err
+	}
+	if currentTarget == targetPath {
+		return nil
+	}
+
+	backupPath := linkPath + ".stale"
+	if err := os.Remove(backupPath); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	if err := os.Rename(linkPath, backupPath); err != nil {
+		return err
+	}
+	if err := os.Symlink(targetPath, linkPath); err != nil {
+		if restoreErr := os.Rename(backupPath, linkPath); restoreErr != nil {
+			return restoreErr
+		}
+		return err
+	}
+	return os.Remove(backupPath)
 }

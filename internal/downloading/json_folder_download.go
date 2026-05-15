@@ -181,9 +181,9 @@ type LoongTweetResult struct {
 	Duration   time.Duration `json:"duration"`
 }
 
-// ParseLoongTweetFiles 遍历 folderPath 下所有 .json 子文件（递归），
+// parseLoongTweetFiles 遍历 folderPath 下所有 .json 子文件（递归），
 // 使用 FormattedTweetEntry 格式解析每个文件，返回有效推文列表、文件路径列表和错误。
-func ParseLoongTweetFiles(folderPath string) ([]*twitter.Tweet, []string, error) {
+func parseLoongTweetFiles(folderPath string) ([]*twitter.Tweet, []string, error) {
 	jsonFiles, err := collectJsonFiles(folderPath)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to collect json files from %s: %w", folderPath, err)
@@ -247,7 +247,7 @@ func collectJsonFiles(folderPath string) ([]string, error) {
 }
 
 // DownloadFromLoongTweetFolder 从 TMD 生成的 .loongtweet 文件夹下载推文媒体。
-// 并发处理多个文件夹路径，skipLoongTweet=true 不保存 .json/.txt/.profile 元数据文件。
+// 并发处理多个文件夹路径，skipLoongTweet=true 表示复用已有 .loongtweet JSON/TXT，不重复写入推文元数据文件。
 // usersDir 应该是 pathHelper.Users（即 Root/users）
 func DownloadFromLoongTweetFolder(ctx context.Context, client *resty.Client, usersDir string, dwn downloader.Downloader, fileWriter downloader.FileWriter, folderPaths ...string) []LoongTweetResult {
 	results := make([]LoongTweetResult, 0, len(folderPaths))
@@ -261,7 +261,7 @@ func DownloadFromLoongTweetFolder(ctx context.Context, client *resty.Client, use
 			start := time.Now()
 			result := LoongTweetResult{Path: fp}
 
-			allTweets, _, err := ParseLoongTweetFiles(fp)
+			allTweets, _, err := parseLoongTweetFiles(fp)
 			if err != nil {
 				result.Error = err.Error()
 				result.Duration = time.Since(start)

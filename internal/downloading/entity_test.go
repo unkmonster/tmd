@@ -82,6 +82,92 @@ func TestUpdateUserLink(t *testing.T) {
 	}
 }
 
+func TestUpdateUserLink_ReplacesStaleSymlinkTarget(t *testing.T) {
+	db := setupTestDB(t)
+	defer db.Close()
+
+	tempDir := t.TempDir()
+	oldPath := filepath.Join(tempDir, "old", "TestUser")
+	newPath := filepath.Join(tempDir, "new", "TestUser")
+	if err := os.MkdirAll(oldPath, 0755); err != nil {
+		t.Fatalf("Failed to create old path: %v", err)
+	}
+	if err := os.MkdirAll(newPath, 0755); err != nil {
+		t.Fatalf("Failed to create new path: %v", err)
+	}
+
+	entity := &database.UserEntity{
+		UserId:    12345,
+		ParentDir: filepath.Join(tempDir, "new"),
+		Name:      "TestUser",
+	}
+	if err := database.CreateUserEntity(db, entity); err != nil {
+		t.Fatalf("Failed to create user entity: %v", err)
+	}
+
+	listEntity := &database.LstEntity{
+		LstId:     999,
+		ParentDir: tempDir,
+		Name:      "TestList",
+	}
+	if err := database.CreateLstEntity(db, listEntity); err != nil {
+		t.Fatalf("Failed to create list entity: %v", err)
+	}
+
+	link := &database.UserLink{
+		UserId:            12345,
+		ParentLstEntityId: listEntity.Id.Int32,
+		Name:              "TestUser",
+	}
+	if err := database.CreateUserLink(db, link); err != nil {
+		t.Fatalf("Failed to create user link: %v", err)
+	}
+
+	linkPath, err := link.Path(db)
+	if err != nil {
+		t.Fatalf("Failed to resolve link path: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(linkPath), 0755); err != nil {
+		t.Fatalf("Failed to create link dir: %v", err)
+	}
+	oldAbs, err := filepath.Abs(oldPath)
+	if err != nil {
+		t.Fatalf("Failed to resolve old path: %v", err)
+	}
+	if err := os.Symlink(oldAbs, linkPath); err != nil {
+		if strings.Contains(err.Error(), "A required privilege is not held") {
+			t.Skip("Skipping symlink test due to lack of privileges on Windows")
+		}
+		t.Fatalf("Failed to create stale symlink: %v", err)
+	}
+
+	if err := updateUserLink(link, db, newPath); err != nil {
+		if strings.Contains(err.Error(), "A required privilege is not held") {
+			t.Skip("Skipping symlink replacement test due to lack of privileges on Windows")
+		}
+		t.Fatalf("updateUserLink() error = %v", err)
+	}
+
+	gotTarget, err := os.Readlink(linkPath)
+	if err != nil {
+		t.Fatalf("Failed to read symlink: %v", err)
+	}
+	if !filepath.IsAbs(gotTarget) {
+		gotTarget = filepath.Join(filepath.Dir(linkPath), gotTarget)
+	}
+	gotTarget, err = filepath.Abs(gotTarget)
+	if err != nil {
+		t.Fatalf("Failed to resolve symlink target: %v", err)
+	}
+	wantTarget, err := filepath.Abs(newPath)
+	if err != nil {
+		t.Fatalf("Failed to resolve new path: %v", err)
+	}
+	if gotTarget != wantTarget {
+		t.Fatalf("symlink target = %s, want %s", gotTarget, wantTarget)
+	}
+}
+
 func TestUpdateUserLink_NonExistentLink(t *testing.T) {
 	db := setupTestDB(t)
 	defer db.Close()

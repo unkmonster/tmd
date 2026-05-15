@@ -7,6 +7,104 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ***
 
+## [v3.4.5] - 2026-05-09
+
+### Added
+
+#### 新增基础设施层
+
+| 文件 | 说明 |
+|------|------|
+| `internal/downloader/downloader.go` | 新增通用下载器基础设施，支持单文件下载、流式下载、大小校验 |
+| `internal/downloader/file_writer.go` | 原子写入、跳过未变化文件、并发锁管理 |
+| `internal/downloader/version_manager.go` | 版本备份管理 |
+| `internal/naming/base.go` | 命名服务基础接口 |
+| `internal/utils/user.go` | 用户相关工具函数 |
+
+### Changed
+
+#### 架构重构
+
+| 文件 | 变更 |
+|------|------|
+| `internal/downloading/entity.go` | 实体处理逻辑优化，适配新的基础设施层 |
+| `internal/downloading/list_sync.go` | 列表同步逻辑优化 |
+| `internal/downloading/tweet_download.go` | 推文下载逻辑优化 |
+| `internal/downloading/json_file_download.go` | JSON 文件下载优化 |
+| `internal/downloading/json_folder_download.go` | JSON 文件夹下载优化 |
+
+#### API 层优化
+
+| 文件 | 变更 |
+|------|------|
+| `internal/api/config_handlers.go` | 配置处理器优化 |
+| `internal/api/cookie_handlers.go` | Cookie 处理器优化 |
+| `internal/api/db_handlers.go` | 数据库处理器优化 |
+| `internal/api/download_handlers.go` | 下载处理器优化 |
+| `internal/api/handlers.go` | 通用处理器优化 |
+| `internal/api/log_handlers.go` | 日志处理器优化 |
+| `internal/api/scheduler_handlers.go` | 调度器处理器优化 |
+| `internal/api/server.go` | 服务器配置优化 |
+| `internal/api/sse.go` | SSE 增强，支持更多事件类型 |
+| `internal/api/task_manager.go` | 任务管理器优化 |
+| `internal/api/types.go` | 类型定义优化 |
+
+#### CLI 层增强
+
+| 文件 | 变更 |
+|------|------|
+| `internal/cli/args.go` | 新增参数解析功能 |
+| `internal/cli/executor.go` | 执行器优化 |
+
+#### Service 层调整
+
+| 文件 | 变更 |
+|------|------|
+| `internal/service/deps.go` | 依赖注入优化 |
+| `internal/service/download_service.go` | 下载服务优化 |
+| `internal/service/interfaces.go` | 接口定义调整 |
+
+#### CI/CD 和部署
+
+| 文件 | 变更 |
+|------|------|
+| `.github/workflows/go.yml` | GitHub Actions 工作流优化 |
+| `Dockerfile` | Docker 构建优化 |
+| `start.bat` / `start.sh` | 移除旧启动脚本 |
+| `start-server.bat` | 新增 Windows Server 模式启动脚本 |
+
+#### 文档更新
+
+| 文件 | 变更 |
+|------|------|
+| `readme.md` | 架构图更新，目录结构调整 |
+
+### Added
+
+#### 测试增强
+
+| 文件 | 说明 |
+|------|------|
+| `internal/api/db_handlers_test.go` | 新增数据库 handler 测试 |
+| `internal/api/handlers_test.go` | 新增 handler 测试 |
+| `internal/api/server_test.go` | 新增服务器测试 |
+| `internal/api/task_manager_test.go` | 新增任务管理器测试 |
+| `internal/api/types_test.go` | 新增类型测试 |
+| `internal/cli/args_test.go` | 新增参数解析测试 |
+| `internal/cli/executor_test.go` | 新增执行器测试 |
+| `internal/downloading/entity_test.go` | 新增实体测试 |
+| `internal/downloading/list_sync_test.go` | 新增列表同步测试 |
+| `internal/downloading/tweet_download_test.go` | 新增推文下载测试 |
+| `internal/service/deps_test.go` | 新增依赖注入测试 |
+| `internal/service/download_service_test.go` | 新增下载服务测试 |
+
+### Stats
+
+- **38 个文件变更**
+- **+1091 行 / -340 行**
+
+***
+
 ## [v3.4.4] - 2026-05-09
 
 ### Changed

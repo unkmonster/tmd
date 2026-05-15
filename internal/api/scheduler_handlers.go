@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"time"
 
 	log "github.com/sirupsen/logrus"
 	"gopkg.in/yaml.v3"
@@ -411,14 +410,9 @@ func (s *Server) readScheduleConfigLocked(schedulesPath string) (scheduler.Sched
 }
 
 func (s *Server) writeScheduleConfigLocked(schedulesPath string, cfg scheduler.ScheduleConfig) (string, error) {
-	var backupName string
-	backupPath := schedulesPath + ".backup." + strconv.FormatInt(time.Now().UnixNano(), 10)
-	if data, err := os.ReadFile(schedulesPath); err == nil {
-		if writeErr := os.WriteFile(backupPath, data, 0600); writeErr != nil {
-			log.Warnf("Failed to create schedules backup: %v", writeErr)
-		} else {
-			backupName = filepath.Base(backupPath)
-		}
+	backupName, err := createBackup(schedulesPath)
+	if err != nil {
+		log.Warnf("Failed to create schedules backup: %v", err)
 	}
 
 	data, err := yaml.Marshal(cfg)

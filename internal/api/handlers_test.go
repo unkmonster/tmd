@@ -31,7 +31,7 @@ func TestHandleWeb_Success(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rr.Code)
 	assert.Equal(t, "text/html; charset=utf-8", rr.Header().Get("Content-Type"))
 	assert.Equal(t, "public, max-age=3600", rr.Header().Get("Cache-Control"))
-	assert.Equal(t, `"v1.0.0"`, rr.Header().Get("ETag"))
+	assert.Equal(t, contentETag(rr.Body.Bytes()), rr.Header().Get("ETag"))
 	assert.Greater(t, rr.Body.Len(), 0)
 }
 
@@ -191,7 +191,7 @@ func TestHandleStatic_CacheHeaders(t *testing.T) {
 	// 验证缓存头
 	if rr.Code == http.StatusOK {
 		assert.Equal(t, "public, max-age=86400", rr.Header().Get("Cache-Control"))
-		assert.Equal(t, `"v1.0.0"`, rr.Header().Get("ETag"))
+		assert.Equal(t, contentETag(rr.Body.Bytes()), rr.Header().Get("ETag"))
 	}
 }
 
@@ -248,7 +248,45 @@ func TestHandleWeb_CacheHeaders(t *testing.T) {
 	server.handleWeb(rr, req)
 
 	assert.Equal(t, "public, max-age=3600", rr.Header().Get("Cache-Control"))
-	assert.Equal(t, `"v1.0.0"`, rr.Header().Get("ETag"))
+	assert.Equal(t, contentETag(rr.Body.Bytes()), rr.Header().Get("ETag"))
+}
+
+func TestHandleWeb_IfNoneMatch(t *testing.T) {
+	server := &Server{}
+
+	firstReq := httptest.NewRequest(http.MethodGet, "/", nil)
+	firstRR := httptest.NewRecorder()
+	server.handleWeb(firstRR, firstReq)
+	requireETag := firstRR.Header().Get("ETag")
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("If-None-Match", requireETag)
+	rr := httptest.NewRecorder()
+
+	server.handleWeb(rr, req)
+
+	assert.Equal(t, http.StatusNotModified, rr.Code)
+	assert.Equal(t, requireETag, rr.Header().Get("ETag"))
+	assert.Equal(t, 0, rr.Body.Len())
+}
+
+func TestHandleStatic_IfNoneMatch(t *testing.T) {
+	server := &Server{}
+
+	firstReq := httptest.NewRequest(http.MethodGet, "/static/app.js", nil)
+	firstRR := serveStatic(server, firstReq)
+	if firstRR.Code != http.StatusOK {
+		t.Skip("embedded app.js not found")
+	}
+	requireETag := firstRR.Header().Get("ETag")
+
+	req := httptest.NewRequest(http.MethodGet, "/static/app.js", nil)
+	req.Header.Set("If-None-Match", requireETag)
+	rr := serveStatic(server, req)
+
+	assert.Equal(t, http.StatusNotModified, rr.Code)
+	assert.Equal(t, requireETag, rr.Header().Get("ETag"))
+	assert.Equal(t, 0, rr.Body.Len())
 }
 
 func TestHandleStatic_PathCleaning(t *testing.T) {

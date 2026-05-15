@@ -2,6 +2,7 @@ FROM --platform=$BUILDPLATFORM golang:1.25-bookworm AS build
 
 ARG TARGETOS
 ARG TARGETARCH
+ARG VERSION=dev
 
 WORKDIR /src
 
@@ -9,7 +10,7 @@ COPY go.mod go.sum ./
 RUN go mod download
 
 COPY . .
-RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags="-w -s" -o /out/tmd .
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags="-w -s -X github.com/unkmonster/tmd/internal/api.Version=$VERSION" -o /out/tmd .
 
 FROM alpine:3.22
 

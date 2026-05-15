@@ -2,6 +2,8 @@ package cli
 
 import (
 	"context"
+	"errors"
+	"flag"
 	"fmt"
 	"io"
 
@@ -104,8 +106,11 @@ func Execute(ctx context.Context, args []string, deps *Dependencies) error {
 	}
 
 	// 解析参数
-	_, cfg, err := ParseArgs(args)
+	cfg, err := ParseArgs(args)
 	if err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return nil
+		}
 		return fmt.Errorf("parse args failed: %w", err)
 	}
 
@@ -117,13 +122,14 @@ func Execute(ctx context.Context, args []string, deps *Dependencies) error {
 
 	log.Infoln("start working for...")
 
-	// 如果没有提供 Service，创建一个默认的
-	if deps.DownloadService == nil {
-		downloadService, err := service.NewDownloadService(&deps.Dependencies)
+	// 如果没有提供 Service，为本次执行创建默认 Service；不写回 deps，避免复用同一 deps 时产生隐式共享。
+	downloadService := deps.DownloadService
+	if downloadService == nil {
+		var err error
+		downloadService, err = service.NewDownloadService(&deps.Dependencies)
 		if err != nil {
 			return fmt.Errorf("failed to create download service: %w", err)
 		}
-		deps.DownloadService = downloadService
 	}
 
 	// 创建进度报告器
@@ -144,7 +150,7 @@ func Execute(ctx context.Context, args []string, deps *Dependencies) error {
 
 	// 处理不同类型的下载任务
 	// 参数优先级（从高到低，前面的参数会独占执行，后面的参数被忽略）：
-	// 1. -jsonfile    : 第三方工具导出的JSON文件（用户资料下载）- 完全独占
+	// 1. -jsonfile    : 第三方工具导出的 JSON 文件（推文媒体下载）- 完全独占
 	// 2. -jsonfolder  : TMD生成的.loongtweet文件夹（推文媒体下载）- 完全独占
 	// 3. -mark-downloaded : 标记已下载 - 完全独占
 	// 4. -user/-list/-foll : 批量下载推文 - 可与 -profile-user/-profile-list 组合
@@ -156,13 +162,13 @@ func Execute(ctx context.Context, args []string, deps *Dependencies) error {
 		if selection.hasIgnoredForExclusiveMode(cliTaskModeJSONFile) {
 			log.Warn("-jsonfile is exclusive, other download parameters will be ignored")
 		}
-		return deps.DownloadService.JsonFileDownload(ctx, "cli", cfg.JsonFileArgs.GetPaths(), cfg.NoRetry, reporter)
+		return downloadService.JsonFileDownload(ctx, "cli", cfg.JsonFileArgs.GetPaths(), cfg.NoRetry, reporter)
 	case cliTaskModeJSONFolder:
 		log.Infof("jsonfolder: %d folders", len(cfg.JsonFolderArgs.GetPaths()))
 		if selection.hasIgnoredForExclusiveMode(cliTaskModeJSONFolder) {
 			log.Warn("-jsonfolder is exclusive, other download parameters will be ignored")
 		}
-		return deps.DownloadService.JsonFolderDownload(ctx, "cli", cfg.JsonFolderArgs.GetPaths(), cfg.NoRetry, reporter)
+		return downloadService.JsonFolderDownload(ctx, "cli", cfg.JsonFolderArgs.GetPaths(), cfg.NoRetry, reporter)
 	case cliTaskModeMarkDownloaded:
 		log.Infoln("mark downloaded mode")
 		if selection.hasIgnoredForExclusiveMode(cliTaskModeMarkDownloaded) {
@@ -170,7 +176,7 @@ func Execute(ctx context.Context, args []string, deps *Dependencies) error {
 		}
 		log.Infof("mark downloaded: users: %d, lists: %d, following: %d",
 			len(cfg.UsrArgs.ScreenName), len(cfg.ListArgs.ID), len(cfg.FollArgs.ScreenName))
-		return deps.DownloadService.MarkDownloaded(ctx, "cli",
+		return downloadService.MarkDownloaded(ctx, "cli",
 			cfg.UsrArgs.ScreenName, cfg.ListArgs.ID, cfg.FollArgs.ScreenName,
 			markTime, reporter)
 	}
@@ -185,19 +191,19 @@ func Execute(ctx context.Context, args []string, deps *Dependencies) error {
 
 		var batchErr error
 		if len(screenNames) == 1 && len(listIDs) == 0 && len(followingNames) == 0 {
-			if err := deps.DownloadService.UserDownload(ctx, "cli", screenNames[0], opts, reporter); err != nil {
+			if err := downloadService.UserDownload(ctx, "cli", screenNames[0], opts, reporter); err != nil {
 				log.Warnf("User download failed: %v", err)
 				batchErr = err
 			}
 		} else if len(screenNames) == 0 && len(listIDs) == 0 && len(followingNames) == 1 {
-			if err := deps.DownloadService.FollowingDownload(ctx, "cli", followingNames[0], opts, reporter); err != nil {
+			if err := downloadService.FollowingDownload(ctx, "cli", followingNames[0], opts, reporter); err != nil {
 				log.Warnf("Following download failed: %v", err)
 				batchErr = err
 			}
 		} else {
 			// 直接使用 BatchDownload 处理单个列表或多个列表的下载
 			// BatchDownload 在底层处理单个列表时不会产生性能浪费，并且能正确处理各种类型的 ListBase
-			if err := deps.DownloadService.BatchDownload(ctx, "cli", screenNames, listIDs, followingNames, opts, reporter); err != nil {
+			if err := downloadService.BatchDownload(ctx, "cli", screenNames, listIDs, followingNames, opts, reporter); err != nil {
 				log.Warnf("Batch download failed: %v", err)
 				batchErr = err
 			}
@@ -219,7 +225,7 @@ func Execute(ctx context.Context, args []string, deps *Dependencies) error {
 		// 先处理用户 Profile
 		if hasProfileUsers {
 			log.Infof("profile users: %d", len(cfg.ProfileUsers.ScreenName))
-			if err := deps.DownloadService.ProfileDownload(ctx, "cli", cfg.ProfileUsers.ScreenName, reporter); err != nil {
+			if err := downloadService.ProfileDownload(ctx, "cli", cfg.ProfileUsers.ScreenName, reporter); err != nil {
 				log.Warnf("Profile download failed for users: %v", err)
 				profileErr = err
 			}
@@ -229,9 +235,9 @@ func Execute(ctx context.Context, args []string, deps *Dependencies) error {
 		if hasProfileLists {
 			log.Infof("profile lists: %d", len(cfg.ProfileList.ID))
 			for _, listID := range cfg.ProfileList.ID {
-				if err := deps.DownloadService.ListProfileDownload(ctx, "cli", listID, reporter); err != nil {
+				if err := downloadService.ListProfileDownload(ctx, "cli", listID, reporter); err != nil {
 					log.Warnf("Failed to download profile for list %d: %v", listID, err)
-					profileErr = err
+					profileErr = errors.Join(profileErr, err)
 				}
 			}
 		}

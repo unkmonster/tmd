@@ -3132,7 +3132,8 @@ async function saveCookiesForm() {
     const ct0Input = document.getElementById(`cookie_ct0_${i}`);
     const authVal = authInput ? authInput.value.trim() : '';
     const ct0Val = ct0Input ? ct0Input.value.trim() : '';
-    const isNewAccount = !items[i].auth_token && !items[i].ct0;
+    const originalIndex = Number.isInteger(items[i].index) ? items[i].index : null;
+    const isNewAccount = originalIndex === null;
 
     if (isNewAccount && !authVal && !ct0Val) {
       toast.show(`账户 #${i + 1} 的 Auth Token 和 CT0 不能同时为空`, 'error');
@@ -3140,6 +3141,7 @@ async function saveCookiesForm() {
     }
 
     cookies.push({
+      index: originalIndex,
       auth_token: (isNewAccount || authVal) ? authVal : '__KEEP_OLD__',
       ct0: (isNewAccount || ct0Val) ? ct0Val : '__KEEP_OLD__',
     });
@@ -3180,13 +3182,13 @@ function setCookiesMode(mode) {
 }
 
 function addCookieAccount() {
-  const items = [{ index: store.state.cookieItems.length, auth_token: '', ct0: '' }, ...store.state.cookieItems];
+  const items = [{ index: null, auth_token: '', ct0: '' }, ...store.state.cookieItems];
   store.setState({ cookieItems: items });
   glowNewFirstItem('systemCookiesPanel');
 }
 
 function removeCookieAccount(index) {
-  const items = store.state.cookieItems.filter((_, i) => i !== index).map((item, i) => ({ ...item, index: i }));
+  const items = store.state.cookieItems.filter((_, i) => i !== index);
   store.setState({ cookieItems: items });
 }
 

@@ -267,6 +267,23 @@ func TestCountRemainingFailedEntitiesOnlyCountsCurrentFailures(t *testing.T) {
 	assert.Equal(t, 1, countRemainingFailedEntities(dumper, failures))
 }
 
+func TestDownloadServiceImpl_CollectFailedTweetsSkipsNilEntries(t *testing.T) {
+	impl := &downloadServiceImpl{}
+	dumper := downloading.NewDumper()
+
+	assert.NotPanics(t, func() {
+		impl.collectFailedTweets(dumper, []*downloading.TweetInEntity{
+			nil,
+			{Tweet: nil, Entity: newFailedTweet(1, 10).Entity},
+			{Tweet: &twitter.Tweet{Id: 20, CreatedAt: time.Now()}, Entity: nil},
+			newFailedTweet(2, 30),
+		})
+	})
+
+	assert.Equal(t, 1, dumper.Count())
+	assert.True(t, dumper.HasTweet(2, 30))
+}
+
 func TestDownloadServiceImpl_CompleteProfileTaskWithoutDownloads(t *testing.T) {
 	deps := createTestDependencies(t)
 	service, err := NewDownloadService(deps)

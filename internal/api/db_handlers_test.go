@@ -581,6 +581,18 @@ func TestHandleDBUserEntities_WithFilters(t *testing.T) {
 	}
 }
 
+func TestHandleDBUserEntities_InvalidUserIDFilter(t *testing.T) {
+	server, db := createTestServer(t)
+	defer db.Close()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/db/user-entities?userId=not-number", nil)
+	rr := httptest.NewRecorder()
+
+	server.handleDBUserEntities(rr, req)
+
+	assert.Equal(t, http.StatusBadRequest, rr.Code)
+}
+
 func TestHandleDBUserEntityDetail_NotFound(t *testing.T) {
 	server, db := createTestServer(t)
 	defer db.Close()
@@ -676,6 +688,18 @@ func TestHandleDBListEntities_WithFilters(t *testing.T) {
 	}
 }
 
+func TestHandleDBListEntities_InvalidListIDFilter(t *testing.T) {
+	server, db := createTestServer(t)
+	defer db.Close()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/db/list-entities?listId=not-number", nil)
+	rr := httptest.NewRecorder()
+
+	server.handleDBListEntities(rr, req)
+
+	assert.Equal(t, http.StatusBadRequest, rr.Code)
+}
+
 func TestHandleDBListEntityDetail_NotFound(t *testing.T) {
 	server, db := createTestServer(t)
 	defer db.Close()
@@ -763,6 +787,27 @@ func TestHandleDBUserLinks_WithFilters(t *testing.T) {
 			server.handleDBUserLinks(rr, req)
 
 			assert.Equal(t, http.StatusOK, rr.Code)
+		})
+	}
+}
+
+func TestHandleDBUserLinks_InvalidNumericFilters(t *testing.T) {
+	server, db := createTestServer(t)
+	defer db.Close()
+
+	tests := []string{
+		"/api/v1/db/user-links?userId=not-number",
+		"/api/v1/db/user-links?listEntityId=not-number",
+	}
+
+	for _, url := range tests {
+		t.Run(url, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, url, nil)
+			rr := httptest.NewRecorder()
+
+			server.handleDBUserLinks(rr, req)
+
+			assert.Equal(t, http.StatusBadRequest, rr.Code)
 		})
 	}
 }
@@ -1014,6 +1059,42 @@ func TestHandleDBUserUpdate_PartialFields(t *testing.T) {
 	server.handleDBUserUpdate(rr, req)
 
 	assert.Equal(t, http.StatusOK, rr.Code)
+}
+
+func TestHandleDBUserUpdate_AllowsExplicitEmptyStrings(t *testing.T) {
+	server, db := createTestServer(t)
+	defer db.Close()
+
+	user := &database.User{
+		Id:           1,
+		ScreenName:   "testuser",
+		Name:         "Original Name",
+		IsProtected:  false,
+		FriendsCount: 50,
+		IsAccessible: true,
+	}
+	database.CreateUser(db, user)
+
+	updateData := map[string]string{
+		"screen_name": "",
+		"name":        "",
+	}
+	body, _ := json.Marshal(updateData)
+
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/db/users/1", bytes.NewReader(body))
+	req.SetPathValue("id", "1")
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+
+	server.handleDBUserUpdate(rr, req)
+
+	assert.Equal(t, http.StatusOK, rr.Code)
+
+	updated, err := database.GetUserById(db, 1)
+	assert.NoError(t, err)
+	assert.NotNil(t, updated)
+	assert.Equal(t, "", updated.ScreenName)
+	assert.Equal(t, "", updated.Name)
 }
 
 func TestHandleDBListUpdate_PartialFields(t *testing.T) {

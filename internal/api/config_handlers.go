@@ -6,9 +6,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
-	"time"
 
 	log "github.com/sirupsen/logrus"
 	"gopkg.in/yaml.v3"
@@ -83,11 +81,9 @@ func (s *Server) handleUpdateConfigRaw(w http.ResponseWriter, r *http.Request) {
 
 	confPath := filepath.Join(s.appRootPath, "conf.yaml")
 
-	backupPath := confPath + ".backup." + strconv.FormatInt(time.Now().Unix(), 10)
-	if data, err := os.ReadFile(confPath); err == nil {
-		if writeErr := os.WriteFile(backupPath, data, 0600); writeErr != nil {
-			log.Warnf("Failed to create config backup: %v", writeErr)
-		}
+	backupName, err := createBackup(confPath)
+	if err != nil {
+		log.Warnf("Failed to create config backup: %v", err)
 	}
 
 	if err := os.WriteFile(confPath, []byte(req.Content), 0600); err != nil {
@@ -101,7 +97,7 @@ func (s *Server) handleUpdateConfigRaw(w http.ResponseWriter, r *http.Request) {
 
 	s.writeJSON(w, http.StatusOK, NewSuccessResponse(map[string]interface{}{
 		"message":      "Configuration saved successfully. Please restart TMD manually for changes to take effect.",
-		"backup":       filepath.Base(backupPath),
+		"backup":       backupName,
 		"yaml_preview": req.Content,
 	}))
 }
@@ -240,11 +236,9 @@ func (s *Server) handleSaveConfigFields(w http.ResponseWriter, r *http.Request) 
 
 	confPath := filepath.Join(s.appRootPath, "conf.yaml")
 
-	backupPath := confPath + ".backup." + strconv.FormatInt(time.Now().Unix(), 10)
-	if data, err := os.ReadFile(confPath); err == nil {
-		if writeErr := os.WriteFile(backupPath, data, 0600); writeErr != nil {
-			log.Warnf("Failed to create config backup: %v", writeErr)
-		}
+	backupName, err := createBackup(confPath)
+	if err != nil {
+		log.Warnf("Failed to create config backup: %v", err)
 	}
 
 	if err := config.WriteConf(confPath, newConf); err != nil {
@@ -263,7 +257,7 @@ func (s *Server) handleSaveConfigFields(w http.ResponseWriter, r *http.Request) 
 
 	s.writeJSON(w, http.StatusOK, NewSuccessResponse(map[string]interface{}{
 		"message":      "Configuration saved successfully. Please restart TMD manually for changes to take effect.",
-		"backup":       filepath.Base(backupPath),
+		"backup":       backupName,
 		"yaml_preview": string(yamlPreview),
 		"fields":       buildConfigFieldItems(newConf),
 	}))

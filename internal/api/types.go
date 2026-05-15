@@ -117,7 +117,6 @@ type HealthResponse struct {
 // TaskListResponse 任务列表响应
 type TaskListResponse struct {
 	Tasks []*Task `json:"tasks"`
-	Total int     `json:"total"`
 }
 
 // DBUserItem 数据库用户项（前端友好格式）
@@ -240,7 +239,15 @@ type CookiesRawResponse struct {
 
 // CookiesSaveRequest cookies 保存请求（form 模式）
 type CookiesSaveRequest struct {
-	Cookies []map[string]string `json:"cookies"`
+	Cookies []CookieSaveItem `json:"cookies"`
+}
+
+// CookieSaveItem 单个额外账户的结构化保存请求。
+// Index 是该账户在原始 cookies 文件中的位置，用于稳定解析 __KEEP_OLD__。
+type CookieSaveItem struct {
+	Index     *int   `json:"index,omitempty"`
+	AuthToken string `json:"auth_token"`
+	Ct0       string `json:"ct0"`
 }
 
 type SchedulesRawResponse struct {

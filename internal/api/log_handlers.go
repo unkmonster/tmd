@@ -18,7 +18,7 @@ func (s *Server) handleGetLogs(w http.ResponseWriter, r *http.Request) {
 	search := query.Get("q")
 	pagination := NewPaginationWithDefaults(r, defaultLogsPageSize, maxLogsPageSize, defaultPaginationSort, defaultSortOrder)
 
-	filtered := reverseLogLines(filterLogLines(s.consoleLogHub().Snapshot(), levelStr, search))
+	filtered := reverseLogLines(filterLogLines(s.logHub.Snapshot(), levelStr, search))
 
 	total := len(filtered)
 	start := pagination.Offset
@@ -46,6 +46,8 @@ func (s *Server) handleGetLogs(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleLogStream(w http.ResponseWriter, r *http.Request) {
+	disableSSEWriteTimeout(w)
+
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		s.writeError(w, http.StatusInternalServerError, "Streaming not supported")
@@ -60,7 +62,7 @@ func (s *Server) handleLogStream(w http.ResponseWriter, r *http.Request) {
 	levelStr := r.URL.Query().Get("level")
 	search := r.URL.Query().Get("q")
 	ctx := r.Context()
-	ch, unsubscribe := s.consoleLogHub().Subscribe()
+	ch, unsubscribe := s.logHub.Subscribe()
 	defer unsubscribe()
 
 	fmt.Fprint(w, ": connected\n\n")

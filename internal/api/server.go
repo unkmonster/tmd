@@ -97,13 +97,6 @@ func (s *Server) getScheduler() *scheduler.Scheduler {
 	return s.scheduler
 }
 
-func (s *Server) consoleLogHub() *consolelog.Hub {
-	if s.logHub != nil {
-		return s.logHub
-	}
-	return consolelog.DefaultHub()
-}
-
 func (s *Server) buildHandler() http.Handler {
 	mux := http.NewServeMux()
 
@@ -226,7 +219,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 
 	resp := HealthResponse{
 		Status:    "ok",
-		Version:   "2.0.0",
+		Version:   buildVersion(),
 		Timestamp: time.Now().UTC(),
 	}
 	s.writeJSON(w, http.StatusOK, NewSuccessResponse(resp))

@@ -80,19 +80,21 @@ type TaskResult struct {
 
 // TaskManager 任务管理器
 type TaskManager struct {
-	tasks     map[string]*Task
-	mu        sync.RWMutex
-	stopCh    chan struct{}
-	closeOnce sync.Once
-	eventBus  *EventBus
+	tasks       map[string]*Task
+	mu          sync.RWMutex
+	stopCh      chan struct{}
+	closeOnce   sync.Once
+	eventBus    *EventBus
+	idGenerator func() string
 }
 
 // NewTaskManager 创建任务管理器
 func NewTaskManager(eventBus *EventBus) *TaskManager {
 	tm := &TaskManager{
-		tasks:    make(map[string]*Task),
-		stopCh:   make(chan struct{}),
-		eventBus: eventBus,
+		tasks:       make(map[string]*Task),
+		stopCh:      make(chan struct{}),
+		eventBus:    eventBus,
+		idGenerator: generateTaskID,
 	}
 	go tm.cleanupLoop()
 	return tm
@@ -137,7 +139,7 @@ func (tm *TaskManager) CreateTask(taskType TaskType, data interface{}) *Task {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	task := &Task{
-		ID:        generateTaskID(),
+		ID:        tm.nextTaskIDLocked(),
 		Type:      taskType,
 		Status:    TaskStatusQueued,
 		Data:      cloneTaskData(data),
@@ -152,6 +154,15 @@ func (tm *TaskManager) CreateTask(taskType TaskType, data interface{}) *Task {
 
 	tm.publishTasks()
 	return task
+}
+
+func (tm *TaskManager) nextTaskIDLocked() string {
+	for {
+		id := tm.idGenerator()
+		if _, exists := tm.tasks[id]; !exists {
+			return id
+		}
+	}
 }
 
 // GetTask 获取任务
@@ -488,22 +499,6 @@ func (tm *TaskManager) CompleteTask(id string, result *TaskResult) bool {
 	return true
 }
 
-// SetTaskResult 设置任务结果
-func (tm *TaskManager) SetTaskResult(id string, result *TaskResult) bool {
-	tm.mu.Lock()
-	task, ok := tm.tasks[id]
-	if !ok {
-		tm.mu.Unlock()
-		return false
-	}
-
-	task.Result = result
-	tm.mu.Unlock()
-
-	tm.publishTasks()
-	return true
-}
-
 // CancelTask 取消任务
 func (tm *TaskManager) CancelTask(id string) bool {
 	tm.mu.Lock()
@@ -588,5 +583,5 @@ func (tm *TaskManager) cleanup() {
 }
 
 func generateTaskID() string {
-	return "task_" + uuid.New().String()[:8]
+	return "task_" + uuid.NewString()
 }

@@ -1,7 +1,9 @@
 package api
 
 import (
+	"crypto/sha256"
 	"embed"
+	"encoding/hex"
 	"net/http"
 	"path"
 	"strings"
@@ -17,13 +19,7 @@ func (s *Server) handleWeb(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, http.StatusInternalServerError, "Failed to load web page")
 		return
 	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Header().Set("Cache-Control", "public, max-age=3600")
-	w.Header().Set("ETag", "\"v1.0.0\"")
-	if _, err := w.Write(data); err != nil {
-		// 这里只记录日志，因为头部可能已经发送，无法再返回 HTTP 500
-		return
-	}
+	s.writeCachedContent(w, r, data, "text/html; charset=utf-8", "public, max-age=3600")
 }
 
 // handleStatic 静态文件服务
@@ -69,10 +65,36 @@ func (s *Server) handleStatic(w http.ResponseWriter, r *http.Request) {
 		contentType = "image/svg+xml"
 	}
 
+	s.writeCachedContent(w, r, data, contentType, "public, max-age=86400")
+}
+
+func (s *Server) writeCachedContent(w http.ResponseWriter, r *http.Request, data []byte, contentType, cacheControl string) {
+	etag := contentETag(data)
 	w.Header().Set("Content-Type", contentType)
-	w.Header().Set("Cache-Control", "public, max-age=86400")
-	w.Header().Set("ETag", "\"v1.0.0\"")
+	w.Header().Set("Cache-Control", cacheControl)
+	w.Header().Set("ETag", etag)
+
+	if ifNoneMatch(r.Header.Get("If-None-Match"), etag) {
+		w.WriteHeader(http.StatusNotModified)
+		return
+	}
+
 	if _, err := w.Write(data); err != nil {
 		return
 	}
+}
+
+func contentETag(data []byte) string {
+	sum := sha256.Sum256(data)
+	return `"` + hex.EncodeToString(sum[:]) + `"`
+}
+
+func ifNoneMatch(header, etag string) bool {
+	for _, candidate := range strings.Split(header, ",") {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "*" || candidate == etag || strings.TrimPrefix(candidate, "W/") == etag {
+			return true
+		}
+	}
+	return false
 }

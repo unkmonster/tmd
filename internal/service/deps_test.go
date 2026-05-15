@@ -34,9 +34,9 @@ func TestDependencies_Validate(t *testing.T) {
 		{
 			name: "valid dependencies",
 			deps: &Dependencies{
-				Client:      resty.New(),
-				DB:          &sqlx.DB{},
-				Config:      &config.Config{RootPath: "/test"},
+				Client: resty.New(),
+				DB:     &sqlx.DB{},
+				Config: &config.Config{RootPath: "/test"},
 			},
 			wantErr: false,
 		},
@@ -49,9 +49,9 @@ func TestDependencies_Validate(t *testing.T) {
 		{
 			name: "nil client",
 			deps: &Dependencies{
-				Client:      nil,
-				DB:          &sqlx.DB{},
-				Config:      &config.Config{RootPath: "/test"},
+				Client: nil,
+				DB:     &sqlx.DB{},
+				Config: &config.Config{RootPath: "/test"},
 			},
 			wantErr: true,
 			errMsg:  "client is required",
@@ -59,9 +59,9 @@ func TestDependencies_Validate(t *testing.T) {
 		{
 			name: "nil config",
 			deps: &Dependencies{
-				Client:      resty.New(),
-				DB:          &sqlx.DB{},
-				Config:      nil,
+				Client: resty.New(),
+				DB:     &sqlx.DB{},
+				Config: nil,
 			},
 			wantErr: true,
 			errMsg:  "config is required",
@@ -69,9 +69,9 @@ func TestDependencies_Validate(t *testing.T) {
 		{
 			name: "empty root path",
 			deps: &Dependencies{
-				Client:      resty.New(),
-				DB:          &sqlx.DB{},
-				Config:      &config.Config{RootPath: ""},
+				Client: resty.New(),
+				DB:     &sqlx.DB{},
+				Config: &config.Config{RootPath: ""},
 			},
 			wantErr: true,
 			errMsg:  "config.RootPath is required",
@@ -79,12 +79,23 @@ func TestDependencies_Validate(t *testing.T) {
 		{
 			name: "nil db",
 			deps: &Dependencies{
-				Client:      resty.New(),
-				Config:      &config.Config{RootPath: "/test"},
-				DB:          nil,
+				Client: resty.New(),
+				Config: &config.Config{RootPath: "/test"},
+				DB:     nil,
 			},
 			wantErr: true,
 			errMsg:  "db is required",
+		},
+		{
+			name: "nil additional client",
+			deps: &Dependencies{
+				Client:            resty.New(),
+				AdditionalClients: []*resty.Client{resty.New(), nil},
+				DB:                &sqlx.DB{},
+				Config:            &config.Config{RootPath: "/test"},
+			},
+			wantErr: true,
+			errMsg:  "additional client 1 is nil",
 		},
 	}
 
@@ -183,8 +194,8 @@ func TestNewDownloadService_WithMultipleAdditionalClients(t *testing.T) {
 			resty.New(),
 			resty.New(),
 		},
-		DB:          &sqlx.DB{},
-		Config:      &config.Config{RootPath: "/test"},
+		DB:     &sqlx.DB{},
+		Config: &config.Config{RootPath: "/test"},
 	}
 
 	service, err := NewDownloadService(deps)

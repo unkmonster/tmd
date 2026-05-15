@@ -17,15 +17,26 @@ type ListSyncManager struct {
 	mu        sync.Mutex
 }
 
-var globalListSyncManager *ListSyncManager
+var (
+	globalListSyncManager     *ListSyncManager
+	globalListSyncManagerOnce sync.Once
+	globalListSyncManagerMu   sync.RWMutex
+)
 
 func InitListSyncManager(db *sqlx.DB) {
-	globalListSyncManager = &ListSyncManager{
-		txManager: tx.NewManager(db),
-	}
+	globalListSyncManagerOnce.Do(func() {
+		manager := &ListSyncManager{
+			txManager: tx.NewManager(db),
+		}
+		globalListSyncManagerMu.Lock()
+		globalListSyncManager = manager
+		globalListSyncManagerMu.Unlock()
+	})
 }
 
 func GetListSyncManager() *ListSyncManager {
+	globalListSyncManagerMu.RLock()
+	defer globalListSyncManagerMu.RUnlock()
 	return globalListSyncManager
 }
 

@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -126,6 +127,32 @@ func TestTaskManager_CreateTask_ClonesTaskData(t *testing.T) {
 	assert.WithinDuration(t, expectedTimestamp, *createdMarkData.Timestamp, 0)
 }
 
+func TestTaskManager_CreateTask_RetriesTaskIDCollision(t *testing.T) {
+	tm := NewTaskManager(nil)
+	ids := []string{"task_collision", "task_collision", "task_next"}
+	var calls int
+	tm.idGenerator = func() string {
+		id := ids[calls]
+		calls++
+		return id
+	}
+
+	first := tm.CreateTask(TaskTypeUserDownload, nil)
+	second := tm.CreateTask(TaskTypeListDownload, nil)
+
+	assert.Equal(t, "task_collision", first.ID)
+	assert.Equal(t, "task_next", second.ID)
+	assert.Equal(t, 3, calls)
+
+	gotFirst, ok := tm.GetTask(first.ID)
+	assert.True(t, ok)
+	assert.Equal(t, TaskTypeUserDownload, gotFirst.Type)
+
+	gotSecond, ok := tm.GetTask(second.ID)
+	assert.True(t, ok)
+	assert.Equal(t, TaskTypeListDownload, gotSecond.Type)
+}
+
 func TestTaskManager_GetTask(t *testing.T) {
 	tm := NewTaskManager(nil)
 
@@ -149,7 +176,7 @@ func TestTaskManager_GetTask_ReturnsClone(t *testing.T) {
 		Users: []string{"user1"},
 	})
 	tm.UpdateTaskProgress(task.ID, &TaskProgress{Total: 10, Completed: 1})
-	tm.SetTaskResult(task.ID, &TaskResult{
+	tm.CompleteTask(task.ID, &TaskResult{
 		Main: &TaskMainResult{
 			Downloaded: 2,
 			Failed:     1,
@@ -178,8 +205,8 @@ func TestTaskManager_GetTask_ReturnsClone(t *testing.T) {
 
 	again, ok := tm.GetTask(task.ID)
 	assert.True(t, ok)
-	assert.Equal(t, TaskStatusQueued, again.Status)
-	assert.Equal(t, 1, again.Progress.Completed)
+	assert.Equal(t, TaskStatusCompleted, again.Status)
+	assert.Equal(t, 10, again.Progress.Completed)
 	assert.Equal(t, 2, again.Result.Main.Downloaded)
 	assert.Equal(t, 1, again.Result.Profile.Versioned)
 	assert.Equal(t, "user1", again.Data.(*BatchDownloadTaskData).Users[0])
@@ -514,39 +541,6 @@ func TestTaskManager_UpdateTaskProgress(t *testing.T) {
 	assert.False(t, ok)
 }
 
-func TestTaskManager_SetTaskResult(t *testing.T) {
-	tm := NewTaskManager(nil)
-	task := tm.CreateTask(TaskTypeUserDownload, nil)
-
-	result := &TaskResult{
-		Main: &TaskMainResult{
-			Downloaded: 100,
-			Failed:     5,
-		},
-		Profile: &TaskProfileResult{
-			Downloaded: 6,
-			Failed:     1,
-			Versioned:  10,
-		},
-		Message: "Download completed",
-	}
-
-	ok := tm.SetTaskResult(task.ID, result)
-	assert.True(t, ok)
-
-	got, _ := tm.GetTask(task.ID)
-	assert.Equal(t, result, got.Result)
-	assert.NotNil(t, got.Result.Main)
-	assert.NotNil(t, got.Result.Profile)
-	assert.Equal(t, 100, got.Result.Main.Downloaded)
-	assert.Equal(t, 5, got.Result.Main.Failed)
-	assert.Equal(t, 10, got.Result.Profile.Versioned)
-	assert.Equal(t, "Download completed", got.Result.Message)
-
-	ok = tm.SetTaskResult("non_existent", result)
-	assert.False(t, ok)
-}
-
 func TestTaskManager_CancelTask(t *testing.T) {
 	tm := NewTaskManager(nil)
 
@@ -656,7 +650,9 @@ func TestGenerateTaskID(t *testing.T) {
 	for i := 0; i < 1000; i++ {
 		id := generateTaskID()
 		assert.True(t, strings.HasPrefix(id, "task_"))
-		assert.Greater(t, len(id), len("task_"))
+		assert.Len(t, id, len("task_")+36)
+		_, err := uuid.Parse(strings.TrimPrefix(id, "task_"))
+		assert.NoError(t, err)
 		assert.False(t, ids[id], "Task ID should be unique")
 		ids[id] = true
 	}
@@ -693,14 +689,13 @@ func TestTaskManager_TaskLifecycle(t *testing.T) {
 	task, _ = tm.GetTask(task.ID)
 	assert.Equal(t, 100, task.Progress.Completed)
 
-	tm.SetTaskResult(task.ID, &TaskResult{
+	tm.CompleteTask(task.ID, &TaskResult{
 		Main: &TaskMainResult{
 			Downloaded: 98,
 			Failed:     2,
 		},
 		Message: "Completed",
 	})
-	tm.UpdateTaskStatus(task.ID, TaskStatusCompleted)
 	task, _ = tm.GetTask(task.ID)
 	assert.Equal(t, TaskStatusCompleted, task.Status)
 	assert.NotNil(t, task.EndedAt)

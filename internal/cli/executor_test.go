@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"testing"
 
@@ -13,6 +14,7 @@ import (
 	"github.com/stretchr/testify/mock"
 
 	"github.com/unkmonster/tmd/internal/config"
+	"github.com/unkmonster/tmd/internal/database"
 	"github.com/unkmonster/tmd/internal/service"
 )
 
@@ -91,6 +93,19 @@ func TestExecute_NilDependencies(t *testing.T) {
 	assert.Contains(t, err.Error(), "dependencies is nil")
 }
 
+func TestExecute_HelpReturnsNil(t *testing.T) {
+	deps := &Dependencies{
+		Dependencies: service.Dependencies{
+			Client: resty.New(),
+			Config: &config.Config{},
+		},
+	}
+
+	err := Execute(context.Background(), []string{"-help"}, deps)
+
+	assert.NoError(t, err)
+}
+
 func TestExecute_JsonDownload(t *testing.T) {
 	mockSvc := new(MockDownloadService)
 	mockSvc.On("JsonFileDownload", mock.Anything, mock.Anything, []string{"/path/to/file.json"}, false, mock.Anything).Return(nil)
@@ -167,6 +182,22 @@ func TestExecute_MarkDownloaded(t *testing.T) {
 
 	assert.NoError(t, err)
 	mockSvc.AssertExpectations(t)
+}
+
+func TestCLITaskSelection_MarkDownloadedTreatsBatchArgsAsTargets(t *testing.T) {
+	cfg := &CLIConfig{
+		UsrArgs:        UserArgs{ScreenName: []string{"user1"}},
+		ListArgs:       ListArgs{IntArgs: IntArgs{ID: []uint64{123}}},
+		FollArgs:       UserArgs{ScreenName: []string{"source"}},
+		MarkDownloaded: true,
+	}
+	selection := newCLITaskSelection(cfg)
+
+	assert.Equal(t, cliTaskModeMarkDownloaded, selection.primaryMode())
+	assert.False(t, selection.hasIgnoredForExclusiveMode(cliTaskModeMarkDownloaded))
+
+	cfg.ProfileUsers = UserArgs{ScreenName: []string{"profile-user"}}
+	assert.True(t, selection.hasIgnoredForExclusiveMode(cliTaskModeMarkDownloaded))
 }
 
 func TestExecute_ProfileDownload(t *testing.T) {
@@ -248,6 +279,29 @@ func TestExecute_ListProfileDownload(t *testing.T) {
 	mockSvc.AssertExpectations(t)
 }
 
+func TestExecute_ListProfileDownload_JoinsMultipleErrors(t *testing.T) {
+	mockSvc := new(MockDownloadService)
+	firstErr := errors.New("first list failed")
+	secondErr := errors.New("second list failed")
+	mockSvc.On("ListProfileDownload", mock.Anything, mock.Anything, uint64(123), mock.Anything).Return(firstErr)
+	mockSvc.On("ListProfileDownload", mock.Anything, mock.Anything, uint64(456), mock.Anything).Return(secondErr)
+
+	deps := &Dependencies{
+		Dependencies: service.Dependencies{
+			Client: resty.New(),
+			Config: &config.Config{},
+		},
+		DownloadService: mockSvc,
+	}
+
+	args := []string{"-profile-list", "123", "-profile-list", "456"}
+	err := Execute(context.Background(), args, deps)
+
+	assert.ErrorIs(t, err, firstErr)
+	assert.ErrorIs(t, err, secondErr)
+	mockSvc.AssertExpectations(t)
+}
+
 func TestExecute_NoArgs(t *testing.T) {
 	deps := &Dependencies{
 		Dependencies: service.Dependencies{
@@ -300,6 +354,30 @@ func TestExecute_DefaultServiceCreation(t *testing.T) {
 
 	// 空参数不应该报错
 	assert.NoError(t, err)
+}
+
+func TestExecute_DefaultServiceDoesNotMutateDependencies(t *testing.T) {
+	db, err := sqlx.Connect(database.DriverName, database.MemoryDSN(true))
+	assert.NoError(t, err)
+	defer db.Close()
+	database.CreateTables(db)
+
+	deps := &Dependencies{
+		Dependencies: service.Dependencies{
+			Client:            resty.New(),
+			AdditionalClients: []*resty.Client{},
+			DB:                db,
+			Config: &config.Config{
+				RootPath:       t.TempDir(),
+				MaxFileNameLen: 100,
+			},
+		},
+	}
+
+	err = Execute(context.Background(), []string{"-jsonfile", "missing.json"}, deps)
+
+	assert.NoError(t, err)
+	assert.Nil(t, deps.DownloadService)
 }
 
 // ==================== Dependencies 测试 ====================

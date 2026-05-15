@@ -369,6 +369,7 @@ func downloadTweetMedia(cfg *workerConfig, dir string, tweet *twitter.Tweet, ski
 func tweetDownloader(config *workerConfig, errch chan<- PackagedTweet, twech <-chan PackagedTweet) {
 	var pt PackagedTweet
 	var ok bool
+	reportedCurrent := false
 
 	defer config.wg.Done()
 	defer func() {
@@ -376,7 +377,7 @@ func tweetDownloader(config *workerConfig, errch chan<- PackagedTweet, twech <-c
 			config.cancel(fmt.Errorf("%v", p))
 			log.Errorln("✗ [downloading] - panic:", p)
 
-			if pt != nil {
+			if pt != nil && !reportedCurrent {
 				errch <- pt
 			}
 			for pt := range twech {
@@ -391,6 +392,7 @@ func tweetDownloader(config *workerConfig, errch chan<- PackagedTweet, twech <-c
 			if !ok {
 				return
 			}
+			reportedCurrent = false
 		case <-config.ctx.Done():
 			for pt := range twech {
 				errch <- pt
@@ -417,6 +419,7 @@ func tweetDownloader(config *workerConfig, errch chan<- PackagedTweet, twech <-c
 				}
 			}
 			errch <- pt
+			reportedCurrent = true
 			if config.onTweetDone != nil {
 				config.onTweetDone(pt, true)
 			}
@@ -426,6 +429,7 @@ func tweetDownloader(config *workerConfig, errch chan<- PackagedTweet, twech <-c
 		failed := err != nil
 		if failed {
 			errch <- pt
+			reportedCurrent = true
 		}
 		if config.onTweetDone != nil {
 			config.onTweetDone(pt, failed)
@@ -444,7 +448,7 @@ func BatchDownloadTweet(ctx context.Context, client *resty.Client, skipLoongTwee
 
 	ctx, cancel := context.WithCancelCause(ctx)
 
-	var errChan = make(chan PackagedTweet)
+	var errChan = make(chan PackagedTweet, len(pts))
 	var tweetChan = make(chan PackagedTweet, len(pts))
 	var wg sync.WaitGroup
 	var numRoutine = min(len(pts), MaxDownloadRoutine)
@@ -474,9 +478,9 @@ func BatchDownloadTweet(ctx context.Context, client *resty.Client, skipLoongTwee
 		close(errChan)
 	}()
 
-	errors := []PackagedTweet{}
+	failedTweets := []PackagedTweet{}
 	for pt := range errChan {
-		errors = append(errors, pt)
+		failedTweets = append(failedTweets, pt)
 	}
-	return errors
+	return failedTweets
 }

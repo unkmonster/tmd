@@ -44,9 +44,9 @@ type ThirdPartyTweetResult struct {
 	Duration   time.Duration `json:"duration"`
 }
 
-// ParseThirdPartyTweetFile 读取并解析第三方推文 JSON 文件。
+// parseThirdPartyTweetFile 读取并解析第三方推文 JSON 文件。
 // 支持推文搜索结果格式（包含 media 数组）。
-func ParseThirdPartyTweetFile(path string) ([]ThirdPartyTweetEntry, error) {
+func parseThirdPartyTweetFile(path string) ([]ThirdPartyTweetEntry, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read file %s: %w", path, err)
@@ -117,7 +117,7 @@ func DownloadThirdPartyTweets(
 			start := time.Now()
 
 			result := ThirdPartyTweetResult{Path: fp}
-			entries, err := ParseThirdPartyTweetFile(fp)
+			entries, err := parseThirdPartyTweetFile(fp)
 			if err != nil {
 				result.Error = err.Error()
 				result.Duration = time.Since(start)

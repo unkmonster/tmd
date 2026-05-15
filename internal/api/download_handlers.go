@@ -13,7 +13,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -506,24 +505,8 @@ func cleanupUploadDirAfterTask(uploadDir string, task func(ctx context.Context, 
 			return task(ctx, taskID, reporter)
 		}
 
-		var once sync.Once
-		cleanup := func() {
-			once.Do(func() {
-				_ = os.RemoveAll(uploadDir)
-			})
-		}
-
-		done := make(chan struct{})
-		go func() {
-			select {
-			case <-ctx.Done():
-				cleanup()
-			case <-done:
-			}
-		}()
 		defer func() {
-			close(done)
-			cleanup()
+			_ = os.RemoveAll(uploadDir)
 		}()
 
 		return task(ctx, taskID, reporter)
@@ -774,7 +757,6 @@ func (s *Server) handleTasks(w http.ResponseWriter, r *http.Request) {
 	tasks := s.taskManager.GetAllTasks()
 	s.writeJSON(w, http.StatusOK, NewSuccessResponse(TaskListResponse{
 		Tasks: tasks,
-		Total: len(tasks),
 	}))
 }
 
@@ -793,8 +775,17 @@ func (s *Server) handleGetTask(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleCancelTask(w http.ResponseWriter, r *http.Request) {
 	taskID := r.PathValue("task_id")
 
+	task, ok := s.taskManager.GetTask(taskID)
+	if !ok {
+		s.writeError(w, http.StatusNotFound, "Task not found")
+		return
+	}
+	if task.Status != TaskStatusQueued && task.Status != TaskStatusRunning {
+		s.writeError(w, http.StatusConflict, "Task cannot be cancelled in status: "+string(task.Status))
+		return
+	}
 	if !s.taskManager.CancelTask(taskID) {
-		s.writeError(w, http.StatusBadRequest, "Task cannot be cancelled")
+		s.writeError(w, http.StatusConflict, "Task cannot be cancelled")
 		return
 	}
 

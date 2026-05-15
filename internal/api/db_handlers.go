@@ -3,6 +3,7 @@ package api
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -32,6 +33,18 @@ var entitySortFields = map[string]string{
 	"name":                "name",
 	"media_count":         "media_count",
 	"latest_release_time": "latest_release_time",
+}
+
+func optionalUint64Query(r *http.Request, name string) (uint64, bool, error) {
+	raw := r.URL.Query().Get(name)
+	if raw == "" {
+		return 0, false, nil
+	}
+	value, err := strconv.ParseUint(raw, 10, 64)
+	if err != nil {
+		return 0, false, fmt.Errorf("invalid %s", name)
+	}
+	return value, true, nil
 }
 
 // ============ Users 管理 ============
@@ -140,11 +153,11 @@ func (s *Server) handleDBUserUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		ScreenName   string `json:"screen_name"`
-		Name         string `json:"name"`
-		FriendsCount *int   `json:"friends_count,omitempty"`
-		IsProtected  *bool  `json:"protected,omitempty"`
-		IsAccessible *bool  `json:"is_accessible,omitempty"`
+		ScreenName   *string `json:"screen_name,omitempty"`
+		Name         *string `json:"name,omitempty"`
+		FriendsCount *int    `json:"friends_count,omitempty"`
+		IsProtected  *bool   `json:"protected,omitempty"`
+		IsAccessible *bool   `json:"is_accessible,omitempty"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -162,11 +175,11 @@ func (s *Server) handleDBUserUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.ScreenName != "" {
-		user.ScreenName = req.ScreenName
+	if req.ScreenName != nil {
+		user.ScreenName = *req.ScreenName
 	}
-	if req.Name != "" {
-		user.Name = req.Name
+	if req.Name != nil {
+		user.Name = *req.Name
 	}
 	if req.FriendsCount != nil {
 		user.FriendsCount = *req.FriendsCount
@@ -400,7 +413,10 @@ func (s *Server) handleDBUserEntities(w http.ResponseWriter, r *http.Request) {
 		args = append(args, searchArgs...)
 	}
 
-	if userID := r.URL.Query().Get("userId"); userID != "" {
+	if userID, ok, err := optionalUint64Query(r, "userId"); err != nil {
+		s.writeError(w, http.StatusBadRequest, "Invalid user ID")
+		return
+	} else if ok {
 		whereConditions = append(whereConditions, "user_id = ?")
 		args = append(args, userID)
 	}
@@ -575,7 +591,10 @@ func (s *Server) handleDBListEntities(w http.ResponseWriter, r *http.Request) {
 		args = append(args, searchArgs...)
 	}
 
-	if listID := r.URL.Query().Get("listId"); listID != "" {
+	if listID, ok, err := optionalUint64Query(r, "listId"); err != nil {
+		s.writeError(w, http.StatusBadRequest, "Invalid list ID")
+		return
+	} else if ok {
 		whereConditions = append(whereConditions, "lst_id = ?")
 		args = append(args, listID)
 	}
@@ -728,12 +747,18 @@ func (s *Server) handleDBUserLinks(w http.ResponseWriter, r *http.Request) {
 	var whereConditions []string
 	var args []interface{}
 
-	if userID := r.URL.Query().Get("userId"); userID != "" {
+	if userID, ok, err := optionalUint64Query(r, "userId"); err != nil {
+		s.writeError(w, http.StatusBadRequest, "Invalid user ID")
+		return
+	} else if ok {
 		whereConditions = append(whereConditions, "user_id = ?")
 		args = append(args, userID)
 	}
 
-	if listEntityID := r.URL.Query().Get("listEntityId"); listEntityID != "" {
+	if listEntityID, ok, err := optionalUint64Query(r, "listEntityId"); err != nil {
+		s.writeError(w, http.StatusBadRequest, "Invalid list entity ID")
+		return
+	} else if ok {
 		whereConditions = append(whereConditions, "parent_lst_entity_id = ?")
 		args = append(args, listEntityID)
 	}

@@ -82,6 +82,17 @@ func TestUserArgs_Set_Multiple(t *testing.T) {
 	assert.Equal(t, []string{"user1", "user2", "user3"}, u.ScreenName)
 }
 
+func TestUserArgs_Set_Duplicate(t *testing.T) {
+	u := &UserArgs{}
+
+	require.NoError(t, u.Set("@user1"))
+	err := u.Set("user1")
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "duplicate screen name")
+	assert.Equal(t, []string{"user1"}, u.ScreenName)
+}
+
 func TestUserArgs_String(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -191,6 +202,17 @@ func TestIntArgs_Set_Multiple(t *testing.T) {
 	assert.Equal(t, []uint64{100, 200, 300}, i.ID)
 }
 
+func TestIntArgs_Set_Duplicate(t *testing.T) {
+	i := &IntArgs{}
+
+	require.NoError(t, i.Set("100"))
+	err := i.Set("100")
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "duplicate ID")
+	assert.Equal(t, []uint64{100}, i.ID)
+}
+
 func TestIntArgs_String(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -242,6 +264,26 @@ func TestJsonFilePathsArgs_Set(t *testing.T) {
 	}
 
 	assert.Equal(t, []string{"/path/to/file1.json", "/path/to/file2.json", "relative/path.json"}, j.Paths)
+}
+
+func TestJsonFilePathsArgs_Set_Empty(t *testing.T) {
+	j := &JsonFilePathsArgs{}
+
+	err := j.Set("  ")
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "jsonfile path cannot be empty")
+	assert.Empty(t, j.Paths)
+}
+
+func TestJsonFolderPathArgs_Set_Empty(t *testing.T) {
+	j := &JsonFolderPathArgs{}
+
+	err := j.Set("  ")
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "jsonfolder path cannot be empty")
+	assert.Empty(t, j.Paths)
 }
 
 func TestJsonFilePathsArgs_String(t *testing.T) {
@@ -398,6 +440,19 @@ func TestParseArgs(t *testing.T) {
 			},
 		},
 		{
+			name:        "mark-time允许null",
+			args:        []string{"-mark-time", "null"},
+			expectError: false,
+			validate: func(t *testing.T, cfg *CLIConfig) {
+				assert.Equal(t, "null", cfg.MarkTime)
+			},
+		},
+		{
+			name:        "mark-time格式错误",
+			args:        []string{"-mark-time", "2024-01-01"},
+			expectError: true,
+		},
+		{
 			name:        "组合参数",
 			args:        []string{"-user", "user1", "-list", "123", "-auto-follow", "-no-retry"},
 			expectError: false,
@@ -412,13 +467,12 @@ func TestParseArgs(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			fs, cfg, err := ParseArgs(tt.args)
+			cfg, err := ParseArgs(tt.args)
 
 			if tt.expectError {
 				assert.Error(t, err)
 			} else {
 				assert.NoError(t, err)
-				assert.NotNil(t, fs)
 				assert.NotNil(t, cfg)
 				if tt.validate != nil {
 					tt.validate(t, cfg)
@@ -431,12 +485,12 @@ func TestParseArgs(t *testing.T) {
 func TestParseArgs_InvalidListID(t *testing.T) {
 	// 无效的列表ID应该返回错误
 	args := []string{"-list", "notanumber"}
-	_, _, err := ParseArgs(args)
+	_, err := ParseArgs(args)
 	assert.Error(t, err)
 }
 
 func TestCLIConfig_DefaultValues(t *testing.T) {
-	_, cfg, err := ParseArgs([]string{})
+	cfg, err := ParseArgs([]string{})
 	require.NoError(t, err)
 
 	// 验证所有默认值

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/unkmonster/tmd/internal/utils"
 )
@@ -24,6 +25,11 @@ func (u *UserArgs) Set(str string) error {
 	// 校验 screenName 格式
 	if !utils.IsValidScreenName(str) {
 		return fmt.Errorf("invalid screen name format: %s", str)
+	}
+	for _, existing := range u.ScreenName {
+		if existing == str {
+			return fmt.Errorf("duplicate screen name: %s", str)
+		}
 	}
 
 	u.ScreenName = append(u.ScreenName, str)
@@ -52,6 +58,11 @@ func (i *IntArgs) Set(str string) error {
 	if id == 0 {
 		return fmt.Errorf("invalid ID: must be greater than 0")
 	}
+	for _, existing := range i.ID {
+		if existing == id {
+			return fmt.Errorf("duplicate ID: %d", id)
+		}
+	}
 
 	i.ID = append(i.ID, id)
 	return nil
@@ -75,6 +86,9 @@ func (j *JsonFilePathsArgs) Set(str string) error {
 	if j.Paths == nil {
 		j.Paths = make([]string, 0)
 	}
+	if strings.TrimSpace(str) == "" {
+		return fmt.Errorf("jsonfile path cannot be empty")
+	}
 	j.Paths = append(j.Paths, str)
 	return nil
 }
@@ -95,6 +109,9 @@ type JsonFolderPathArgs struct {
 func (j *JsonFolderPathArgs) Set(str string) error {
 	if j.Paths == nil {
 		j.Paths = make([]string, 0)
+	}
+	if strings.TrimSpace(str) == "" {
+		return fmt.Errorf("jsonfolder path cannot be empty")
 	}
 	j.Paths = append(j.Paths, str)
 	return nil
@@ -126,7 +143,7 @@ type CLIConfig struct {
 }
 
 // ParseArgs 解析命令行参数
-func ParseArgs(args []string) (*flag.FlagSet, *CLIConfig, error) {
+func ParseArgs(args []string) (*CLIConfig, error) {
 	cfg := &CLIConfig{}
 
 	fs := flag.NewFlagSet("tmd", flag.ContinueOnError)
@@ -145,8 +162,24 @@ func ParseArgs(args []string) (*flag.FlagSet, *CLIConfig, error) {
 	fs.BoolVar(&cfg.NoProfile, "noprofile", false, "skip profile")
 
 	if err := fs.Parse(args); err != nil {
-		return nil, nil, err
+		return nil, err
+	}
+	if err := validateMarkTime(cfg.MarkTime); err != nil {
+		return nil, err
 	}
 
-	return fs, cfg, nil
+	return cfg, nil
+}
+
+func validateMarkTime(markTime string) error {
+	if markTime == "" {
+		return nil
+	}
+	if strings.EqualFold(markTime, "null") || strings.EqualFold(markTime, "nil") {
+		return nil
+	}
+	if _, err := time.ParseInLocation("2006-01-02T15:04:05", markTime, time.Local); err != nil {
+		return fmt.Errorf("invalid mark-time format %q, expected 2006-01-02T15:04:05 or null", markTime)
+	}
+	return nil
 }
