@@ -303,18 +303,6 @@ ul, ol {
   color: var(--text-primary);
 }
 
-.breadcrumb {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  font-size: var(--text-sm);
-  color: var(--text-secondary);
-}
-
-.breadcrumb a:hover {
-  color: var(--text-primary);
-}
-
 .header-actions {
   display: flex;
   align-items: center;
@@ -326,7 +314,7 @@ ul, ol {
   align-items: center;
   padding: 4px 8px;
   border-radius: var(--radius-md);
-  cursor: default;
+  cursor: pointer;
   transition: background 0.2s;
 }
 .sse-indicator:hover {
@@ -341,9 +329,6 @@ ul, ol {
 }
 .sse-indicator.connected .sse-dot {
   background: var(--success);
-}
-.sse-indicator.connected {
-  /* 连接状态样式由 .sse-dot 控制 */
 }
 
 /* Content Container */
@@ -574,15 +559,7 @@ ul, ol {
 .tag-running {
   background: var(--info-bg);
   color: var(--info);
-}
-
-.tag-running::before {
-  content: '';
-  width: 6px;
-  height: 6px;
-  background: currentColor;
-  border-radius: 50%;
-  animation: pulse 2s infinite;
+  border-left: 3px solid var(--info);
 }
 
 .tag-completed {
@@ -1647,12 +1624,29 @@ ul, ol {
 }
 
 .config-group-title {
-  margin-bottom: var(--space-3);
-  padding-bottom: var(--space-2);
-  font-size: var(--text-sm);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.config-group-title > span {
+  font-size: var(--text-lg);
   font-weight: var(--font-semibold);
+  color: var(--text-primary);
+}
+
+.config-divider {
+  height: 1px;
+  background: var(--border-secondary);
+  margin: var(--space-6) 0;
+}
+
+.config-label {
+  display: block;
+  margin-bottom: var(--space-1);
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
   color: var(--text-secondary);
-  border-bottom: 1px solid var(--border-primary);
 }
 
 .config-field {

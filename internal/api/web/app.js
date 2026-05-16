@@ -423,7 +423,7 @@ const sseManager = {
     const el = document.getElementById('sseIndicator');
     if (!el) return;
     el.classList.toggle('connected', connected);
-    el.title = connected ? '实时连接正常' : '实时连接已断开';
+    el.title = connected ? '实时连接正常 (点击刷新)' : '实时连接已断开 (点击刷新)';
   },
 
   refreshCurrentPage() {
@@ -642,9 +642,6 @@ const pages = {
                 </select>
                 <input type="text" class="form-input search-input" id="taskSearch" placeholder="搜索任务..." oninput="updateSearchState('taskSearch',null,this.value);filterTasks()">
               </div>
-              <div class="toolbar-right">
-                <button class="btn btn-ghost btn-sm" onclick="refreshTasks()">🔄 刷新</button>
-              </div>
             </div>
             <div class="card-body" style="padding: 0;">
               <div class="${tasks.length === 0 ? 'empty-state' : 'task-list'}" id="taskListContainer">
@@ -693,9 +690,8 @@ const pages = {
           </div>
           <div class="flex gap-2 items-center">
             <input type="text" class="form-input search-input" id="dbSearchInput" 
-              placeholder="搜索..." oninput="updateSearchState('dbSearch',store.state.dataSubPage,this.value)" onkeypress="if(event.key==='Enter')searchDB()">
+              placeholder="搜索..." oninput="updateSearchState('dbSearch',store.state.dataSubPage,this.value)">
             <button class="btn btn-ghost btn-icon" onclick="searchDB()">🔍</button>
-            <button class="btn btn-ghost btn-icon" onclick="refreshDBData()">🔄</button>
           </div>
         </div>
         
@@ -905,7 +901,7 @@ function renderTaskItem(task) {
   const target = escapeHtml(getTaskTarget(task));
 
   return `
-    <div class="task-item" data-task-id="${escapeAttr(task.task_id)}" onclick="showTaskDetail(this.dataset.taskId)">
+    <div class="task-item" data-task-id="${escapeAttr(task.task_id)}">
       <div class="task-info">
         <div class="task-title">${escapeHtml(task.type)} - ${target}</div>
         <div class="task-meta">
@@ -920,10 +916,10 @@ function renderTaskItem(task) {
         </div>
         <div class="task-progress-text">${pct}%${stageText}${currentText}</div>
       </div>
-      <div class="task-actions" onclick="event.stopPropagation()">
+      <div class="task-actions">
         ${task.status === 'running' || task.status === 'queued' ?
-          `<button class="btn btn-danger btn-sm" data-task-id="${escapeAttr(task.task_id)}" onclick="cancelTask(this.dataset.taskId)">取消</button>` :
-          `<button class="btn btn-ghost btn-sm" data-task-id="${escapeAttr(task.task_id)}" onclick="showTaskDetail(this.dataset.taskId)">详情</button>`
+          `<button class="btn btn-danger btn-sm" data-action="cancel">取消</button>` :
+          `<button class="btn btn-ghost btn-sm" data-action="detail">详情</button>`
         }
       </div>
     </div>
@@ -2148,7 +2144,7 @@ function renderCookiesForm(items, saving, exists) {
 
   const renderItem = (item, idx) => `
     <div class="config-group">
-      <div class="config-group-title" style="display:flex;justify-content:space-between;align-items:center;">
+      <div class="config-group-title">
         <span>🏷️ 账户 #${idx + 1}</span>
         <button class="btn btn-danger btn-sm" onclick="removeCookieAccount(${idx})">删除</button>
       </div>
@@ -2177,7 +2173,7 @@ function renderCookiesForm(items, saving, exists) {
         </div>
       </div>
       <div class="card-body">
-        ${items.map(renderItem).join('')}
+        ${items.map(renderItem).join('<div class="config-divider"></div>')}
       </div>
     </div>
   `;
@@ -2235,13 +2231,11 @@ function renderLogViewer() {
         <div class="flex gap-2 items-center flex-wrap">
           <input type="text" class="form-input search-input" id="logSearchInput"
             placeholder="🔍 搜索..."
-            oninput="updateSearchState('logSearch',null,this.value)"
-            onkeypress="if(event.key==='Enter')refreshLogs()">
+            oninput="updateSearchState('logSearch',null,this.value)">
           <div class="log-level-filters">
             ${['all','debug','info','warn','error'].map(l => `<button class="btn btn-sm ${logLevel===l?'btn-primary':'btn-ghost'}" onclick="setLogLevel('${l}')">${l.toUpperCase()}</button>`).join('')}
           </div>
           <button class="btn btn-ghost btn-sm ${logAutoRefresh?'active':''}" onclick="toggleLogAutoRefresh()">${logAutoRefresh?'⏸️':'▶️'} 实时</button>
-          <button class="btn btn-ghost btn-sm" onclick="refreshLogs()">🔄 刷新</button>
         </div>
       </div>
       <div class="card-body" style="padding:0;">
@@ -2358,11 +2352,10 @@ function renderScheduleForm(items, saving, exists) {
   ).join('');
 
   const renderItem = (item, idx) => {
-    const typeLabel = item.type === 'list' ? '📋 列表' : item.type === 'user' ? '👤 用户' : item.type === 'following' ? '👥 关注' : '🔀 混合';
     return `
     <div class="config-group">
-      <div class="config-group-title" style="display:flex;justify-content:space-between;align-items:center;">
-        <span>${typeLabel} #${idx + 1}${item.name ? ' · ' + escapeHtml(item.name) : ''}</span>
+      <div class="config-group-title">
+        <span>#${idx + 1}${item.name ? ' · ' + escapeHtml(item.name) : ''}</span>
         <div class="flex gap-2">
           <label style="display:flex;align-items:center;gap:4px;font-size:12px;color:var(--text-secondary);cursor:pointer;">
             <input type="checkbox" id="sf_enabled_${idx}" ${item.enabled ? 'checked' : ''} style="margin:0">
@@ -2372,7 +2365,6 @@ function renderScheduleForm(items, saving, exists) {
         </div>
       </div>
       <div class="config-field">
-        <label class="config-label">类型</label>
         <select class="form-input config-input" id="sf_type_${idx}" onchange="updateScheduleFormItem(${idx}, 'type', this.value)">
           ${typeOptions(item.type)}
         </select>
@@ -2463,7 +2455,7 @@ function renderScheduleForm(items, saving, exists) {
         </div>
       </div>
       <div class="card-body">
-        ${items.map(renderItem).join('')}
+        ${items.map(renderItem).join('<div class="config-divider"></div>')}
       </div>
     </div>
   `;
@@ -2478,9 +2470,6 @@ function renderScheduleTable(schedules, exists) {
       <div class="card">
         <div class="card-header">
           <div><div class="card-title">定时下载任务</div><div class="card-subtitle">${exists ? '✅ 文件存在 · 0 条规则' : '⚠️ 配置文件不存在'}</div></div>
-          <div class="flex gap-2">
-            <button class="btn btn-ghost btn-sm" onclick="loadSchedules()">🔄 刷新</button>
-          </div>
         </div>
         <div class="card-body">
           <div class="empty-state">
@@ -2564,7 +2553,6 @@ function renderScheduleTable(schedules, exists) {
         <div><div class="card-title">定时下载任务</div><div class="card-subtitle">共 ${total} 条规则 · ${active} 个启用</div></div>
         <div class="flex gap-2">
           <button class="btn btn-ghost btn-sm" onclick="navigateToSystemSchedules()">📝 编辑任务</button>
-          <button class="btn btn-ghost btn-sm" onclick="loadSchedules()">🔄 刷新</button>
         </div>
       </div>
       <div class="card-body" style="padding:0">
@@ -3653,31 +3641,10 @@ function render() {
       syncSystemTabView();
     }
     
-    // Re-attach tab listeners for tasks page
-    if (page === 'tasks') {
-      document.querySelectorAll('[data-task-tab]').forEach(tab => {
-        tab.onclick = () => {
-          document.querySelectorAll('[data-task-tab]').forEach(t => t.classList.remove('active'));
-          tab.classList.add('active');
-          document.getElementById('taskFormContainer').innerHTML = renderTaskForm(tab.dataset.taskTab);
-        };
-      });
-      
-      // Restore filter and search values
+    // Restore filter and search values
       restoreSearchValue('taskFilter', 'taskFilter');
       restoreSearchValue('taskSearch', 'taskSearch');
-    }
-    
-    // Attach quick download enter key listener
-    if (page === 'overview') {
-      const input = document.getElementById('quickDownloadInput');
-      if (input) {
-        input.onkeypress = (e) => { 
-          if (e.key === 'Enter') handleQuickDownload(); 
-        };
-      }
-    }
-    
+
     // Restore search value for data page
     if (page === 'data') {
       restoreSearchValue('dbSearchInput', 'dbSearch', store.state.dataSubPage);
@@ -3727,6 +3694,43 @@ async function init() {
 
   sseManager.connect();
 
+  document.getElementById('contentContainer').addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter') return;
+    const id = e.target.id;
+    if (id === 'quickDownloadInput') handleQuickDownload();
+    else if (id === 'dbSearchInput') searchDB();
+    else if (id === 'logSearchInput') refreshLogs();
+  });
+
+  document.getElementById('contentContainer').addEventListener('click', (e) => {
+    const tab = e.target.closest('[data-task-tab]');
+    if (tab) {
+      document.querySelectorAll('[data-task-tab]').forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+      document.getElementById('taskFormContainer').innerHTML = renderTaskForm(tab.dataset.taskTab);
+      return;
+    }
+
+    const cancelBtn = e.target.closest('[data-action="cancel"]');
+    if (cancelBtn) {
+      const taskItem = cancelBtn.closest('[data-task-id]');
+      if (taskItem) cancelTask(taskItem.dataset.taskId);
+      return;
+    }
+
+    const detailBtn = e.target.closest('[data-action="detail"]');
+    if (detailBtn) {
+      const taskItem = detailBtn.closest('[data-task-id]');
+      if (taskItem) showTaskDetail(taskItem.dataset.taskId);
+      return;
+    }
+
+    const taskItem = e.target.closest('.task-item[data-task-id]');
+    if (taskItem) {
+      showTaskDetail(taskItem.dataset.taskId);
+    }
+  });
+
   try {
     const [health, tasks, config] = await Promise.all([
       api.getHealth(),
@@ -3768,7 +3772,7 @@ document.querySelectorAll('.mobile-nav-item').forEach(el => {
   el.onclick = () => navigateTo(el.dataset.page);
 });
 
-document.getElementById('refreshBtn').onclick = () => {
+document.getElementById('sseIndicator').onclick = () => {
   const page = store.state.currentPage;
   if (page === 'tasks') refreshTasks();
   else if (page === 'data') refreshDBData();

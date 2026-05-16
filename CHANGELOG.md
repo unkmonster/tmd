@@ -7,6 +7,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ***
 
+## [v3.4.8] - 2026-05-15
+
+### Changed
+
+#### Web 界面重构与优化
+- `internal/api/web/app.js` - 重构事件处理机制
+  - 使用事件委托替代内联 onclick，减少内存泄漏风险
+  - 任务列表项点击事件改为事件委托模式
+  - 移除多个页面的刷新按钮（任务、数据、日志、定时任务），统一使用 SSE 指示器点击刷新
+  - 简化搜索框交互，移除 onkeypress 事件，改为全局 Enter 键监听
+  - 简化任务项渲染，移除内联事件处理
+  - 额外账户和定时任务表单添加分隔线
+  - 定时任务表单简化类型标签显示
+
+- `internal/api/web/index.html`
+  - 版本号默认值改为 `--`
+  - SSE 指示器添加点击刷新提示
+  - 移除刷新按钮
+
+- `internal/api/web/styles.css`
+  - 移除 breadcrumb 样式
+  - SSE 指示器改为可点击（cursor: pointer）
+  - 优化 config-group-title 样式，字体变大加粗
+  - 新增 config-divider 和 config-label 样式
+  - 简化 tag-running 样式（移除动画，改为左边框）
+
+### Added
+
+#### 启动脚本增强
+- `start-server.bat` - 支持 `tmd-Windows-amd64.exe` 可执行文件
+
+### Fixed
+
+#### 错误处理改进
+- `main.go` - 初始化路径失败时从 `Fatalln` 改为 `Warnln`，允许优雅降级
+- `main.go` - 添加 nil 检查防止空指针异常
+
+### Stats
+
+- **5 个文件变更**
+- **+86 行 / -81 行**
+
+***
+
 ## [v3.4.7] - 2026-05-15
 
 ### Added
