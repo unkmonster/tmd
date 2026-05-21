@@ -131,3 +131,23 @@ func (td *TweetDumper) HasTweet(eid int, tweetID uint64) bool {
 	_, ok = tweets[tweetID]
 	return ok
 }
+
+func (td *TweetDumper) Remove(eid int, tweetID uint64) bool {
+	if !td.HasTweet(eid, tweetID) {
+		return false
+	}
+	delete(td.set[eid], tweetID)
+	slice := td.data[eid]
+	for i, tw := range slice {
+		if tw.Id == tweetID {
+			td.data[eid] = append(slice[:i], slice[i+1:]...)
+			break
+		}
+	}
+	if len(td.data[eid]) == 0 {
+		delete(td.data, eid)
+		delete(td.set, eid)
+	}
+	td.count--
+	return true
+}

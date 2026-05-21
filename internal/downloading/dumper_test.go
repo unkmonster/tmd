@@ -352,3 +352,77 @@ func TestTweetDumper_Merge(t *testing.T) {
 		t.Fatal("Merge() did not include expected tweets")
 	}
 }
+
+func TestTweetDumper_Remove(t *testing.T) {
+	dumper := NewDumper()
+	now := time.Now()
+
+	dumper.Push(1, &twitter.Tweet{Id: 10, CreatedAt: now})
+	dumper.Push(1, &twitter.Tweet{Id: 11, CreatedAt: now})
+	dumper.Push(2, &twitter.Tweet{Id: 20, CreatedAt: now})
+
+	if dumper.Count() != 3 {
+		t.Fatalf("count before Remove = %d, want 3", dumper.Count())
+	}
+
+	removed := dumper.Remove(1, 10)
+	if !removed {
+		t.Fatal("Remove() should return true for existing tweet")
+	}
+	if dumper.Count() != 2 {
+		t.Errorf("count after Remove = %d, want 2", dumper.Count())
+	}
+	if dumper.HasTweet(1, 10) {
+		t.Error("Remove() should delete the tweet from set")
+	}
+	if len(dumper.data[1]) != 1 || dumper.data[1][0].Id != 11 {
+		t.Error("Remove() should preserve remaining tweets in order")
+	}
+
+	removed = dumper.Remove(1, 11)
+	if !removed {
+		t.Fatal("Remove() should return true for existing tweet")
+	}
+	if dumper.Count() != 1 {
+		t.Errorf("count after removing last tweet of entity = %d, want 1", dumper.Count())
+	}
+	if _, ok := dumper.data[1]; ok {
+		t.Error("Remove() should clean up empty entity from data map")
+	}
+	if _, ok := dumper.set[1]; ok {
+		t.Error("Remove() should clean up empty entity from set map")
+	}
+
+	removed = dumper.Remove(999, 99)
+	if removed {
+		t.Error("Remove() should return false for non-existing tweet")
+	}
+	if dumper.Count() != 1 {
+		t.Errorf("count after failed remove = %d, want 1", dumper.Count())
+	}
+}
+
+func TestTweetDumper_RemovePreservesOtherEntities(t *testing.T) {
+	dumper := NewDumper()
+	now := time.Now()
+
+	dumper.Push(1, &twitter.Tweet{Id: 10, CreatedAt: now})
+	dumper.Push(1, &twitter.Tweet{Id: 11, CreatedAt: now})
+	dumper.Push(2, &twitter.Tweet{Id: 20, CreatedAt: now})
+	dumper.Push(3, &twitter.Tweet{Id: 30, CreatedAt: now})
+
+	dumper.Remove(1, 10)
+
+	if dumper.Count() != 3 {
+		t.Errorf("count = %d, want 3", dumper.Count())
+	}
+	if !dumper.HasTweet(1, 11) {
+		t.Error("entity 1's other tweets should be preserved")
+	}
+	if !dumper.HasTweet(2, 20) {
+		t.Error("entity 2 should not be affected")
+	}
+	if !dumper.HasTweet(3, 30) {
+		t.Error("entity 3 should not be affected")
+	}
+}

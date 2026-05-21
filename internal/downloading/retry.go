@@ -47,7 +47,6 @@ func RetryFailedTweets(ctx context.Context, dumper *TweetDumper, db *sqlx.DB, cl
 
 	if len(toretry) == 0 {
 		log.Infoln("no tweets need to be retried")
-		dumper.Clear()
 		return RetrySummary{}, nil
 	}
 
@@ -82,24 +81,36 @@ func RetryFailedTweets(ctx context.Context, dumper *TweetDumper, db *sqlx.DB, cl
 			Failed:    remaining,
 		})
 	}, toretry...)
-	dumper.Clear()
+
+	// 注意：BatchDownloadTweet 内部的 downloadTweetMedia 会原地修改 tweet.Urls
+	// （只保留仍需重试的 URL），此处 te.Tweet 指向 dumper 内部的同一 *twitter.Tweet 指针。
+	// 因此下面对 te.Tweet.Urls 的读取反映的是已被 downloadTweetMedia 缩减后的结果。
+	failedSet := make(map[uint64]struct{}, len(newFails))
 	for _, pt := range newFails {
-		te := pt.(*TweetInEntity)
-		if te.Tweet == nil {
+		if te, ok := pt.(*TweetInEntity); ok && te != nil && te.Tweet != nil {
+			failedSet[te.Tweet.Id] = struct{}{}
+		}
+	}
+
+	for _, pt := range toretry {
+		te, ok := pt.(*TweetInEntity)
+		if !ok || te == nil || te.Tweet == nil || te.Entity == nil {
 			continue
 		}
 		eid, err := te.Entity.Id()
 		if err != nil {
-			log.Warnln("failed to get entity id:", err)
+			log.Warnf("skip tweet %d: entity id error (%v), will retry next time", te.Tweet.Id, err)
 			continue
 		}
 
-		// 只保留还有URL需要下载的推文
-		if len(te.Tweet.Urls) > 0 {
-			dumper.Push(eid, te.Tweet)
+		if _, isFailed := failedSet[te.Tweet.Id]; !isFailed {
+			dumper.Remove(eid, te.Tweet.Id)
+			log.Infof("tweet %d all media downloaded successfully on retry", te.Tweet.Id)
+		} else if len(te.Tweet.Urls) > 0 {
 			log.Warnf("tweet %d still has %d media(s) to download", te.Tweet.Id, len(te.Tweet.Urls))
 		} else {
-			log.Infof("tweet %d all media downloaded successfully on retry", te.Tweet.Id)
+			dumper.Remove(eid, te.Tweet.Id)
+			log.Infof("tweet %d all media handled (non-retriable skipped) on retry", te.Tweet.Id)
 		}
 	}
 
@@ -110,8 +121,8 @@ func RetryFailedTweets(ctx context.Context, dumper *TweetDumper, db *sqlx.DB, cl
 	if progress != nil {
 		progress(RetryProgress{
 			Total:     totalTweets,
-			Completed: totalTweets,
-			Failed:    len(newFails),
+			Completed: int(completedTweets.Load()),
+			Failed:    dumper.Count(),
 		})
 	}
 	return summary, nil

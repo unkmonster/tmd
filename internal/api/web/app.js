@@ -533,7 +533,7 @@ const pages = {
           <div class="stat-icon" style="color: var(--success);">●</div>
           <div class="stat-content">
             <div class="stat-value">${health ? (health.status === 'ok' ? '健康' : '异常') : '检查中'}</div>
-            <div class="stat-label">系统状态 ${health ? 'v' + health.version : ''}</div>
+            <div class="stat-label">系统状态 ${health ? health.version : ''}</div>
           </div>
         </div>
         <div class="stat-card">

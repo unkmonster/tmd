@@ -7,6 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ***
 
+## [v3.4.9] - 2026-05-15
+
+### Added
+
+#### 数据库转换工具
+- `convert_db_to_legacy.py` (新文件，177 行) - 将新版本 tmd 的 SQLite 数据库转换为旧版本 tmd-2.4.4 兼容格式
+  - 处理 schema 差异：
+    - users 表：丢弃新版 is_accessible 列
+    - user_previous_names 表：列名 user_id → uid
+    - lsts 表：列名 owner_user_id → owner_uid
+  - lst_entities、user_entities、user_links 表结构一致，直接复制
+  - 命令行用法：`python convert_db_to_legacy.py <新版db路径> <输出旧版db路径>`
+
+#### TweetDumper 增强
+- `internal/downloading/dumper.go` - 新增 `Remove` 方法
+  - 支持从 dumper 中删除指定推文
+  - 从 set 和 data 中同时删除
+  - 自动清理空实体，更新计数器
+- `internal/downloading/dumper_test.go` - 新增 `Remove` 方法完整单元测试
+
+### Changed
+
+#### Web 界面版本号显示优化
+- `internal/api/web/app.js` - 概览页面状态卡片版本号显示移除 "v" 前缀
+- `internal/api/web/index.html` - Sidebar 版本号格式改为 "TMD Pro <版本号>"（移除 "v" 前缀）
+
+#### 重试机制优化
+- `internal/downloading/retry.go` - 重构 `RetryFailedTweets` 函数
+  - 使用 `Remove` 方法替代 `Clear`，精确移除已成功重试的推文
+  - 改进进度报告，使用原子计数器和 `dumper.Count()`
+  - 优化日志输出，区分成功下载和非可重试跳过的情况
+  - 修复无推文需要重试时的空操作问题
+
+### Stats
+
+- **6 个文件变更**
+- **+295 行 / -13 行**
+
+***
+
 ## [v3.4.8] - 2026-05-15
 
 ### Changed
