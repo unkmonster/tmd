@@ -584,10 +584,8 @@ func (s *downloadServiceImpl) MarkDownloaded(ctx context.Context, taskID string,
 
 // JsonFileDownload 从第三方工具导出的JSON文件下载推文媒体
 // 支持推文搜索结果格式（包含 media 数组）
-// 注意：noRetry 参数设计如此，第三方 JSON 文件下载不涉及 TweetDumper 机制，
-// 失败项不会进入 error.json，因此无需重试逻辑
+// noRetry=true 时跳过重试，失败项仍会持久化到 json_errors.json 供下次运行使用
 func (s *downloadServiceImpl) JsonFileDownload(ctx context.Context, taskID string, paths []string, noRetry bool, reporter ProgressReporter) error {
-	_ = noRetry // 显式标记为有意忽略：第三方 JSON 文件下载不涉及 TweetDumper 机制，无需重试逻辑
 	reporter = s.getReporterOrDefault(reporter)
 
 	reporter.OnProgress(taskID, Progress{Stage: "downloading", Total: len(paths), Current: fmt.Sprintf("%d JSON files", len(paths))})
@@ -599,9 +597,23 @@ func (s *downloadServiceImpl) JsonFileDownload(ctx context.Context, taskID strin
 
 	_, fileWriter, dwn := s.initDownloader()
 
-	// 使用 pathHelper.Users 确保导入 JSON 与常规推文下载落在同一 users 目录结构下
-	// 日志已在 downloading 层打印
-	results := downloading.DownloadThirdPartyTweets(ctx, s.deps.Client, pathHelper.Users, dwn, fileWriter, paths...)
+	jsonDumper := downloading.NewJsonDumper()
+	if err := jsonDumper.Load(pathHelper.JsonErrorJ); err != nil {
+		log.Warnf("Failed to load JSON dumper: %v", err)
+	}
+	defer s.saveJsonDumper(jsonDumper, pathHelper.JsonErrorJ)
+
+	retryProgress := s.newRetryProgressCallback(taskID, reporter)
+
+	results, failedBySource := downloading.DownloadThirdPartyTweets(ctx, s.deps.Client, pathHelper.Users, dwn, fileWriter, paths...)
+
+	s.collectJsonFailedTweets(jsonDumper, failedBySource, "file")
+
+	if !noRetry {
+		if _, err := downloading.RetryFailedJsonTweets(ctx, jsonDumper, s.deps.Client, dwn, fileWriter, retryProgress); err != nil {
+			log.Warnf("Retry failed JSON tweets error: %v", err)
+		}
+	}
 
 	var successCount, failCount, totalMedia int
 	for _, r := range results {
@@ -624,10 +636,8 @@ func (s *downloadServiceImpl) JsonFileDownload(ctx context.Context, taskID strin
 }
 
 // JsonFolderDownload 从TMD生成的.loongtweet文件夹下载推文媒体
-// 注意：noRetry 参数设计如此，loongtweet 文件夹下载不涉及 TweetDumper 机制，
-// 失败项不会进入 error.json，因此无需重试逻辑
+// noRetry=true 时跳过重试，失败项仍会持久化到 json_errors.json 供下次运行使用
 func (s *downloadServiceImpl) JsonFolderDownload(ctx context.Context, taskID string, paths []string, noRetry bool, reporter ProgressReporter) error {
-	_ = noRetry // 显式标记为有意忽略：loongtweet 文件夹下载不涉及 TweetDumper 机制，无需重试逻辑
 	reporter = s.getReporterOrDefault(reporter)
 
 	reporter.OnProgress(taskID, Progress{Stage: "downloading", Total: len(paths), Current: fmt.Sprintf("%d loongtweet folders", len(paths))})
@@ -639,9 +649,23 @@ func (s *downloadServiceImpl) JsonFolderDownload(ctx context.Context, taskID str
 
 	_, fileWriter, dwn := s.initDownloader()
 
-	// 使用 pathHelper.Users 确保 .loongtweet 导入与常规推文下载落在同一 users 目录结构下
-	// 日志已在 downloading 层打印
-	results := downloading.DownloadFromLoongTweetFolder(ctx, s.deps.Client, pathHelper.Users, dwn, fileWriter, paths...)
+	jsonDumper := downloading.NewJsonDumper()
+	if err := jsonDumper.Load(pathHelper.JsonErrorJ); err != nil {
+		log.Warnf("Failed to load JSON dumper: %v", err)
+	}
+	defer s.saveJsonDumper(jsonDumper, pathHelper.JsonErrorJ)
+
+	retryProgress := s.newRetryProgressCallback(taskID, reporter)
+
+	results, failedBySource := downloading.DownloadFromLoongTweetFolder(ctx, s.deps.Client, pathHelper.Users, dwn, fileWriter, paths...)
+
+	s.collectJsonFailedTweets(jsonDumper, failedBySource, "folder")
+
+	if !noRetry {
+		if _, err := downloading.RetryFailedJsonTweets(ctx, jsonDumper, s.deps.Client, dwn, fileWriter, retryProgress); err != nil {
+			log.Warnf("Retry failed JSON tweets error: %v", err)
+		}
+	}
 
 	var successCount, failCount int
 	for _, r := range results {
@@ -794,6 +818,37 @@ func (s *downloadServiceImpl) collectFailedTweets(dumper *downloading.TweetDumpe
 			dumper.Push(id, tweet.Tweet)
 		}
 	}
+}
+
+// collectJsonFailedTweets 收集 JSON 下载失败的推文到 JsonTweetDumper（保留 dir 用于重试时定位用户目录）
+func (s *downloadServiceImpl) collectJsonFailedTweets(dumper *downloading.JsonTweetDumper, failedBySource map[string][]downloading.JsonPackagedTweet, entryType string) {
+	for sourcePath, items := range failedBySource {
+		for _, item := range items {
+			dumper.PushWithDir(sourcePath, entryType, item.Dir, item.Tweet)
+		}
+	}
+}
+
+// saveJsonDumper 保存 JsonTweetDumper 到文件（Load-then-Merge 模式，与 saveDumper 一致）
+func (s *downloadServiceImpl) saveJsonDumper(dumper *downloading.JsonTweetDumper, path string) {
+	s.dumperMu.Lock()
+	defer s.dumperMu.Unlock()
+
+	merged := downloading.NewJsonDumper()
+	if err := merged.Load(path); err != nil {
+		log.Warnf("Failed to load JSON dumper for merge: %v", err)
+	}
+	merged.Merge(dumper)
+
+	if merged.Count() > 0 {
+		if err := merged.Dump(path); err != nil {
+			log.Warnf("Failed to save JSON dumper: %v", err)
+		} else {
+			log.Infof("%d JSON tweets have been dumped", merged.Count())
+		}
+		return
+	}
+	_ = os.Remove(path)
 }
 
 // 内部辅助方法：下载 Profile

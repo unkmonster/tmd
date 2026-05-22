@@ -426,3 +426,240 @@ func TestTweetDumper_RemovePreservesOtherEntities(t *testing.T) {
 		t.Error("entity 3 should not be affected")
 	}
 }
+
+func TestJsonDumper_PushAndCount(t *testing.T) {
+	d := NewJsonDumper()
+	now := time.Now()
+
+	tw1 := &twitter.Tweet{Id: 10, CreatedAt: now}
+	tw2 := &twitter.Tweet{Id: 11, CreatedAt: now}
+
+	n := d.Push("path/a.json", "file", tw1)
+	if n != 1 {
+		t.Errorf("first Push returned %d, want 1", n)
+	}
+	n = d.Push("path/a.json", "file", tw2)
+	if n != 1 {
+		t.Errorf("second Push returned %d, want 1", n)
+	}
+	n = d.Push("path/b.json", "file", tw1)
+	if n != 1 {
+		t.Errorf("Push to different source returned %d, want 1", n)
+	}
+
+	if d.Count() != 3 {
+		t.Errorf("count = %d, want 3", d.Count())
+	}
+	if d.EntryCount() != 2 {
+		t.Errorf("entryCount = %d, want 2", d.EntryCount())
+	}
+	dupN := d.Push("path/a.json", "file", tw1)
+	if dupN != 0 {
+		t.Errorf("duplicate Push returned %d, want 0", dupN)
+	}
+}
+
+func TestJsonDumper_HasTweet(t *testing.T) {
+	d := NewJsonDumper()
+	now := time.Now()
+	d.Push("a.json", "file", &twitter.Tweet{Id: 10, CreatedAt: now})
+
+	if !d.HasTweet("a.json", 10) {
+		t.Error("HasTweet should return true for existing tweet")
+	}
+	if d.HasTweet("a.json", 99) {
+		t.Error("HasTweet should return false for non-existing tweet")
+	}
+	if d.HasTweet("b.json", 10) {
+		t.Error("HasTweet should return false for non-existing source")
+	}
+}
+
+func TestJsonDumper_Remove(t *testing.T) {
+	d := NewJsonDumper()
+	now := time.Now()
+
+	d.Push("a.json", "file",
+		&twitter.Tweet{Id: 10, CreatedAt: now},
+		&twitter.Tweet{Id: 11, CreatedAt: now},
+	)
+	d.Push("b.json", "folder",
+		&twitter.Tweet{Id: 20, CreatedAt: now},
+	)
+
+	if d.Count() != 3 {
+		t.Fatalf("count before Remove = %d, want 3", d.Count())
+	}
+
+	ok := d.Remove("a.json", 10)
+	if !ok {
+		t.Fatal("Remove should return true for existing")
+	}
+	if d.Count() != 2 {
+		t.Errorf("count after Remove = %d, want 2", d.Count())
+	}
+	if d.HasTweet("a.json", 10) {
+		t.Error("tweet should be removed from set")
+	}
+	if !d.HasTweet("a.json", 11) {
+		t.Error("other tweet in same entry should remain")
+	}
+	if !d.HasTweet("b.json", 20) {
+		t.Error("other entry should not be affected")
+	}
+
+	ok = d.Remove("a.json", 11)
+	if !ok {
+		t.Fatal("Remove of last tweet in entry should succeed")
+	}
+	if d.EntryCount() != 1 {
+		t.Errorf("entryCount after removing last tweet = %d, want 1", d.EntryCount())
+	}
+	if _, exists := d.data["a.json"]; exists {
+		t.Error("empty entry should be cleaned from data map")
+	}
+
+	ok = d.Remove("nonexist.json", 99)
+	if ok {
+		t.Error("Remove of non-existing should return false")
+	}
+}
+
+func TestJsonDumper_Clear(t *testing.T) {
+	d := NewJsonDumper()
+	now := time.Now()
+	d.Push("a.json", "file", &twitter.Tweet{Id: 10, CreatedAt: now})
+	d.Clear()
+	if d.Count() != 0 {
+		t.Errorf("count after Clear = %d, want 0", d.Count())
+	}
+	if d.EntryCount() != 0 {
+		t.Errorf("entryCount after Clear = %d, want 0", d.EntryCount())
+	}
+}
+
+func TestJsonDumper_Merge(t *testing.T) {
+	a := NewJsonDumper()
+	b := NewJsonDumper()
+	now := time.Now()
+
+	a.Push("a.json", "file", &twitter.Tweet{Id: 10, CreatedAt: now})
+	b.Push("b.json", "folder", &twitter.Tweet{Id: 20, CreatedAt: now})
+	b.Push("a.json", "file", &twitter.Tweet{Id: 11, CreatedAt: now})
+
+	a.Merge(b)
+
+	if a.Count() != 3 {
+		t.Errorf("count after Merge = %d, want 3", a.Count())
+	}
+	if !a.HasTweet("a.json", 10) || !a.HasTweet("a.json", 11) || !a.HasTweet("b.json", 20) {
+		t.Error("Merge did not include all tweets")
+	}
+}
+
+func TestJsonDumper_DumpLoadRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "json_errors.json")
+
+	d := NewJsonDumper()
+	now := time.Now()
+	d.Push("a.json", "file",
+		&twitter.Tweet{Id: 10, CreatedAt: now, Urls: []string{"http://img1.jpg"}},
+		&twitter.Tweet{Id: 11, CreatedAt: now},
+	)
+	d.Push("b/folder", "folder", &twitter.Tweet{Id: 20, CreatedAt: now})
+
+	if err := d.Dump(path); err != nil {
+		t.Fatalf("Dump failed: %v", err)
+	}
+
+	loaded := NewJsonDumper()
+	if err := loaded.Load(path); err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+
+	if loaded.Count() != d.Count() {
+		t.Errorf("loaded count = %d, want %d", loaded.Count(), d.Count())
+	}
+	if loaded.EntryCount() != d.EntryCount() {
+		t.Errorf("loaded entryCount = %d, want %d", loaded.EntryCount(), d.EntryCount())
+	}
+	if !loaded.HasTweet("a.json", 10) || !loaded.HasTweet("a.json", 11) || !loaded.HasTweet("b/folder", 20) {
+		t.Error("loaded data missing expected tweets")
+	}
+	entryA := loaded.data["a.json"]
+	if entryA == nil || entryA.Type != "file" {
+		t.Error("entry type not preserved")
+	}
+}
+
+func TestJsonDumper_GetTotal(t *testing.T) {
+	d := NewJsonDumper()
+	now := time.Now()
+	d.Push("a.json", "file", &twitter.Tweet{Id: 10, CreatedAt: now, Urls: []string{"url1"}})
+
+	total := d.GetTotal()
+	if len(total) != 1 {
+		t.Fatalf("GetTotal returned %d items, want 1", len(total))
+	}
+	if total[0].GetTweet().Id != 10 {
+		t.Error("GetTotal returned wrong tweet")
+	}
+}
+
+func TestJsonDumper_DumpLoadRoundTrip_WithDirs(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "json_errors.json")
+
+	d := NewJsonDumper()
+	now := time.Now()
+	tweet10 := &twitter.Tweet{Id: 10, CreatedAt: now, Urls: []string{"http://img1.jpg"}}
+	tweet11 := &twitter.Tweet{Id: 11, CreatedAt: now}
+	tweet20 := &twitter.Tweet{Id: 20, CreatedAt: now}
+
+	d.PushWithDir("a.json", "file", "users/user_a", tweet10)
+	d.PushWithDir("a.json", "file", "users/user_a", tweet11)
+	d.PushWithDir("b/folder", "folder", "users/user_b", tweet20)
+
+	if err := d.Dump(path); err != nil {
+		t.Fatalf("Dump failed: %v", err)
+	}
+
+	loaded := NewJsonDumper()
+	if err := loaded.Load(path); err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+
+	if loaded.Count() != d.Count() {
+		t.Errorf("loaded count = %d, want %d", loaded.Count(), d.Count())
+	}
+
+	entryA := loaded.data["a.json"]
+	if entryA == nil {
+		t.Fatal("entry a.json missing after Load")
+	}
+	if dirA, ok := entryA.Dirs[10]; !ok || dirA != "users/user_a" {
+		t.Errorf("Dirs[10] = %q, want users/user_a", dirA)
+	}
+	if dirA11, ok := entryA.Dirs[11]; !ok || dirA11 != "users/user_a" {
+		t.Errorf("Dirs[11] = %q, want users/user_a", dirA11)
+	}
+
+	entryB := loaded.data["b/folder"]
+	if entryB == nil {
+		t.Fatal("entry b/folder missing after Load")
+	}
+	if dirB, ok := entryB.Dirs[20]; !ok || dirB != "users/user_b" {
+		t.Errorf("Dirs[20] = %q, want users/user_b", dirB)
+	}
+
+	total := loaded.GetTotal()
+	if len(total) != 3 {
+		t.Fatalf("GetTotal returned %d items, want 3", len(total))
+	}
+	for _, pt := range total {
+		if pt.Dir == "" {
+			t.Errorf("tweet %d has empty Dir after Load", pt.GetTweet().Id)
+		}
+	}
+}

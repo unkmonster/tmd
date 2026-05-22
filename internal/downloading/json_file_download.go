@@ -105,8 +105,9 @@ func DownloadThirdPartyTweets(
 	dwn downloader.Downloader,
 	fileWriter downloader.FileWriter,
 	filePaths ...string,
-) []ThirdPartyTweetResult {
+) ([]ThirdPartyTweetResult, map[string][]JsonPackagedTweet) {
 	results := make([]ThirdPartyTweetResult, 0, len(filePaths))
+	failedBySource := make(map[string][]JsonPackagedTweet)
 	var mu sync.Mutex
 	var wg sync.WaitGroup
 
@@ -149,7 +150,7 @@ func DownloadThirdPartyTweets(
 					log.Warnf("failed to create user dir for tweet %s: %v", entries[i].ID, err)
 				}
 
-				pts = append(pts, JsonPackagedTweet{tweet: tweet, dir: userDir})
+				pts = append(pts, JsonPackagedTweet{Tweet: tweet, Dir: userDir})
 			}
 
 			// 统计媒体文件总数（用于结果报告）
@@ -166,6 +167,16 @@ func DownloadThirdPartyTweets(
 			result.MediaCount = totalMedia
 			result.Duration = time.Since(start)
 
+			if len(failedTweets) > 0 {
+				mu.Lock()
+				for _, ft := range failedTweets {
+					if jpt, ok := ft.(JsonPackagedTweet); ok && jpt.Tweet != nil {
+						failedBySource[fp] = append(failedBySource[fp], jpt)
+					}
+				}
+				mu.Unlock()
+			}
+
 			// 输出文件级别的成功/失败统计
 			if result.Success {
 				log.Infof("[jsonfile] %s: %d media ✓", filepath.Base(fp), totalMedia)
@@ -181,5 +192,5 @@ func DownloadThirdPartyTweets(
 	}
 
 	wg.Wait()
-	return results
+	return results, failedBySource
 }

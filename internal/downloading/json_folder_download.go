@@ -24,16 +24,16 @@ type FormattedTweetEntry = map[string]any
 
 // JsonPackagedTweet 实现了 PackagedTweet 接口
 type JsonPackagedTweet struct {
-	tweet *twitter.Tweet
-	dir   string
+	Tweet *twitter.Tweet
+	Dir   string
 }
 
 func (pt JsonPackagedTweet) GetTweet() *twitter.Tweet {
-	return pt.tweet
+	return pt.Tweet
 }
 
 func (pt JsonPackagedTweet) GetPath() string {
-	return pt.dir
+	return pt.Dir
 }
 
 // parseFormattedEntry 将 FormattedTweetEntry（TMD 保存的 loongtweet JSON）解析为 twitter.Tweet
@@ -249,8 +249,9 @@ func collectJsonFiles(folderPath string) ([]string, error) {
 // DownloadFromLoongTweetFolder 从 TMD 生成的 .loongtweet 文件夹下载推文媒体。
 // 并发处理多个文件夹路径，skipLoongTweet=true 表示复用已有 .loongtweet JSON/TXT，不重复写入推文元数据文件。
 // usersDir 应该是 pathHelper.Users（即 Root/users）
-func DownloadFromLoongTweetFolder(ctx context.Context, client *resty.Client, usersDir string, dwn downloader.Downloader, fileWriter downloader.FileWriter, folderPaths ...string) []LoongTweetResult {
+func DownloadFromLoongTweetFolder(ctx context.Context, client *resty.Client, usersDir string, dwn downloader.Downloader, fileWriter downloader.FileWriter, folderPaths ...string) ([]LoongTweetResult, map[string][]JsonPackagedTweet) {
 	results := make([]LoongTweetResult, 0, len(folderPaths))
+	failedBySource := make(map[string][]JsonPackagedTweet)
 	var mu sync.Mutex
 	var wg sync.WaitGroup
 
@@ -283,7 +284,7 @@ func DownloadFromLoongTweetFolder(ctx context.Context, client *resty.Client, use
 						log.Warnf("failed to create user dir %s: %v", userDir, err)
 					}
 				}
-				pts = append(pts, JsonPackagedTweet{tweet: tw, dir: userDir})
+				pts = append(pts, JsonPackagedTweet{Tweet: tw, Dir: userDir})
 			}
 
 			result.TweetCount = len(pts)
@@ -301,6 +302,16 @@ func DownloadFromLoongTweetFolder(ctx context.Context, client *resty.Client, use
 			result.Success = len(failedTweets) == 0
 			result.Duration = time.Since(start)
 
+			if len(failedTweets) > 0 {
+				mu.Lock()
+				for _, ft := range failedTweets {
+					if jpt, ok := ft.(JsonPackagedTweet); ok && jpt.Tweet != nil {
+						failedBySource[fp] = append(failedBySource[fp], jpt)
+					}
+				}
+				mu.Unlock()
+			}
+
 			// 输出文件夹级别的成功/失败统计
 			if result.Success {
 				fmt.Printf("%s ✓ %s: %d tweets processed\n", color.FgCyan.Render("[jsonfolder]"), filepath.Base(fp), result.TweetCount)
@@ -316,5 +327,5 @@ func DownloadFromLoongTweetFolder(ctx context.Context, client *resty.Client, use
 	}
 
 	wg.Wait()
-	return results
+	return results, failedBySource
 }

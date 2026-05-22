@@ -138,3 +138,108 @@ func countTotalUrls(tweets []PackagedTweet) int {
 	}
 	return count
 }
+
+func RetryFailedJsonTweets(ctx context.Context, dumper *JsonTweetDumper, client *resty.Client, dwn downloader.Downloader, fileWriter downloader.FileWriter, progress RetryProgressFunc) (RetrySummary, error) {
+	if dumper.Count() == 0 {
+		return RetrySummary{}, nil
+	}
+	totalEntries := dumper.EntryCount()
+
+	log.Infoln("starting to retry failed JSON tweets")
+	legacy := dumper.GetTotal()
+
+	toretry := make([]PackagedTweet, 0, len(legacy))
+	noUrlTweetIDs := make([]uint64, 0)
+	for _, pt := range legacy {
+		if pt.GetTweet() == nil {
+			continue
+		}
+		if len(pt.GetTweet().Urls) > 0 {
+			toretry = append(toretry, pt)
+		} else {
+			noUrlTweetIDs = append(noUrlTweetIDs, pt.GetTweet().Id)
+		}
+	}
+
+	if len(toretry) == 0 {
+		log.Infoln("no JSON tweets need to be retried")
+		return RetrySummary{}, nil
+	}
+
+	tweetIDToSource := make(map[uint64]string, len(toretry))
+	for sourcePath, ids := range dumper.set {
+		for id := range ids {
+			tweetIDToSource[id] = sourcePath
+		}
+	}
+
+	log.Infof("retrying %d JSON tweets with %d total media(s)", len(toretry), countTotalUrls(toretry))
+	totalTweets := len(toretry)
+	if progress != nil {
+		progress(RetryProgress{
+			Total:     totalTweets,
+			Completed: 0,
+			Failed:    totalTweets,
+		})
+	}
+
+	var completedTweets atomic.Int64
+
+	newFails := BatchDownloadTweet(ctx, client, true, dwn, fileWriter, func(pt PackagedTweet, failed bool) {
+		if progress == nil {
+			return
+		}
+		completed := int(completedTweets.Add(1))
+		progress(RetryProgress{
+			Total:     totalTweets,
+			Completed: completed,
+			Failed:    totalTweets - completed,
+		})
+	}, toretry...)
+
+	failedSet := make(map[uint64]struct{}, len(newFails))
+	for _, pt := range newFails {
+		if pt.GetTweet() != nil {
+			failedSet[pt.GetTweet().Id] = struct{}{}
+		}
+	}
+
+	for _, pt := range toretry {
+		jpt, ok := pt.(JsonPackagedTweet)
+		if !ok || jpt.Tweet == nil {
+			continue
+		}
+		sourcePath, exists := tweetIDToSource[jpt.Tweet.Id]
+		if !exists {
+			continue
+		}
+		if _, isFailed := failedSet[jpt.Tweet.Id]; !isFailed {
+			dumper.Remove(sourcePath, jpt.Tweet.Id)
+			log.Infof("JSON tweet %d all media downloaded successfully on retry", jpt.Tweet.Id)
+		} else if len(jpt.Tweet.Urls) > 0 {
+			log.Warnf("JSON tweet %d still has %d media(s) to download", jpt.Tweet.Id, len(jpt.Tweet.Urls))
+		} else {
+			dumper.Remove(sourcePath, jpt.Tweet.Id)
+			log.Infof("JSON tweet %d all media handled (non-retriable skipped) on retry", jpt.Tweet.Id)
+		}
+	}
+
+	for _, id := range noUrlTweetIDs {
+		if sp, ok := tweetIDToSource[id]; ok {
+			dumper.Remove(sp, id)
+		}
+	}
+
+	summary := RetrySummary{
+		TotalEntities:     totalEntries,
+		RemainingEntities: dumper.EntryCount(),
+	}
+	if progress != nil {
+		progress(RetryProgress{
+			Total:     totalTweets,
+			Completed: int(completedTweets.Load()),
+			Failed:    dumper.Count(),
+		})
+	}
+	return summary, nil
+}

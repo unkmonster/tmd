@@ -7,6 +7,60 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ***
 
+## [v3.4.10] - 2026-05-15
+
+### Added
+
+#### JSON 下载错误持久化与重试机制
+- `internal/downloading/dumper.go` - 新增 `JsonTweetDumper` 结构体
+  - 支持 JSON 下载错误持久化到 `json_errors.json`
+  - 实现 `PushWithDir`、`Load`、`Dump`、`Merge`、`Count`、`Clear` 方法
+  - 按源路径、条目类型、目录组织失败推文
+  - 支持 Load-then-Merge 模式避免数据丢失
+
+- `internal/downloading/dumper_test.go` - 新增 `JsonTweetDumper` 完整单元测试（237 行）
+  - 覆盖 Push、Load、Dump、Merge、Clear 等所有操作
+
+- `internal/downloading/retry.go` - 新增 `RetryFailedJsonTweets` 函数
+  - 支持 JSON 下载失败推文的重试机制
+  - 实现进度回调和详细日志输出
+  - 区分成功下载和非可重试跳过的情况
+
+- `internal/downloading/json_file_download.go`
+  - `DownloadThirdPartyTweets` 返回失败推文映射 `failedBySource`
+  - 支持错误收集用于后续重试
+
+- `internal/downloading/json_folder_download.go`
+  - `DownloadFromLoongTweetFolder` 返回失败推文映射
+  - 新增 `JsonPackagedTweet` 结构体包含目录信息
+
+- `internal/service/download_service.go`
+  - `JsonFileDownload` 和 `JsonFolderDownload` 集成重试机制
+  - 新增 `collectJsonFailedTweets` 收集失败推文到 dumper
+  - 新增 `saveJsonDumper` 保存错误状态（Load-then-Merge 模式）
+
+- `internal/path/store.go` - 新增 `JsonErrorJ` 路径（`json_errors.json`）
+
+### Changed
+
+#### 路径存储优化
+- `internal/path/store.go` - 调整数据库文件名为 `tmd.db`
+
+#### 错误处理改进
+- `main.go` - 初始化失败时输出错误信息到 stderr
+
+#### 文档更新
+- `CLAUDE.md` - 重构为开发助手规范文档
+  - 添加任务管理、代码审查、发布流程等规范
+  - 包含 Git 工作流、代码风格、工具使用指南
+
+### Stats
+
+- **9 个文件变更**
+- **+629 行 / -77 行**
+
+***
+
 ## [v3.4.9] - 2026-05-15
 
 ### Added

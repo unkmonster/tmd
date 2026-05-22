@@ -343,6 +343,7 @@ func runServer(conf *config.Config, appRootPath string, port int, loginOpts twit
 
 	client, additional, _, db := initializeClients(ctx, conf, appRootPath, loginOpts, false)
 	if client == nil {
+		_, _ = fmt.Fprintln(os.Stderr, "Failed to initialize: unable to create store directory.")
 		return
 	}
 

@@ -7,11 +7,12 @@ import (
 
 // StorePath 存储路径
 type StorePath struct {
-	Root   string
-	Users  string
-	Data   string
-	DB     string
-	ErrorJ string
+	Root       string
+	Users      string
+	Data       string
+	DB         string
+	ErrorJ     string
+	JsonErrorJ string
 }
 
 // NewStorePath 创建存储路径
@@ -21,6 +22,7 @@ func NewStorePath(root string) (*StorePath, error) {
 	sp.Data = filepath.Join(root, ".data")
 	sp.DB = filepath.Join(sp.Data, "foo.db")
 	sp.ErrorJ = filepath.Join(sp.Data, "errors.json")
+	sp.JsonErrorJ = filepath.Join(sp.Data, "json_errors.json")
 
 	if err := os.MkdirAll(sp.Root, 0755); err != nil {
 		return nil, err
