@@ -252,9 +252,9 @@ func (s *downloadServiceImpl) initDownloader() (*downloader.DefaultVersionManage
 
 // downloadTemplateConfig 封装下载流程模板方法的差异点配置
 type downloadTemplateConfig struct {
-	TaskID           string
-	Opts             DownloadOptions
-	Reporter         ProgressReporter
+	TaskID   string
+	Opts     DownloadOptions
+	Reporter ProgressReporter
 
 	Prepare func(ctx context.Context, pathHelper *path.StorePath) (
 		users []*twitter.User,
@@ -263,10 +263,10 @@ type downloadTemplateConfig struct {
 		err error,
 	)
 
-	ReportBeforeDownload   func(taskID string, reporter ProgressReporter)
-	ShouldDownloadProfile  func(users []*twitter.User) bool
-	ProfileIdentifier      string
-	CompletionMessage      string
+	ReportBeforeDownload  func(taskID string, reporter ProgressReporter)
+	ShouldDownloadProfile func(users []*twitter.User) bool
+	ProfileIdentifier     string
+	CompletionMessage     string
 }
 
 func appendUsers(a, b []*twitter.User) []*twitter.User {
@@ -363,9 +363,9 @@ func (s *downloadServiceImpl) executeDownloadTemplate(ctx context.Context, confi
 // UserDownload 下载用户推文
 func (s *downloadServiceImpl) UserDownload(ctx context.Context, taskID string, screenName string, opts DownloadOptions, reporter ProgressReporter) error {
 	return s.executeDownloadTemplate(ctx, downloadTemplateConfig{
-		TaskID:           taskID,
-		Opts:             opts,
-		Reporter:         reporter,
+		TaskID:            taskID,
+		Opts:              opts,
+		Reporter:          reporter,
 		ProfileIdentifier: screenName,
 		CompletionMessage: "User download completed",
 
@@ -391,9 +391,9 @@ func (s *downloadServiceImpl) UserDownload(ctx context.Context, taskID string, s
 // ListDownload 下载列表推文
 func (s *downloadServiceImpl) ListDownload(ctx context.Context, taskID string, listID uint64, opts DownloadOptions, reporter ProgressReporter) error {
 	return s.executeDownloadTemplate(ctx, downloadTemplateConfig{
-		TaskID:           taskID,
-		Opts:             opts,
-		Reporter:         reporter,
+		TaskID:            taskID,
+		Opts:              opts,
+		Reporter:          reporter,
 		ProfileIdentifier: fmt.Sprintf("list %d", listID),
 		CompletionMessage: "List download completed",
 
@@ -419,9 +419,9 @@ func (s *downloadServiceImpl) ListDownload(ctx context.Context, taskID string, l
 // FollowingDownload 下载关注列表
 func (s *downloadServiceImpl) FollowingDownload(ctx context.Context, taskID string, screenName string, opts DownloadOptions, reporter ProgressReporter) error {
 	return s.executeDownloadTemplate(ctx, downloadTemplateConfig{
-		TaskID:           taskID,
-		Opts:             opts,
-		Reporter:         reporter,
+		TaskID:            taskID,
+		Opts:              opts,
+		Reporter:          reporter,
 		ProfileIdentifier: fmt.Sprintf("following %s", screenName),
 		CompletionMessage: "Following download completed",
 

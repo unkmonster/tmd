@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ***
 
+## [v3.4.12] - 2026-05-15
+
+### Added
+
+#### Docker 工作流增强
+- `.github/workflows/docker.yml` - 新增 Docker Hub 镜像推送支持
+  - 镜像名称配置扩展：同时支持 GHCR (`ghcr.io/leeexx2001/tmd`) 和 Docker Hub (`docker.io/leeexx00/tmd`)
+  - 添加 Docker Hub 登录步骤 (`docker/login-action@v3`)
+  - 更新 metadata-action 配置以支持多镜像推送
+
+### Changed
+
+#### Web 界面优化
+- `internal/api/web/app.js` - 定时任务表格区域添加滚动支持
+  - 添加最大高度限制 (`max-height: calc(100vh - 280px)`)
+  - 添加垂直滚动 (`overflow-y: auto`)
+  - 改善长列表的显示体验
+
+#### 代码格式优化
+- `internal/service/download_service.go` - 统一代码格式
+  - 统一 `downloadTemplateConfig` 结构体字段对齐
+  - 统一 `UserDownload`、`ListDownload`、`FollowingDownload` 函数调用参数对齐
+  - 纯格式化改动，无功能变更
+
+### Stats
+
+- **3 个文件变更**
+- **+29 行 / -20 行**
+
+***
+
 ## [v3.4.11] - 2026-05-15
 
 ### Changed
