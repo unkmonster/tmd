@@ -377,11 +377,27 @@ func tweetDownloader(config *workerConfig, errch chan<- PackagedTweet, twech <-c
 			config.cancel(fmt.Errorf("%v", p))
 			log.Errorln("✗ [downloading] - panic:", p)
 
-			if pt != nil && !reportedCurrent {
-				errch <- pt
+			safeSend := func(pt PackagedTweet) {
+				select {
+				case errch <- pt:
+				default:
+				}
 			}
-			for pt := range twech {
-				errch <- pt
+
+			if pt != nil && !reportedCurrent {
+				safeSend(pt)
+			}
+			for {
+				select {
+				case pt, ok := <-twech:
+					if ok {
+						safeSend(pt)
+					} else {
+						return
+					}
+				default:
+					return
+				}
 			}
 		}
 	}()
