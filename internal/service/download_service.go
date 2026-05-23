@@ -399,6 +399,7 @@ func (s *downloadServiceImpl) ListDownload(ctx context.Context, taskID string, l
 
 		ReportBeforeDownload: func(tid string, r ProgressReporter) {
 			r.OnProgress(tid, Progress{Stage: "syncing", Current: fmt.Sprintf("list:%d", listID)})
+			r.OnProgress(tid, Progress{Stage: "downloading", Current: fmt.Sprintf("list:%d", listID)})
 		},
 
 		Prepare: func(ctx context.Context, ph *path.StorePath) ([]*twitter.User, []twitter.ListBase, []*twitter.User, error) {
@@ -406,13 +407,11 @@ func (s *downloadServiceImpl) ListDownload(ctx context.Context, taskID string, l
 			if err != nil {
 				return nil, nil, nil, err
 			}
-			r := s.getReporterOrDefault(reporter)
-			r.OnProgress(taskID, Progress{Stage: "downloading", Current: fmt.Sprintf("list:%d", listID)})
 			return nil, []twitter.ListBase{list}, nil, nil
 		},
 
-		ShouldDownloadProfile: func(members []*twitter.User) bool {
-			return !opts.SkipProfile && len(members) > 0
+		ShouldDownloadProfile: func(_ []*twitter.User) bool {
+			return !opts.SkipProfile
 		},
 	})
 }
@@ -439,8 +438,8 @@ func (s *downloadServiceImpl) FollowingDownload(ctx context.Context, taskID stri
 			return nil, []twitter.ListBase{user.Following()}, nil, nil
 		},
 
-		ShouldDownloadProfile: func(members []*twitter.User) bool {
-			return !opts.SkipProfile && len(members) > 0
+		ShouldDownloadProfile: func(_ []*twitter.User) bool {
+			return !opts.SkipProfile
 		},
 	})
 }
