@@ -387,17 +387,8 @@ func tweetDownloader(config *workerConfig, errch chan<- PackagedTweet, twech <-c
 			if pt != nil && !reportedCurrent {
 				safeSend(pt)
 			}
-			for {
-				select {
-				case pt, ok := <-twech:
-					if ok {
-						safeSend(pt)
-					} else {
-						return
-					}
-				default:
-					return
-				}
+			for pt := range twech {
+				safeSend(pt)
 			}
 		}
 	}()

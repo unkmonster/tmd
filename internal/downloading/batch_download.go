@@ -52,7 +52,7 @@ func BatchUserDownload(ctx context.Context, client *resty.Client, db *sqlx.DB, u
 	}
 
 	tweetChan := make(chan PackagedTweet, MaxDownloadRoutine)
-	errChan := make(chan PackagedTweet)
+	errChan := make(chan PackagedTweet, MaxDownloadRoutine)
 	prodwg := sync.WaitGroup{}
 	conswg := sync.WaitGroup{}
 	ctx, cancel := context.WithCancelCause(ctx)
