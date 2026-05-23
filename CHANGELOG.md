@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ***
 
+## [v3.4.11] - 2026-05-15
+
+### Changed
+
+#### 下载服务重构 - 模板方法模式
+- `internal/service/download_service.go` - 重构下载服务核心逻辑
+  - 新增 `downloadTemplateConfig` 结构体，封装下载流程模板方法的差异点配置
+    - `Prepare` - 准备阶段回调，返回用户、列表、显式 Profile 用户
+    - `ReportBeforeDownload` - 下载前报告回调
+    - `ShouldDownloadProfile` - 是否下载 Profile 的判断函数
+    - `ProfileIdentifier` - Profile 标识符（用于日志）
+    - `CompletionMessage` - 完成消息
+  - 新增 `appendUsers` 辅助函数，合并用户切片
+  - 新增 `executeDownloadTemplate` 模板方法核心
+    - 统一处理路径初始化、Dumper 管理、下载执行、重试逻辑、Profile 下载、任务完成
+    - 通过配置回调实现不同下载类型的差异化行为
+  - 重构 `UserDownload`、`ListDownload`、`FollowingDownload`
+    - 使用模板方法，各函数代码从 ~80-90 行简化到 ~20 行
+    - 消除重复代码（路径初始化、Dumper 管理、重试逻辑、Profile 下载）
+    - 统一错误处理和日志输出
+    - 提高代码可维护性和可测试性
+
+### Stats
+
+- **1 个文件变更**
+- **+136 行 / -160 行**
+
+***
+
 ## [v3.4.10] - 2026-05-15
 
 ### Added
