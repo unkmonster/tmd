@@ -131,19 +131,19 @@ func (s *Server) handleSaveCookies(w http.ResponseWriter, r *http.Request) {
 			return cookie.AuthToken
 		})
 		if err != nil {
-			s.writeError(w, http.StatusBadRequest, fmt.Sprintf("账户 #%d 的 Auth Token %s", i+1, err.Error()))
+			s.writeError(w, http.StatusBadRequest, fmt.Sprintf("Account #%d Auth Token: %s", i+1, err.Error()))
 			return
 		}
 		ct0, err := resolveCookieSaveValue(c.Ct0, existingCookies, sourceIndex, func(cookie *config.Cookie) string {
 			return cookie.Ct0
 		})
 		if err != nil {
-			s.writeError(w, http.StatusBadRequest, fmt.Sprintf("账户 #%d 的 CT0 %s", i+1, err.Error()))
+			s.writeError(w, http.StatusBadRequest, fmt.Sprintf("Account #%d CT0: %s", i+1, err.Error()))
 			return
 		}
 
 		if strings.TrimSpace(authToken) == "" && strings.TrimSpace(ct0) == "" {
-			s.writeError(w, http.StatusBadRequest, fmt.Sprintf("账户 #%d 的 Auth Token 和 CT0 不能同时为空", i+1))
+			s.writeError(w, http.StatusBadRequest, fmt.Sprintf("Account #%d: Auth Token and CT0 cannot both be empty", i+1))
 			return
 		}
 
@@ -176,7 +176,7 @@ func resolveCookieSaveValue(value string, existingCookies []*config.Cookie, sour
 		return value, nil
 	}
 	if sourceIndex < 0 || sourceIndex >= len(existingCookies) || existingCookies[sourceIndex] == nil {
-		return "", fmt.Errorf("无法保留原值：原账户不存在")
+		return "", fmt.Errorf("cannot keep original value: account not found")
 	}
 	return get(existingCookies[sourceIndex]), nil
 }

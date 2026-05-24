@@ -8,12 +8,8 @@ import (
 	"github.com/unkmonster/tmd/internal/twitter"
 )
 
-func syncUser(db *sqlx.DB, user *twitter.User, accessible bool) error {
-	return database.SyncUser(db, user.Id, user.Name, user.ScreenName, user.IsProtected, user.FriendsCount, accessible)
-}
-
 func syncUserAndEntity(db *sqlx.DB, user *twitter.User, dir string) (*entity.UserEntity, error) {
-	if err := syncUser(db, user, true); err != nil {
+	if err := database.SyncUser(db, user.Id, user.Name, user.ScreenName, user.IsProtected, user.FriendsCount, true); err != nil {
 		return nil, err
 	}
 	userNaming := naming.NewUserNaming(user.Name, user.ScreenName)

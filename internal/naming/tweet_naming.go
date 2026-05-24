@@ -61,8 +61,5 @@ func (tn *TweetNaming) FilePath(dir string, ext string) (string, error) {
 
 func (tn *TweetNaming) FilePathWithResolver(dir string, ext string, resolver *utils.UniquePathResolver) (string, error) {
 	fullPath := filepath.Join(dir, tn.FileName(ext))
-	if resolver == nil {
-		return utils.UniquePath(fullPath)
-	}
 	return resolver.UniquePath(fullPath)
 }

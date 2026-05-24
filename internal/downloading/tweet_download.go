@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"html"
 	"path/filepath"
-	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -211,9 +210,7 @@ func cleanMediaRecursive(data any) {
 
 						if mediaType, ok := m["type"].(string); ok && mediaType == "photo" {
 							if rawUrl, ok := m["media_url_https"].(string); ok {
-								if strings.Contains(rawUrl, "twimg.com") && !strings.Contains(rawUrl, "?name=") {
-									m["media_url_https"] = rawUrl + "?name=4096x4096"
-								}
+								m["media_url_https"] = utils.EnsurePhotoHighQuality(rawUrl)
 							}
 						}
 					}

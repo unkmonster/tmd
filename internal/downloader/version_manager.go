@@ -64,10 +64,6 @@ func (vm *DefaultVersionManager) CreateVersion(sourcePath string) (string, error
 		return versionPath, err
 	}
 
-	if vm.fallbackWriter == nil {
-		vm.fallbackWriter = NewFileWriter(nil)
-	}
-
 	_, err = vm.fallbackWriter.Write(WriteRequest{Path: versionPath, Data: data})
 	return versionPath, err
 }

@@ -39,3 +39,12 @@ func IsValidScreenName(screenName string) bool {
 	}
 	return true
 }
+
+// EnsurePhotoHighQuality 将 twimg.com 的 photo URL 升级为高清版本。
+// 仅对尚未指定 ?name= 参数的 URL 追加 ?name=4096x4096。
+func EnsurePhotoHighQuality(url string) string {
+	if strings.Contains(url, "twimg.com") && !strings.Contains(url, "?name=") {
+		return url + "?name=4096x4096"
+	}
+	return url
+}

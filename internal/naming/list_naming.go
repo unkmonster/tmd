@@ -4,14 +4,16 @@ import (
 	"github.com/unkmonster/tmd/internal/utils"
 )
 
+type ListNamer interface {
+	GetId() int64
+	Title() string
+}
+
 type ListNaming struct {
 	sanitized string
 }
 
-func NewListNamingFromBase(lst interface {
-	GetId() int64
-	Title() string
-}) *ListNaming {
+func NewListNamingFromBase(lst ListNamer) *ListNaming {
 	return &ListNaming{
 		sanitized: utils.WinFileNameWithMaxLen(lst.Title(), MaxFileNameLen),
 	}

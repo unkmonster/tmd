@@ -269,13 +269,6 @@ type downloadTemplateConfig struct {
 	CompletionMessage     string
 }
 
-func appendUsers(a, b []*twitter.User) []*twitter.User {
-	result := make([]*twitter.User, 0, len(a)+len(b))
-	result = append(result, a...)
-	result = append(result, b...)
-	return result
-}
-
 func (s *downloadServiceImpl) executeDownloadTemplate(ctx context.Context, config downloadTemplateConfig) error {
 	reporter := s.getReporterOrDefault(config.Reporter)
 
@@ -311,7 +304,9 @@ func (s *downloadServiceImpl) executeDownloadTemplate(ctx context.Context, confi
 	}
 
 	if config.Opts.FollowMembers {
-		followTargets := appendUsers(users, listMembers)
+		followTargets := make([]*twitter.User, 0, len(users)+len(listMembers))
+		followTargets = append(followTargets, users...)
+		followTargets = append(followTargets, listMembers...)
 		if err := s.followMembersIfNeeded(ctx, followTargets); err != nil {
 			return err
 		}
@@ -501,14 +496,7 @@ func (s *downloadServiceImpl) ListProfileDownload(ctx context.Context, taskID st
 
 	versionManager, fileWriter, dwn := s.initDownloader()
 
-	users := make([]*twitter.User, 0, len(membersResult.Users))
-	seen := make(map[string]struct{})
-	for _, user := range membersResult.Users {
-		if _, ok := seen[user.ScreenName]; !ok {
-			seen[user.ScreenName] = struct{}{}
-			users = append(users, user)
-		}
-	}
+	users := dedupeProfileUsers(membersResult.Users)
 
 	profileResult, err := s.downloadProfile(ctx, taskID, users, pathHelper, versionManager, fileWriter, dwn, reporter)
 	if err != nil {
@@ -726,24 +714,10 @@ func (s *downloadServiceImpl) BatchDownload(ctx context.Context, taskID string, 
 	var profileResult *ProfileResult
 	profileWarning := ""
 	if !opts.SkipProfile && (len(users) > 0 || len(listMembers) > 0) {
-		profileUsers := make([]*twitter.User, 0)
-		seen := make(map[string]struct{}) // 使用 screenName 去重（与稳定版一致）
-
-		// 添加直接传入的用户
-		for _, user := range users {
-			if _, ok := seen[user.ScreenName]; !ok {
-				seen[user.ScreenName] = struct{}{}
-				profileUsers = append(profileUsers, user)
-			}
-		}
-
-		// 复用 BatchDownloadAny 返回的列表成员（无需再次调用 GetMembers）
-		for _, member := range listMembers {
-			if _, ok := seen[member.ScreenName]; !ok {
-				seen[member.ScreenName] = struct{}{}
-				profileUsers = append(profileUsers, member)
-			}
-		}
+		profileUsers := make([]*twitter.User, 0, len(users)+len(listMembers))
+		profileUsers = append(profileUsers, users...)
+		profileUsers = append(profileUsers, listMembers...)
+		profileUsers = dedupeProfileUsers(profileUsers)
 
 		if len(profileUsers) > 0 {
 			profileResult, err = s.downloadProfile(ctx, taskID, profileUsers, pathHelper, versionManager, fileWriter, dwn, reporter)

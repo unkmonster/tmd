@@ -775,17 +775,12 @@ func (s *Server) handleGetTask(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleCancelTask(w http.ResponseWriter, r *http.Request) {
 	taskID := r.PathValue("task_id")
 
-	task, ok := s.taskManager.GetTask(taskID)
-	if !ok {
+	if _, ok := s.taskManager.GetTask(taskID); !ok {
 		s.writeError(w, http.StatusNotFound, "Task not found")
 		return
 	}
-	if task.Status != TaskStatusQueued && task.Status != TaskStatusRunning {
-		s.writeError(w, http.StatusConflict, "Task cannot be cancelled in status: "+string(task.Status))
-		return
-	}
 	if !s.taskManager.CancelTask(taskID) {
-		s.writeError(w, http.StatusConflict, "Task cannot be cancelled")
+		s.writeError(w, http.StatusConflict, "Task cannot be cancelled (not in queued or running status)")
 		return
 	}
 

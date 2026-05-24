@@ -2,7 +2,8 @@ package downloading
 
 import (
 	"encoding/json"
-	"strings"
+
+	"github.com/unkmonster/tmd/internal/utils"
 )
 
 // ========== Source 结构体（新格式 - 第三方工具导出）==========
@@ -568,10 +569,7 @@ func cleanMediaHighQuality(ee *extendedEntities) *extendedEntities {
 	}
 	for i := range ee.Media {
 		if ee.Media[i].Type == "photo" {
-			url := ee.Media[i].MediaURLHTTPS
-			if strings.Contains(url, "twimg.com") && !strings.Contains(url, "?name=") {
-				ee.Media[i].MediaURLHTTPS = url + "?name=4096x4096"
-			}
+			ee.Media[i].MediaURLHTTPS = utils.EnsurePhotoHighQuality(ee.Media[i].MediaURLHTTPS)
 		}
 	}
 	return ee

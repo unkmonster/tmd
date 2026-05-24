@@ -125,7 +125,7 @@ func buildConfigFieldMeta(fieldDefs []config.FieldDef) []configFieldMeta {
 		}
 		switch fd.Name {
 		case "root_path":
-			meta.Label, meta.Type, meta.Group = "存储路径", "text", "basic"
+			meta.Label, meta.Type, meta.Group = "Storage Path", "text", "basic"
 		case "auth_token":
 			meta.Label, meta.Type, meta.Group = "Auth Token", "password", "cookie"
 			meta.IsSensitive = true
@@ -133,13 +133,13 @@ func buildConfigFieldMeta(fieldDefs []config.FieldDef) []configFieldMeta {
 			meta.Label, meta.Type, meta.Group = "CT0", "password", "cookie"
 			meta.IsSensitive = true
 		case "max_download_routine":
-			meta.Label, meta.Type, meta.Group = "最大并发下载", "number", "advanced"
-			meta.Placeholder = fmt.Sprintf("1-100, 默认 %s", fd.Default)
+			meta.Label, meta.Type, meta.Group = "Max Concurrent Downloads", "number", "advanced"
+			meta.Placeholder = fmt.Sprintf("1-100, default %s", fd.Default)
 		case "max_file_name_len":
-			meta.Label, meta.Type, meta.Group = "最大文件名长度", "number", "advanced"
-			meta.Placeholder = fmt.Sprintf("%d-%d, 默认 %s", config.MinFileNameLen, config.MaxFileNameLen, fd.Default)
+			meta.Label, meta.Type, meta.Group = "Max File Name Length", "number", "advanced"
+			meta.Placeholder = fmt.Sprintf("%d-%d, default %s", config.MinFileNameLen, config.MaxFileNameLen, fd.Default)
 		case "proxy_url":
-			meta.Label, meta.Type, meta.Group, meta.Placeholder = "代理地址", "text", "advanced", "http://127.0.0.1:7897 或留空"
+			meta.Label, meta.Type, meta.Group, meta.Placeholder = "Proxy URL", "text", "advanced", "http://127.0.0.1:7897 or leave empty"
 		default:
 			meta.Label, meta.Type, meta.Group = fd.Name, "text", "basic"
 		}
@@ -229,7 +229,7 @@ func (s *Server) handleSaveConfigFields(w http.ResponseWriter, r *http.Request) 
 
 		if err := fd.Setter(newConf, userVal); err != nil {
 			s.writeError(w, http.StatusBadRequest,
-				fmt.Sprintf("字段 %s 无效: %s", fd.Name, err.Error()))
+				fmt.Sprintf("Invalid field %s: %s", fd.Name, err.Error()))
 			return
 		}
 	}

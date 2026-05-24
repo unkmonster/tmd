@@ -112,23 +112,23 @@ func (tm *TaskManager) publishTasks() {
 func taskTypeName(t TaskType) string {
 	switch t {
 	case TaskTypeUserDownload:
-		return "用户下载"
+		return "User Download"
 	case TaskTypeListDownload:
-		return "列表下载"
+		return "List Download"
 	case TaskTypeFollowingDownload:
-		return "关注下载"
+		return "Following Download"
 	case TaskTypeProfileDownload:
-		return "Profile下载"
+		return "Profile Download"
 	case TaskTypeMarkDownloaded:
-		return "标记已下载"
+		return "Mark Downloaded"
 	case TaskTypeJsonFileDownload:
-		return "JSON文件下载"
+		return "JSON File Download"
 	case TaskTypeJsonFolderDownload:
-		return "文件夹下载"
+		return "Folder Download"
 	case TaskTypeBatchDownload:
-		return "批量下载"
+		return "Batch Download"
 	case TaskTypeListProfile:
-		return "列表Profile"
+		return "List Profile"
 	default:
 		return string(t)
 	}
@@ -414,9 +414,9 @@ func (tm *TaskManager) UpdateTaskStatus(id string, status TaskStatus) bool {
 	if tm.eventBus != nil && !isTerminalStatus(previousStatus) {
 		switch status {
 		case TaskStatusCompleted:
-			tm.eventBus.PublishNotification("task_completed", taskTypeName(task.Type)+"完成", map[string]string{"task_id": id})
+			tm.eventBus.PublishNotification("task_completed", taskTypeName(task.Type)+" completed", map[string]string{"task_id": id})
 		case TaskStatusFailed:
-			tm.eventBus.PublishNotification("task_failed", taskTypeName(task.Type)+"失败", map[string]string{"task_id": id})
+			tm.eventBus.PublishNotification("task_failed", taskTypeName(task.Type)+" failed", map[string]string{"task_id": id})
 		}
 	}
 
@@ -450,7 +450,7 @@ func (tm *TaskManager) SetTaskError(id string, err error) bool {
 
 	tm.publishTasks()
 	if tm.eventBus != nil {
-		tm.eventBus.PublishNotification("task_failed", taskTypeName(task.Type)+"失败: "+err.Error(), map[string]string{"task_id": id})
+		tm.eventBus.PublishNotification("task_failed", taskTypeName(task.Type)+" failed: "+err.Error(), map[string]string{"task_id": id})
 	}
 
 	return true
@@ -504,7 +504,7 @@ func (tm *TaskManager) CompleteTask(id string, result *TaskResult) bool {
 
 	tm.publishTasks()
 	if tm.eventBus != nil {
-		tm.eventBus.PublishNotification("task_completed", taskTypeName(task.Type)+"完成", map[string]string{"task_id": id})
+		tm.eventBus.PublishNotification("task_completed", taskTypeName(task.Type)+" completed", map[string]string{"task_id": id})
 	}
 
 	return true
@@ -534,7 +534,7 @@ func (tm *TaskManager) CancelTask(id string) bool {
 
 	tm.publishTasks()
 	if tm.eventBus != nil {
-		tm.eventBus.PublishNotification("task_cancelled", taskTypeName(task.Type)+"已取消", map[string]string{"task_id": id})
+		tm.eventBus.PublishNotification("task_cancelled", taskTypeName(task.Type)+" cancelled", map[string]string{"task_id": id})
 	}
 	return true
 }
