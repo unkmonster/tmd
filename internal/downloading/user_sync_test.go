@@ -21,9 +21,9 @@ func TestSyncUser(t *testing.T) {
 	}
 
 	// Test syncing a new user
-	err := syncUser(db, user, true)
+	err := database.SyncUser(db, user.Id, user.Name, user.ScreenName, user.IsProtected, user.FriendsCount, true)
 	if err != nil {
-		t.Errorf("syncUser() error = %v", err)
+		t.Errorf("database.SyncUser() error = %v", err)
 	}
 
 	// Verify user was created
@@ -54,9 +54,9 @@ func TestSyncUser(t *testing.T) {
 
 	// Test syncing the same user again (update)
 	user.Name = "Updated Name"
-	err = syncUser(db, user, true)
+	err = database.SyncUser(db, user.Id, user.Name, user.ScreenName, user.IsProtected, user.FriendsCount, true)
 	if err != nil {
-		t.Errorf("syncUser() update error = %v", err)
+		t.Errorf("database.SyncUser() update error = %v", err)
 	}
 
 	// Verify update
@@ -302,11 +302,9 @@ func TestSyncUser_NilDB(t *testing.T) {
 	// Test with nil DB - this will panic because the function doesn't check for nil
 	defer func() {
 		if r := recover(); r != nil {
-			t.Logf("syncUser(nil, user, true) panicked as expected: %v", r)
+			t.Logf("database.SyncUser(nil, ...) panicked as expected: %v", r)
 		}
 	}()
 
-	_ = syncUser(nil, user, true)
+	_ = database.SyncUser(nil, user.Id, user.Name, user.ScreenName, user.IsProtected, user.FriendsCount, true)
 }
-
-

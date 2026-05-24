@@ -145,6 +145,8 @@ func (q *DownloadQueue) nextJob() *downloadJob {
 }
 
 func (q *DownloadQueue) nextRunnableLocked() (int, *downloadJob) {
+	q.cleanupStaleTargetsLocked()
+
 	for i := 0; i < len(q.pending); {
 		job := q.pending[i]
 		snapshot, ok := q.server.taskManager.GetTask(job.taskID)
@@ -170,6 +172,15 @@ func (q *DownloadQueue) conflictsLocked(keys []targetKey) bool {
 		}
 	}
 	return false
+}
+
+func (q *DownloadQueue) cleanupStaleTargetsLocked() {
+	for key, ownerID := range q.heldTargets {
+		snapshot, ok := q.server.taskManager.GetTask(ownerID)
+		if !ok || isTerminalStatus(snapshot.Status) {
+			delete(q.heldTargets, key)
+		}
+	}
 }
 
 func (q *DownloadQueue) executeJob(job *downloadJob) {

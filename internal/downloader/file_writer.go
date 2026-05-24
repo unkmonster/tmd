@@ -169,7 +169,7 @@ func (fw *DefaultFileWriter) atomicWriteFromReader(path string, reader io.Reader
 	defer os.Remove(tempPath)
 
 	// 使用缓冲区复制
-	buf := make([]byte, 32*1024) // 32KB 缓冲区
+	buf := make([]byte, 64*1024) // 64KB 缓冲区
 	written, err := io.CopyBuffer(tempFile, reader, buf)
 	if err != nil {
 		tempFile.Close()
