@@ -388,8 +388,8 @@ func (s *Server) handleTriggerSchedule(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.writeJSON(w, http.StatusOK, NewSuccessResponse(map[string]interface{}{
-		"task_id": taskID,
 		"message": "Schedule triggered successfully.",
+		"task_id": taskID,
 	}))
 }
 

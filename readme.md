@@ -134,17 +134,21 @@ GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 go build -o tmd-macos .
 
 > **说明**: SQLite 使用 `modernc.org/sqlite` 纯 Go driver，源码构建不再需要 GCC/MingW 等 C 编译器。
 
-### Docker / GHCR
+### Docker
 
-项目会通过 GitHub Actions 自动发布 Docker 镜像到 GHCR。镜像名规则为：
+项目通过 GitHub Actions 自动发布 Docker 镜像到 **Docker Hub** 和 **GHCR** 双仓库，两者镜像内容完全一致，任选其一即可：
 
-```text
-ghcr.io/<owner>/<repo>:<tag>
-```
-
-当前仓库可直接拉取：
+| 镜像源 | 地址 |
+|--------|------|
+| **Docker Hub**（推荐） | `docker.io/leeexx00/tmd:<tag>` |
+| **GHCR** | `ghcr.io/leeexx2001/tmd:<tag>` |
 
 ```bash
+# Docker Hub
+docker pull leeexx00/tmd:latest
+docker pull leeexx00/tmd:v3.4.4
+
+# GHCR
 docker pull ghcr.io/leeexx2001/tmd:latest
 docker pull ghcr.io/leeexx2001/tmd:v3.4.4
 ```
@@ -181,12 +185,12 @@ docker compose ps
 docker compose logs -f
 ```
 
-README 中的 compose 示例与仓库根目录的 [docker-compose.yml](./docker-compose.yml) 保持一致：
+README 中的 compose 示例与仓库根目录的 [docker-compose.yml](./docker-compose.yml) 保持一致（默认使用 Docker Hub 镜像源）：
 
 ```yaml
 services:
   tmd:
-    image: ghcr.io/leeexx2001/tmd:latest
+    image: leeexx00/tmd:latest
     container_name: tmd
     restart: unless-stopped
     ports:
@@ -207,9 +211,15 @@ services:
     stop_grace_period: 30s
 ```
 
+如需切换为 GHCR 镜像源，将上述 `image` 改为：
+```yaml
+image: ghcr.io/leeexx2001/tmd:latest
+```
+
 **单容器最小运行示例**
 
 ```bash
+# Docker Hub
 docker run -d \
   --name tmd \
   -p 25556:25556 \
@@ -224,7 +234,10 @@ docker run -d \
   -e TMD_MAX_DOWNLOAD_ROUTINE=8 \
   -e TMD_MAX_FILE_NAME_LEN=158 \
   -e TZ=Asia/Shanghai \
-  ghcr.io/leeexx2001/tmd:latest -server
+  leeexx00/tmd:latest -server
+
+# 或使用 GHCR（将最后一行镜像地址替换即可）
+# ghcr.io/leeexx2001/tmd:latest -server
 ```
 
 启动后可访问：

@@ -1,7 +1,7 @@
 services:
   tmd:
     # 发布镜像地址。默认使用 latest，也可以改成固定版本标签，例如 v3.4.0
-    image: ghcr.io/leeexx2001/tmd:latest
+    image: leeexx00/tmd:latest
     # 容器名称，可按需修改
     container_name: tmd
     # 容器异常退出后自动重启

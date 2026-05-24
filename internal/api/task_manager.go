@@ -80,12 +80,13 @@ type TaskResult struct {
 
 // TaskManager 任务管理器
 type TaskManager struct {
-	tasks       map[string]*Task
-	mu          sync.RWMutex
-	stopCh      chan struct{}
-	closeOnce   sync.Once
-	eventBus    *EventBus
-	idGenerator func() string
+	tasks         map[string]*Task
+	tasksSnapshot []*Task
+	mu            sync.RWMutex
+	stopCh        chan struct{}
+	closeOnce     sync.Once
+	eventBus      *EventBus
+	idGenerator   func() string
 }
 
 // NewTaskManager 创建任务管理器
@@ -150,6 +151,7 @@ func (tm *TaskManager) CreateTask(taskType TaskType, data interface{}) *Task {
 	}
 
 	tm.tasks[task.ID] = task
+	tm.rebuildSnapshotLocked()
 	tm.mu.Unlock()
 
 	tm.publishTasks()
@@ -178,19 +180,24 @@ func (tm *TaskManager) GetTask(id string) (*Task, bool) {
 	return cloneTask(task), true
 }
 
-// GetAllTasks 获取所有任务的深拷贝，避免并发序列化时的数据竞争
+// GetAllTasks 返回缓存的只读快照浅拷贝，避免每次调用全量深拷贝
 func (tm *TaskManager) GetAllTasks() []*Task {
 	tm.mu.RLock()
 	defer tm.mu.RUnlock()
 
-	tasks := make([]*Task, 0, len(tm.tasks))
+	result := make([]*Task, len(tm.tasksSnapshot))
+	copy(result, tm.tasksSnapshot)
+	return result
+}
+
+func (tm *TaskManager) rebuildSnapshotLocked() {
+	tm.tasksSnapshot = make([]*Task, 0, len(tm.tasks))
 	for _, task := range tm.tasks {
-		tasks = append(tasks, cloneTask(task))
+		tm.tasksSnapshot = append(tm.tasksSnapshot, cloneTask(task))
 	}
-	sort.Slice(tasks, func(i, j int) bool {
-		return tasks[i].CreatedAt.After(tasks[j].CreatedAt)
+	sort.Slice(tm.tasksSnapshot, func(i, j int) bool {
+		return tm.tasksSnapshot[i].CreatedAt.After(tm.tasksSnapshot[j].CreatedAt)
 	})
-	return tasks
 }
 
 func cloneTask(task *Task) *Task {
@@ -399,6 +406,7 @@ func (tm *TaskManager) UpdateTaskStatus(id string, status TaskStatus) bool {
 			task.Cancel()
 		}
 	}
+	tm.rebuildSnapshotLocked()
 	tm.mu.Unlock()
 
 	tm.publishTasks()
@@ -437,6 +445,7 @@ func (tm *TaskManager) SetTaskError(id string, err error) bool {
 	if task.Cancel != nil {
 		task.Cancel()
 	}
+	tm.rebuildSnapshotLocked()
 	tm.mu.Unlock()
 
 	tm.publishTasks()
@@ -461,6 +470,7 @@ func (tm *TaskManager) UpdateTaskProgress(id string, progress *TaskProgress) boo
 	}
 
 	task.Progress = progress
+	tm.rebuildSnapshotLocked()
 	tm.mu.Unlock()
 
 	tm.publishTasks()
@@ -489,6 +499,7 @@ func (tm *TaskManager) CompleteTask(id string, result *TaskResult) bool {
 	if task.Cancel != nil {
 		task.Cancel()
 	}
+	tm.rebuildSnapshotLocked()
 	tm.mu.Unlock()
 
 	tm.publishTasks()
@@ -518,6 +529,7 @@ func (tm *TaskManager) CancelTask(id string) bool {
 	task.Cancel()
 	now := time.Now()
 	task.EndedAt = &now
+	tm.rebuildSnapshotLocked()
 	tm.mu.Unlock()
 
 	tm.publishTasks()
@@ -539,6 +551,7 @@ func (tm *TaskManager) CancelAllTasks() {
 			task.EndedAt = &now
 		}
 	}
+	tm.rebuildSnapshotLocked()
 	tm.mu.Unlock()
 
 	tm.publishTasks()
@@ -577,6 +590,7 @@ func (tm *TaskManager) cleanup() {
 			}
 		}
 	}
+	tm.rebuildSnapshotLocked()
 	tm.mu.Unlock()
 
 	tm.publishTasks()

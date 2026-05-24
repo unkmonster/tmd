@@ -118,6 +118,7 @@ func (s *Server) handleUserDownload(w http.ResponseWriter, r *http.Request, scre
 	})
 
 	s.writeJSON(w, http.StatusAccepted, NewSuccessResponse(map[string]interface{}{
+		"message":        "Download task queued successfully",
 		"task_id":        taskID,
 		"status":         status,
 		"screen_name":    req.ScreenName,
@@ -125,7 +126,6 @@ func (s *Server) handleUserDownload(w http.ResponseWriter, r *http.Request, scre
 		"follow_members": req.FollowMembers,
 		"skip_profile":   req.SkipProfile,
 		"no_retry":       req.NoRetry,
-		"message":        "Download task queued successfully",
 	}))
 }
 
@@ -141,10 +141,10 @@ func (s *Server) handleUserProfile(w http.ResponseWriter, _ *http.Request, scree
 	})
 
 	s.writeJSON(w, http.StatusAccepted, NewSuccessResponse(map[string]interface{}{
+		"message":     "Profile download task queued",
 		"task_id":     taskID,
 		"status":      status,
 		"screen_name": req.ScreenName,
-		"message":     "Profile download task queued",
 	}))
 }
 
@@ -167,11 +167,11 @@ func (s *Server) handleUserMark(w http.ResponseWriter, r *http.Request, screenNa
 	})
 
 	s.writeJSON(w, http.StatusAccepted, NewSuccessResponse(map[string]interface{}{
+		"message":     "Mark downloaded task queued",
 		"task_id":     taskID,
 		"status":      status,
 		"screen_name": req.ScreenName,
 		"timestamp":   req.Timestamp,
-		"message":     "Mark downloaded task queued",
 	}))
 }
 
@@ -194,11 +194,11 @@ func (s *Server) handleListMark(w http.ResponseWriter, r *http.Request, listID u
 	})
 
 	s.writeJSON(w, http.StatusAccepted, NewSuccessResponse(map[string]interface{}{
+		"message":   "Mark list downloaded task queued",
 		"task_id":   taskID,
 		"status":    status,
 		"list_id":   StringUint64(listID),
 		"timestamp": req.Timestamp,
-		"message":   "Mark list downloaded task queued",
 	}))
 }
 
@@ -221,11 +221,11 @@ func (s *Server) handleFollowingMark(w http.ResponseWriter, r *http.Request, scr
 	})
 
 	s.writeJSON(w, http.StatusAccepted, NewSuccessResponse(map[string]interface{}{
+		"message":     "Mark following downloaded task queued",
 		"task_id":     taskID,
 		"status":      status,
 		"screen_name": screenName,
 		"timestamp":   req.Timestamp,
-		"message":     "Mark following downloaded task queued",
 	}))
 }
 
@@ -253,6 +253,7 @@ func (s *Server) handleFollowingDownload(w http.ResponseWriter, r *http.Request,
 	})
 
 	s.writeJSON(w, http.StatusAccepted, NewSuccessResponse(map[string]interface{}{
+		"message":        "Following download task queued successfully",
 		"task_id":        taskID,
 		"status":         status,
 		"screen_name":    req.ScreenName,
@@ -260,7 +261,6 @@ func (s *Server) handleFollowingDownload(w http.ResponseWriter, r *http.Request,
 		"follow_members": req.FollowMembers,
 		"skip_profile":   req.SkipProfile,
 		"no_retry":       req.NoRetry,
-		"message":        "Following download task queued successfully",
 	}))
 }
 
@@ -328,6 +328,7 @@ func (s *Server) handleListDownload(w http.ResponseWriter, r *http.Request, list
 	})
 
 	s.writeJSON(w, http.StatusAccepted, NewSuccessResponse(map[string]interface{}{
+		"message":        "List download task queued",
 		"task_id":        taskID,
 		"status":         status,
 		"list_id":        StringUint64(listID),
@@ -335,7 +336,6 @@ func (s *Server) handleListDownload(w http.ResponseWriter, r *http.Request, list
 		"auto_follow":    req.AutoFollow,
 		"follow_members": req.FollowMembers,
 		"no_retry":       req.NoRetry,
-		"message":        "List download task queued",
 	}))
 }
 
@@ -351,10 +351,10 @@ func (s *Server) handleListProfile(w http.ResponseWriter, _ *http.Request, listI
 	})
 
 	s.writeJSON(w, http.StatusAccepted, NewSuccessResponse(map[string]interface{}{
+		"message": "List profile download task queued",
 		"task_id": taskID,
 		"status":  status,
 		"list_id": StringUint64(listID),
-		"message": "List profile download task queued",
 	}))
 }
 
@@ -383,11 +383,11 @@ func (s *Server) handleJsonFileDownload(w http.ResponseWriter, r *http.Request) 
 	})
 
 	s.writeJSON(w, http.StatusAccepted, NewSuccessResponse(map[string]interface{}{
+		"message":  "JSON file download task queued",
 		"task_id":  taskID,
 		"status":   status,
 		"paths":    req.Paths,
 		"no_retry": req.NoRetry,
-		"message":  "JSON file download task queued",
 	}))
 }
 
@@ -416,11 +416,11 @@ func (s *Server) handleJsonFolderDownload(w http.ResponseWriter, r *http.Request
 	})
 
 	s.writeJSON(w, http.StatusAccepted, NewSuccessResponse(map[string]interface{}{
+		"message":  "JSON folder download task queued",
 		"task_id":  taskID,
 		"status":   status,
 		"paths":    req.Paths,
 		"no_retry": req.NoRetry,
-		"message":  "JSON folder download task queued",
 	}))
 }
 
@@ -449,11 +449,11 @@ func (s *Server) handleJsonFileUpload(w http.ResponseWriter, r *http.Request) {
 	}))
 
 	s.writeJSON(w, http.StatusAccepted, NewSuccessResponse(map[string]interface{}{
+		"message":    "JSON file upload task queued",
 		"task_id":    taskID,
 		"status":     status,
 		"file_count": len(paths),
 		"no_retry":   req.NoRetry,
-		"message":    "JSON file upload task queued",
 	}))
 }
 
@@ -482,11 +482,11 @@ func (s *Server) handleJsonFolderUpload(w http.ResponseWriter, r *http.Request) 
 	}))
 
 	s.writeJSON(w, http.StatusAccepted, NewSuccessResponse(map[string]interface{}{
+		"message":    "LoongTweet upload task queued",
 		"task_id":    taskID,
 		"status":     status,
 		"file_count": len(paths),
 		"no_retry":   req.NoRetry,
-		"message":    "LoongTweet upload task queued",
 	}))
 }
 
@@ -737,6 +737,7 @@ func (s *Server) handleBatchDownload(w http.ResponseWriter, r *http.Request) {
 	})
 
 	s.writeJSON(w, http.StatusAccepted, NewSuccessResponse(map[string]interface{}{
+		"message":         "Batch download task queued",
 		"task_id":         taskID,
 		"status":          status,
 		"users":           req.Users,
@@ -749,7 +750,6 @@ func (s *Server) handleBatchDownload(w http.ResponseWriter, r *http.Request) {
 		"follow_members":  req.FollowMembers,
 		"skip_profile":    req.SkipProfile,
 		"no_retry":        req.NoRetry,
-		"message":         "Batch download task queued",
 	}))
 }
 

@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"math/rand"
 	"os"
-	"reflect"
 	"regexp"
 	"sort"
 	"strconv"
@@ -431,7 +430,7 @@ func (sc *Scheduler) updateStatus(idx int, entry ScheduleEntry, update func(*Sch
 		sc.mu.Unlock()
 		return false
 	}
-	if !reflect.DeepEqual(sc.entries[idx], entry) {
+	if sc.entries[idx].ID != entry.ID {
 		sc.mu.Unlock()
 		return false
 	}
