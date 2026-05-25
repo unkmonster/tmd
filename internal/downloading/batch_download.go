@@ -38,10 +38,11 @@ func calcUserDepth(exist int, total int) int {
 	return depth
 }
 
-func BatchUserDownload(ctx context.Context, client *resty.Client, db *sqlx.DB, users []userInListEntity, dir string, autoFollow bool, additional []*resty.Client, dwn downloader.Downloader, fileWriter downloader.FileWriter, progress BatchProgressFunc) ([]*TweetInEntity, BatchDownloadSummary, error) {
+func BatchUserDownload(ctx context.Context, client *resty.Client, db *sqlx.DB, users []userInListEntity, dir string, autoFollow bool, additional []*resty.Client, dwn downloader.Downloader, fileWriter downloader.FileWriter, opts RuntimeOptions, progress BatchProgressFunc) ([]*TweetInEntity, BatchDownloadSummary, error) {
 	if len(users) == 0 {
 		return nil, BatchDownloadSummary{}, nil
 	}
+	maxDownloadRoutine := opts.normalizedMaxDownloadRoutine()
 
 	uidToUser := make(map[uint64]*twitter.User)
 	for _, u := range users {
@@ -51,8 +52,8 @@ func BatchUserDownload(ctx context.Context, client *resty.Client, db *sqlx.DB, u
 		uidToUser[u.user.Id] = u.user
 	}
 
-	tweetChan := make(chan PackagedTweet, MaxDownloadRoutine)
-	errChan := make(chan PackagedTweet, MaxDownloadRoutine)
+	tweetChan := make(chan PackagedTweet, maxDownloadRoutine)
+	errChan := make(chan PackagedTweet, maxDownloadRoutine)
 	prodwg := sync.WaitGroup{}
 	conswg := sync.WaitGroup{}
 	ctx, cancel := context.WithCancelCause(ctx)
@@ -385,7 +386,7 @@ func BatchUserDownload(ctx context.Context, client *resty.Client, db *sqlx.DB, u
 			})
 		}
 	}
-	for i := 0; i < MaxDownloadRoutine; i++ {
+	for i := 0; i < maxDownloadRoutine; i++ {
 		conswg.Add(1)
 		go tweetDownloader(&config, errChan, tweetChan)
 	}

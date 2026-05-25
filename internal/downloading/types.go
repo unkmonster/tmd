@@ -42,11 +42,15 @@ type userInListEntity struct {
 	leid int
 }
 
-var MaxDownloadRoutine int
+type RuntimeOptions struct {
+	MaxDownloadRoutine int
+}
 
-func init() {
-	// Keep the runtime default in one place so config prompts and execution agree.
-	MaxDownloadRoutine = config.DefaultMaxDownloadRoutine()
+func (o RuntimeOptions) normalizedMaxDownloadRoutine() int {
+	if o.MaxDownloadRoutine > 0 {
+		return o.MaxDownloadRoutine
+	}
+	return config.DefaultMaxDownloadRoutine()
 }
 
 type batchSyncState struct {

@@ -228,7 +228,7 @@ func TestBatchDownloadTweet_Empty(t *testing.T) {
 	ctx := context.Background()
 
 	// Test with empty input
-	result := BatchDownloadTweet(ctx, nil, false, nil, nil, nil)
+	result := BatchDownloadTweet(ctx, nil, false, nil, nil, RuntimeOptions{}, nil)
 
 	if result != nil {
 		t.Errorf("BatchDownloadTweet() with empty input = %v, want nil", result)
@@ -258,7 +258,7 @@ func TestBatchDownloadTweet_WithTweets(t *testing.T) {
 		}
 	}()
 
-	_ = BatchDownloadTweet(ctx, nil, false, nil, nil, nil, tweets...)
+	_ = BatchDownloadTweet(ctx, nil, false, nil, nil, RuntimeOptions{}, nil, tweets...)
 }
 
 func TestBatchDownloadTweet_ReportsFailedTweet(t *testing.T) {
@@ -279,7 +279,7 @@ func TestBatchDownloadTweet_ReportsFailedTweet(t *testing.T) {
 		},
 	}
 
-	result := BatchDownloadTweet(ctx, nil, false, nil, nil, func(pt PackagedTweet, failed bool) {
+	result := BatchDownloadTweet(ctx, nil, false, nil, nil, RuntimeOptions{}, func(pt PackagedTweet, failed bool) {
 		called = true
 		gotFailed = failed
 		tweet := pt.GetTweet()
@@ -303,12 +303,6 @@ func TestBatchDownloadTweet_ReportsFailedTweet(t *testing.T) {
 }
 
 func TestBatchDownloadTweet_WorkerPanicDoesNotDeadlock(t *testing.T) {
-	originalMaxDownloadRoutine := MaxDownloadRoutine
-	MaxDownloadRoutine = 4
-	t.Cleanup(func() {
-		MaxDownloadRoutine = originalMaxDownloadRoutine
-	})
-
 	tempDir := t.TempDir()
 	tweets := make([]PackagedTweet, 8)
 	for i := range tweets {
@@ -336,6 +330,7 @@ func TestBatchDownloadTweet_WorkerPanicDoesNotDeadlock(t *testing.T) {
 			true,
 			panicTweetDownloader{},
 			nil,
+			RuntimeOptions{MaxDownloadRoutine: 4},
 			nil,
 			tweets...,
 		)
@@ -497,6 +492,7 @@ func TestBatchDownloadTweet_404DoesNotReturnFailedTweet(t *testing.T) {
 			},
 		}},
 		nil,
+		RuntimeOptions{},
 		func(pt PackagedTweet, failed bool) {
 			callbackCalled = true
 			gotFailed = failed

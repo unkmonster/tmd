@@ -2,6 +2,8 @@ package profile
 
 import (
 	"time"
+
+	"github.com/unkmonster/tmd/internal/config"
 )
 
 // ProfileInfo 用户资料信息
@@ -87,6 +89,8 @@ type Config struct {
 	AvatarQuality string
 	// 单个头像/横幅文件下载超时
 	FileDownloadTimeout time.Duration
+	// Profile 批量下载的最大并发数
+	MaxDownloadRoutine int
 }
 
 // DefaultConfig 返回默认配置
@@ -96,5 +100,6 @@ func DefaultConfig() *Config {
 		SkipUnchanged:       true,
 		AvatarQuality:       "400x400",
 		FileDownloadTimeout: 40 * time.Second,
+		MaxDownloadRoutine:  config.DefaultMaxDownloadRoutine(),
 	}
 }

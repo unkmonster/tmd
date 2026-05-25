@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"testing"
 	"time"
+
+	configpkg "github.com/unkmonster/tmd/internal/config"
 )
 
 func TestDefaultConfig(t *testing.T) {
@@ -27,6 +29,10 @@ func TestDefaultConfig(t *testing.T) {
 
 	if config.FileDownloadTimeout != 40*time.Second {
 		t.Errorf("FileDownloadTimeout = %v, want 40s", config.FileDownloadTimeout)
+	}
+
+	if config.MaxDownloadRoutine != configpkg.DefaultMaxDownloadRoutine() {
+		t.Errorf("MaxDownloadRoutine = %d, want %d", config.MaxDownloadRoutine, configpkg.DefaultMaxDownloadRoutine())
 	}
 }
 
@@ -273,9 +279,10 @@ func TestDownloadRequest(t *testing.T) {
 
 func TestConfig_CustomValues(t *testing.T) {
 	config := &Config{
-		EnableVersioning: false,
-		SkipUnchanged:    false,
-		AvatarQuality:    "200x200",
+		EnableVersioning:   false,
+		SkipUnchanged:      false,
+		AvatarQuality:      "200x200",
+		MaxDownloadRoutine: 7,
 	}
 
 	if config.EnableVersioning {
@@ -288,5 +295,9 @@ func TestConfig_CustomValues(t *testing.T) {
 
 	if config.AvatarQuality != "200x200" {
 		t.Errorf("AvatarQuality = %s, want 200x200", config.AvatarQuality)
+	}
+
+	if config.MaxDownloadRoutine != 7 {
+		t.Errorf("MaxDownloadRoutine = %d, want 7", config.MaxDownloadRoutine)
 	}
 }

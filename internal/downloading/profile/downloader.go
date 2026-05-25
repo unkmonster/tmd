@@ -30,8 +30,6 @@ const (
 	versionsDirName   = ".versions"
 )
 
-var MaxDownloadRoutine = 20
-
 var validImageExts = map[string]bool{
 	".jpg":  true,
 	".jpeg": true,
@@ -80,6 +78,9 @@ func validateAndDefaultConfig(config *Config, storage *FileStorageManager, dwn d
 	}
 	if config.FileDownloadTimeout <= 0 {
 		config.FileDownloadTimeout = DefaultConfig().FileDownloadTimeout
+	}
+	if config.MaxDownloadRoutine <= 0 {
+		config.MaxDownloadRoutine = DefaultConfig().MaxDownloadRoutine
 	}
 	if storage == nil {
 		panic("profile: storage cannot be nil")
@@ -318,7 +319,7 @@ func (pd *ProfileDownloader) DownloadMultiple(ctx context.Context, requests []Do
 	completedCount := 0
 	failedCount := 0
 
-	numRoutine := min(len(requests), MaxDownloadRoutine)
+	numRoutine := min(len(requests), pd.config.MaxDownloadRoutine)
 
 	reqChan := make(chan indexedRequest, len(requests))
 	for i, req := range requests {

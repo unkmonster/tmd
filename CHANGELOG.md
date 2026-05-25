@@ -7,6 +7,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ***
 
+## [v3.4.14] - 2026-05-15
+
+### Changed
+
+#### Docker 工作流优化
+- `.github/workflows/docker.yml` - 删除 2 行配置，简化 Docker 工作流
+
+#### 批量下载重构
+- `internal/downloading/batch_any.go` - 修改 4 行，优化批量下载任意类型推文逻辑
+- `internal/downloading/batch_any_test.go` - 修改 26 行，更新批量下载测试用例
+- `internal/downloading/batch_download.go` - 修改 9 行，重构批量下载核心逻辑
+- `internal/downloading/batch_download_test.go` - 修改 18 行，更新批量下载测试
+
+#### JSON 下载优化
+- `internal/downloading/json_file_download.go` - 修改 3 行，优化第三方推文 JSON 下载
+- `internal/downloading/json_folder_download.go` - 修改 4 行，优化 Loong Tweet 文件夹下载
+
+#### Profile 下载增强
+- `internal/downloading/profile/downloader.go` - 修改 7 行，增强 Profile 图片下载器，优化头像 URL 质量处理
+- `internal/downloading/profile/types.go` - 新增 5 行，扩展 Profile 类型定义
+- `internal/downloading/profile/types_test.go` - 修改 17 行，更新 Profile 类型测试
+
+#### 重试机制优化
+- `internal/downloading/retry.go` - 修改 8 行，优化重试逻辑
+- `internal/downloading/retry_test.go` - 修改 4 行，更新重试测试
+
+#### 推文下载改进
+- `internal/downloading/tweet_download.go` - 修改 5 行，优化推文下载逻辑
+- `internal/downloading/tweet_download_test.go` - 修改 14 行，简化推文下载测试
+
+#### 类型系统优化
+- `internal/downloading/types.go` - 修改 12 行，优化下载类型定义
+- `internal/downloading/types_test.go` - 修改 17 行，更新类型测试
+
+#### 调度器修复
+- `internal/scheduler/scheduler.go` - 修改 21 行，修复调度器任务状态处理
+
+#### 下载服务优化
+- `internal/service/download_service.go` - 修改 42 行，重构下载服务，优化最大下载协程数处理逻辑
+
+#### 主程序优化
+- `main.go` - 修改 7 行，优化配置加载，改进 MaxDownloadRoutine 默认值处理
+
+### Stats
+
+- **19 个文件变更**
+- **+141 行 / -84 行**
+
+***
+
 ## [v3.4.13] - 2026-05-15
 
 ### Fixed

@@ -72,7 +72,7 @@ func TestBatchUserDownload_Empty(t *testing.T) {
 	ctx := context.Background()
 	tempDir := t.TempDir()
 
-	result, _, err := BatchUserDownload(ctx, nil, db, []userInListEntity{}, tempDir, false, nil, nil, nil, nil)
+	result, _, err := BatchUserDownload(ctx, nil, db, []userInListEntity{}, tempDir, false, nil, nil, nil, RuntimeOptions{}, nil)
 
 	if err != nil {
 		t.Errorf("BatchUserDownload() error = %v", err)
@@ -90,7 +90,7 @@ func TestBatchUserDownload_NilUsers(t *testing.T) {
 	ctx := context.Background()
 	tempDir := t.TempDir()
 
-	result, _, err := BatchUserDownload(ctx, nil, db, nil, tempDir, false, nil, nil, nil, nil)
+	result, _, err := BatchUserDownload(ctx, nil, db, nil, tempDir, false, nil, nil, nil, RuntimeOptions{}, nil)
 
 	if err != nil {
 		t.Errorf("BatchUserDownload() error = %v", err)
@@ -127,7 +127,7 @@ func TestBatchUserDownload_WithUsers(t *testing.T) {
 		}
 	}()
 
-	_, _, _ = BatchUserDownload(ctx, nil, db, users, tempDir, false, nil, nil, nil, nil)
+	_, _, _ = BatchUserDownload(ctx, nil, db, users, tempDir, false, nil, nil, nil, RuntimeOptions{}, nil)
 }
 
 func TestBatchUserDownload_ProtectedUnfollowedUsers(t *testing.T) {
@@ -168,7 +168,7 @@ func TestBatchUserDownload_ProtectedUnfollowedUsers(t *testing.T) {
 		}
 	}()
 
-	_, _, _ = BatchUserDownload(ctx, nil, db, users, tempDir, false, nil, nil, nil, nil)
+	_, _, _ = BatchUserDownload(ctx, nil, db, users, tempDir, false, nil, nil, nil, RuntimeOptions{}, nil)
 }
 
 func TestBatchUserDownload_AutoFollow(t *testing.T) {
@@ -198,7 +198,7 @@ func TestBatchUserDownload_AutoFollow(t *testing.T) {
 		}
 	}()
 
-	_, _, _ = BatchUserDownload(ctx, nil, db, users, tempDir, true, nil, nil, nil, nil)
+	_, _, _ = BatchUserDownload(ctx, nil, db, users, tempDir, true, nil, nil, nil, RuntimeOptions{}, nil)
 }
 
 func TestBatchUserDownload_WithListEntity(t *testing.T) {
@@ -226,7 +226,7 @@ func TestBatchUserDownload_WithListEntity(t *testing.T) {
 		}
 	}()
 
-	_, _, _ = BatchUserDownload(ctx, nil, db, users, tempDir, false, nil, nil, nil, nil)
+	_, _, _ = BatchUserDownload(ctx, nil, db, users, tempDir, false, nil, nil, nil, RuntimeOptions{}, nil)
 }
 
 func TestBatchUserDownload_CancelledContext(t *testing.T) {
@@ -256,7 +256,7 @@ func TestBatchUserDownload_CancelledContext(t *testing.T) {
 		}
 	}()
 
-	_, _, _ = BatchUserDownload(ctx, nil, db, users, tempDir, false, nil, nil, nil, nil)
+	_, _, _ = BatchUserDownload(ctx, nil, db, users, tempDir, false, nil, nil, nil, RuntimeOptions{}, nil)
 }
 
 func TestBatchUserDownload_UserHeap(t *testing.T) {
@@ -387,7 +387,7 @@ func TestBatchUserDownload_IgnoredUsers(t *testing.T) {
 		}
 	}()
 
-	_, _, _ = BatchUserDownload(ctx, nil, db, users, tempDir, false, nil, nil, nil, nil)
+	_, _, _ = BatchUserDownload(ctx, nil, db, users, tempDir, false, nil, nil, nil, RuntimeOptions{}, nil)
 }
 
 func TestBatchUserDownload_DuplicateUsers(t *testing.T) {
@@ -424,5 +424,5 @@ func TestBatchUserDownload_DuplicateUsers(t *testing.T) {
 		}
 	}()
 
-	_, _, _ = BatchUserDownload(ctx, nil, db, users, tempDir, false, nil, nil, nil, nil)
+	_, _, _ = BatchUserDownload(ctx, nil, db, users, tempDir, false, nil, nil, nil, RuntimeOptions{}, nil)
 }

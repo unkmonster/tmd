@@ -249,7 +249,7 @@ func collectJsonFiles(folderPath string) ([]string, error) {
 // DownloadFromLoongTweetFolder 从 TMD 生成的 .loongtweet 文件夹下载推文媒体。
 // 并发处理多个文件夹路径，skipLoongTweet=true 表示复用已有 .loongtweet JSON/TXT，不重复写入推文元数据文件。
 // usersDir 应该是 pathHelper.Users（即 Root/users）
-func DownloadFromLoongTweetFolder(ctx context.Context, client *resty.Client, usersDir string, dwn downloader.Downloader, fileWriter downloader.FileWriter, folderPaths ...string) ([]LoongTweetResult, map[string][]JsonPackagedTweet) {
+func DownloadFromLoongTweetFolder(ctx context.Context, client *resty.Client, usersDir string, dwn downloader.Downloader, fileWriter downloader.FileWriter, opts RuntimeOptions, folderPaths ...string) ([]LoongTweetResult, map[string][]JsonPackagedTweet) {
 	results := make([]LoongTweetResult, 0, len(folderPaths))
 	failedBySource := make(map[string][]JsonPackagedTweet)
 	var mu sync.Mutex
@@ -297,7 +297,7 @@ func DownloadFromLoongTweetFolder(ctx context.Context, client *resty.Client, use
 
 			// 使用 BatchDownloadTweet 统一处理下载
 			// skipLoongTweet=true：不保存 txt/json（这些文件已存在）
-			failedTweets := BatchDownloadTweet(ctx, client, true, dwn, fileWriter, nil, packged...)
+			failedTweets := BatchDownloadTweet(ctx, client, true, dwn, fileWriter, opts, nil, packged...)
 
 			result.Success = len(failedTweets) == 0
 			result.Duration = time.Since(start)

@@ -23,7 +23,7 @@ type RetrySummary struct {
 	RemainingEntities int
 }
 
-func RetryFailedTweets(ctx context.Context, dumper *TweetDumper, db *sqlx.DB, client *resty.Client, dwn downloader.Downloader, fileWriter downloader.FileWriter, progress RetryProgressFunc) (RetrySummary, error) {
+func RetryFailedTweets(ctx context.Context, dumper *TweetDumper, db *sqlx.DB, client *resty.Client, dwn downloader.Downloader, fileWriter downloader.FileWriter, opts RuntimeOptions, progress RetryProgressFunc) (RetrySummary, error) {
 	if dumper.Count() == 0 {
 		return RetrySummary{}, nil
 	}
@@ -64,7 +64,7 @@ func RetryFailedTweets(ctx context.Context, dumper *TweetDumper, db *sqlx.DB, cl
 	var remainingTweets atomic.Int64
 	remainingTweets.Store(int64(totalTweets))
 
-	newFails := BatchDownloadTweet(ctx, client, true, dwn, fileWriter, func(pt PackagedTweet, failed bool) {
+	newFails := BatchDownloadTweet(ctx, client, true, dwn, fileWriter, opts, func(pt PackagedTweet, failed bool) {
 		if progress == nil {
 			return
 		}
@@ -139,7 +139,7 @@ func countTotalUrls(tweets []PackagedTweet) int {
 	return count
 }
 
-func RetryFailedJsonTweets(ctx context.Context, dumper *JsonTweetDumper, client *resty.Client, dwn downloader.Downloader, fileWriter downloader.FileWriter, progress RetryProgressFunc) (RetrySummary, error) {
+func RetryFailedJsonTweets(ctx context.Context, dumper *JsonTweetDumper, client *resty.Client, dwn downloader.Downloader, fileWriter downloader.FileWriter, opts RuntimeOptions, progress RetryProgressFunc) (RetrySummary, error) {
 	if dumper.Count() == 0 {
 		return RetrySummary{}, nil
 	}
@@ -185,7 +185,7 @@ func RetryFailedJsonTweets(ctx context.Context, dumper *JsonTweetDumper, client 
 
 	var completedTweets atomic.Int64
 
-	newFails := BatchDownloadTweet(ctx, client, true, dwn, fileWriter, func(pt PackagedTweet, failed bool) {
+	newFails := BatchDownloadTweet(ctx, client, true, dwn, fileWriter, opts, func(pt PackagedTweet, failed bool) {
 		if progress == nil {
 			return
 		}

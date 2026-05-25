@@ -168,10 +168,11 @@ func main() {
 	}
 	log.Infoln("config is loaded")
 	log.Infoln("download path:", conf.RootPath)
-	if conf.MaxDownloadRoutine > 0 {
-		downloading.MaxDownloadRoutine = conf.MaxDownloadRoutine
+	maxDownloadRoutine := conf.MaxDownloadRoutine
+	if maxDownloadRoutine <= 0 {
+		maxDownloadRoutine = config.DefaultMaxDownloadRoutine()
 	}
-	log.Infoln("max download routine set to:", downloading.MaxDownloadRoutine)
+	log.Infoln("max download routine set to:", maxDownloadRoutine)
 	if conf.MaxFileNameLen > 0 {
 		naming.MaxFileNameLen = conf.MaxFileNameLen
 	}

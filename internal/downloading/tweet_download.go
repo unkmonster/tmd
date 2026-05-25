@@ -445,17 +445,18 @@ func tweetDownloader(config *workerConfig, errch chan<- PackagedTweet, twech <-c
 	}
 }
 
-func BatchDownloadTweet(ctx context.Context, client *resty.Client, skipLoongTweet bool, dwn downloader.Downloader, fileWriter downloader.FileWriter, onTweetDone func(pt PackagedTweet, failed bool), pts ...PackagedTweet) []PackagedTweet {
+func BatchDownloadTweet(ctx context.Context, client *resty.Client, skipLoongTweet bool, dwn downloader.Downloader, fileWriter downloader.FileWriter, opts RuntimeOptions, onTweetDone func(pt PackagedTweet, failed bool), pts ...PackagedTweet) []PackagedTweet {
 	if len(pts) == 0 {
 		return nil
 	}
+	maxDownloadRoutine := opts.normalizedMaxDownloadRoutine()
 
 	ctx, cancel := context.WithCancelCause(ctx)
 
 	var errChan = make(chan PackagedTweet, len(pts))
 	var tweetChan = make(chan PackagedTweet, len(pts))
 	var wg sync.WaitGroup
-	var numRoutine = min(len(pts), MaxDownloadRoutine)
+	var numRoutine = min(len(pts), maxDownloadRoutine)
 
 	for _, pt := range pts {
 		tweetChan <- pt

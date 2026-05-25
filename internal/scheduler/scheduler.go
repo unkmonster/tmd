@@ -200,10 +200,9 @@ func (sc *Scheduler) entrySnapshot(idx int) (ScheduleEntry, *ParsedSchedule, con
 func (sc *Scheduler) Reload() error {
 	log.Debugln("[scheduler] Reload: acquiring lifecycleMu...")
 	sc.lifecycleMu.Lock()
-	defer sc.lifecycleMu.Unlock()
 	log.Debugln("[scheduler] Reload: lifecycleMu acquired")
 
-	wasStarted := sc.IsRunning()
+	wasStarted := sc.isRunningLockedLifecycle()
 	log.Debugf("[scheduler] Reload: wasStarted=%v, stopping scheduler", wasStarted)
 
 	if wasStarted {
@@ -227,6 +226,7 @@ func (sc *Scheduler) Reload() error {
 	entries, parsed, statuses, err := sc.readConfig()
 	if err != nil {
 		log.Warnf("[scheduler] Reload: readConfig failed (wasStarted=%v): %v", wasStarted, err)
+		var statusesCopy []ScheduleStatus
 		if wasStarted {
 			sc.mu.Lock()
 			if !sc.hasEverStarted {
@@ -240,9 +240,12 @@ func (sc *Scheduler) Reload() error {
 		}
 		if sc.OnStatusChange != nil {
 			sc.mu.Lock()
-			statusesCopy := make([]ScheduleStatus, len(sc.statuses))
+			statusesCopy = make([]ScheduleStatus, len(sc.statuses))
 			copy(statusesCopy, sc.statuses)
 			sc.mu.Unlock()
+		}
+		sc.lifecycleMu.Unlock()
+		if sc.OnStatusChange != nil {
 			sc.OnStatusChange(statusesCopy)
 		}
 		return err
@@ -270,11 +273,15 @@ func (sc *Scheduler) Reload() error {
 	}
 
 	if sc.OnStatusChange != nil {
+		var statusesCopy []ScheduleStatus
 		sc.mu.Lock()
-		statusesCopy := make([]ScheduleStatus, len(sc.statuses))
+		statusesCopy = make([]ScheduleStatus, len(sc.statuses))
 		copy(statusesCopy, sc.statuses)
 		sc.mu.Unlock()
+		sc.lifecycleMu.Unlock()
 		sc.OnStatusChange(statusesCopy)
+	} else {
+		sc.lifecycleMu.Unlock()
 	}
 
 	activeCount := 0
@@ -288,6 +295,12 @@ func (sc *Scheduler) Reload() error {
 }
 
 func (sc *Scheduler) IsRunning() bool {
+	sc.lifecycleMu.Lock()
+	defer sc.lifecycleMu.Unlock()
+	return sc.isRunningLockedLifecycle()
+}
+
+func (sc *Scheduler) isRunningLockedLifecycle() bool {
 	sc.mu.Lock()
 	defer sc.mu.Unlock()
 	return sc.started

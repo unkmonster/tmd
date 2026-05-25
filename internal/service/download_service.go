@@ -11,6 +11,7 @@ import (
 	"github.com/go-resty/resty/v2"
 	log "github.com/sirupsen/logrus"
 
+	"github.com/unkmonster/tmd/internal/config"
 	"github.com/unkmonster/tmd/internal/database"
 	"github.com/unkmonster/tmd/internal/downloader"
 	"github.com/unkmonster/tmd/internal/downloading"
@@ -22,6 +23,25 @@ import (
 type downloadServiceImpl struct {
 	deps     *Dependencies
 	dumperMu sync.Mutex
+}
+
+func (s *downloadServiceImpl) maxDownloadRoutine() int {
+	if s.deps != nil && s.deps.Config != nil && s.deps.Config.MaxDownloadRoutine > 0 {
+		return s.deps.Config.MaxDownloadRoutine
+	}
+	return config.DefaultMaxDownloadRoutine()
+}
+
+func (s *downloadServiceImpl) runtimeOptions() downloading.RuntimeOptions {
+	return downloading.RuntimeOptions{
+		MaxDownloadRoutine: s.maxDownloadRoutine(),
+	}
+}
+
+func (s *downloadServiceImpl) profileDownloaderConfig() *profile.Config {
+	cfg := profile.DefaultConfig()
+	cfg.MaxDownloadRoutine = s.maxDownloadRoutine()
+	return cfg
 }
 
 func (s *downloadServiceImpl) getReporterOrDefault(reporter ProgressReporter) ProgressReporter {
@@ -306,11 +326,12 @@ func (s *downloadServiceImpl) executeDownloadTemplate(ctx context.Context, confi
 	versionManager, fileWriter, dwn := s.initDownloader()
 	progress := s.newBatchProgressCallback(config.TaskID, reporter)
 	retryProgress := s.newRetryProgressCallback(config.TaskID, reporter)
+	runtimeOptions := s.runtimeOptions()
 
 	failedTweets, listMembers, summary, err := downloading.BatchDownloadAny(
 		ctx, s.deps.Client, s.deps.DB, lists, users,
 		pathHelper.Root, pathHelper.Users, effectiveAutoFollow(config.Opts),
-		s.deps.AdditionalClients, dwn, fileWriter, progress,
+		s.deps.AdditionalClients, dwn, fileWriter, runtimeOptions, progress,
 	)
 	if err != nil {
 		return err
@@ -329,7 +350,7 @@ func (s *downloadServiceImpl) executeDownloadTemplate(ctx context.Context, confi
 	s.collectFailedTweets(dumper, failedTweets)
 	if !config.Opts.NoRetry {
 		if _, err := downloading.RetryFailedTweets(
-			ctx, dumper, s.deps.DB, s.deps.Client, dwn, fileWriter, retryProgress,
+			ctx, dumper, s.deps.DB, s.deps.Client, dwn, fileWriter, runtimeOptions, retryProgress,
 		); err != nil {
 			log.Warnf("Retry failed tweets error: %v", err)
 		}
@@ -582,12 +603,13 @@ func (s *downloadServiceImpl) JsonFileDownload(ctx context.Context, taskID strin
 
 	retryProgress := s.newRetryProgressCallback(taskID, reporter)
 
-	results, failedBySource := downloading.DownloadThirdPartyTweets(ctx, s.deps.Client, pathHelper.Users, dwn, fileWriter, paths...)
+	runtimeOptions := s.runtimeOptions()
+	results, failedBySource := downloading.DownloadThirdPartyTweets(ctx, s.deps.Client, pathHelper.Users, dwn, fileWriter, runtimeOptions, paths...)
 
 	s.collectJsonFailedTweets(jsonDumper, failedBySource, "file")
 
 	if !noRetry {
-		if _, err := downloading.RetryFailedJsonTweets(ctx, jsonDumper, s.deps.Client, dwn, fileWriter, retryProgress); err != nil {
+		if _, err := downloading.RetryFailedJsonTweets(ctx, jsonDumper, s.deps.Client, dwn, fileWriter, runtimeOptions, retryProgress); err != nil {
 			log.Warnf("Retry failed JSON tweets error: %v", err)
 		}
 	}
@@ -634,12 +656,13 @@ func (s *downloadServiceImpl) JsonFolderDownload(ctx context.Context, taskID str
 
 	retryProgress := s.newRetryProgressCallback(taskID, reporter)
 
-	results, failedBySource := downloading.DownloadFromLoongTweetFolder(ctx, s.deps.Client, pathHelper.Users, dwn, fileWriter, paths...)
+	runtimeOptions := s.runtimeOptions()
+	results, failedBySource := downloading.DownloadFromLoongTweetFolder(ctx, s.deps.Client, pathHelper.Users, dwn, fileWriter, runtimeOptions, paths...)
 
 	s.collectJsonFailedTweets(jsonDumper, failedBySource, "folder")
 
 	if !noRetry {
-		if _, err := downloading.RetryFailedJsonTweets(ctx, jsonDumper, s.deps.Client, dwn, fileWriter, retryProgress); err != nil {
+		if _, err := downloading.RetryFailedJsonTweets(ctx, jsonDumper, s.deps.Client, dwn, fileWriter, runtimeOptions, retryProgress); err != nil {
 			log.Warnf("Retry failed JSON tweets error: %v", err)
 		}
 	}
@@ -697,9 +720,10 @@ func (s *downloadServiceImpl) BatchDownload(ctx context.Context, taskID string, 
 	versionManager, fileWriter, dwn := s.initDownloader()
 	progress := s.newBatchProgressCallback(taskID, reporter)
 	retryProgress := s.newRetryProgressCallback(taskID, reporter)
+	runtimeOptions := s.runtimeOptions()
 
 	// 执行批量下载（返回列表成员用于 Profile 下载）
-	failedTweets, listMembers, summary, err := downloading.BatchDownloadAny(ctx, s.deps.Client, s.deps.DB, lists, users, pathHelper.Root, pathHelper.Users, effectiveAutoFollow(opts), s.deps.AdditionalClients, dwn, fileWriter, progress)
+	failedTweets, listMembers, summary, err := downloading.BatchDownloadAny(ctx, s.deps.Client, s.deps.DB, lists, users, pathHelper.Root, pathHelper.Users, effectiveAutoFollow(opts), s.deps.AdditionalClients, dwn, fileWriter, runtimeOptions, progress)
 	if err != nil {
 		return err
 	}
@@ -718,7 +742,7 @@ func (s *downloadServiceImpl) BatchDownload(ctx context.Context, taskID string, 
 
 	// 重试失败的推文
 	if !opts.NoRetry {
-		if _, err := downloading.RetryFailedTweets(ctx, dumper, s.deps.DB, s.deps.Client, dwn, fileWriter, retryProgress); err != nil {
+		if _, err := downloading.RetryFailedTweets(ctx, dumper, s.deps.DB, s.deps.Client, dwn, fileWriter, runtimeOptions, retryProgress); err != nil {
 			log.Warnf("Retry failed tweets error: %v", err)
 		}
 	}
@@ -833,7 +857,7 @@ func (s *downloadServiceImpl) downloadProfile(ctx context.Context, taskID string
 
 	// 创建 profile 下载器（使用 DB 版本以同步用户实体信息）
 	pd := profile.NewProfileDownloaderWithDB(
-		profile.DefaultConfig(),
+		s.profileDownloaderConfig(),
 		storage,
 		append([]*resty.Client{s.deps.Client}, s.deps.AdditionalClients...),
 		s.deps.DB,

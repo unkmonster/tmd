@@ -85,14 +85,15 @@ func TestPackagedTweet_Interface(t *testing.T) {
 
 // ==================== MaxDownloadRoutine 测试 ====================
 
-func TestMaxDownloadRoutine_DefaultValue(t *testing.T) {
-	// Verify that MaxDownloadRoutine is initialized
-	assert.Greater(t, MaxDownloadRoutine, 0, "MaxDownloadRoutine should be greater than 0")
-	assert.LessOrEqual(t, MaxDownloadRoutine, 100, "MaxDownloadRoutine should be <= 100")
+func TestNormalizeMaxDownloadRoutine_DefaultValue(t *testing.T) {
+	got := (RuntimeOptions{}).normalizedMaxDownloadRoutine()
+	assert.Equal(t, config.DefaultMaxDownloadRoutine(), got)
+	assert.Greater(t, got, 0, "MaxDownloadRoutine should be greater than 0")
+	assert.LessOrEqual(t, got, 100, "MaxDownloadRoutine should be <= 100")
+}
 
-	// 默认应该是 min(100, GOMAXPROCS*10)
-	assert.Equal(t, config.DefaultMaxDownloadRoutine(), MaxDownloadRoutine)
-	assert.LessOrEqual(t, MaxDownloadRoutine, 100, "MaxDownloadRoutine should be <= 100")
+func TestNormalizeMaxDownloadRoutine_CustomValue(t *testing.T) {
+	assert.Equal(t, 7, (RuntimeOptions{MaxDownloadRoutine: 7}).normalizedMaxDownloadRoutine())
 }
 
 // ==================== workerConfig 测试 ====================

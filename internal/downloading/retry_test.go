@@ -91,7 +91,7 @@ func TestRetryFailedTweets_EmptyDumper(t *testing.T) {
 	}()
 
 	// Empty dumper should return immediately and never touch dependencies.
-	_, _ = RetryFailedTweets(ctx, dumper, nil, nil, nil, nil, nil)
+	_, _ = RetryFailedTweets(ctx, dumper, nil, nil, nil, nil, RuntimeOptions{}, nil)
 }
 
 func TestRetryFailedTweets_EmptyDumperWithProgress(t *testing.T) {
@@ -99,7 +99,7 @@ func TestRetryFailedTweets_EmptyDumperWithProgress(t *testing.T) {
 	dumper := NewDumper()
 	called := false
 
-	summary, err := RetryFailedTweets(ctx, dumper, nil, nil, nil, nil, func(progress RetryProgress) {
+	summary, err := RetryFailedTweets(ctx, dumper, nil, nil, nil, nil, RuntimeOptions{}, func(progress RetryProgress) {
 		called = true
 	})
 

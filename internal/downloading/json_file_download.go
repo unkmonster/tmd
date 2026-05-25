@@ -104,6 +104,7 @@ func DownloadThirdPartyTweets(
 	usersDir string,
 	dwn downloader.Downloader,
 	fileWriter downloader.FileWriter,
+	opts RuntimeOptions,
 	filePaths ...string,
 ) ([]ThirdPartyTweetResult, map[string][]JsonPackagedTweet) {
 	results := make([]ThirdPartyTweetResult, 0, len(filePaths))
@@ -161,7 +162,7 @@ func DownloadThirdPartyTweets(
 
 			// 使用 BatchDownloadTweet 统一处理下载
 			// skipLoongTweet=false：需要保存 txt 和 json 元数据文件
-			failedTweets := BatchDownloadTweet(ctx, client, false, dwn, fileWriter, nil, pts...)
+			failedTweets := BatchDownloadTweet(ctx, client, false, dwn, fileWriter, opts, nil, pts...)
 
 			result.Success = len(failedTweets) == 0
 			result.MediaCount = totalMedia
