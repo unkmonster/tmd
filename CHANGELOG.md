@@ -7,6 +7,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ***
 
+## [v3.4.13] - 2026-05-15
+
+### Fixed
+
+#### 调度器修复与优化
+- `internal/scheduler/scheduler.go` - 修复调度器核心问题
+  - 修复 `Stop()` 方法的互斥锁泄漏问题
+  - 去重 goroutine 启动，防止重复执行
+  - 修复 OOB (Out of Bounds) 风险
+  - 重构调度器核心逻辑，提升稳定性
+
+- `internal/scheduler/scheduler_test.go` - 新增 179 行测试代码，增强调度器测试覆盖
+
+#### 同步逻辑修复
+- `internal/downloading/list_sync.go` / `user_sync.go`
+  - 修复 `syncUser` 未定义引用问题
+  - 清理过时的目标代码
+  - 简化列表同步逻辑
+
+#### 下载死锁修复
+- `internal/downloading/tweet_download.go`
+  - 修复 `BatchDownloadTweet` 和 `BatchUserDownload` 的死锁问题
+  - 修复 `tweetDownloader` panic 恢复机制中的死锁
+
+### Changed
+
+#### 代码重构与清理
+- 修复乱码文本 (mojibake)
+- 提取通用工具函数
+- 简化抽象层
+
+#### API 性能优化
+- `internal/api/task_manager.go` - 优化 TaskManager
+  - 引入快照缓存机制提升性能
+  - 清理冗余代码
+
+#### 其他改进
+- `internal/path/store.go` - 路径存储优化
+- `internal/utils/fs.go` / `user.go` - 工具函数增强
+- `readme.md` / `doc/API_DOCUMENTATION.md` - 文档更新
+- `docker-compose.yml` - 配置调整
+- 新增 `tools/check_recent_json_name_params.py` - JSON 命名参数检查工具
+
+### Stats
+
+- **32 个文件变更**
+- **+824 行 / -386 行**
+
+***
+
 ## [v3.4.12] - 2026-05-15
 
 ### Added
