@@ -40,9 +40,10 @@ type ScheduleEntry struct {
 }
 
 type ParsedSchedule struct {
-	Mode     ScheduleMode
-	Interval time.Duration
-	Times    []time.Time
+	Mode        ScheduleMode
+	Interval    time.Duration
+	Times       []time.Time // 原始配置顺序，用于展示。
+	SortedTimes []time.Time // 升序时间，用于计算下一次触发。
 }
 
 type ScheduleStatus struct {
@@ -54,6 +55,7 @@ type ScheduleStatus struct {
 	LastTaskID          string        `json:"last_task_id,omitempty"`
 	LastError           string        `json:"last_error,omitempty"`
 	ConsecutiveFailures int           `json:"consecutive_failures"`
+	Triggering          bool          `json:"triggering"`
 }
 
 type DownloadFunc func(entry ScheduleEntry) string

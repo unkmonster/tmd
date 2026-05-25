@@ -71,8 +71,10 @@ func WinFileNameWithMaxLen(name string, maxLen int) string {
 	return buffer.String()
 }
 
+const maxUniquePathRetries = 10000
+
 func UniquePath(path string) (string, error) {
-	for {
+	for i := 0; i < maxUniquePathRetries; i++ {
 		exist, err := PathExists(path)
 		if err != nil {
 			return "", err
@@ -83,6 +85,7 @@ func UniquePath(path string) (string, error) {
 
 		path = nextUniquePathCandidate(path)
 	}
+	return "", fmt.Errorf("failed to find unique path after %d attempts (last candidate: %q)", maxUniquePathRetries, path)
 }
 
 type UniquePathResolver struct {
@@ -104,7 +107,7 @@ func (r *UniquePathResolver) UniquePath(path string) (string, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	for {
+	for i := 0; i < maxUniquePathRetries; i++ {
 		if _, exists := r.reserved[path]; exists {
 			path = nextUniquePathCandidate(path)
 			continue
@@ -121,6 +124,7 @@ func (r *UniquePathResolver) UniquePath(path string) (string, error) {
 
 		path = nextUniquePathCandidate(path)
 	}
+	return "", fmt.Errorf("failed to find unique path after %d attempts (last candidate: %q)", maxUniquePathRetries, path)
 }
 
 func nextUniquePathCandidate(path string) string {

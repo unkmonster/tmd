@@ -258,13 +258,14 @@ func downloadTweetMedia(cfg *workerConfig, dir string, tweet *twitter.Tweet, ski
 		saveLoongTweet(cfg, dir, tweet, tweetNaming)
 	}
 
-	// 只保留需要进入重试链路的 URL。
-	retryableFailedUrls := make([]string, 0)
+	// tweet.Urls 最终只保留需要进入重试链路的 URL。
+	urls := tweet.Urls
+	tweet.Urls = tweet.Urls[:0]
 	skippedUrls := make([]string, 0)
 	successUrls := make([]string, 0)
 	var firstRetryableErr error
 
-	for _, u := range tweet.Urls {
+	for _, u := range urls {
 		ext, err := utils.GetExtFromUrl(u)
 		if err != nil || ext == "" {
 			ext = ".jpg"
@@ -275,7 +276,7 @@ func downloadTweetMedia(cfg *workerConfig, dir string, tweet *twitter.Tweet, ski
 		path, err := tweetNaming.FilePathWithResolver(dir, ext, cfg.pathResolver)
 		if err != nil {
 			log.Warnln("failed to build media path:", u, "-", err)
-			retryableFailedUrls = append(retryableFailedUrls, u)
+			tweet.Urls = append(tweet.Urls, u)
 			if firstRetryableErr == nil {
 				firstRetryableErr = err
 			}
@@ -301,7 +302,7 @@ func downloadTweetMedia(cfg *workerConfig, dir string, tweet *twitter.Tweet, ski
 				continue
 			}
 			log.Warnln("failed to download media:", u, "-", err)
-			retryableFailedUrls = append(retryableFailedUrls, u)
+			tweet.Urls = append(tweet.Urls, u)
 			if firstRetryableErr == nil {
 				firstRetryableErr = err
 			}
@@ -310,7 +311,7 @@ func downloadTweetMedia(cfg *workerConfig, dir string, tweet *twitter.Tweet, ski
 		if result == nil {
 			err = fmt.Errorf("download returned nil result")
 			log.Warnln("media download returned nil result:", u)
-			retryableFailedUrls = append(retryableFailedUrls, u)
+			tweet.Urls = append(tweet.Urls, u)
 			if firstRetryableErr == nil {
 				firstRetryableErr = err
 			}
@@ -323,7 +324,7 @@ func downloadTweetMedia(cfg *workerConfig, dir string, tweet *twitter.Tweet, ski
 				continue
 			}
 			log.Warnln("media download reported failure:", u, "-", result.Error)
-			retryableFailedUrls = append(retryableFailedUrls, u)
+			tweet.Urls = append(tweet.Urls, u)
 			if firstRetryableErr == nil {
 				if result.Error != nil {
 					firstRetryableErr = result.Error
@@ -336,13 +337,10 @@ func downloadTweetMedia(cfg *workerConfig, dir string, tweet *twitter.Tweet, ski
 		successUrls = append(successUrls, u)
 	}
 
-	// 更新 tweet.Urls：只保留需要重试的 URL。
-	tweet.Urls = retryableFailedUrls
-
 	// 只在至少一个媒体下载成功时才打印推文标题
 	if len(successUrls) > 0 {
 		fmt.Printf("%s", color.FgLightMagenta.Render(tweetNaming.LogFormat()))
-		totalAttempted := len(successUrls) + len(retryableFailedUrls) + len(skippedUrls)
+		totalAttempted := len(successUrls) + len(tweet.Urls) + len(skippedUrls)
 		if totalAttempted > len(successUrls) {
 			fmt.Printf(" [%d/%d succeeded", len(successUrls), totalAttempted)
 			if len(skippedUrls) > 0 {
@@ -354,9 +352,9 @@ func downloadTweetMedia(cfg *workerConfig, dir string, tweet *twitter.Tweet, ski
 	}
 
 	// 只有可重试的失败才进入后续失败链路。
-	if len(retryableFailedUrls) > 0 {
+	if len(tweet.Urls) > 0 {
 		return &mediaDownloadError{
-			failedCount: len(retryableFailedUrls),
+			failedCount: len(tweet.Urls),
 			cause:       firstRetryableErr,
 		}
 	}
@@ -375,6 +373,8 @@ func tweetDownloader(config *workerConfig, errch chan<- PackagedTweet, twech <-c
 			log.Errorln("✗ [downloading] - panic:", p)
 
 			safeSend := func(pt PackagedTweet) {
+				// Recover path only: if the consumer already stopped after cancellation,
+				// dropping overflow items is preferable to blocking this goroutine forever.
 				select {
 				case errch <- pt:
 				default:

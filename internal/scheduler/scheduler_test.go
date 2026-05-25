@@ -3,6 +3,7 @@ package scheduler
 import (
 	"os"
 	"path/filepath"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -54,6 +55,95 @@ func TestTriggerSkipsStatusUpdateWhenReloadReplacesEntries(t *testing.T) {
 	}
 	if statuses := sc.GetStatuses(); len(statuses) != 0 {
 		t.Fatalf("expected reloaded empty statuses, got %d", len(statuses))
+	}
+}
+
+func TestTriggerReleaseAfterReloadDoesNotClearNewGenerationTrigger(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "schedules.yaml")
+	content := []byte(`schedules:
+  - id: same
+    type: user
+    target: alice
+    name: Alice
+    schedule: "interval:1h"
+    enabled: true
+`)
+	if err := os.WriteFile(configPath, content, 0600); err != nil {
+		t.Fatalf("write initial config: %v", err)
+	}
+
+	firstStarted := make(chan struct{})
+	firstRelease := make(chan struct{})
+	secondStarted := make(chan struct{})
+	secondRelease := make(chan struct{})
+	var calls atomic.Int32
+	sc, err := New(configPath, func(entry ScheduleEntry) string {
+		switch calls.Add(1) {
+		case 1:
+			close(firstStarted)
+			<-firstRelease
+			return "task-1"
+		case 2:
+			close(secondStarted)
+			<-secondRelease
+			return "task-2"
+		default:
+			t.Fatal("unexpected extra trigger")
+			return ""
+		}
+	})
+	if err != nil {
+		t.Fatalf("new scheduler: %v", err)
+	}
+	t.Cleanup(sc.Stop)
+
+	firstDone := make(chan error, 1)
+	go func() {
+		_, err := sc.TriggerByID("same")
+		firstDone <- err
+	}()
+	<-firstStarted
+
+	if err := os.WriteFile(configPath, content, 0600); err != nil {
+		t.Fatalf("write reload config: %v", err)
+	}
+	if err := sc.Reload(); err != nil {
+		t.Fatalf("reload scheduler: %v", err)
+	}
+
+	secondDone := make(chan error, 1)
+	go func() {
+		_, err := sc.TriggerByID("same")
+		secondDone <- err
+	}()
+	<-secondStarted
+
+	close(firstRelease)
+	if err := <-firstDone; err != nil {
+		t.Fatalf("first trigger returned error: %v", err)
+	}
+	statuses := sc.GetStatuses()
+	if len(statuses) != 1 {
+		t.Fatalf("expected one status, got %d", len(statuses))
+	}
+	if !statuses[0].Triggering {
+		t.Fatal("old generation release cleared the active new generation trigger")
+	}
+
+	close(secondRelease)
+	if err := <-secondDone; err != nil {
+		t.Fatalf("second trigger returned error: %v", err)
+	}
+	statuses = sc.GetStatuses()
+	if len(statuses) != 1 {
+		t.Fatalf("expected one status after second trigger, got %d", len(statuses))
+	}
+	if statuses[0].Triggering {
+		t.Fatal("second trigger did not release triggering flag")
+	}
+	if statuses[0].LastTaskID != "task-2" {
+		t.Fatalf("expected current generation task id to be task-2, got %q", statuses[0].LastTaskID)
 	}
 }
 
@@ -301,6 +391,55 @@ func TestTriggerReturnsErrorWhenDownloadFuncReturnsEmptyTaskID(t *testing.T) {
 	}
 }
 
+func TestStatusChangeCallbackCanQuerySchedulerState(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "schedules.yaml")
+	if err := os.WriteFile(configPath, []byte(`schedules:
+  - type: user
+    target: alice
+    name: Alice
+    schedule: "interval:1h"
+    enabled: true
+`), 0600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	sc, err := New(configPath, func(entry ScheduleEntry) string {
+		return "task-1"
+	})
+	if err != nil {
+		t.Fatalf("new scheduler: %v", err)
+	}
+
+	callbackDone := make(chan struct{})
+	var once sync.Once
+	sc.OnStatusChange = func([]ScheduleStatus) {
+		_ = sc.IsRunning()
+		once.Do(func() { close(callbackDone) })
+	}
+
+	triggerDone := make(chan error, 1)
+	go func() {
+		_, err := sc.Trigger(0)
+		triggerDone <- err
+	}()
+
+	select {
+	case err := <-triggerDone:
+		if err != nil {
+			t.Fatalf("trigger returned error: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("trigger deadlocked while dispatching status change")
+	}
+
+	select {
+	case <-callbackDone:
+	case <-time.After(time.Second):
+		t.Fatal("status change callback was not called")
+	}
+}
+
 func TestValidateEntryRejectsZeroListID(t *testing.T) {
 	err := ValidateEntry(ScheduleEntry{
 		Type:     ScheduleTypeList,
@@ -479,6 +618,46 @@ func TestParseScheduleTrimsValues(t *testing.T) {
 	if len(daily.Times) != 2 {
 		t.Fatalf("expected two daily times, got %d", len(daily.Times))
 	}
+}
+
+func TestParseSchedulePreservesDisplayOrderAndSortsTriggerTimes(t *testing.T) {
+	daily, err := ParseSchedule("daily: 21:00, 07:00")
+	if err != nil {
+		t.Fatalf("parse daily: %v", err)
+	}
+
+	if got := FormatScheduleDisplay(daily, ""); got != "每天 21:00, 07:00" {
+		t.Fatalf("expected display order to match config, got %q", got)
+	}
+	if len(daily.SortedTimes) != 2 {
+		t.Fatalf("expected two sorted times, got %d", len(daily.SortedTimes))
+	}
+	if got := daily.SortedTimes[0].Format("15:04"); got != "07:00" {
+		t.Fatalf("expected first sorted time to be 07:00, got %s", got)
+	}
+	if got := daily.SortedTimes[1].Format("15:04"); got != "21:00" {
+		t.Fatalf("expected second sorted time to be 21:00, got %s", got)
+	}
+}
+
+func TestRunLoopExitsOnInvalidIndex(t *testing.T) {
+	sc := &Scheduler{
+		downloadFunc: func(ScheduleEntry) string {
+			t.Fatal("downloadFunc should not be called for invalid runLoop index")
+			return ""
+		},
+		entries: []ScheduleEntry{{
+			Type:     ScheduleTypeUser,
+			Target:   "alice",
+			Name:     "Alice",
+			Schedule: "interval:1h",
+			Enabled:  true,
+		}},
+		parsed: nil,
+	}
+
+	sc.runLoop(0)
+	sc.runLoop(1)
 }
 
 func waitFor(t *testing.T, timeout time.Duration, condition func() bool) {

@@ -391,14 +391,17 @@ func TestShouldFollowMemberMatchesDownloadFiltering(t *testing.T) {
 	assert.True(t, shouldFollowMember(&twitter.User{Id: 1, Followstate: twitter.FS_UNFOLLOW}))
 }
 
-func TestDedupeProfileUsersUsesStableIdentity(t *testing.T) {
+func TestDedupeProfileUsersUsesScreenNameAndID(t *testing.T) {
 	invalidA := &twitter.User{Name: "invalid-a"}
 	invalidB := &twitter.User{Name: "invalid-b"}
 	users := []*twitter.User{
 		{Id: 1, ScreenName: "alice"},
+		{Id: 2, ScreenName: "alice"},
 		{Id: 1, ScreenName: "alice_renamed"},
+		{Id: 3, ScreenName: " Bob "},
 		{ScreenName: "Bob"},
-		{ScreenName: "bob"},
+		{Id: 4},
+		{Id: 4},
 		nil,
 		invalidA,
 		invalidB,
@@ -406,11 +409,13 @@ func TestDedupeProfileUsersUsesStableIdentity(t *testing.T) {
 
 	got := dedupeProfileUsers(users)
 
-	require.Len(t, got, 4)
+	require.Len(t, got, 5)
 	assert.Equal(t, uint64(1), got[0].Id)
-	assert.Equal(t, "Bob", got[1].ScreenName)
-	assert.Same(t, invalidA, got[2])
-	assert.Same(t, invalidB, got[3])
+	assert.Equal(t, "alice", got[0].ScreenName)
+	assert.Equal(t, " Bob ", got[1].ScreenName)
+	assert.Equal(t, uint64(4), got[2].Id)
+	assert.Same(t, invalidA, got[3])
+	assert.Same(t, invalidB, got[4])
 }
 
 func TestMockProgressReporter_Recording(t *testing.T) {

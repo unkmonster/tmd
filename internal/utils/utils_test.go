@@ -814,6 +814,46 @@ func TestStripAvatarSuffix(t *testing.T) {
 	}
 }
 
+func TestEnsurePhotoHighQuality(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "twimg无查询参数",
+			input:    "https://pbs.twimg.com/media/image.jpg",
+			expected: "https://pbs.twimg.com/media/image.jpg?name=4096x4096",
+		},
+		{
+			name:     "twimg保留已有format参数",
+			input:    "https://pbs.twimg.com/media/image?format=jpg",
+			expected: "https://pbs.twimg.com/media/image?format=jpg&name=4096x4096",
+		},
+		{
+			name:     "twimg覆盖已有name参数",
+			input:    "https://pbs.twimg.com/media/image?format=jpg&name=large",
+			expected: "https://pbs.twimg.com/media/image?format=jpg&name=4096x4096",
+		},
+		{
+			name:     "twimg覆盖首位name参数",
+			input:    "https://pbs.twimg.com/media/image?name=orig&format=jpg",
+			expected: "https://pbs.twimg.com/media/image?format=jpg&name=4096x4096",
+		},
+		{
+			name:     "非twimg不修改",
+			input:    "https://example.com/media/image.jpg",
+			expected: "https://example.com/media/image.jpg",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, EnsurePhotoHighQuality(tt.input))
+		})
+	}
+}
+
 // ==================== ExtractIDs 测试 ====================
 
 type testUser struct {

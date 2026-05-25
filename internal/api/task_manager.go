@@ -20,6 +20,14 @@ const (
 	TaskStatusCancelled TaskStatus = "cancelled"
 )
 
+type CancelTaskResult string
+
+const (
+	CancelTaskResultCancelled      CancelTaskResult = "cancelled"
+	CancelTaskResultNotFound       CancelTaskResult = "not_found"
+	CancelTaskResultNotCancellable CancelTaskResult = "not_cancellable"
+)
+
 // TaskType 任务类型
 type TaskType string
 
@@ -511,17 +519,17 @@ func (tm *TaskManager) CompleteTask(id string, result *TaskResult) bool {
 }
 
 // CancelTask 取消任务
-func (tm *TaskManager) CancelTask(id string) bool {
+func (tm *TaskManager) CancelTask(id string) CancelTaskResult {
 	tm.mu.Lock()
 	task, ok := tm.tasks[id]
 	if !ok {
 		tm.mu.Unlock()
-		return false
+		return CancelTaskResultNotFound
 	}
 
 	if task.Status != TaskStatusQueued && task.Status != TaskStatusRunning {
 		tm.mu.Unlock()
-		return false
+		return CancelTaskResultNotCancellable
 	}
 
 	task.Status = TaskStatusCancelled
@@ -536,7 +544,7 @@ func (tm *TaskManager) CancelTask(id string) bool {
 	if tm.eventBus != nil {
 		tm.eventBus.PublishNotification("task_cancelled", taskTypeName(task.Type)+" cancelled", map[string]string{"task_id": id})
 	}
-	return true
+	return CancelTaskResultCancelled
 }
 
 // CancelAllTasks 取消所有正在运行或排队中的任务

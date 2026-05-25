@@ -724,6 +724,9 @@ schedules:
 | `entries[].last_task_id` | 上次执行的任务 ID |
 | `entries[].last_error` | 上次执行的错误信息 |
 | `entries[].consecutive_failures` | 连续失败次数 |
+| `entries[].triggering` | 是否正在触发该调度规则；仅表示正在创建任务，不代表后台下载任务仍在运行 |
+
+创建、更新、启用或重载定时任务后，如果存在启用中的规则且调度器未运行，服务端会自动启动调度器。
 
 ***
 

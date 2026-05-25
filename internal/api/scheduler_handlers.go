@@ -427,7 +427,14 @@ func (s *Server) writeScheduleConfigLocked(schedulesPath string, cfg scheduler.S
 
 func (s *Server) reloadSchedulesLocked(schedulesPath string) error {
 	if sched := s.getScheduler(); sched != nil {
-		return sched.Reload()
+		if err := sched.Reload(); err != nil {
+			return err
+		}
+		if !sched.IsRunning() && hasEnabledScheduleStatus(sched.GetStatuses()) {
+			sched.Start()
+			s.handleScheduleStatusChange(sched.GetStatuses())
+		}
+		return nil
 	}
 
 	newSched, err := scheduler.New(schedulesPath, s.scheduledDownload)
@@ -446,7 +453,23 @@ func (s *Server) reloadSchedulesLocked(schedulesPath string) error {
 	existingSched := s.scheduler
 	s.schedulerMu.Unlock()
 	existingSched.OnStatusChange = s.handleScheduleStatusChange
-	return existingSched.Reload()
+	if err := existingSched.Reload(); err != nil {
+		return err
+	}
+	if !existingSched.IsRunning() && hasEnabledScheduleStatus(existingSched.GetStatuses()) {
+		existingSched.Start()
+		s.handleScheduleStatusChange(existingSched.GetStatuses())
+	}
+	return nil
+}
+
+func hasEnabledScheduleStatus(statuses []scheduler.ScheduleStatus) bool {
+	for _, status := range statuses {
+		if status.Entry.Enabled {
+			return true
+		}
+	}
+	return false
 }
 
 func normalizeAndValidateScheduleConfig(cfg scheduler.ScheduleConfig) (scheduler.ScheduleConfig, error) {

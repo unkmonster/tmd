@@ -219,24 +219,37 @@ func dedupeProfileUsers(users []*twitter.User) []*twitter.User {
 		return users
 	}
 
-	seen := make(map[string]struct{}, len(users))
+	seenByScreenName := make(map[string]struct{}, len(users))
+	seenByID := make(map[uint64]struct{}, len(users))
+	seenByPointer := make(map[*twitter.User]struct{}, len(users))
 	deduped := make([]*twitter.User, 0, len(users))
 	for _, user := range users {
 		if user == nil {
 			continue
 		}
-		key := ""
+		screenName := strings.ToLower(strings.TrimSpace(user.ScreenName))
+		if screenName != "" {
+			if _, ok := seenByScreenName[screenName]; ok {
+				continue
+			}
+		}
 		if user.Id != 0 {
-			key = fmt.Sprintf("id:%d", user.Id)
-		} else if screenName := strings.ToLower(strings.TrimSpace(user.ScreenName)); screenName != "" {
-			key = "screen:" + screenName
-		} else {
-			key = fmt.Sprintf("ptr:%p", user)
+			if _, ok := seenByID[user.Id]; ok {
+				continue
+			}
 		}
-		if _, ok := seen[key]; ok {
-			continue
+		if screenName == "" && user.Id == 0 {
+			if _, ok := seenByPointer[user]; ok {
+				continue
+			}
+			seenByPointer[user] = struct{}{}
 		}
-		seen[key] = struct{}{}
+		if screenName != "" {
+			seenByScreenName[screenName] = struct{}{}
+		}
+		if user.Id != 0 {
+			seenByID[user.Id] = struct{}{}
+		}
 		deduped = append(deduped, user)
 	}
 	return deduped

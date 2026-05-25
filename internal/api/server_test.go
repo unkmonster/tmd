@@ -315,6 +315,31 @@ func TestStructuredScheduleCRUDUsesStableID(t *testing.T) {
 	assert.Contains(t, finalRR.Body.String(), `"total":0`)
 }
 
+func TestReplaceSchedulesStartsStoppedSchedulerWhenEnabled(t *testing.T) {
+	server, db := setupTestServerWithAppRoot(t, t.TempDir())
+	defer db.Close()
+	t.Cleanup(func() {
+		if server.scheduler != nil {
+			server.scheduler.Stop()
+		}
+	})
+
+	require.NotNil(t, server.scheduler)
+	require.False(t, server.scheduler.IsRunning())
+
+	body := `{"entries":[{"type":"user","target":"alice","name":"Alice","schedule":"interval:1h","enabled":true}]}`
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/schedules", strings.NewReader(body))
+	rr := serveAPI(server, req)
+	require.Equal(t, http.StatusOK, rr.Code)
+	require.True(t, server.scheduler.IsRunning())
+
+	getReq := httptest.NewRequest(http.MethodGet, "/api/v1/schedules", nil)
+	getRR := serveAPI(server, getReq)
+	require.Equal(t, http.StatusOK, getRR.Code)
+	assert.Contains(t, getRR.Body.String(), `"scheduler_running":true`)
+	assert.Contains(t, getRR.Body.String(), `"enabled":true`)
+}
+
 func TestStructuredScheduleCRUDSupportsMixedAndNormalizesShape(t *testing.T) {
 	db, err := sqlx.Connect(database.DriverName, database.MemoryDSN(true))
 	assert.NoError(t, err)
@@ -552,7 +577,7 @@ func TestServer_QueueSkipsCancelledTask(t *testing.T) {
 	defer db.Close()
 
 	task := server.taskManager.CreateTask(TaskTypeUserDownload, nil)
-	assert.True(t, server.taskManager.CancelTask(task.ID))
+	assert.Equal(t, CancelTaskResultCancelled, server.taskManager.CancelTask(task.ID))
 
 	executed := make(chan struct{}, 1)
 	server.enqueueTask(task, func(context.Context, string, service.ProgressReporter) error {
@@ -654,7 +679,7 @@ func TestServer_QueueSkipsCancelledPendingTaskAndRunsNextSameTarget(t *testing.T
 		return nil
 	})
 
-	assert.True(t, server.taskManager.CancelTask(cancelledTask.ID))
+	assert.Equal(t, CancelTaskResultCancelled, server.taskManager.CancelTask(cancelledTask.ID))
 
 	close(releaseFirst)
 
@@ -707,7 +732,7 @@ func TestServer_QueueAllowsDifferentTargetWhenCancelledTaskDetached(t *testing.T
 	case <-time.After(100 * time.Millisecond):
 	}
 
-	assert.True(t, server.taskManager.CancelTask(firstTask.ID))
+	assert.Equal(t, CancelTaskResultCancelled, server.taskManager.CancelTask(firstTask.ID))
 
 	select {
 	case <-secondStarted:
@@ -748,7 +773,7 @@ func TestServer_QueueBlocksSameTargetWhenCancelledTaskDetached(t *testing.T) {
 		return nil
 	})
 
-	assert.True(t, server.taskManager.CancelTask(firstTask.ID))
+	assert.Equal(t, CancelTaskResultCancelled, server.taskManager.CancelTask(firstTask.ID))
 
 	select {
 	case <-secondStarted:
@@ -794,7 +819,7 @@ func TestServer_QueueCancelledTaskExitsWithinGraceWithoutDetach(t *testing.T) {
 		return nil
 	})
 
-	assert.True(t, server.taskManager.CancelTask(firstTask.ID))
+	assert.Equal(t, CancelTaskResultCancelled, server.taskManager.CancelTask(firstTask.ID))
 
 	select {
 	case <-secondStarted:
@@ -2262,8 +2287,8 @@ func TestServer_TaskCancellation(t *testing.T) {
 	task := server.taskManager.CreateTask(TaskTypeUserDownload, nil)
 
 	// 取消任务
-	ok := server.taskManager.CancelTask(task.ID)
-	assert.True(t, ok)
+	result := server.taskManager.CancelTask(task.ID)
+	assert.Equal(t, CancelTaskResultCancelled, result)
 
 	task, _ = server.taskManager.GetTask(task.ID)
 	assert.Equal(t, TaskStatusCancelled, task.Status)

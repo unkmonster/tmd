@@ -24,14 +24,10 @@ func NewStorePath(root string) (*StorePath, error) {
 	sp.ErrorJ = filepath.Join(sp.Data, "errors.json")
 	sp.JsonErrorJ = filepath.Join(sp.Data, "json_errors.json")
 
-	if err := os.MkdirAll(sp.Root, 0755); err != nil {
-		return nil, err
-	}
-	if err := os.MkdirAll(sp.Users, 0755); err != nil {
-		return nil, err
-	}
-	if err := os.MkdirAll(sp.Data, 0755); err != nil {
-		return nil, err
+	for _, dir := range []string{sp.Root, sp.Users, sp.Data} {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return nil, err
+		}
 	}
 	return sp, nil
 }

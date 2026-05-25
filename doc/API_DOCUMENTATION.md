@@ -1831,7 +1831,7 @@ POST /api/v1/server/shutdown
 
 ### 调度器管理 API
 
-管理定时下载任务调度。
+管理定时下载任务调度。调度配置写入接口会在保存成功后自动重载配置；如果保存后的配置中存在启用中的规则且调度器未运行，会自动启动调度器。
 
 #### 获取所有调度
 
@@ -1869,7 +1869,8 @@ GET /api/v1/schedules
         "run_count": 15,
         "last_task_id": "task_xxx",
         "last_error": "",
-        "consecutive_failures": 0
+        "consecutive_failures": 0,
+        "triggering": false
       }
     ],
     "active": 1,
@@ -1886,6 +1887,8 @@ GET /api/v1/schedules
 | `entries` | array | 调度条目列表 |
 | `active` | int | 启用中的调度数量 |
 | `total` | int | 调度总数 |
+
+`scheduler_running` 表示调度器循环是否已启动。创建、更新、启用或重载调度后，如果存在启用中的规则，服务端会自动启动调度器。
 
 **调度条目字段 (`entry`)：**
 
@@ -1905,6 +1908,20 @@ GET /api/v1/schedules
 | `follow_members` | bool | 下载时关注目标/成员                |
 | `skip_profile` | bool | 跳过 Profile 下载 |
 | `no_retry` | bool | 失败后不重试 |
+
+**调度状态字段 (`entries[]`)：**
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `entry` | object | 调度条目配置 |
+| `schedule_display` | string | 可读调度规则 |
+| `last_run_at` | string | 上次触发时间，ISO 8601 格式 |
+| `next_run_at` | string | 下次预计触发时间，ISO 8601 格式 |
+| `run_count` | int | 累计触发次数 |
+| `last_task_id` | string | 上次触发创建的任务 ID |
+| `last_error` | string | 上次触发错误 |
+| `consecutive_failures` | int | 连续触发失败次数 |
+| `triggering` | bool | 是否正在触发该调度规则；仅表示 scheduler 正在创建任务，不代表后台下载任务仍在运行 |
 
 #### 创建调度
 
@@ -2005,7 +2022,7 @@ Content-Type: application/json
 }
 ```
 
-该接口会用 `entries` 一次性替换整个 `schedules.yaml` 中的调度列表，并返回规范化后的完整条目。未提供 `id` 的条目会自动生成 ID。请求验证失败时不会写入新配置。
+该接口会用 `entries` 一次性替换整个 `schedules.yaml` 中的调度列表，并返回规范化后的完整条目。未提供 `id` 的条目会自动生成 ID。请求验证失败时不会写入新配置。保存成功后会自动重载调度配置；如果存在启用中的规则且调度器未运行，会自动启动调度器。
 
 **响应：**
 
@@ -2128,6 +2145,8 @@ POST /api/v1/schedules/{id}/trigger
 }
 ```
 
+如果该调度正在触发中，请求会返回 `400 Bad Request`，错误信息为 `schedule "..." is already triggering, please wait for the current trigger to complete`。
+
 #### 获取原始调度文件内容
 
 **请求：**
@@ -2198,6 +2217,8 @@ POST /api/v1/schedules/reload
   }
 }
 ```
+
+重载成功后，如果存在启用中的规则且调度器未运行，会自动启动调度器。
 
 #### 验证调度
 

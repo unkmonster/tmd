@@ -1,6 +1,9 @@
 package utils
 
-import "strings"
+import (
+	"net/url"
+	"strings"
+)
 
 // UserIDExtractor 用于从用户结构体提取 ID 的泛型函数
 type UserIDExtractor[T any] func(T) uint64
@@ -41,10 +44,19 @@ func IsValidScreenName(screenName string) bool {
 }
 
 // EnsurePhotoHighQuality 将 twimg.com 的 photo URL 升级为高清版本。
-// 仅对尚未指定 ?name= 参数的 URL 追加 ?name=4096x4096。
-func EnsurePhotoHighQuality(url string) string {
-	if strings.Contains(url, "twimg.com") && !strings.Contains(url, "?name=") {
-		return url + "?name=4096x4096"
+// 保留其他查询参数，并统一设置 name=4096x4096。
+func EnsurePhotoHighQuality(rawURL string) string {
+	if !strings.Contains(rawURL, "twimg.com") {
+		return rawURL
 	}
-	return url
+
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return rawURL
+	}
+
+	query := parsed.Query()
+	query.Set("name", "4096x4096")
+	parsed.RawQuery = query.Encode()
+	return parsed.String()
 }

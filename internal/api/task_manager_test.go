@@ -221,9 +221,12 @@ func TestTaskManager_GetAllTasks(t *testing.T) {
 	task1 := tm.CreateTask(TaskTypeUserDownload, nil)
 	task2 := tm.CreateTask(TaskTypeListDownload, nil)
 	task3 := tm.CreateTask(TaskTypeBatchDownload, nil)
-	task1.CreatedAt = time.Date(2024, 1, 1, 10, 0, 0, 0, time.UTC)
-	task2.CreatedAt = time.Date(2024, 1, 1, 10, 1, 0, 0, time.UTC)
-	task3.CreatedAt = time.Date(2024, 1, 1, 10, 2, 0, 0, time.UTC)
+	tm.mu.Lock()
+	tm.tasks[task1.ID].CreatedAt = time.Date(2024, 1, 1, 10, 0, 0, 0, time.UTC)
+	tm.tasks[task2.ID].CreatedAt = time.Date(2024, 1, 1, 10, 1, 0, 0, time.UTC)
+	tm.tasks[task3.ID].CreatedAt = time.Date(2024, 1, 1, 10, 2, 0, 0, time.UTC)
+	tm.rebuildSnapshotLocked()
+	tm.mu.Unlock()
 
 	tasks = tm.GetAllTasks()
 	assert.Len(t, tasks, 3)
@@ -548,8 +551,8 @@ func TestTaskManager_CancelTask(t *testing.T) {
 		task := tm.CreateTask(TaskTypeUserDownload, nil)
 		assert.Equal(t, TaskStatusQueued, task.Status)
 
-		ok := tm.CancelTask(task.ID)
-		assert.True(t, ok)
+		result := tm.CancelTask(task.ID)
+		assert.Equal(t, CancelTaskResultCancelled, result)
 
 		got, _ := tm.GetTask(task.ID)
 		assert.Equal(t, TaskStatusCancelled, got.Status)
@@ -567,8 +570,8 @@ func TestTaskManager_CancelTask(t *testing.T) {
 		tm.UpdateTaskStatus(task.ID, TaskStatusRunning)
 		tm.UpdateTaskProgress(task.ID, &TaskProgress{Stage: "downloading", Total: 10, Completed: 3, Current: "user1"})
 
-		ok := tm.CancelTask(task.ID)
-		assert.True(t, ok)
+		result := tm.CancelTask(task.ID)
+		assert.Equal(t, CancelTaskResultCancelled, result)
 
 		got, _ := tm.GetTask(task.ID)
 		assert.Equal(t, TaskStatusCancelled, got.Status)
@@ -581,8 +584,8 @@ func TestTaskManager_CancelTask(t *testing.T) {
 		task := tm.CreateTask(TaskTypeUserDownload, nil)
 		tm.UpdateTaskStatus(task.ID, TaskStatusCompleted)
 
-		ok := tm.CancelTask(task.ID)
-		assert.False(t, ok)
+		result := tm.CancelTask(task.ID)
+		assert.Equal(t, CancelTaskResultNotCancellable, result)
 
 		got, _ := tm.GetTask(task.ID)
 		assert.Equal(t, TaskStatusCompleted, got.Status)
@@ -592,21 +595,21 @@ func TestTaskManager_CancelTask(t *testing.T) {
 		task := tm.CreateTask(TaskTypeUserDownload, nil)
 		tm.SetTaskError(task.ID, assert.AnError)
 
-		ok := tm.CancelTask(task.ID)
-		assert.False(t, ok)
+		result := tm.CancelTask(task.ID)
+		assert.Equal(t, CancelTaskResultNotCancellable, result)
 	})
 
 	t.Run("取消不存在的任务", func(t *testing.T) {
-		ok := tm.CancelTask("non_existent")
-		assert.False(t, ok)
+		result := tm.CancelTask("non_existent")
+		assert.Equal(t, CancelTaskResultNotFound, result)
 	})
 
 	t.Run("取消已取消的任务", func(t *testing.T) {
 		task := tm.CreateTask(TaskTypeUserDownload, nil)
-		tm.CancelTask(task.ID)
+		assert.Equal(t, CancelTaskResultCancelled, tm.CancelTask(task.ID))
 
-		ok := tm.CancelTask(task.ID)
-		assert.False(t, ok)
+		result := tm.CancelTask(task.ID)
+		assert.Equal(t, CancelTaskResultNotCancellable, result)
 	})
 }
 
@@ -664,7 +667,7 @@ func TestTask_ContextCancellation(t *testing.T) {
 
 	assert.NoError(t, task.Ctx.Err())
 
-	tm.CancelTask(task.ID)
+	assert.Equal(t, CancelTaskResultCancelled, tm.CancelTask(task.ID))
 
 	assert.Error(t, task.Ctx.Err())
 	assert.Equal(t, context.Canceled, task.Ctx.Err())

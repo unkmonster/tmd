@@ -162,6 +162,10 @@ func (sc *Scheduler) launchGoroutinesLocked() int {
 		if !entry.Enabled {
 			continue
 		}
+		if i >= len(sc.parsed) || i >= len(sc.statuses) {
+			log.Warnf("[scheduler] launchGoroutinesLocked[%d]: inconsistent scheduler state, skipping entry %q", i, entry.Name)
+			continue
+		}
 		activeCount++
 		p := sc.parsed[i]
 		var next time.Time
@@ -169,7 +173,7 @@ func (sc *Scheduler) launchGoroutinesLocked() int {
 		case ScheduleModeInterval:
 			next = time.Now().Add(p.Interval)
 		case ScheduleModeDaily:
-			next = nextDailyTrigger(p.Times)
+			next = nextDailyTrigger(p.SortedTimes)
 		}
 		sc.statuses[i].NextRunAt = &next
 		idx := i
@@ -181,6 +185,16 @@ func (sc *Scheduler) launchGoroutinesLocked() int {
 	}
 	sc.started = true
 	return activeCount
+}
+
+func (sc *Scheduler) entrySnapshot(idx int) (ScheduleEntry, *ParsedSchedule, context.Context, bool, int64, bool) {
+	sc.mu.Lock()
+	defer sc.mu.Unlock()
+
+	if idx < 0 || idx >= len(sc.entries) || idx >= len(sc.parsed) || sc.parsed[idx] == nil {
+		return ScheduleEntry{}, nil, nil, false, 0, false
+	}
+	return sc.entries[idx], sc.parsed[idx], sc.ctx, sc.firstStart, sc.generation, true
 }
 
 func (sc *Scheduler) Reload() error {
@@ -219,14 +233,10 @@ func (sc *Scheduler) Reload() error {
 				sc.firstStart = true
 				sc.hasEverStarted = true
 			}
-			if sc.started {
-				sc.mu.Unlock()
-			} else {
-				log.Debugln("[scheduler] Reload: recovering start after readConfig failure")
-				activeCount := sc.launchGoroutinesLocked()
-				sc.mu.Unlock()
-				log.Infof("[scheduler] Scheduler recovered with %d active schedules", activeCount)
-			}
+			log.Debugln("[scheduler] Reload: recovering start after readConfig failure")
+			activeCount := sc.launchGoroutinesLocked()
+			sc.mu.Unlock()
+			log.Infof("[scheduler] Scheduler recovered with %d active schedules", activeCount)
 		}
 		if sc.OnStatusChange != nil {
 			sc.mu.Lock()
@@ -253,14 +263,10 @@ func (sc *Scheduler) Reload() error {
 			sc.firstStart = true
 			sc.hasEverStarted = true
 		}
-		if sc.started {
-			sc.mu.Unlock()
-		} else {
-			log.Debugln("[scheduler] Reload: starting fresh goroutines")
-			activeCount := sc.launchGoroutinesLocked()
-			sc.mu.Unlock()
-			log.Infof("[scheduler] Scheduler restarted with %d active schedules", activeCount)
-		}
+		log.Debugln("[scheduler] Reload: starting fresh goroutines")
+		activeCount := sc.launchGoroutinesLocked()
+		sc.mu.Unlock()
+		log.Infof("[scheduler] Scheduler restarted with %d active schedules", activeCount)
 	}
 
 	if sc.OnStatusChange != nil {
@@ -348,9 +354,14 @@ func (sc *Scheduler) findEnabledEntryByID(id string) (int, ScheduleEntry, error)
 }
 
 func (sc *Scheduler) triggerEntry(index int, entry ScheduleEntry) (string, error) {
+	gen, ok := sc.tryAcquireExecution(index, entry, nil)
+	if !ok {
+		return "", fmt.Errorf("schedule %q is already triggering, please wait for the current trigger to complete", entry.Name)
+	}
+
 	taskID := sc.downloadFunc(entry)
 	if taskID == "" {
-		if !sc.updateStatus(index, entry, func(status *ScheduleStatus) {
+		if !sc.releaseAndUpdateStatus(index, entry, gen, func(status *ScheduleStatus) {
 			now := time.Now()
 			status.LastRunAt = &now
 			status.RunCount++
@@ -363,7 +374,7 @@ func (sc *Scheduler) triggerEntry(index int, entry ScheduleEntry) (string, error
 		return "", fmt.Errorf("download function returned empty task_id")
 	}
 
-	if !sc.updateStatus(index, entry, func(status *ScheduleStatus) {
+	if !sc.releaseAndUpdateStatus(index, entry, gen, func(status *ScheduleStatus) {
 		now := time.Now()
 		status.LastRunAt = &now
 		status.LastTaskID = taskID
@@ -379,13 +390,11 @@ func (sc *Scheduler) triggerEntry(index int, entry ScheduleEntry) (string, error
 }
 
 func (sc *Scheduler) runLoop(idx int) {
-	sc.mu.Lock()
-	entry := sc.entries[idx]
-	parsed := sc.parsed[idx]
-	ctx := sc.ctx
-	firstStart := sc.firstStart
-	gen := sc.generation
-	sc.mu.Unlock()
+	entry, parsed, ctx, firstStart, gen, ok := sc.entrySnapshot(idx)
+	if !ok {
+		log.Warnf("[scheduler] runLoop[%d]: invalid schedule index, exiting", idx)
+		return
+	}
 
 	switch parsed.Mode {
 	case ScheduleModeInterval:
@@ -450,7 +459,7 @@ func (sc *Scheduler) waitInterval(ctx context.Context, idx int, entry ScheduleEn
 
 func (sc *Scheduler) runDailyLoop(ctx context.Context, idx int, entry ScheduleEntry, parsed *ParsedSchedule, gen int64) {
 	for {
-		next := nextDailyTrigger(parsed.Times)
+		next := nextDailyTrigger(parsed.SortedTimes)
 		sc.updateNextRunAt(idx, entry, next, gen)
 
 		timer := time.NewTimer(time.Until(next))
@@ -490,9 +499,15 @@ func (sc *Scheduler) execute(idx int, entry ScheduleEntry, gen int64) {
 		log.Warnf("[scheduler] execute[%d]: skipping stale execution for entry %q", idx, entry.Name)
 		return
 	}
+	acquiredGen, ok := sc.tryAcquireExecution(idx, entry, &gen)
+	if !ok {
+		log.Infof("[scheduler] execute[%d]: entry %q is already triggering, skipping duplicate trigger", idx, entry.Name)
+		return
+	}
+
 	taskID := sc.downloadFunc(entry)
 
-	if !sc.updateStatus(idx, entry, func(status *ScheduleStatus) {
+	if !sc.releaseAndUpdateStatus(idx, entry, acquiredGen, func(status *ScheduleStatus) {
 		now := time.Now()
 		status.LastRunAt = &now
 		status.RunCount++
@@ -536,24 +551,70 @@ func (sc *Scheduler) updateStatus(idx int, entry ScheduleEntry, update func(*Sch
 	return true
 }
 
+func (sc *Scheduler) tryAcquireExecution(idx int, entry ScheduleEntry, expectedGen *int64) (int64, bool) {
+	sc.mu.Lock()
+	defer sc.mu.Unlock()
+
+	if expectedGen != nil && sc.generation != *expectedGen {
+		return 0, false
+	}
+	if idx < 0 || idx >= len(sc.statuses) || idx >= len(sc.entries) {
+		return 0, false
+	}
+	if sc.entries[idx].ID != entry.ID {
+		return 0, false
+	}
+	if sc.statuses[idx].Triggering {
+		return 0, false
+	}
+	sc.statuses[idx].Triggering = true
+	return sc.generation, true
+}
+
+func (sc *Scheduler) releaseAndUpdateStatus(idx int, entry ScheduleEntry, gen int64, update func(*ScheduleStatus)) bool {
+	sc.mu.Lock()
+
+	if sc.generation != gen {
+		sc.mu.Unlock()
+		return false
+	}
+	if idx < 0 || idx >= len(sc.statuses) || idx >= len(sc.entries) {
+		sc.mu.Unlock()
+		return false
+	}
+	if sc.entries[idx].ID != entry.ID {
+		sc.mu.Unlock()
+		return false
+	}
+	update(&sc.statuses[idx])
+	sc.statuses[idx].Triggering = false
+
+	callback := sc.OnStatusChange
+	var statuses []ScheduleStatus
+	if callback != nil {
+		statuses = make([]ScheduleStatus, len(sc.statuses))
+		copy(statuses, sc.statuses)
+	}
+	sc.mu.Unlock()
+
+	if callback != nil {
+		callback(statuses)
+	}
+	return true
+}
+
 func nextDailyTrigger(times []time.Time) time.Time {
 	now := time.Now()
 	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
 
-	sorted := make([]time.Time, len(times))
-	copy(sorted, times)
-	sort.Slice(sorted, func(i, j int) bool {
-		return sorted[i].Hour()*60+sorted[i].Minute() < sorted[j].Hour()*60+sorted[j].Minute()
-	})
-
-	for _, t := range sorted {
+	for _, t := range times {
 		candidate := time.Date(today.Year(), today.Month(), today.Day(), t.Hour(), t.Minute(), 0, 0, today.Location())
 		if candidate.After(now) {
 			return candidate
 		}
 	}
 
-	first := sorted[0]
+	first := times[0]
 	tomorrow := today.Add(24 * time.Hour)
 	return time.Date(tomorrow.Year(), tomorrow.Month(), tomorrow.Day(), first.Hour(), first.Minute(), 0, 0, tomorrow.Location())
 }
@@ -758,7 +819,10 @@ func ParseSchedule(raw string) (*ParsedSchedule, error) {
 		if len(times) == 0 {
 			return nil, fmt.Errorf("no daily times specified")
 		}
-		return &ParsedSchedule{Mode: ScheduleModeDaily, Times: times}, nil
+		sorted := make([]time.Time, len(times))
+		copy(sorted, times)
+		sort.Slice(sorted, func(i, j int) bool { return sorted[i].Before(sorted[j]) })
+		return &ParsedSchedule{Mode: ScheduleModeDaily, Times: times, SortedTimes: sorted}, nil
 	}
 	return nil, fmt.Errorf("unknown schedule format: %q (use 'interval:2h' or 'daily:07:00,21:00')", raw)
 }

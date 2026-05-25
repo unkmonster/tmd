@@ -775,18 +775,18 @@ func (s *Server) handleGetTask(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleCancelTask(w http.ResponseWriter, r *http.Request) {
 	taskID := r.PathValue("task_id")
 
-	if _, ok := s.taskManager.GetTask(taskID); !ok {
+	switch s.taskManager.CancelTask(taskID) {
+	case CancelTaskResultCancelled:
+		s.writeJSON(w, http.StatusOK, NewSuccessResponse(map[string]interface{}{
+			"message": "Task cancelled",
+		}))
+	case CancelTaskResultNotFound:
 		s.writeError(w, http.StatusNotFound, "Task not found")
-		return
-	}
-	if !s.taskManager.CancelTask(taskID) {
+	case CancelTaskResultNotCancellable:
 		s.writeError(w, http.StatusConflict, "Task cannot be cancelled (not in queued or running status)")
-		return
+	default:
+		s.writeError(w, http.StatusInternalServerError, "Failed to cancel task")
 	}
-
-	s.writeJSON(w, http.StatusOK, NewSuccessResponse(map[string]interface{}{
-		"message": "Task cancelled",
-	}))
 }
 
 func (s *Server) scheduledDownload(entry scheduler.ScheduleEntry) string {

@@ -176,6 +176,9 @@ func (q *DownloadQueue) conflictsLocked(keys []targetKey) bool {
 
 func (q *DownloadQueue) cleanupStaleTargetsLocked() {
 	for key, ownerID := range q.heldTargets {
+		if _, ok := q.detached[ownerID]; ok {
+			continue
+		}
 		snapshot, ok := q.server.taskManager.GetTask(ownerID)
 		if !ok || isTerminalStatus(snapshot.Status) {
 			delete(q.heldTargets, key)
