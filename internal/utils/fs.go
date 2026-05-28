@@ -158,31 +158,3 @@ func GetExtFromUrl(u string) (string, error) {
 	// filepath.Ext 在 Windows 上会使用反斜杠作为分隔符，导致无法正确提取扩展名
 	return path.Ext(pu.Path), nil
 }
-
-// GetTwitterImageQualityParams 根据 URL 返回 Twitter 图片质量参数
-// 规则：
-//   - 视频（包含 tweet_video 或 video.twimg.com）：返回空 map
-//   - 已有 name=orig 或 name=4096x4096：返回空 map（已是最高质量）
-//   - 已有 name=small/medium/large 等：返回 {"name": "4096x4096"}
-//   - 无 name 参数：返回 {"name": "4096x4096"}
-func GetTwitterImageQualityParams(u string) map[string]string {
-	// 视频跳过
-	if strings.Contains(u, "tweet_video") || strings.Contains(u, "video.twimg.com") {
-		return nil
-	}
-
-	parsed, err := url.Parse(u)
-	if err != nil {
-		return map[string]string{"name": "4096x4096"}
-	}
-
-	nameValue := parsed.Query().Get("name")
-	switch nameValue {
-	case "orig", "4096x4096":
-		// 已是最高质量，不添加参数
-		return nil
-	default:
-		// 无 name 参数或为 small/medium/large 等，统一替换为 4096x4096
-		return map[string]string{"name": "4096x4096"}
-	}
-}

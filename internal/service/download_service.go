@@ -313,10 +313,10 @@ func (s *downloadServiceImpl) executeDownloadTemplate(ctx context.Context, confi
 	}
 
 	dumper := downloading.NewDumper()
-	if err := dumper.Load(pathHelper.ErrorJ); err != nil {
+	if err := dumper.Load(pathHelper.ErrorsPath); err != nil {
 		log.Warnf("Failed to load dumper: %v", err)
 	}
-	defer s.saveDumper(dumper, pathHelper.ErrorJ)
+	defer s.saveDumper(dumper, pathHelper.ErrorsPath)
 
 	users, lists, explicitProfileUsers, err := config.Prepare(ctx, pathHelper)
 	if err != nil {
@@ -596,10 +596,10 @@ func (s *downloadServiceImpl) JsonFileDownload(ctx context.Context, taskID strin
 	_, fileWriter, dwn := s.initDownloader()
 
 	jsonDumper := downloading.NewJsonDumper()
-	if err := jsonDumper.Load(pathHelper.JsonErrorJ); err != nil {
+	if err := jsonDumper.Load(pathHelper.JSONErrorsPath); err != nil {
 		log.Warnf("Failed to load JSON dumper: %v", err)
 	}
-	defer s.saveJsonDumper(jsonDumper, pathHelper.JsonErrorJ)
+	defer s.saveJsonDumper(jsonDumper, pathHelper.JSONErrorsPath)
 
 	retryProgress := s.newRetryProgressCallback(taskID, reporter)
 
@@ -649,10 +649,10 @@ func (s *downloadServiceImpl) JsonFolderDownload(ctx context.Context, taskID str
 	_, fileWriter, dwn := s.initDownloader()
 
 	jsonDumper := downloading.NewJsonDumper()
-	if err := jsonDumper.Load(pathHelper.JsonErrorJ); err != nil {
+	if err := jsonDumper.Load(pathHelper.JSONErrorsPath); err != nil {
 		log.Warnf("Failed to load JSON dumper: %v", err)
 	}
-	defer s.saveJsonDumper(jsonDumper, pathHelper.JsonErrorJ)
+	defer s.saveJsonDumper(jsonDumper, pathHelper.JSONErrorsPath)
 
 	retryProgress := s.newRetryProgressCallback(taskID, reporter)
 
@@ -709,10 +709,10 @@ func (s *downloadServiceImpl) BatchDownload(ctx context.Context, taskID string, 
 
 	// 初始化 Dumper
 	dumper := downloading.NewDumper()
-	if err := dumper.Load(pathHelper.ErrorJ); err != nil {
+	if err := dumper.Load(pathHelper.ErrorsPath); err != nil {
 		log.Warnf("Failed to load dumper: %v", err)
 	}
-	defer s.saveDumper(dumper, pathHelper.ErrorJ)
+	defer s.saveDumper(dumper, pathHelper.ErrorsPath)
 
 	reporter.OnProgress(taskID, Progress{Stage: "downloading"})
 

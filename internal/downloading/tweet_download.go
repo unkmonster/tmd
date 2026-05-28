@@ -271,7 +271,7 @@ func downloadTweetMedia(cfg *workerConfig, dir string, tweet *twitter.Tweet, ski
 			ext = ".jpg"
 		}
 
-		queryParams := utils.GetTwitterImageQualityParams(u)
+		downloadURL := utils.EnsurePhotoHighQuality(u)
 
 		path, err := tweetNaming.FilePathWithResolver(dir, ext, cfg.pathResolver)
 		if err != nil {
@@ -286,11 +286,10 @@ func downloadTweetMedia(cfg *workerConfig, dir string, tweet *twitter.Tweet, ski
 		req := downloader.DownloadRequest{
 			Context:     cfg.ctx,
 			Client:      cfg.client,
-			URL:         u,
+			URL:         downloadURL,
 			Destination: path,
 			Options: downloader.DownloadOptions{
-				QueryParams: queryParams,
-				SetModTime:  &tweet.CreatedAt,
+				SetModTime: &tweet.CreatedAt,
 			},
 		}
 

@@ -836,14 +836,29 @@ func TestEnsurePhotoHighQuality(t *testing.T) {
 			expected: "https://pbs.twimg.com/media/image?format=jpg&name=4096x4096",
 		},
 		{
-			name:     "twimg覆盖首位name参数",
+			name:     "twimg保留orig质量",
 			input:    "https://pbs.twimg.com/media/image?name=orig&format=jpg",
+			expected: "https://pbs.twimg.com/media/image?name=orig&format=jpg",
+		},
+		{
+			name:     "twimg保留4096质量",
+			input:    "https://pbs.twimg.com/media/image?format=jpg&name=4096x4096",
 			expected: "https://pbs.twimg.com/media/image?format=jpg&name=4096x4096",
 		},
 		{
 			name:     "非twimg不修改",
 			input:    "https://example.com/media/image.jpg",
 			expected: "https://example.com/media/image.jpg",
+		},
+		{
+			name:     "video.twimg.com不修改",
+			input:    "https://video.twimg.com/ext_tw_video/123/pu/vid/720x720/video.mp4",
+			expected: "https://video.twimg.com/ext_tw_video/123/pu/vid/720x720/video.mp4",
+		},
+		{
+			name:     "tweet_video不修改",
+			input:    "https://pbs.twimg.com/tweet_video/video.mp4",
+			expected: "https://pbs.twimg.com/tweet_video/video.mp4",
 		},
 	}
 

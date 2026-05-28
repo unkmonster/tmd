@@ -38,7 +38,6 @@ func TestNewStorePath(t *testing.T) {
 			root:    tempDir,
 			wantErr: false,
 		},
-
 	}
 
 	for _, tt := range tests {
@@ -55,13 +54,15 @@ func TestNewStorePath(t *testing.T) {
 
 			require.NoError(t, err)
 			require.NotNil(t, sp)
+			expectedRoot := mustNormalizeRoot(t, tt.root)
 
 			// 验证路径结构
-			assert.Equal(t, tt.root, sp.Root)
-			assert.Equal(t, filepath.Join(tt.root, "users"), sp.Users)
-			assert.Equal(t, filepath.Join(tt.root, ".data"), sp.Data)
-			assert.Equal(t, filepath.Join(tt.root, ".data", "foo.db"), sp.DB)
-			assert.Equal(t, filepath.Join(tt.root, ".data", "errors.json"), sp.ErrorJ)
+			assert.Equal(t, expectedRoot, sp.Root)
+			assert.Equal(t, filepath.Join(expectedRoot, "users"), sp.Users)
+			assert.Equal(t, filepath.Join(expectedRoot, ".data"), sp.Data)
+			assert.Equal(t, filepath.Join(expectedRoot, ".data", "foo.db"), sp.DB)
+			assert.Equal(t, filepath.Join(expectedRoot, ".data", "errors.json"), sp.ErrorsPath)
+			assert.Equal(t, filepath.Join(expectedRoot, ".data", "json_errors.json"), sp.JSONErrorsPath)
 
 			// 验证目录是否实际创建
 			assert.DirExists(t, sp.Root)
@@ -79,14 +80,16 @@ func TestNewStorePath_PathStructure(t *testing.T) {
 	root := filepath.Join(tempDir, "test_store")
 	sp, err := NewStorePath(root)
 	require.NoError(t, err)
+	expectedRoot := mustNormalizeRoot(t, root)
 
 	// 验证路径拼接的正确性
 	t.Run("验证路径拼接", func(t *testing.T) {
-		assert.Equal(t, root, sp.Root)
-		assert.Equal(t, filepath.Join(root, "users"), sp.Users)
-		assert.Equal(t, filepath.Join(root, ".data"), sp.Data)
-		assert.Equal(t, filepath.Join(root, ".data", "foo.db"), sp.DB)
-		assert.Equal(t, filepath.Join(root, ".data", "errors.json"), sp.ErrorJ)
+		assert.Equal(t, expectedRoot, sp.Root)
+		assert.Equal(t, filepath.Join(expectedRoot, "users"), sp.Users)
+		assert.Equal(t, filepath.Join(expectedRoot, ".data"), sp.Data)
+		assert.Equal(t, filepath.Join(expectedRoot, ".data", "foo.db"), sp.DB)
+		assert.Equal(t, filepath.Join(expectedRoot, ".data", "errors.json"), sp.ErrorsPath)
+		assert.Equal(t, filepath.Join(expectedRoot, ".data", "json_errors.json"), sp.JSONErrorsPath)
 	})
 
 	// 验证目录权限和存在性
@@ -120,19 +123,16 @@ func TestNewStorePath_ExistingDirectory(t *testing.T) {
 	sp, err := NewStorePath(root)
 	require.NoError(t, err)
 	require.NotNil(t, sp)
+	expectedRoot := mustNormalizeRoot(t, root)
 
 	// 验证路径仍然正确
-	assert.Equal(t, root, sp.Root)
+	assert.Equal(t, expectedRoot, sp.Root)
 	assert.DirExists(t, sp.Root)
 	assert.DirExists(t, sp.Users)
 	assert.DirExists(t, sp.Data)
 }
 
 func TestNewStorePath_InvalidPath(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("跳过 Windows 特定的无效路径测试")
-	}
-
 	tests := []struct {
 		name        string
 		root        string
@@ -141,12 +141,12 @@ func TestNewStorePath_InvalidPath(t *testing.T) {
 		{
 			name:        "空路径",
 			root:        "",
-			errContains: "no such file",
+			errContains: "root path cannot be empty",
 		},
 		{
 			name:        "无效字符路径",
 			root:        "/\x00invalid",
-			errContains: "invalid argument",
+			errContains: "",
 		},
 	}
 
@@ -172,6 +172,7 @@ func TestStorePath_FieldAccess(t *testing.T) {
 	root := filepath.Join(tempDir, "field_test")
 	sp, err := NewStorePath(root)
 	require.NoError(t, err)
+	expectedRoot := mustNormalizeRoot(t, root)
 
 	tests := []struct {
 		name     string
@@ -181,27 +182,32 @@ func TestStorePath_FieldAccess(t *testing.T) {
 		{
 			name:     "Root 字段",
 			got:      sp.Root,
-			expected: root,
+			expected: expectedRoot,
 		},
 		{
 			name:     "Users 字段",
 			got:      sp.Users,
-			expected: filepath.Join(root, "users"),
+			expected: filepath.Join(expectedRoot, "users"),
 		},
 		{
 			name:     "Data 字段",
 			got:      sp.Data,
-			expected: filepath.Join(root, ".data"),
+			expected: filepath.Join(expectedRoot, ".data"),
 		},
 		{
 			name:     "DB 字段",
 			got:      sp.DB,
-			expected: filepath.Join(root, ".data", "foo.db"),
+			expected: filepath.Join(expectedRoot, ".data", "foo.db"),
 		},
 		{
-			name:     "ErrorJ 字段",
-			got:      sp.ErrorJ,
-			expected: filepath.Join(root, ".data", "errors.json"),
+			name:     "ErrorsPath 字段",
+			got:      sp.ErrorsPath,
+			expected: filepath.Join(expectedRoot, ".data", "errors.json"),
+		},
+		{
+			name:     "JSONErrorsPath 字段",
+			got:      sp.JSONErrorsPath,
+			expected: filepath.Join(expectedRoot, ".data", "json_errors.json"),
 		},
 	}
 
@@ -343,8 +349,40 @@ func TestNewStorePath_PathSeparators(t *testing.T) {
 		assert.Contains(t, sp.Data, sep)
 
 		// 验证路径是有效的
-		assert.True(t, filepath.IsAbs(sp.Root) || len(sp.Root) > 0)
+		assert.True(t, filepath.IsAbs(sp.Root))
 	})
+}
+
+func TestNewStorePath_NormalizesRoot(t *testing.T) {
+	tempDir := t.TempDir()
+	input := filepath.Join(tempDir, "base", ".", "child", "..", "target") + string(filepath.Separator)
+	expectedRoot := mustNormalizeRoot(t, input)
+
+	sp, err := NewStorePath(input)
+
+	require.NoError(t, err)
+	assert.Equal(t, expectedRoot, sp.Root)
+	assert.Equal(t, filepath.Join(expectedRoot, "users"), sp.Users)
+	assert.Equal(t, filepath.Join(expectedRoot, ".data"), sp.Data)
+	assert.True(t, filepath.IsAbs(sp.Root))
+	assert.NotContains(t, sp.Root, string(filepath.Separator)+"."+string(filepath.Separator))
+}
+
+func TestNewStorePath_RelativeRootBecomesAbsolute(t *testing.T) {
+	oldWD, err := os.Getwd()
+	require.NoError(t, err)
+	tempDir := t.TempDir()
+	require.NoError(t, os.Chdir(tempDir))
+	t.Cleanup(func() {
+		require.NoError(t, os.Chdir(oldWD))
+	})
+
+	sp, err := NewStorePath(filepath.Join(".", "downloads", "..", "store"))
+
+	require.NoError(t, err)
+	assert.Equal(t, filepath.Join(tempDir, "store"), sp.Root)
+	assert.DirExists(t, filepath.Join(tempDir, "store", "users"))
+	assert.DirExists(t, filepath.Join(tempDir, "store", ".data"))
 }
 
 // ==================== StorePath 重复创建测试 ====================
@@ -371,7 +409,8 @@ func TestNewStorePath_MultipleCalls(t *testing.T) {
 	assert.Equal(t, sp1.Users, sp2.Users)
 	assert.Equal(t, sp1.Data, sp2.Data)
 	assert.Equal(t, sp1.DB, sp2.DB)
-	assert.Equal(t, sp1.ErrorJ, sp2.ErrorJ)
+	assert.Equal(t, sp1.ErrorsPath, sp2.ErrorsPath)
+	assert.Equal(t, sp1.JSONErrorsPath, sp2.JSONErrorsPath)
 }
 
 // ==================== StorePath 权限测试 ====================
@@ -432,4 +471,12 @@ func BenchmarkNewStorePath_Existing(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		_, _ = NewStorePath(root)
 	}
+}
+
+func mustNormalizeRoot(t *testing.T, root string) string {
+	t.Helper()
+
+	normalized, err := normalizeRoot(root)
+	require.NoError(t, err)
+	return normalized
 }

@@ -10,7 +10,6 @@ import (
 
 type TweetNaming struct {
 	sanitized string
-	text      string
 	tweetID   uint64
 	creator   string
 }
@@ -18,7 +17,6 @@ type TweetNaming struct {
 func NewTweetNaming(text string, tweetID uint64, creator string) *TweetNaming {
 	return &TweetNaming{
 		sanitized: utils.WinFileNameWithMaxLen(text, MaxFileNameLen),
-		text:      text,
 		tweetID:   tweetID,
 		creator:   creator,
 	}

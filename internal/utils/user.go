@@ -44,9 +44,9 @@ func IsValidScreenName(screenName string) bool {
 }
 
 // EnsurePhotoHighQuality 将 twimg.com 的 photo URL 升级为高清版本。
-// 保留其他查询参数，并统一设置 name=4096x4096。
+// 保留其他查询参数；已有 orig/4096x4096 时保持不变，否则设置 name=4096x4096。
 func EnsurePhotoHighQuality(rawURL string) string {
-	if !strings.Contains(rawURL, "twimg.com") {
+	if !strings.Contains(rawURL, "twimg.com") || isTwitterVideoMediaURL(rawURL) {
 		return rawURL
 	}
 
@@ -56,7 +56,10 @@ func EnsurePhotoHighQuality(rawURL string) string {
 	}
 
 	query := parsed.Query()
-	query.Set("name", "4096x4096")
+	if isHighestTwitterImageQuality(query.Get("name")) {
+		return rawURL
+	}
+	query.Set("name", twitterImageQuality4096)
 	parsed.RawQuery = query.Encode()
 	return parsed.String()
 }
