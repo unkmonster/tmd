@@ -50,7 +50,21 @@ func TestEventBusUnsubscribe(t *testing.T) {
 	unsub2()
 }
 
-func TestEventBusBufferOverflow(t *testing.T) {
+func TestEventBusUnsubscribeClosesChannel(t *testing.T) {
+	bus := NewEventBus()
+	ch, unsubscribe := bus.Subscribe()
+
+	unsubscribe()
+
+	select {
+	case _, ok := <-ch:
+		assert.False(t, ok)
+	case <-time.After(50 * time.Millisecond):
+		t.Fatal("Unsubscribed channel should be closed")
+	}
+}
+
+func TestEventBusBuffersBurstWithoutDropping(t *testing.T) {
 	bus := NewEventBus()
 	ch, unsubscribe := bus.Subscribe()
 	defer unsubscribe()
@@ -71,8 +85,7 @@ func TestEventBusBufferOverflow(t *testing.T) {
 	}
 done:
 
-	assert.LessOrEqual(t, received, 64)
-	assert.Greater(t, received, 0)
+	assert.Equal(t, 200, received)
 }
 
 func TestEventBusConcurrentPublish(t *testing.T) {
@@ -103,7 +116,7 @@ func TestEventBusConcurrentPublish(t *testing.T) {
 		}
 	}
 done2:
-	assert.Greater(t, received, 0)
+	assert.Equal(t, 1000, received)
 }
 
 func TestEventBusMultipleSubscribers(t *testing.T) {

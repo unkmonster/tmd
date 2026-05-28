@@ -429,19 +429,30 @@ const sseManager = {
   refreshCurrentPage() {
     const page = store.state.currentPage;
     if (page === 'schedules') {
-      loadSchedules();
+      this._safeRefresh(() => loadSchedules(), 'schedules');
       return;
     }
     if (page !== 'system') return;
 
     if (store.state._systemTab === 'schedules') {
-      loadSchedules({ updateFormItems: !isScheduleFormEditing() });
+      this._safeRefresh(() => loadSchedules({ updateFormItems: !isScheduleFormEditing() }), 'system schedules');
     } else if (store.state._systemTab === 'config') {
-      refreshConfigAfterReconnect();
+      this._safeRefresh(() => refreshConfigAfterReconnect(), 'config');
     } else if (store.state._systemTab === 'cookies') {
-      refreshCookiesAfterReconnect();
+      this._safeRefresh(() => refreshCookiesAfterReconnect(), 'cookies');
     } else if (store.state._systemTab === 'logs') {
-      loadLogs();
+      this._safeRefresh(() => loadLogs(), 'logs');
+    }
+  },
+
+  _safeRefresh(fn, label) {
+    try {
+      const result = fn();
+      if (result && typeof result.catch === 'function') {
+        result.catch(err => console.warn(`[SSE] reconnect refresh failed (${label}):`, err));
+      }
+    } catch (err) {
+      console.warn(`[SSE] reconnect refresh failed (${label}):`, err);
     }
   }
 };

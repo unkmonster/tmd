@@ -185,6 +185,25 @@ func TestSSENamedEventFormat(t *testing.T) {
 	assert.Contains(t, sseData, "task_123")
 }
 
+func TestWriteSSENamedEventReturnsMarshalError(t *testing.T) {
+	server := &Server{}
+	rr := httptest.NewRecorder()
+
+	err := server.writeSSENamedEvent(rr, rr, "bad", func() {})
+
+	assert.Error(t, err)
+	assert.Empty(t, rr.Body.String())
+}
+
+func TestWriteSSEHeartbeat(t *testing.T) {
+	rr := httptest.NewRecorder()
+
+	err := writeSSEHeartbeat(rr)
+
+	assert.NoError(t, err)
+	assert.Equal(t, ": heartbeat\n\n", rr.Body.String())
+}
+
 type errorResponseWriter struct {
 	headers http.Header
 }

@@ -1,14 +1,21 @@
 package cli
 
 import (
+	"bytes"
 	"flag"
 	"fmt"
+	"math"
+	"os"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/unkmonster/tmd/internal/utils"
 )
+
+// MaxNumericID keeps CLI IDs in the positive int64 range used by database and
+// entity code while still allowing current 19-digit Twitter/X snowflake IDs.
+const MaxNumericID = uint64(math.MaxInt64)
 
 // UserArgs 用户参数（只支持 ScreenName）
 type UserArgs struct {
@@ -58,6 +65,9 @@ func (i *IntArgs) Set(str string) error {
 	if id == 0 {
 		return fmt.Errorf("invalid ID: must be greater than 0")
 	}
+	if id > MaxNumericID {
+		return fmt.Errorf("invalid ID: must be less than or equal to %d", MaxNumericID)
+	}
 	for _, existing := range i.ID {
 		if existing == id {
 			return fmt.Errorf("duplicate ID: %d", id)
@@ -77,28 +87,40 @@ type ListArgs struct {
 	IntArgs
 }
 
+func addPathArg(paths *[]string, flagName, str string) error {
+	if *paths == nil {
+		*paths = make([]string, 0)
+	}
+	if strings.TrimSpace(str) == "" {
+		return fmt.Errorf("%s path cannot be empty", flagName)
+	}
+	*paths = append(*paths, str)
+	return nil
+}
+
+func pathArgsString(paths []string) string {
+	return strings.Join(paths, ",")
+}
+
+func pathArgsPaths(paths []string) []string {
+	return paths
+}
+
 // JsonFilePathsArgs 第三方工具JSON文件路径参数（-jsonfile）
 type JsonFilePathsArgs struct {
 	Paths []string
 }
 
 func (j *JsonFilePathsArgs) Set(str string) error {
-	if j.Paths == nil {
-		j.Paths = make([]string, 0)
-	}
-	if strings.TrimSpace(str) == "" {
-		return fmt.Errorf("jsonfile path cannot be empty")
-	}
-	j.Paths = append(j.Paths, str)
-	return nil
+	return addPathArg(&j.Paths, "jsonfile", str)
 }
 
 func (j *JsonFilePathsArgs) String() string {
-	return strings.Join(j.Paths, ",")
+	return pathArgsString(j.Paths)
 }
 
 func (j *JsonFilePathsArgs) GetPaths() []string {
-	return j.Paths
+	return pathArgsPaths(j.Paths)
 }
 
 // JsonFolderPathArgs TMD loongtweet文件夹路径参数（-jsonfolder）
@@ -107,22 +129,15 @@ type JsonFolderPathArgs struct {
 }
 
 func (j *JsonFolderPathArgs) Set(str string) error {
-	if j.Paths == nil {
-		j.Paths = make([]string, 0)
-	}
-	if strings.TrimSpace(str) == "" {
-		return fmt.Errorf("jsonfolder path cannot be empty")
-	}
-	j.Paths = append(j.Paths, str)
-	return nil
+	return addPathArg(&j.Paths, "jsonfolder", str)
 }
 
 func (j *JsonFolderPathArgs) String() string {
-	return strings.Join(j.Paths, ",")
+	return pathArgsString(j.Paths)
 }
 
 func (j *JsonFolderPathArgs) GetPaths() []string {
-	return j.Paths
+	return pathArgsPaths(j.Paths)
 }
 
 // CLIConfig CLI 配置
@@ -147,6 +162,8 @@ func ParseArgs(args []string) (*CLIConfig, error) {
 	cfg := &CLIConfig{}
 
 	fs := flag.NewFlagSet("tmd", flag.ContinueOnError)
+	var flagOutput bytes.Buffer
+	fs.SetOutput(&flagOutput)
 	fs.Var(&cfg.UsrArgs, "user", "download tweets from the user")
 	fs.Var(&cfg.ListArgs, "list", "batch download from list")
 	fs.Var(&cfg.FollArgs, "foll", "batch download following")
@@ -162,13 +179,37 @@ func ParseArgs(args []string) (*CLIConfig, error) {
 	fs.BoolVar(&cfg.NoProfile, "noprofile", false, "skip profile")
 
 	if err := fs.Parse(args); err != nil {
-		return nil, err
+		if err == flag.ErrHelp {
+			_, _ = os.Stderr.Write(flagOutput.Bytes())
+		}
+		return nil, friendlyFlagError(err)
 	}
 	if err := validateMarkTime(cfg.MarkTime); err != nil {
 		return nil, err
 	}
 
 	return cfg, nil
+}
+
+func friendlyFlagError(err error) error {
+	if err == nil || err == flag.ErrHelp {
+		return err
+	}
+
+	msg := err.Error()
+	const unknownPrefix = "flag provided but not defined: "
+	if strings.HasPrefix(msg, unknownPrefix) {
+		flagName := strings.TrimSpace(strings.TrimPrefix(msg, unknownPrefix))
+		return fmt.Errorf("unknown CLI flag %s; run tmd -help to see supported download flags", flagName)
+	}
+
+	const valuePrefix = "flag needs an argument: "
+	if strings.HasPrefix(msg, valuePrefix) {
+		flagName := strings.TrimSpace(strings.TrimPrefix(msg, valuePrefix))
+		return fmt.Errorf("CLI flag %s requires a value", flagName)
+	}
+
+	return err
 }
 
 func validateMarkTime(markTime string) error {

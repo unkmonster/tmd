@@ -141,10 +141,16 @@ func TestIntArgs_Set(t *testing.T) {
 			expectError: true, // 0 是无效ID，必须大于0
 		},
 		{
-			name:        "大数字",
-			input:       "18446744073709551615",
-			expectedIDs: []uint64{18446744073709551615},
+			name:        "最大有效ID",
+			input:       "9223372036854775807",
+			expectedIDs: []uint64{MaxNumericID},
 			expectError: false,
+		},
+		{
+			name:        "超过最大有效ID",
+			input:       "9223372036854775808",
+			expectedIDs: nil,
+			expectError: true,
 		},
 		{
 			name:        "无效字符串",
@@ -284,6 +290,16 @@ func TestJsonFolderPathArgs_Set_Empty(t *testing.T) {
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "jsonfolder path cannot be empty")
 	assert.Empty(t, j.Paths)
+}
+
+func TestJsonFolderPathArgs_SetAndString(t *testing.T) {
+	j := &JsonFolderPathArgs{}
+
+	require.NoError(t, j.Set("/path/to/folder1"))
+	require.NoError(t, j.Set("relative/folder2"))
+
+	assert.Equal(t, []string{"/path/to/folder1", "relative/folder2"}, j.GetPaths())
+	assert.Equal(t, "/path/to/folder1,relative/folder2", j.String())
 }
 
 func TestJsonFilePathsArgs_String(t *testing.T) {
@@ -487,6 +503,27 @@ func TestParseArgs_InvalidListID(t *testing.T) {
 	args := []string{"-list", "notanumber"}
 	_, err := ParseArgs(args)
 	assert.Error(t, err)
+}
+
+func TestParseArgs_TooLargeListID(t *testing.T) {
+	_, err := ParseArgs([]string{"-list", "9223372036854775808"})
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid ID")
+}
+
+func TestParseArgs_UnknownFlagUsesFriendlyError(t *testing.T) {
+	_, err := ParseArgs([]string{"-unknown", "value"})
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "unknown CLI flag -unknown")
+}
+
+func TestParseArgs_MissingFlagValueUsesFriendlyError(t *testing.T) {
+	_, err := ParseArgs([]string{"-user"})
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "CLI flag -user requires a value")
 }
 
 func TestCLIConfig_DefaultValues(t *testing.T) {

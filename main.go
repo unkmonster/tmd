@@ -54,42 +54,22 @@ func initLogger(dbg bool, logFile io.Writer, logHub *consolelog.Hub) {
 }
 
 func main() {
-	var confArg bool
-	var dbg bool
-	var serverMode bool
 	var serverPort int
-	var serverPortSet bool
 	var err error
 
-	// 手动解析已知参数，保留未知参数传递给 cli
-	args := os.Args[1:]
-	var cliArgs []string
-	for i := 0; i < len(args); i++ {
-		switch args[i] {
-		case "-conf":
-			confArg = true
-		case "-dbg":
-			dbg = true
-		case "-server":
-			serverMode = true
-		case "-port":
-			if i+1 < len(args) {
-				if port, parseErr := strconv.Atoi(args[i+1]); parseErr == nil {
-					serverPort = port
-					serverPortSet = true
-				}
-				i++
-			}
-		default:
-			cliArgs = append(cliArgs, args[i])
-		}
+	bootstrap, err := parseBootstrapArgs(os.Args[1:])
+	if err != nil {
+		_, _ = fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
 	}
-	if !serverPortSet {
+	if !bootstrap.serverPortSet {
 		serverPort, err = serverPortFromEnv()
 		if err != nil {
 			_, _ = fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
+	} else {
+		serverPort = bootstrap.serverPort
 	}
 	if serverPort == 0 {
 		serverPort = 25556
@@ -119,17 +99,17 @@ func main() {
 	}
 	defer logWriter.Close()
 	consoleLogHub := consolelog.DefaultHub()
-	initLogger(dbg, logWriter, consoleLogHub)
+	initLogger(bootstrap.dbg, logWriter, consoleLogHub)
 
 	defer func() {
-		if dbg {
+		if bootstrap.dbg {
 			twitter.ReportRequestCount()
 		}
 	}()
 
 	conf, err := config.ReadConf(confPath)
 	if os.IsNotExist(err) {
-		if confArg {
+		if bootstrap.confArg {
 			_, _ = os.Stderr.WriteString("Config file not found, creating new configuration...\n")
 			conf, err = config.PromptConfig(confPath)
 			if err != nil {
@@ -146,7 +126,7 @@ func main() {
 				log.Fatalln("config failure with", err)
 			}
 		}
-	} else if confArg {
+	} else if bootstrap.confArg {
 		conf, err = config.PromptConfig(confPath)
 		if err != nil {
 			log.Fatalln("config failure with", err)
@@ -155,14 +135,14 @@ func main() {
 	if err != nil {
 		log.Fatalln("failed to load config:", err)
 	}
-	if !confArg {
+	if !bootstrap.confArg {
 		if applied, err := config.ApplyEnv(conf); err != nil {
 			log.Fatalln("failed to apply environment configuration:", err)
 		} else if applied {
 			log.Infoln("TMD_* environment configuration applied")
 		}
 	}
-	if confArg {
+	if bootstrap.confArg {
 		log.Println("config done")
 		return
 	}
@@ -204,13 +184,13 @@ func main() {
 	loginOpts := twitter.LoginOptions{}
 
 	// Server 模式
-	if serverMode {
+	if bootstrap.serverMode {
 		runServer(conf, appRootPath, serverPort, loginOpts, logWriter, consoleLogHub)
 		return
 	}
 
 	// CLI 模式
-	client, additional, _, db := initializeClients(ctx, conf, appRootPath, loginOpts, dbg)
+	client, additional, _, db := initializeClients(ctx, conf, appRootPath, loginOpts, bootstrap.dbg)
 	defer db.Close()
 
 	// 设置客户端日志
@@ -248,9 +228,47 @@ func main() {
 	}
 
 	// 将 cli 参数传递给 Execute
-	if err := cli.Execute(ctx, cliArgs, deps); err != nil {
+	if err := cli.Execute(ctx, bootstrap.cliArgs, deps); err != nil {
 		log.Fatalln("execute failed:", err)
 	}
+}
+
+type bootstrapArgs struct {
+	confArg       bool
+	dbg           bool
+	serverMode    bool
+	serverPort    int
+	serverPortSet bool
+	cliArgs       []string
+}
+
+func parseBootstrapArgs(args []string) (bootstrapArgs, error) {
+	var parsed bootstrapArgs
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		switch arg {
+		case "-conf":
+			parsed.confArg = true
+		case "-dbg":
+			parsed.dbg = true
+		case "-server":
+			parsed.serverMode = true
+		case "-port":
+			if i+1 >= len(args) || strings.HasPrefix(args[i+1], "-") {
+				return parsed, fmt.Errorf("-port requires a value from 1 to 65535")
+			}
+			port, err := strconv.Atoi(args[i+1])
+			if err != nil || port <= 0 || port > 65535 {
+				return parsed, fmt.Errorf("invalid -port %q: must be an integer from 1 to 65535", args[i+1])
+			}
+			parsed.serverPort = port
+			parsed.serverPortSet = true
+			i++
+		default:
+			parsed.cliArgs = append(parsed.cliArgs, arg)
+		}
+	}
+	return parsed, nil
 }
 
 func serverPortFromEnv() (int, error) {

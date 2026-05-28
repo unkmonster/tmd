@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"time"
 )
 
 const (
@@ -67,11 +68,18 @@ func (s *Server) handleLogStream(w http.ResponseWriter, r *http.Request) {
 
 	fmt.Fprint(w, ": connected\n\n")
 	flusher.Flush()
+	heartbeat := time.NewTicker(sseHeartbeatInterval)
+	defer heartbeat.Stop()
 
 	for {
 		select {
 		case <-ctx.Done():
 			return
+		case <-heartbeat.C:
+			if err := writeSSEHeartbeat(w); err != nil {
+				return
+			}
+			flusher.Flush()
 		case line := <-ch:
 			if line == "" {
 				continue
@@ -79,7 +87,9 @@ func (s *Server) handleLogStream(w http.ResponseWriter, r *http.Request) {
 			if !matchLogFilters(line, levelStr, search) {
 				continue
 			}
-			writeSSEData(w, line)
+			if err := writeSSEData(w, line); err != nil {
+				return
+			}
 			flusher.Flush()
 		}
 	}
@@ -152,9 +162,12 @@ func stripAnsiCodes(s string) string {
 	return ansiRegex.ReplaceAllString(s, "")
 }
 
-func writeSSEData(w http.ResponseWriter, line string) {
+func writeSSEData(w http.ResponseWriter, line string) error {
 	for _, part := range strings.Split(line, "\n") {
-		fmt.Fprintf(w, "data: %s\n", strings.TrimSuffix(part, "\r"))
+		if _, err := fmt.Fprintf(w, "data: %s\n", strings.TrimSuffix(part, "\r")); err != nil {
+			return err
+		}
 	}
-	fmt.Fprint(w, "\n")
+	_, err := fmt.Fprint(w, "\n")
+	return err
 }

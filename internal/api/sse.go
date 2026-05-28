@@ -10,6 +10,8 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+const sseHeartbeatInterval = 25 * time.Second
+
 func disableSSEWriteTimeout(w http.ResponseWriter) {
 	if err := http.NewResponseController(w).SetWriteDeadline(time.Time{}); err != nil {
 		if errors.Is(err, http.ErrNotSupported) {
@@ -36,17 +38,23 @@ func (s *Server) handleSSETasks(w http.ResponseWriter, r *http.Request) {
 	flusher.Flush()
 
 	tasks := s.taskManager.GetAllTasks()
-	s.writeSSENamedEvent(w, flusher, "tasks", tasks)
+	if err := s.writeSSENamedEvent(w, flusher, "tasks", tasks); err != nil {
+		return
+	}
 
 	if sched := s.getScheduler(); sched != nil {
-		s.writeSSENamedEvent(w, flusher, "schedules", map[string]interface{}{
+		if err := s.writeSSENamedEvent(w, flusher, "schedules", map[string]interface{}{
 			"scheduler_running": sched.IsRunning(),
 			"entries":           sched.GetStatuses(),
-		})
+		}); err != nil {
+			return
+		}
 	}
 
 	ch, unsubscribe := s.eventBus.Subscribe()
 	defer unsubscribe()
+	heartbeat := time.NewTicker(sseHeartbeatInterval)
+	defer heartbeat.Stop()
 
 	for {
 		select {
@@ -57,6 +65,11 @@ func (s *Server) handleSSETasks(w http.ResponseWriter, r *http.Request) {
 			if err := s.writeSSENamedEvent(w, flusher, evt.Event, evt.Data); err != nil {
 				return
 			}
+		case <-heartbeat.C:
+			if err := writeSSEHeartbeat(w); err != nil {
+				return
+			}
+			flusher.Flush()
 		case <-r.Context().Done():
 			return
 		}
@@ -67,11 +80,16 @@ func (s *Server) writeSSENamedEvent(w http.ResponseWriter, flusher http.Flusher,
 	jsonData, err := json.Marshal(data)
 	if err != nil {
 		log.Warnf("[SSE] Failed to marshal event %s: %v", event, err)
-		return nil
+		return err
 	}
 	if _, err := fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event, jsonData); err != nil {
 		return err
 	}
 	flusher.Flush()
 	return nil
+}
+
+func writeSSEHeartbeat(w http.ResponseWriter) error {
+	_, err := fmt.Fprint(w, ": heartbeat\n\n")
+	return err
 }

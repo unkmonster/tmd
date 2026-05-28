@@ -106,6 +106,96 @@ func TestExecute_HelpReturnsNil(t *testing.T) {
 	assert.NoError(t, err)
 }
 
+func TestExecute_PropagatesCanceledContext(t *testing.T) {
+	cases := []struct {
+		name  string
+		args  []string
+		setup func(*MockDownloadService, interface{})
+	}{
+		{
+			name: "jsonfile",
+			args: []string{"-jsonfile", "test.json"},
+			setup: func(mockSvc *MockDownloadService, ctxMatcher interface{}) {
+				mockSvc.On("JsonFileDownload", ctxMatcher, "cli", []string{"test.json"}, false, mock.Anything).Return(context.Canceled)
+			},
+		},
+		{
+			name: "jsonfolder",
+			args: []string{"-jsonfolder", ".loongtweet"},
+			setup: func(mockSvc *MockDownloadService, ctxMatcher interface{}) {
+				mockSvc.On("JsonFolderDownload", ctxMatcher, "cli", []string{".loongtweet"}, false, mock.Anything).Return(context.Canceled)
+			},
+		},
+		{
+			name: "mark-downloaded",
+			args: []string{"-mark-downloaded", "-user", "testuser"},
+			setup: func(mockSvc *MockDownloadService, ctxMatcher interface{}) {
+				mockSvc.On("MarkDownloaded", ctxMatcher, "cli", []string{"testuser"}, mock.AnythingOfType("[]uint64"), mock.AnythingOfType("[]string"), (*string)(nil), mock.Anything).Return(context.Canceled)
+			},
+		},
+		{
+			name: "single user",
+			args: []string{"-user", "testuser"},
+			setup: func(mockSvc *MockDownloadService, ctxMatcher interface{}) {
+				mockSvc.On("UserDownload", ctxMatcher, "cli", "testuser", service.DownloadOptions{}, mock.Anything).Return(context.Canceled)
+			},
+		},
+		{
+			name: "single following",
+			args: []string{"-foll", "sourceuser"},
+			setup: func(mockSvc *MockDownloadService, ctxMatcher interface{}) {
+				mockSvc.On("FollowingDownload", ctxMatcher, "cli", "sourceuser", service.DownloadOptions{}, mock.Anything).Return(context.Canceled)
+			},
+		},
+		{
+			name: "batch",
+			args: []string{"-user", "testuser", "-list", "123"},
+			setup: func(mockSvc *MockDownloadService, ctxMatcher interface{}) {
+				mockSvc.On("BatchDownload", ctxMatcher, "cli", []string{"testuser"}, []uint64{123}, mock.AnythingOfType("[]string"), service.DownloadOptions{}, mock.Anything).Return(context.Canceled)
+			},
+		},
+		{
+			name: "profile user",
+			args: []string{"-profile-user", "testuser"},
+			setup: func(mockSvc *MockDownloadService, ctxMatcher interface{}) {
+				mockSvc.On("ProfileDownload", ctxMatcher, "cli", []string{"testuser"}, mock.Anything).Return(context.Canceled)
+			},
+		},
+		{
+			name: "profile list",
+			args: []string{"-profile-list", "123"},
+			setup: func(mockSvc *MockDownloadService, ctxMatcher interface{}) {
+				mockSvc.On("ListProfileDownload", ctxMatcher, "cli", uint64(123), mock.Anything).Return(context.Canceled)
+			},
+		},
+	}
+
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			cancel()
+			ctxMatcher := mock.MatchedBy(func(got context.Context) bool {
+				return got == ctx && errors.Is(got.Err(), context.Canceled)
+			})
+			mockSvc := new(MockDownloadService)
+			tt.setup(mockSvc, ctxMatcher)
+
+			deps := &Dependencies{
+				Dependencies: service.Dependencies{
+					Client: resty.New(),
+					Config: &config.Config{},
+				},
+				DownloadService: mockSvc,
+			}
+
+			err := Execute(ctx, tt.args, deps)
+
+			assert.ErrorIs(t, err, context.Canceled)
+			mockSvc.AssertExpectations(t)
+		})
+	}
+}
+
 func TestExecute_JsonDownload(t *testing.T) {
 	mockSvc := new(MockDownloadService)
 	mockSvc.On("JsonFileDownload", mock.Anything, mock.Anything, []string{"/path/to/file.json"}, false, mock.Anything).Return(nil)
