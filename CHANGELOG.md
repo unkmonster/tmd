@@ -7,6 +7,70 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ***
 
+## [v3.4.15] - 2026-05-15
+
+### Changed
+
+#### GitHub Actions 工作流优化
+- `.github/workflows/docker.yml` - 删除 1 行，移除 master 分支触发，只在标签推送时构建 Docker 镜像
+- `.github/workflows/go.yml` - 删除 76 行，移除 master 分支和 PR 触发，只在标签推送时运行 CI
+
+#### 事件总线增强
+- `internal/api/event_bus.go` - 修改 77 行，增强事件总线功能，添加更多事件类型和处理逻辑
+- `internal/api/event_bus_test.go` - 修改 21 行，更新事件总线测试
+
+#### 日志处理优化
+- `internal/api/log_handlers.go` - 修改 21 行，优化日志处理器
+
+#### SSE 功能增强
+- `internal/api/sse.go` - 修改 26 行，增强 SSE（Server-Sent Events）功能
+- `internal/api/sse_test.go` - 新增 19 行，添加 SSE 测试
+
+#### Web 界面优化
+- `internal/api/web/app.js` - 修改 21 行，优化前端 JavaScript 逻辑
+
+#### CLI 参数解析重构
+- `internal/cli/args.go` - 修改 83 行，重构命令行参数解析逻辑，添加更多参数支持
+- `internal/cli/args_test.go` - 修改 43 行，更新参数解析测试
+- `internal/cli/executor_test.go` - 新增 90 行，添加执行器测试
+
+#### 推文下载优化
+- `internal/downloading/tweet_download.go` - 修改 7 行，优化推文下载逻辑
+
+#### 命名规则清理
+- `internal/naming/tweet_naming.go` - 删除 2 行，清理命名规则代码
+
+#### 路径存储重构
+- `internal/path/store.go` - 修改 36 行，重构路径存储逻辑，优化 Root 路径处理
+- `internal/path/store_test.go` - 修改 101 行，更新路径存储测试，添加更多测试用例
+
+#### 下载服务更新
+- `internal/service/download_service.go` - 修改 16 行，更新错误文件路径引用（ErrorJ → ErrorsPath, JsonErrorJ → JSONErrorsPath）
+
+#### 工具函数重构
+- `internal/utils/fs.go` - 删除 28 行，移除 Twitter 图片质量参数函数
+- `internal/utils/twitter_media.go`（新增文件）- 新增 14 行，创建 Twitter 媒体处理工具函数
+- `internal/utils/user.go` - 修改 9 行，优化用户相关工具函数，改进图片质量处理
+- `internal/utils/utils_test.go` - 修改 17 行，更新工具函数测试
+
+#### 主程序重构
+- `main.go` - 修改 106 行，重构主程序：
+  - 提取 bootstrap 参数解析为独立函数 `parseBootstrapArgs`
+  - 添加配置验证函数 `validateConfig`
+  - 优化端口解析和验证逻辑
+  - 改进错误处理
+- `main_test.go`（新增文件）- 新增 76 行，添加主程序测试：
+  - 测试参数解析
+  - 测试端口验证
+  - 测试配置验证
+
+### Stats
+
+- **22 个文件变更**
+- **+644 行 / -246 行**
+
+***
+
 ## [v3.4.14] - 2026-05-15
 
 ### Changed
