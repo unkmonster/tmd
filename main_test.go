@@ -5,6 +5,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/unkmonster/tmd/internal/config"
 )
 
 func TestParseBootstrapArgs(t *testing.T) {
@@ -35,20 +37,23 @@ func TestParseBootstrapArgsConfIsBoolean(t *testing.T) {
 
 func TestParseBootstrapArgsPortValidation(t *testing.T) {
 	tests := []struct {
-		name string
-		args []string
+		name        string
+		args        []string
+		errContains string
 	}{
-		{name: "missing", args: []string{"-port"}},
-		{name: "next flag", args: []string{"-port", "-dbg"}},
-		{name: "not number", args: []string{"-port", "abc"}},
-		{name: "zero", args: []string{"-port", "0"}},
-		{name: "too large", args: []string{"-port", "65536"}},
+		{name: "missing", args: []string{"-port"}, errContains: "-port requires a value"},
+		{name: "next flag", args: []string{"-port", "-dbg"}, errContains: `invalid -port "-dbg"`},
+		{name: "negative", args: []string{"-port", "-1"}, errContains: `invalid -port "-1"`},
+		{name: "not number", args: []string{"-port", "abc"}, errContains: `invalid -port "abc"`},
+		{name: "zero", args: []string{"-port", "0"}, errContains: `invalid -port "0"`},
+		{name: "too large", args: []string{"-port", "65536"}, errContains: `invalid -port "65536"`},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			_, err := parseBootstrapArgs(tt.args)
 			assert.Error(t, err)
+			assert.Contains(t, err.Error(), tt.errContains)
 		})
 	}
 }
@@ -58,4 +63,14 @@ func TestParseBootstrapArgsPassesUnknownFlagsToCLI(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{"-unknown", "value", "-user", "alice"}, parsed.cliArgs)
+}
+
+func TestValidateConfigRequiresRootPath(t *testing.T) {
+	err := validateConfig(nil)
+	assert.EqualError(t, err, "config is nil")
+
+	err = validateConfig(&config.Config{RootPath: "  "})
+	assert.EqualError(t, err, "root_path is required; set it in conf.yaml or TMD_ROOT_PATH")
+
+	assert.NoError(t, validateConfig(&config.Config{RootPath: t.TempDir()}))
 }

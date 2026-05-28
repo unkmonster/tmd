@@ -146,6 +146,9 @@ func main() {
 		log.Println("config done")
 		return
 	}
+	if err := validateConfig(conf); err != nil {
+		log.Fatalln("invalid config:", err)
+	}
 	log.Infoln("config is loaded")
 	log.Infoln("download path:", conf.RootPath)
 	maxDownloadRoutine := conf.MaxDownloadRoutine
@@ -191,6 +194,9 @@ func main() {
 
 	// CLI 模式
 	client, additional, _, db := initializeClients(ctx, conf, appRootPath, loginOpts, bootstrap.dbg)
+	if client == nil || db == nil {
+		log.Fatalln("failed to initialize clients or database")
+	}
 	defer db.Close()
 
 	// 设置客户端日志
@@ -254,8 +260,8 @@ func parseBootstrapArgs(args []string) (bootstrapArgs, error) {
 		case "-server":
 			parsed.serverMode = true
 		case "-port":
-			if i+1 >= len(args) || strings.HasPrefix(args[i+1], "-") {
-				return parsed, fmt.Errorf("-port requires a value from 1 to 65535")
+			if i+1 >= len(args) {
+				return parsed, fmt.Errorf("-port requires a value")
 			}
 			port, err := strconv.Atoi(args[i+1])
 			if err != nil || port <= 0 || port > 65535 {
@@ -269,6 +275,16 @@ func parseBootstrapArgs(args []string) (bootstrapArgs, error) {
 		}
 	}
 	return parsed, nil
+}
+
+func validateConfig(conf *config.Config) error {
+	if conf == nil {
+		return fmt.Errorf("config is nil")
+	}
+	if strings.TrimSpace(conf.RootPath) == "" {
+		return fmt.Errorf("root_path is required; set it in conf.yaml or TMD_ROOT_PATH")
+	}
+	return nil
 }
 
 func serverPortFromEnv() (int, error) {
