@@ -11,19 +11,27 @@ import (
 )
 
 const sseHeartbeatInterval = 25 * time.Second
+const sseWriteTimeout = 10 * time.Second
 
-func disableSSEWriteTimeout(w http.ResponseWriter) {
-	if err := http.NewResponseController(w).SetWriteDeadline(time.Time{}); err != nil {
-		if errors.Is(err, http.ErrNotSupported) {
-			return
-		}
-		log.Warnf("[SSE] Failed to disable write deadline: %v", err)
+func writeSSEFrame(w http.ResponseWriter, flusher http.Flusher, write func() error) error {
+	controller := http.NewResponseController(w)
+	if err := controller.SetWriteDeadline(time.Now().Add(sseWriteTimeout)); err != nil && !errors.Is(err, http.ErrNotSupported) {
+		log.Warnf("[SSE] Failed to set write deadline: %v", err)
 	}
+	defer func() {
+		if err := controller.SetWriteDeadline(time.Time{}); err != nil && !errors.Is(err, http.ErrNotSupported) {
+			log.Warnf("[SSE] Failed to clear write deadline: %v", err)
+		}
+	}()
+
+	if err := write(); err != nil {
+		return err
+	}
+	flusher.Flush()
+	return nil
 }
 
 func (s *Server) handleSSETasks(w http.ResponseWriter, r *http.Request) {
-	disableSSEWriteTimeout(w)
-
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
@@ -34,8 +42,12 @@ func (s *Server) handleSSETasks(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	fmt.Fprint(w, ": connected\n\n")
-	flusher.Flush()
+	if err := writeSSEFrame(w, flusher, func() error {
+		_, err := fmt.Fprint(w, ": connected\n\n")
+		return err
+	}); err != nil {
+		return
+	}
 
 	tasks := s.taskManager.GetAllTasks()
 	if err := s.writeSSENamedEvent(w, flusher, "tasks", tasks); err != nil {
@@ -66,10 +78,11 @@ func (s *Server) handleSSETasks(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		case <-heartbeat.C:
-			if err := writeSSEHeartbeat(w); err != nil {
+			if err := writeSSEFrame(w, flusher, func() error {
+				return writeSSEHeartbeat(w)
+			}); err != nil {
 				return
 			}
-			flusher.Flush()
 		case <-r.Context().Done():
 			return
 		}
@@ -82,11 +95,10 @@ func (s *Server) writeSSENamedEvent(w http.ResponseWriter, flusher http.Flusher,
 		log.Warnf("[SSE] Failed to marshal event %s: %v", event, err)
 		return err
 	}
-	if _, err := fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event, jsonData); err != nil {
+	return writeSSEFrame(w, flusher, func() error {
+		_, err := fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event, jsonData)
 		return err
-	}
-	flusher.Flush()
-	return nil
+	})
 }
 
 func writeSSEHeartbeat(w http.ResponseWriter) error {

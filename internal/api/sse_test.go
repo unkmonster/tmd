@@ -204,6 +204,15 @@ func TestWriteSSEHeartbeat(t *testing.T) {
 	assert.Equal(t, ": heartbeat\n\n", rr.Body.String())
 }
 
+func TestWriteSSENamedEventReturnsWriteError(t *testing.T) {
+	server := &Server{}
+	rr := &errorResponseWriter{}
+
+	err := server.writeSSENamedEvent(rr, rr, "tasks", []*Task{})
+
+	assert.Error(t, err)
+}
+
 type errorResponseWriter struct {
 	headers http.Header
 }

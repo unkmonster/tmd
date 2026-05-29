@@ -47,8 +47,6 @@ func (s *Server) handleGetLogs(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleLogStream(w http.ResponseWriter, r *http.Request) {
-	disableSSEWriteTimeout(w)
-
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		s.writeError(w, http.StatusInternalServerError, "Streaming not supported")
@@ -66,8 +64,12 @@ func (s *Server) handleLogStream(w http.ResponseWriter, r *http.Request) {
 	ch, unsubscribe := s.logHub.Subscribe()
 	defer unsubscribe()
 
-	fmt.Fprint(w, ": connected\n\n")
-	flusher.Flush()
+	if err := writeSSEFrame(w, flusher, func() error {
+		_, err := fmt.Fprint(w, ": connected\n\n")
+		return err
+	}); err != nil {
+		return
+	}
 	heartbeat := time.NewTicker(sseHeartbeatInterval)
 	defer heartbeat.Stop()
 
@@ -76,10 +78,11 @@ func (s *Server) handleLogStream(w http.ResponseWriter, r *http.Request) {
 		case <-ctx.Done():
 			return
 		case <-heartbeat.C:
-			if err := writeSSEHeartbeat(w); err != nil {
+			if err := writeSSEFrame(w, flusher, func() error {
+				return writeSSEHeartbeat(w)
+			}); err != nil {
 				return
 			}
-			flusher.Flush()
 		case line := <-ch:
 			if line == "" {
 				continue
@@ -87,10 +90,11 @@ func (s *Server) handleLogStream(w http.ResponseWriter, r *http.Request) {
 			if !matchLogFilters(line, levelStr, search) {
 				continue
 			}
-			if err := writeSSEData(w, line); err != nil {
+			if err := writeSSEFrame(w, flusher, func() error {
+				return writeSSEData(w, line)
+			}); err != nil {
 				return
 			}
-			flusher.Flush()
 		}
 	}
 }

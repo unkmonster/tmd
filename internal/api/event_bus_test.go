@@ -119,6 +119,54 @@ done2:
 	assert.Equal(t, 1000, received)
 }
 
+func TestEventBusCoalescesTasksEvents(t *testing.T) {
+	bus := NewEventBus()
+	ch, unsubscribe := bus.Subscribe()
+	defer unsubscribe()
+
+	for i := 0; i < eventBusSubscriberBuffer+100; i++ {
+		bus.Publish("tasks", i)
+	}
+
+	values := make([]int, 0, 2)
+	timeout := time.After(200 * time.Millisecond)
+	for {
+		select {
+		case evt, ok := <-ch:
+			if !ok {
+				t.Fatal("Subscriber channel closed unexpectedly")
+			}
+			value, ok := evt.Data.(int)
+			if !ok {
+				t.Fatalf("Unexpected event payload type %T", evt.Data)
+			}
+			values = append(values, value)
+		case <-timeout:
+			goto done3
+		}
+	}
+done3:
+
+	assert.NotEmpty(t, values)
+	assert.LessOrEqual(t, len(values), 2)
+	assert.Equal(t, eventBusSubscriberBuffer+99, values[len(values)-1])
+}
+
+func TestEventBusClosesSlowSubscriberOnRegularQueueOverflow(t *testing.T) {
+	bus := NewEventBus()
+	_, _ = bus.Subscribe()
+
+	for i := 0; i < eventBusSubscriberBuffer*2; i++ {
+		bus.Publish("notification", i)
+	}
+
+	assert.Eventually(t, func() bool {
+		bus.mu.Lock()
+		defer bus.mu.Unlock()
+		return len(bus.subscribers) == 0
+	}, 200*time.Millisecond, 10*time.Millisecond, "Slow subscriber should be removed after queue overflow")
+}
+
 func TestEventBusMultipleSubscribers(t *testing.T) {
 	bus := NewEventBus()
 	ch1, unsub1 := bus.Subscribe()
