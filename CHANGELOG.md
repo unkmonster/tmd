@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ***
 
+## [v3.4.16] - 2026-05-15
+
+### Changed
+
+#### 事件总线重构
+- `internal/api/event_bus.go` - 修改 197 行，重构事件总线，添加更多事件类型和处理逻辑
+- `internal/api/event_bus_test.go` - 新增 74 行，添加事件总线测试
+
+#### 日志处理优化
+- `internal/api/log_handlers.go` - 删除 61 行，移除旧的日志处理器
+
+#### SSE 功能拆分
+- `internal/api/sse.go` - 删除 95 行，移除旧的 SSE 实现
+- `internal/api/sse_logs.go`（新增文件）- 新增 71 行，创建 SSE 日志流实现
+- `internal/api/sse_tasks.go`（新增文件）- 新增 139 行，创建 SSE 任务流实现
+- `internal/api/sse_test.go` - 新增 48 行，添加 SSE 测试
+
+#### 任务管理器重构
+- `internal/api/task_manager.go` - 删除 113 行，移除任务类型定义
+- `internal/api/task_types.go`（新增文件）- 新增 108 行，创建任务类型定义文件
+
+#### 控制台日志中心增强
+- `internal/consolelog/hub.go` - 修改 163 行，增强控制台日志中心功能
+- `internal/consolelog/hub_test.go` - 修改 46 行，更新控制台日志中心测试
+
+### Stats
+
+- **11 个文件变更**
+- **+818 行 / -297 行**
+
+***
+
 ## [v3.4.15] - 2026-05-15
 
 ### Changed
