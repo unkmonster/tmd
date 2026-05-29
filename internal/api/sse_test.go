@@ -37,6 +37,7 @@ func TestHandleSSETasks_ResponseHeaders(t *testing.T) {
 		assert.Equal(t, "text/event-stream", rr.Header().Get("Content-Type"))
 		assert.Equal(t, "no-cache", rr.Header().Get("Cache-Control"))
 		assert.Equal(t, "keep-alive", rr.Header().Get("Connection"))
+		assert.Equal(t, "no", rr.Header().Get("X-Accel-Buffering"))
 	case <-time.After(200 * time.Millisecond):
 		t.Fatal("Test timeout")
 	}
@@ -162,6 +163,33 @@ func TestHandleSSETasks_EventBusPush(t *testing.T) {
 	assert.Contains(t, body, "test done")
 }
 
+func TestHandleSSETasks_ReplaysMissedNotifications(t *testing.T) {
+	eventBus := NewEventBus()
+	server := &Server{
+		taskManager: NewTaskManager(eventBus),
+		eventBus:    eventBus,
+	}
+
+	eventBus.PublishNotification("task_completed", "done-1", nil)
+	eventBus.PublishNotification("task_failed", "done-2", nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/sse/tasks", nil)
+	req.Header.Set("Last-Event-ID", "1")
+	rr := httptest.NewRecorder()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	req = req.WithContext(ctx)
+
+	server.handleSSETasks(rr, req)
+
+	body := rr.Body.String()
+	assert.Contains(t, body, "event: tasks")
+	assert.Contains(t, body, "id: 2")
+	assert.Contains(t, body, `"type":"task_failed"`)
+	assert.NotContains(t, body, `"type":"task_completed"`)
+}
+
 func TestSSENamedEventFormat(t *testing.T) {
 	tasks := []*Task{
 		{
@@ -211,6 +239,17 @@ func TestWriteSSENamedEventReturnsWriteError(t *testing.T) {
 	err := server.writeSSENamedEvent(rr, rr, "tasks", []*Task{})
 
 	assert.Error(t, err)
+}
+
+func TestWriteSSEEventIncludesID(t *testing.T) {
+	server := &Server{}
+	rr := httptest.NewRecorder()
+
+	err := server.writeSSEEvent(rr, rr, SSEEvent{ID: 42, Event: "notification", Data: map[string]string{"message": "ok"}})
+
+	assert.NoError(t, err)
+	assert.Contains(t, rr.Body.String(), "id: 42\n")
+	assert.Contains(t, rr.Body.String(), "event: notification\n")
 }
 
 type errorResponseWriter struct {

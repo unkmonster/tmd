@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -28,12 +29,30 @@ func TestHubSubscribeReceivesNewLines(t *testing.T) {
 
 	hub.Add("live line")
 
-	select {
-	case got := <-ch:
-		assert.Equal(t, "live line", got)
-	default:
-		t.Fatal("expected subscribed log line")
-	}
+	assert.Eventually(t, func() bool {
+		select {
+		case got := <-ch:
+			return got == "live line"
+		default:
+			return false
+		}
+	}, 200*time.Millisecond, 10*time.Millisecond, "expected subscribed log line")
+}
+
+func TestHubSubscribeUnsubscribeClosesChannel(t *testing.T) {
+	hub := NewHub(10)
+	ch, unsubscribe := hub.Subscribe()
+
+	unsubscribe()
+
+	assert.Eventually(t, func() bool {
+		select {
+		case _, ok := <-ch:
+			return !ok
+		default:
+			return false
+		}
+	}, 200*time.Millisecond, 10*time.Millisecond, "expected unsubscribed log channel to be closed")
 }
 
 func TestHubNormalizesLines(t *testing.T) {
@@ -56,6 +75,21 @@ func TestHubUsesFixedRingBuffer(t *testing.T) {
 	assert.Equal(t, 3, cap(hub.lines))
 	assert.Equal(t, 3, hub.count)
 	assert.Equal(t, []string{"h", "i", "j"}, hub.Snapshot())
+}
+
+func TestHubRemovesSlowSubscriberOnOverflow(t *testing.T) {
+	hub := NewHub(10)
+	_, _ = hub.Subscribe()
+
+	for i := 0; i < subscriberBuffer*2; i++ {
+		hub.Add("line")
+	}
+
+	assert.Eventually(t, func() bool {
+		hub.mu.Lock()
+		defer hub.mu.Unlock()
+		return len(hub.subscribers) == 0
+	}, 200*time.Millisecond, 10*time.Millisecond, "Slow log subscriber should be removed after queue overflow")
 }
 
 type chunkedReader struct {

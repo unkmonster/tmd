@@ -7,9 +7,12 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+
+	log "github.com/sirupsen/logrus"
 )
 
 const DefaultLimit = 5000
+const subscriberBuffer = 100
 
 var (
 	defaultHub = NewHub(DefaultLimit)
@@ -38,7 +41,124 @@ type Hub struct {
 	start       int
 	count       int
 	limit       int
-	subscribers map[chan string]struct{}
+	subscribers map[*logSubscriber]struct{}
+}
+
+type logSubscriber struct {
+	mu      sync.Mutex
+	ch      chan string
+	wake    chan struct{}
+	done    chan struct{}
+	closeMu sync.Once
+	closed  bool
+	queue   []string
+}
+
+func newLogSubscriber() *logSubscriber {
+	sub := &logSubscriber{
+		ch:    make(chan string),
+		wake:  make(chan struct{}, 1),
+		done:  make(chan struct{}),
+		queue: make([]string, 0, subscriberBuffer),
+	}
+	go sub.run()
+	return sub
+}
+
+type logSendResult int
+
+const (
+	logSendQueued logSendResult = iota
+	logSendClosed
+	logSendOverflow
+)
+
+func (s *logSubscriber) send(line string) logSendResult {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.closed {
+		return logSendClosed
+	}
+	if len(s.queue) >= subscriberBuffer {
+		s.closed = true
+		s.closeDone()
+		return logSendOverflow
+	}
+
+	s.queue = append(s.queue, line)
+	s.wakeLocked()
+	return logSendQueued
+}
+
+func (s *logSubscriber) close() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.closed {
+		return
+	}
+	s.closed = true
+	s.closeDone()
+}
+
+func (s *logSubscriber) run() {
+	defer close(s.ch)
+
+	for {
+		select {
+		case <-s.wake:
+		case <-s.done:
+			return
+		}
+
+		for {
+			line, ok := s.nextLine()
+			if !ok {
+				break
+			}
+
+			select {
+			case s.ch <- line:
+			case <-s.done:
+				return
+			}
+		}
+	}
+}
+
+func (s *logSubscriber) nextLine() (string, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if len(s.queue) == 0 {
+		return "", false
+	}
+
+	line := s.queue[0]
+	s.queue = s.queue[1:]
+	return line, true
+}
+
+func (s *logSubscriber) wakeLocked() {
+	select {
+	case s.wake <- struct{}{}:
+	default:
+	}
+}
+
+func (s *logSubscriber) closeDone() {
+	s.closeMu.Do(func() {
+		close(s.done)
+	})
+}
+
+func (h *Hub) removeSubscribers(subscribers []*logSubscriber) {
+	h.mu.Lock()
+	for _, sub := range subscribers {
+		delete(h.subscribers, sub)
+	}
+	h.mu.Unlock()
 }
 
 func DefaultHub() *Hub {
@@ -53,7 +173,7 @@ func NewHub(limit int) *Hub {
 	return &Hub{
 		lines:       make([]string, limit),
 		limit:       limit,
-		subscribers: make(map[chan string]struct{}),
+		subscribers: make(map[*logSubscriber]struct{}),
 	}
 }
 
@@ -64,7 +184,6 @@ func (h *Hub) Add(line string) {
 	}
 
 	h.mu.Lock()
-	defer h.mu.Unlock()
 
 	if h.count < h.limit {
 		idx := (h.start + h.count) % h.limit
@@ -75,10 +194,24 @@ func (h *Hub) Add(line string) {
 		h.start = (h.start + 1) % h.limit
 	}
 
-	for ch := range h.subscribers {
-		select {
-		case ch <- line:
-		default:
+	subscribers := make([]*logSubscriber, 0, len(h.subscribers))
+	for sub := range h.subscribers {
+		subscribers = append(subscribers, sub)
+	}
+	h.mu.Unlock()
+
+	var overflowed []*logSubscriber
+	for _, sub := range subscribers {
+		switch sub.send(line) {
+		case logSendOverflow:
+			overflowed = append(overflowed, sub)
+		}
+	}
+
+	if len(overflowed) > 0 {
+		h.removeSubscribers(overflowed)
+		for range overflowed {
+			log.Warn("[consolelog] closing slow log subscriber after queue overflow")
 		}
 	}
 }
@@ -103,17 +236,23 @@ func (h *Hub) Snapshot() []string {
 }
 
 func (h *Hub) Subscribe() (<-chan string, func()) {
-	ch := make(chan string, 100)
+	sub := newLogSubscriber()
 
 	h.mu.Lock()
-	h.subscribers[ch] = struct{}{}
+	h.subscribers[sub] = struct{}{}
 	h.mu.Unlock()
 
-	return ch, func() {
+	return sub.ch, func() {
 		h.mu.Lock()
-		delete(h.subscribers, ch)
-		close(ch)
+		_, ok := h.subscribers[sub]
+		if ok {
+			delete(h.subscribers, sub)
+		}
 		h.mu.Unlock()
+
+		if ok {
+			sub.close()
+		}
 	}
 }
 

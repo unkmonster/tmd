@@ -7,10 +7,13 @@ import (
 )
 
 const eventBusSubscriberBuffer = 4096
+const eventBusReplayLimit = 256
 
 var coalescedSSEEvents = []string{"tasks", "schedules"}
+var replayableSSEEvents = []string{"notification", "server_shutdown"}
 
 type SSEEvent struct {
+	ID    uint64
 	Event string
 	Data  interface{}
 }
@@ -149,24 +152,42 @@ func isCoalescedSSEEvent(event string) bool {
 	return false
 }
 
+func isReplayableSSEEvent(event string) bool {
+	for _, name := range replayableSSEEvents {
+		if event == name {
+			return true
+		}
+	}
+	return false
+}
+
 type EventBus struct {
-	mu          sync.Mutex
-	subscribers map[*eventSubscriber]struct{}
+	mu            sync.Mutex
+	subscribers   map[*eventSubscriber]struct{}
+	nextEventID   uint64
+	replayHistory []SSEEvent
 }
 
 func NewEventBus() *EventBus {
 	return &EventBus{
-		subscribers: make(map[*eventSubscriber]struct{}),
+		subscribers:   make(map[*eventSubscriber]struct{}),
+		replayHistory: make([]SSEEvent, 0, eventBusReplayLimit),
 	}
 }
 
 func (b *EventBus) Subscribe() (<-chan SSEEvent, func()) {
+	ch, _, unsubscribe := b.SubscribeWithReplay(0)
+	return ch, unsubscribe
+}
+
+func (b *EventBus) SubscribeWithReplay(lastEventID uint64) (<-chan SSEEvent, []SSEEvent, func()) {
 	sub := newEventSubscriber()
 	b.mu.Lock()
+	replay := b.copyReplayAfterLocked(lastEventID)
 	b.subscribers[sub] = struct{}{}
 	b.mu.Unlock()
 
-	return sub.ch, func() {
+	return sub.ch, replay, func() {
 		b.mu.Lock()
 		_, ok := b.subscribers[sub]
 		if ok {
@@ -180,9 +201,32 @@ func (b *EventBus) Subscribe() (<-chan SSEEvent, func()) {
 	}
 }
 
+func (b *EventBus) copyReplayAfterLocked(lastEventID uint64) []SSEEvent {
+	if lastEventID == 0 || len(b.replayHistory) == 0 {
+		return nil
+	}
+
+	replay := make([]SSEEvent, 0, len(b.replayHistory))
+	for _, evt := range b.replayHistory {
+		if evt.ID > lastEventID {
+			replay = append(replay, evt)
+		}
+	}
+	return replay
+}
+
 func (b *EventBus) Publish(event string, data interface{}) {
-	evt := SSEEvent{Event: event, Data: data}
 	b.mu.Lock()
+	b.nextEventID++
+	evt := SSEEvent{ID: b.nextEventID, Event: event, Data: data}
+	if isReplayableSSEEvent(event) {
+		if len(b.replayHistory) == eventBusReplayLimit {
+			copy(b.replayHistory, b.replayHistory[1:])
+			b.replayHistory[len(b.replayHistory)-1] = evt
+		} else {
+			b.replayHistory = append(b.replayHistory, evt)
+		}
+	}
 	subscribers := make([]*eventSubscriber, 0, len(b.subscribers))
 	for sub := range b.subscribers {
 		subscribers = append(subscribers, sub)

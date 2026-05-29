@@ -113,7 +113,7 @@ func (tm *TaskManager) publishTasks() {
 	if tm.eventBus == nil {
 		return
 	}
-	tasks := tm.GetAllTasks()
+	tasks := tm.snapshotForPublish()
 	tm.eventBus.PublishTasks(tasks)
 }
 
@@ -196,6 +196,15 @@ func (tm *TaskManager) GetAllTasks() []*Task {
 	result := make([]*Task, len(tm.tasksSnapshot))
 	copy(result, tm.tasksSnapshot)
 	return result
+}
+
+// snapshotForPublish 返回当前只读快照本身，供内部 SSE 广播复用，避免重复复制。
+// tasksSnapshot 中的 Task 节点在 rebuildSnapshotLocked 时整体替换，旧快照随后保持只读。
+func (tm *TaskManager) snapshotForPublish() []*Task {
+	tm.mu.RLock()
+	defer tm.mu.RUnlock()
+
+	return tm.tasksSnapshot
 }
 
 func (tm *TaskManager) rebuildSnapshotLocked() {

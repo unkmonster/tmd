@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
+	"strings"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -35,6 +37,7 @@ func (s *Server) handleSSETasks(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
 
 	flusher, ok := w.(http.Flusher)
 	if !ok {
@@ -48,6 +51,10 @@ func (s *Server) handleSSETasks(w http.ResponseWriter, r *http.Request) {
 	}); err != nil {
 		return
 	}
+
+	lastEventID := parseLastEventID(r.Header.Get("Last-Event-ID"))
+	ch, replay, unsubscribe := s.eventBus.SubscribeWithReplay(lastEventID)
+	defer unsubscribe()
 
 	tasks := s.taskManager.GetAllTasks()
 	if err := s.writeSSENamedEvent(w, flusher, "tasks", tasks); err != nil {
@@ -63,8 +70,11 @@ func (s *Server) handleSSETasks(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	ch, unsubscribe := s.eventBus.Subscribe()
-	defer unsubscribe()
+	for _, evt := range replay {
+		if err := s.writeSSEEvent(w, flusher, evt); err != nil {
+			return
+		}
+	}
 	heartbeat := time.NewTicker(sseHeartbeatInterval)
 	defer heartbeat.Stop()
 
@@ -74,7 +84,7 @@ func (s *Server) handleSSETasks(w http.ResponseWriter, r *http.Request) {
 			if !ok {
 				return
 			}
-			if err := s.writeSSENamedEvent(w, flusher, evt.Event, evt.Data); err != nil {
+			if err := s.writeSSEEvent(w, flusher, evt); err != nil {
 				return
 			}
 		case <-heartbeat.C:
@@ -90,15 +100,37 @@ func (s *Server) handleSSETasks(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) writeSSENamedEvent(w http.ResponseWriter, flusher http.Flusher, event string, data interface{}) error {
-	jsonData, err := json.Marshal(data)
+	return s.writeSSEEvent(w, flusher, SSEEvent{Event: event, Data: data})
+}
+
+func (s *Server) writeSSEEvent(w http.ResponseWriter, flusher http.Flusher, evt SSEEvent) error {
+	jsonData, err := json.Marshal(evt.Data)
 	if err != nil {
-		log.Warnf("[SSE] Failed to marshal event %s: %v", event, err)
+		log.Warnf("[SSE] Failed to marshal event %s: %v", evt.Event, err)
 		return err
 	}
 	return writeSSEFrame(w, flusher, func() error {
-		_, err := fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event, jsonData)
+		if evt.ID > 0 {
+			if _, err := fmt.Fprintf(w, "id: %d\n", evt.ID); err != nil {
+				return err
+			}
+		}
+		_, err := fmt.Fprintf(w, "event: %s\ndata: %s\n\n", evt.Event, jsonData)
 		return err
 	})
+}
+
+func parseLastEventID(raw string) uint64 {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return 0
+	}
+
+	id, err := strconv.ParseUint(raw, 10, 64)
+	if err != nil {
+		return 0
+	}
+	return id
 }
 
 func writeSSEHeartbeat(w http.ResponseWriter) error {

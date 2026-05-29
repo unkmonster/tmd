@@ -167,6 +167,32 @@ func TestEventBusClosesSlowSubscriberOnRegularQueueOverflow(t *testing.T) {
 	}, 200*time.Millisecond, 10*time.Millisecond, "Slow subscriber should be removed after queue overflow")
 }
 
+func TestEventBusSubscribeWithReplayReturnsMissedEvents(t *testing.T) {
+	bus := NewEventBus()
+
+	bus.Publish("tasks", "snapshot-1")
+	bus.PublishNotification("task_completed", "done-1", nil)
+	bus.PublishNotification("task_failed", "done-2", nil)
+
+	ch, replay, unsubscribe := bus.SubscribeWithReplay(2)
+	defer unsubscribe()
+
+	if assert.Len(t, replay, 1) {
+		assert.Equal(t, uint64(3), replay[0].ID)
+		assert.Equal(t, "notification", replay[0].Event)
+	}
+
+	bus.PublishNotification("task_cancelled", "done-3", nil)
+
+	select {
+	case evt := <-ch:
+		assert.Equal(t, "notification", evt.Event)
+		assert.Equal(t, uint64(4), evt.ID)
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("expected future notification on subscription channel")
+	}
+}
+
 func TestEventBusMultipleSubscribers(t *testing.T) {
 	bus := NewEventBus()
 	ch1, unsub1 := bus.Subscribe()
