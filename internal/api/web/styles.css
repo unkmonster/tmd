@@ -700,8 +700,6 @@ ul, ol {
 }
 
 .table-scroll-container {
-  max-height: calc(100vh - 280px);
-  overflow-y: auto;
   overflow-x: auto;
 }
 

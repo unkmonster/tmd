@@ -2566,7 +2566,7 @@ function renderScheduleTable(schedules, exists) {
           <button class="btn btn-ghost btn-sm" onclick="navigateToSystemSchedules()">📝 编辑任务</button>
         </div>
       </div>
-      <div class="card-body" style="padding:0;max-height:calc(100vh - 280px);overflow-y:auto">
+      <div class="card-body" style="padding:0">
         ${schedules.map(renderScheduleItem).join('')}
       </div>
     </div>
