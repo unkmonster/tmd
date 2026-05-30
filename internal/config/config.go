@@ -65,6 +65,13 @@ type FieldDef struct {
 	Setter  func(*Config, string) error // 设置值并验证
 }
 
+type StartupLoadResult struct {
+	Config          *Config
+	UsedEnvFallback bool
+	EnvApplied      bool
+	Prompted        bool
+}
+
 func GetFieldDefs() []FieldDef {
 	return []FieldDef{
 		{
@@ -73,13 +80,7 @@ func GetFieldDefs() []FieldDef {
 			Default: "",
 			Getter:  func(c *Config) string { return c.RootPath },
 			Setter: func(c *Config, v string) error {
-				if strings.TrimSpace(v) == "" {
-					return fmt.Errorf("storage dir cannot be empty")
-				}
-				if err := os.MkdirAll(v, 0755); err != nil {
-					return err
-				}
-				absPath, err := filepath.Abs(v)
+				absPath, err := normalizeRootPath(v)
 				if err != nil {
 					return err
 				}
@@ -180,6 +181,21 @@ func normalizeProxyURL(raw string) (string, error) {
 	}
 }
 
+func normalizeRootPath(raw string) (string, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", fmt.Errorf("storage dir cannot be empty")
+	}
+	if err := os.MkdirAll(raw, 0755); err != nil {
+		return "", err
+	}
+	absPath, err := filepath.Abs(raw)
+	if err != nil {
+		return "", err
+	}
+	return absPath, nil
+}
+
 func HasEnvOverrides() bool {
 	for _, binding := range envFieldBindings {
 		if strings.TrimSpace(os.Getenv(binding.envName)) != "" {
@@ -260,16 +276,79 @@ func clampInt(val, min, max int) int {
 }
 
 func ReadConf(path string) (*Config, error) {
-	var result Config
-	err := readYAMLFile(path, &result)
+	data, err := os.ReadFile(path)
 	if err != nil {
+		return nil, err
+	}
+	return ParseConfYAML(data)
+}
+
+func WriteConf(path string, conf *Config) error {
+	data, err := MarshalConf(conf)
+	if err != nil {
+		return err
+	}
+	return writeFileAtomic(path, data, 0600)
+}
+
+func ParseConfYAML(data []byte) (*Config, error) {
+	var result Config
+	decoder := yaml.NewDecoder(bytes.NewReader(data))
+	decoder.KnownFields(true)
+	if err := decoder.Decode(&result); err != nil {
+		if err == io.EOF {
+			return &Config{}, nil
+		}
+		return nil, err
+	}
+	if err := NormalizeLoadedConf(&result); err != nil {
 		return nil, err
 	}
 	return &result, nil
 }
 
-func WriteConf(path string, conf *Config) error {
-	return writeYAMLFile(path, conf)
+func MarshalConf(conf *Config) ([]byte, error) {
+	if conf == nil {
+		return nil, fmt.Errorf("config is nil")
+	}
+
+	next := *conf
+	if err := NormalizeLoadedConf(&next); err != nil {
+		return nil, err
+	}
+	return yaml.Marshal(&next)
+}
+
+func NormalizeLoadedConf(conf *Config) error {
+	if conf == nil {
+		return fmt.Errorf("config is nil")
+	}
+
+	conf.RootPath = strings.TrimSpace(conf.RootPath)
+	if conf.RootPath != "" {
+		absPath, err := normalizeRootPath(conf.RootPath)
+		if err != nil {
+			return fmt.Errorf("invalid root_path: %w", err)
+		}
+		conf.RootPath = absPath
+	}
+
+	proxyURL, err := normalizeProxyURL(conf.ProxyURL)
+	if err != nil {
+		return fmt.Errorf("invalid proxy_url: %w", err)
+	}
+	conf.ProxyURL = proxyURL
+	return nil
+}
+
+func Validate(conf *Config) error {
+	if conf == nil {
+		return fmt.Errorf("config is nil")
+	}
+	if strings.TrimSpace(conf.RootPath) == "" {
+		return fmt.Errorf("root_path is required; set it in conf.yaml or TMD_ROOT_PATH")
+	}
+	return nil
 }
 
 // PromptConfig 交互式配置（参考 tmd-2.4.4 简化实现）
@@ -297,6 +376,50 @@ func PromptConfig(saveto string) (*Config, error) {
 	}
 
 	return conf, WriteConf(saveto, conf)
+}
+
+func LoadStartupConfig(path string, prompt bool, stderr io.Writer) (*StartupLoadResult, error) {
+	return loadStartupConfig(path, prompt, stderr, PromptConfig)
+}
+
+func loadStartupConfig(path string, prompt bool, stderr io.Writer, promptFn func(string) (*Config, error)) (*StartupLoadResult, error) {
+	result := &StartupLoadResult{}
+
+	conf, err := ReadConf(path)
+	if os.IsNotExist(err) {
+		if prompt || !HasEnvOverrides() {
+			if stderr != nil {
+				_, _ = io.WriteString(stderr, "Config file not found, creating new configuration...\n")
+			}
+			conf, err = promptFn(path)
+			if err != nil {
+				return nil, err
+			}
+			result.Prompted = true
+		} else {
+			conf = &Config{}
+			result.UsedEnvFallback = true
+		}
+	} else if err != nil {
+		return nil, err
+	} else if prompt {
+		conf, err = promptFn(path)
+		if err != nil {
+			return nil, err
+		}
+		result.Prompted = true
+	}
+
+	if !prompt {
+		applied, err := ApplyEnv(conf)
+		if err != nil {
+			return nil, err
+		}
+		result.EnvApplied = applied
+	}
+
+	result.Config = conf
+	return result, nil
 }
 
 // backupConf 备份现有配置文件（与 API 模式一致）
@@ -340,16 +463,49 @@ func readYAMLFile(path string, out interface{}) error {
 }
 
 func writeYAMLFile(path string, in interface{}) error {
-	file, err := os.OpenFile(path, os.O_TRUNC|os.O_WRONLY|os.O_CREATE, 0600)
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-
 	data, err := yaml.Marshal(in)
 	if err != nil {
 		return err
 	}
-	_, err = io.Copy(file, bytes.NewReader(data))
-	return err
+	return writeFileAtomic(path, data, 0600)
+}
+
+func writeFileAtomic(path string, data []byte, perm os.FileMode) error {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return err
+	}
+
+	file, err := os.CreateTemp(dir, filepath.Base(path)+".tmp-*")
+	if err != nil {
+		return err
+	}
+
+	tmpPath := file.Name()
+	success := false
+	defer func() {
+		file.Close()
+		if !success {
+			_ = os.Remove(tmpPath)
+		}
+	}()
+
+	if err := file.Chmod(perm); err != nil {
+		return err
+	}
+	if _, err := io.Copy(file, bytes.NewReader(data)); err != nil {
+		return err
+	}
+	if err := file.Sync(); err != nil {
+		return err
+	}
+	if err := file.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		return err
+	}
+
+	success = true
+	return nil
 }

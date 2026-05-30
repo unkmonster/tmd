@@ -107,46 +107,22 @@ func main() {
 		}
 	}()
 
-	conf, err := config.ReadConf(confPath)
-	if os.IsNotExist(err) {
-		if bootstrap.confArg {
-			_, _ = os.Stderr.WriteString("Config file not found, creating new configuration...\n")
-			conf, err = config.PromptConfig(confPath)
-			if err != nil {
-				log.Fatalln("config failure with", err)
-			}
-		} else if config.HasEnvOverrides() {
-			log.Infoln("Config file not found, using TMD_* environment configuration")
-			conf = &config.Config{}
-			err = nil
-		} else {
-			_, _ = os.Stderr.WriteString("Config file not found, creating new configuration...\n")
-			conf, err = config.PromptConfig(confPath)
-			if err != nil {
-				log.Fatalln("config failure with", err)
-			}
-		}
-	} else if bootstrap.confArg {
-		conf, err = config.PromptConfig(confPath)
-		if err != nil {
-			log.Fatalln("config failure with", err)
-		}
-	}
+	loadResult, err := config.LoadStartupConfig(confPath, bootstrap.confArg, os.Stderr)
 	if err != nil {
-		log.Fatalln("failed to load config:", err)
+		log.Fatalln("config failure with", err)
 	}
-	if !bootstrap.confArg {
-		if applied, err := config.ApplyEnv(conf); err != nil {
-			log.Fatalln("failed to apply environment configuration:", err)
-		} else if applied {
-			log.Infoln("TMD_* environment configuration applied")
-		}
+	conf := loadResult.Config
+	if loadResult.UsedEnvFallback {
+		log.Infoln("Config file not found, using TMD_* environment configuration")
+	}
+	if loadResult.EnvApplied {
+		log.Infoln("TMD_* environment configuration applied")
 	}
 	if bootstrap.confArg {
 		log.Println("config done")
 		return
 	}
-	if err := validateConfig(conf); err != nil {
+	if err := config.Validate(conf); err != nil {
 		log.Fatalln("invalid config:", err)
 	}
 	log.Infoln("config is loaded")
@@ -275,16 +251,6 @@ func parseBootstrapArgs(args []string) (bootstrapArgs, error) {
 		}
 	}
 	return parsed, nil
-}
-
-func validateConfig(conf *config.Config) error {
-	if conf == nil {
-		return fmt.Errorf("config is nil")
-	}
-	if strings.TrimSpace(conf.RootPath) == "" {
-		return fmt.Errorf("root_path is required; set it in conf.yaml or TMD_ROOT_PATH")
-	}
-	return nil
 }
 
 func serverPortFromEnv() (int, error) {

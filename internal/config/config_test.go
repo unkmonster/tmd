@@ -1,6 +1,8 @@
 package config
 
 import (
+	"bytes"
+	"os"
 	"path/filepath"
 	"strconv"
 	"testing"
@@ -169,4 +171,142 @@ func TestApplyEnvInvalidProxyURL(t *testing.T) {
 	assert.EqualError(t, err, `invalid TMD_PROXY_URL: invalid proxy URL "ftp://127.0.0.1:21": unsupported scheme "ftp"`)
 	assert.False(t, applied)
 	assert.Equal(t, "http://127.0.0.1:7897", conf.ProxyURL)
+}
+
+func TestReadConfNormalizesRuntimeFields(t *testing.T) {
+	confPath := filepath.Join(t.TempDir(), "conf.yaml")
+	rootPath := filepath.Join(t.TempDir(), "downloads")
+	content := []byte("root_path: \"" + filepath.ToSlash(rootPath) + "\"\nproxy_url: \"  http://127.0.0.1:7897  \"\n")
+
+	assert.NoError(t, os.WriteFile(confPath, content, 0600))
+
+	conf, err := ReadConf(confPath)
+	assert.NoError(t, err)
+	if assert.NotNil(t, conf) {
+		assert.Equal(t, rootPath, conf.RootPath)
+		assert.Equal(t, "http://127.0.0.1:7897", conf.ProxyURL)
+	}
+	info, statErr := os.Stat(rootPath)
+	assert.NoError(t, statErr)
+	assert.True(t, info.IsDir())
+}
+
+func TestReadConfRejectsUnknownFields(t *testing.T) {
+	confPath := filepath.Join(t.TempDir(), "conf.yaml")
+	assert.NoError(t, os.WriteFile(confPath, []byte("rootpath: test\n"), 0600))
+
+	_, err := ReadConf(confPath)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "field rootpath not found")
+}
+
+func TestParseConfYAMLRejectsInvalidProxyURL(t *testing.T) {
+	_, err := ParseConfYAML([]byte("root_path: test\nproxy_url: ftp://127.0.0.1:21\n"))
+	assert.EqualError(t, err, `invalid proxy_url: invalid proxy URL "ftp://127.0.0.1:21": unsupported scheme "ftp"`)
+}
+
+func TestWriteConfPersistsNormalizedConfig(t *testing.T) {
+	dir := t.TempDir()
+	rootPath := filepath.Join(dir, "downloads")
+	confPath := filepath.Join(dir, "conf.yaml")
+
+	conf := &Config{
+		RootPath: rootPath,
+		ProxyURL: "  http://127.0.0.1:7897  ",
+	}
+	assert.NoError(t, WriteConf(confPath, conf))
+
+	saved, err := ReadConf(confPath)
+	assert.NoError(t, err)
+	if assert.NotNil(t, saved) {
+		assert.Equal(t, rootPath, saved.RootPath)
+		assert.Equal(t, "http://127.0.0.1:7897", saved.ProxyURL)
+	}
+
+	data, err := os.ReadFile(confPath)
+	assert.NoError(t, err)
+	assert.Contains(t, string(data), "proxy_url: http://127.0.0.1:7897")
+}
+
+func TestLoadStartupConfigUsesEnvFallbackWhenConfigMissing(t *testing.T) {
+	clearConfigEnv(t)
+
+	rootPath := filepath.Join(t.TempDir(), "downloads")
+	t.Setenv("TMD_ROOT_PATH", rootPath)
+
+	var promptCalled bool
+	result, err := loadStartupConfig(
+		filepath.Join(t.TempDir(), "missing-conf.yaml"),
+		false,
+		nil,
+		func(string) (*Config, error) {
+			promptCalled = true
+			return &Config{}, nil
+		},
+	)
+	assert.NoError(t, err)
+	assert.False(t, promptCalled)
+	if assert.NotNil(t, result) {
+		assert.True(t, result.UsedEnvFallback)
+		assert.True(t, result.EnvApplied)
+		if assert.NotNil(t, result.Config) {
+			assert.Equal(t, rootPath, result.Config.RootPath)
+		}
+	}
+}
+
+func TestLoadStartupConfigAppliesEnvOverridesToExistingConfig(t *testing.T) {
+	clearConfigEnv(t)
+
+	dir := t.TempDir()
+	confPath := filepath.Join(dir, "conf.yaml")
+	assert.NoError(t, os.WriteFile(confPath, []byte("root_path: "+filepath.ToSlash(dir)+"\nproxy_url: http://127.0.0.1:7897\n"), 0600))
+	t.Setenv("TMD_PROXY_URL", "socks5://127.0.0.1:7890")
+
+	result, err := loadStartupConfig(confPath, false, nil, func(string) (*Config, error) {
+		t.Fatal("prompt should not be called when config exists and prompt mode is off")
+		return nil, nil
+	})
+	assert.NoError(t, err)
+	if assert.NotNil(t, result) {
+		assert.False(t, result.UsedEnvFallback)
+		assert.True(t, result.EnvApplied)
+		if assert.NotNil(t, result.Config) {
+			assert.Equal(t, "socks5://127.0.0.1:7890", result.Config.ProxyURL)
+		}
+	}
+}
+
+func TestLoadStartupConfigPromptModeUsesPromptFunction(t *testing.T) {
+	clearConfigEnv(t)
+
+	dir := t.TempDir()
+	confPath := filepath.Join(dir, "conf.yaml")
+	assert.NoError(t, os.WriteFile(confPath, []byte("root_path: "+filepath.ToSlash(dir)+"\n"), 0600))
+
+	stderr := &bytes.Buffer{}
+	result, err := loadStartupConfig(confPath, true, stderr, func(path string) (*Config, error) {
+		assert.Equal(t, confPath, path)
+		return &Config{RootPath: dir}, nil
+	})
+	assert.NoError(t, err)
+	if assert.NotNil(t, result) {
+		assert.True(t, result.Prompted)
+		assert.False(t, result.EnvApplied)
+		assert.False(t, result.UsedEnvFallback)
+		if assert.NotNil(t, result.Config) {
+			assert.Equal(t, dir, result.Config.RootPath)
+		}
+	}
+	assert.Equal(t, "", stderr.String())
+}
+
+func TestValidateRejectsMissingRootPath(t *testing.T) {
+	err := Validate(&Config{})
+	assert.EqualError(t, err, "root_path is required; set it in conf.yaml or TMD_ROOT_PATH")
+}
+
+func TestValidateRejectsNilConfig(t *testing.T) {
+	err := Validate(nil)
+	assert.EqualError(t, err, "config is nil")
 }

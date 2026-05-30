@@ -66,11 +66,11 @@ func TestParseBootstrapArgsPassesUnknownFlagsToCLI(t *testing.T) {
 }
 
 func TestValidateConfigRequiresRootPath(t *testing.T) {
-	err := validateConfig(nil)
+	err := config.Validate(nil)
 	assert.EqualError(t, err, "config is nil")
 
-	err = validateConfig(&config.Config{RootPath: "  "})
+	err = config.Validate(&config.Config{RootPath: "  "})
 	assert.EqualError(t, err, "root_path is required; set it in conf.yaml or TMD_ROOT_PATH")
 
-	assert.NoError(t, validateConfig(&config.Config{RootPath: t.TempDir()}))
+	assert.NoError(t, config.Validate(&config.Config{RootPath: t.TempDir()}))
 }

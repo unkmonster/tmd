@@ -953,6 +953,65 @@ func TestServer_PutRoutesForConfigFieldsAndCookies(t *testing.T) {
 	}
 }
 
+func TestServer_UpdateConfigRawRejectsInvalidSemanticConfig(t *testing.T) {
+	db, err := sqlx.Connect(database.DriverName, database.MemoryDSN(true))
+	assert.NoError(t, err)
+	defer db.Close()
+	database.CreateTables(db)
+
+	appRoot := t.TempDir()
+	cfg := &config.Config{RootPath: appRoot}
+
+	server := NewServer(resty.New(), []*resty.Client{}, db, cfg, appRoot, nil)
+	defer server.taskManager.Close()
+	handler := server.buildHandler()
+
+	body := `{"content":"root_path: ` + strings.ReplaceAll(appRoot, `\`, `/`) + `\nproxy_url: ftp://127.0.0.1:21\n"}`
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/config/raw", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	assert.Equal(t, http.StatusBadRequest, rr.Code)
+	assert.Contains(t, rr.Body.String(), "Invalid config")
+	assert.Contains(t, rr.Body.String(), "invalid proxy_url")
+}
+
+func TestServer_UpdateConfigRawPersistsNormalizedConfig(t *testing.T) {
+	db, err := sqlx.Connect(database.DriverName, database.MemoryDSN(true))
+	assert.NoError(t, err)
+	defer db.Close()
+	database.CreateTables(db)
+
+	appRoot := t.TempDir()
+	cfg := &config.Config{RootPath: appRoot}
+
+	server := NewServer(resty.New(), []*resty.Client{}, db, cfg, appRoot, nil)
+	defer server.taskManager.Close()
+	handler := server.buildHandler()
+
+	rootPath := filepath.Join(appRoot, "downloads")
+	body := `{"content":"root_path: ` + strings.ReplaceAll(filepath.ToSlash(rootPath), `\`, `/`) + `\nproxy_url: '  http://127.0.0.1:7897  '\n"}`
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/config/raw", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	assert.Equal(t, http.StatusOK, rr.Code)
+
+	confPath := filepath.Join(appRoot, "conf.yaml")
+	saved, err := config.ReadConf(confPath)
+	require.NoError(t, err)
+	require.NotNil(t, saved)
+	assert.Equal(t, rootPath, saved.RootPath)
+	assert.Equal(t, "http://127.0.0.1:7897", saved.ProxyURL)
+
+	data, err := os.ReadFile(confPath)
+	require.NoError(t, err)
+	assert.Contains(t, string(data), "proxy_url: http://127.0.0.1:7897")
+	assert.NotContains(t, string(data), "  http://127.0.0.1:7897  ")
+}
+
 func TestServer_SaveCookiesFailsWhenExistingCookiesUnreadable(t *testing.T) {
 	db, err := sqlx.Connect(database.DriverName, database.MemoryDSN(true))
 	assert.NoError(t, err)

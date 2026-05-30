@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	log "github.com/sirupsen/logrus"
-	"gopkg.in/yaml.v3"
 
 	"github.com/unkmonster/tmd/internal/config"
 )
@@ -35,7 +34,7 @@ func (s *Server) handleGetConfigRaw(w http.ResponseWriter, _ *http.Request) {
 	if err != nil {
 		if os.IsNotExist(err) {
 			defaultConf := config.Config{}
-			yamlData, err := yaml.Marshal(defaultConf)
+			yamlData, err := config.MarshalConf(&defaultConf)
 			if err != nil {
 				s.writeError(w, http.StatusInternalServerError, "Failed to marshal default config: "+err.Error())
 				return
@@ -70,9 +69,9 @@ func (s *Server) handleUpdateConfigRaw(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var testConf config.Config
-	if err := yaml.Unmarshal([]byte(req.Content), &testConf); err != nil {
-		s.writeError(w, http.StatusBadRequest, "Invalid YAML format: "+err.Error())
+	testConf, err := config.ParseConfYAML([]byte(req.Content))
+	if err != nil {
+		s.writeError(w, http.StatusBadRequest, "Invalid config: "+err.Error())
 		return
 	}
 
@@ -86,19 +85,24 @@ func (s *Server) handleUpdateConfigRaw(w http.ResponseWriter, r *http.Request) {
 		log.Warnf("Failed to create config backup: %v", err)
 	}
 
-	if err := os.WriteFile(confPath, []byte(req.Content), 0600); err != nil {
+	if err := config.WriteConf(confPath, testConf); err != nil {
 		s.writeError(w, http.StatusInternalServerError, "Failed to write config: "+err.Error())
 		return
 	}
 
 	log.Infoln("[WebUI] config saved via raw editor")
 
-	*s.config = testConf
+	*s.config = *testConf
+
+	yamlPreview, err := config.MarshalConf(testConf)
+	if err != nil {
+		log.Warnf("Failed to marshal yaml preview: %v", err)
+	}
 
 	s.writeJSON(w, http.StatusOK, NewSuccessResponse(map[string]interface{}{
 		"message":      "Configuration saved successfully. Please restart TMD manually for changes to take effect.",
 		"backup":       backupName,
-		"yaml_preview": req.Content,
+		"yaml_preview": string(yamlPreview),
 	}))
 }
 
@@ -250,7 +254,7 @@ func (s *Server) handleSaveConfigFields(w http.ResponseWriter, r *http.Request) 
 
 	*s.config = *newConf
 
-	yamlPreview, err := yaml.Marshal(newConf)
+	yamlPreview, err := config.MarshalConf(newConf)
 	if err != nil {
 		log.Warnf("Failed to marshal yaml preview: %v", err)
 	}
