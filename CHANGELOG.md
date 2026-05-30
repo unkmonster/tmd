@@ -7,7 +7,97 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ***
 
-## [v3.4.16] - 2026-05-15
+## [v3.4.17] - 2026-05-30
+
+### Changed
+
+#### 配置加载与写入流程重构
+- `internal/config/config.go` - 修改 188 行，重构配置模块核心逻辑：
+  - 新增 `StartupLoadResult` 结构体，封装启动配置加载的完整结果（含环境变量回退、交互式提示等状态标记）
+  - 提取 `normalizeRootPath()` 函数，统一 RootPath 的 trim、mkdir、abs 路径处理（原内联在 FieldDef.Setter 中）
+  - 新增 `ParseConfYAML()` 函数：使用 `yaml.NewDecoder` + `KnownFields(true)` 严格模式解析 YAML，拒绝未知字段；解析后自动调用 `NormalizeLoadedConf` 做运行时字段归一化
+  - 新增 `MarshalConf()` 函数：序列化前先做归一化，确保写出的 YAML 始终是干净格式
+  - 新增 `NormalizeLoadedConf()` 函数：统一对 RootPath 做 abs 路径转换和 trim、对 ProxyURL 做格式校验与规范化
+  - 新增 `Validate()` 函数（从 main.go 迁入）：配置非空性校验，错误信息引导用户检查 conf.yaml 或 TMD_ROOT_PATH 环境变量
+  - 新增 `LoadStartupConfig()` / `loadStartupConfig()` 函数（从 main.go 迁入）：封装启动时配置文件读取→缺失处理→环境变量覆盖的完整流程，支持依赖注入 promptFn 便于测试
+  - 改造 `ReadConf()`：先 ReadFile 再 ParseConfYAML，读与解耦分离
+  - 改造 `WriteConf()`：先 MarshalConf 再 writeFileAtomic，写出内容始终经过归一化
+  - 重构 `writeYAMLFile()` → `writeFileAtomic()`：改为原子写入（先写 .tmp 文件 → chmod → fsync → rename），防止写入中断导致配置损坏
+
+- `internal/config/config_test.go` - 新增 140 行测试：
+  - `TestReadConfNormalizesRuntimeFields`：验证 ReadConf 自动创建目录并返回 abs 路径、trim ProxyURL 空格
+  - `TestReadConfRejectsUnknownFields`：验证 KnownFields(true) 模式下非法字段名被拒绝
+  - `TestParseConfYAMLRejectsInvalidProxyURL`：验证无效代理 URL scheme 在解析阶段即报错
+  - `TestWriteConfPersistsNormalizedConfig`：验证 WriteConf 写出的文件经 ReadConf 读回后字段已被归一化
+  - `TestLoadStartupConfigUsesEnvFallbackWhenConfigMissing`：配置文件不存在且有 ENV 时走 fallback 不触发 prompt
+  - `TestLoadStartupConfigAppliesEnvOverridesToExistingConfig`：已有配置文件时 ENV 覆盖仍生效
+  - `TestLoadStartupConfigPromptModeUsesPromptFunction`：prompt=true 时调用自定义 promptFn
+  - `TestValidateRejectsMissingRootPath` / `TestValidateRejectsNilConfig`：Validate 边界用例
+
+#### API 层适配新配置流程
+- `internal/api/config_handlers.go` - 修改 22 行：
+  - 移除直接 `yaml.Unmarshal` / `yaml.Marshal` 调用，改用 `config.ParseConfYAML()` 和 `config.MarshalConf()`
+  - `handleUpdateConfigRaw` 中保存配置改用 `config.WriteConf(testConf)` 替代直接 `os.WriteFile`，确保持久化的配置经过归一化
+  - YAML 预览响应也使用 `config.MarshalConf()` 生成，保证前端看到的是标准化后的内容
+
+- `internal/api/server_test.go` - 新增 59 行测试：
+  - `TestServer_UpdateConfigRawRejectsInvalidSemanticConfig`：验证语义级配置校验（如非法 proxy_url scheme）在 API 层正确拒绝并返回 400
+  - `TestServer_UpdateConfigRawPersistsNormalizedConfig`：验证通过 raw editor 保存的配置经过归一化后持久化，ProxyURL 空格被去除、RootPath 转为 abs 路径
+
+#### 主程序简化
+- `main.go` - 删除 52 行：
+  - 将 ~40 行的内联配置加载/缺失处理/ENV 覆盖逻辑替换为单行 `config.LoadStartupConfig()` 调用
+  - 将 `validateConfig()` 内联函数删除，改用 `config.Validate()`
+  - 根据 `loadResult.UsedEnvFallback` / `loadResult.EnvApplied` 分别输出对应日志
+
+- `main_test.go` - 修改 6 行：测试中 `validateConfig` 调用点改为 `config.Validate`
+
+#### 调度器生命周期与重载辅助重构
+- `internal/scheduler/scheduler.go` - 修改 175 行：
+  - 提取 `startLocked(skipIfRunning bool) (int, bool)` 方法：将 Start() 中的 hasEverStarted/firstStart 标记设置 + 启动去重判断 + goroutine 启动封装为独立方法，供 Reload 恢复路径复用（skipIfRunning=false 允许重启）
+  - 提取 `stopLocked() bool` 方法：将 Stop() 中的停止逻辑（取消 context → 等待 goroutine → 清理状态）封装为独立方法，返回是否实际执行了停止操作
+  - 提取 `applyConfig(entries, parsed, statuses)` 方法：将 Reload() 中的 entries/parsed/statuses 交换 + generation++ 封装
+  - 提取 `statusChangeSnapshot()` / `statusChangeSnapshotLocked()` 方法：将分散在各处的「加锁 → 复制 statuses → 取 callback → 解锁」模式统一抽取，callback 为 nil 时直接跳过复制
+  - 提取 `notifyStatusChange(callback, statuses)` 自由函数：统一回调通知逻辑
+  - 提取 `logReloadSummary(entries)` 自由函数：Reload 结尾的活跃调度计数日志
+  - **Reload 错误恢复改进**：当 readConfig 失败且调度器之前处于运行状态时，现在能正确恢复启动（之前因代码重复导致 firstStart/hasEverStarted 标记遗漏），并通过 `startLocked(false)` 强制重新启动
+
+- `internal/scheduler/scheduler_test.go` - 新增 72 行测试：
+  - `TestStopIsIdempotent`：连续两次 Stop() 后调度器仍保持停止状态，不会 panic 或状态异常
+  - `TestReloadRecoversAfterConfigError`：写入非法 schedules.yaml 后 Reload 返回 error，但调度器仍保持运行状态且原有 statuses 不丢失
+
+#### Web UI：系统日志独立页面 & 导航重构
+- `internal/api/web/app.js` - 修改 92 行：
+  - **日志页面独立**：从 System 页面的 logs 子标签页提升为独立的 `/logs` 一级路由页面（`pages.logs()` 直接渲染 `renderLogViewer()`）
+  - **SSE 刷新适配**：`sseManager.onReconnect` 新增 `'logs'` 分支，日志页面断线重连时自动 reload
+  - **导航系统更新**：路由表 `parseRoute()` / `updateURL()` 新增 `'logs': '/logs'` 映射；页面标题映射新增 `logs: '系统日志'`
+  - **清理逻辑调整**：`navigateTo()` 和 `onpopstate` 中离开 logs 页面时同样触发 cleanupSystemTimers + CodeMirror 销毁（与 system 页面同等对待）
+  - **System 标签精简**：移除 system 页面 tabs 中的"系统日志"标签及对应的 `systemLogsPanel` DOM；`setSystemTab()` 不再需要在切换到其他 tab 时 stopLogStream
+  - **渲染与订阅分离**：日志相关的 state 变更（logs/logLevel/logPagination）从 system 页面的 subscribe 分支中移出，改为独立的 `currentPage === 'logs'` 分支触发 render()
+  - **函数重命名**：`syncLogsTabView()` → `syncLogsPageView()`，反映其不再作为子标签调用的定位
+  - **移动端遮罩层**：导航到 schedules/logs 页面时同步关闭 sidebarOverlay
+  - **SSE 指示器**：点击刷新按钮在 logs 页面时触发 `loadLogs()`
+  - **定时任务表格**：移除固定高度滚动约束 `max-height:calc(100vh - 280px);overflow-y:auto`
+
+- `internal/api/web/index.html` - 修改 19 行：
+  - 侧边栏导航新增"📋 系统日志" nav-item（data-page="logs"），位于"数据管理"和"应用配置"之间
+  - 移动端底部导航同步新增日志入口
+  - "系统"菜单项图标从 📌 改为 🔧，文字从"系统"改为"应用配置"
+  - 新增 `<div class="sidebar-overlay" id="sidebarOverlay">` 移动端侧边栏遮罩层
+
+- `internal/api/web/styles.css` - 修改 27 行：
+  - 新增 `.sidebar-overlay` 样式：fixed 全屏半透明黑色背景 (z-index:99)，配合 `.open` 类控制显隐过渡动画
+  - `.table-scroll-container`：移除 `max-height` 和 `overflow-y: auto`（定时任务表格不再限制固定高度）
+  - `.log-container`：移除 `max-height:500px` 和 `overflow-y:auto`（日志容器不再截断高度）
+  - `.mobile-nav-items`：布局从 `flex` + `justify-content:space-around` 改为 `grid; grid-template-columns:repeat(6,1fr)` 以容纳新增的第 6 个导航项
+  - `.mobile-nav-item`：`min-width` 从 64px 改为 0，新增 `text-align:center` 适应 grid 布局
+
+### Stats
+
+- **11 个文件变更**
+- **+637 行 / -215 行**
+
+***
 
 ### Changed
 
