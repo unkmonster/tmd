@@ -432,6 +432,10 @@ const sseManager = {
       this._safeRefresh(() => loadSchedules(), 'schedules');
       return;
     }
+    if (page === 'logs') {
+      this._safeRefresh(() => loadLogs(), 'logs');
+      return;
+    }
     if (page !== 'system') return;
 
     if (store.state._systemTab === 'schedules') {
@@ -440,8 +444,6 @@ const sseManager = {
       this._safeRefresh(() => refreshConfigAfterReconnect(), 'config');
     } else if (store.state._systemTab === 'cookies') {
       this._safeRefresh(() => refreshCookiesAfterReconnect(), 'cookies');
-    } else if (store.state._systemTab === 'logs') {
-      this._safeRefresh(() => loadLogs(), 'logs');
     }
   },
 
@@ -740,15 +742,12 @@ const pages = {
 
   // System Page
   system() {
-    const { config, configRaw, logs, logLevel, logSearch, logPagination } = store.state;
-
     return `
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:var(--space-4)">
         <div class="system-tabs" style="margin:0">
           <div class="tab ${store.state._systemTab === 'config' ? 'active' : ''}" onclick="setSystemTab('config')">⚙️ 配置编辑</div>
           <div class="tab ${store.state._systemTab === 'cookies' ? 'active' : ''}" onclick="setSystemTab('cookies')">🍪 额外账户</div>
           <div class="tab ${store.state._systemTab === 'schedules' ? 'active' : ''}" onclick="setSystemTab('schedules')">⏰ 任务配置</div>
-          <div class="tab ${store.state._systemTab === 'logs' ? 'active' : ''}" onclick="setSystemTab('logs')">📋 系统日志</div>
         </div>
         <button class="btn btn-danger btn-sm" onclick="shutdownServer()">⏻ 关闭服务器</button>
       </div>
@@ -764,11 +763,11 @@ const pages = {
       <div id="systemSchedulesPanel" class="system-panel" style="${store.state._systemTab === 'schedules' ? '' : 'display:none'}">
         ${renderScheduleViewer()}
       </div>
-
-      <div id="systemLogsPanel" class="system-panel" style="${store.state._systemTab === 'logs' ? '' : 'display:none'}">
-        ${renderLogViewer()}
-      </div>
     `;
+  },
+
+  logs() {
+    return renderLogViewer();
   }
 };
 
@@ -2741,6 +2740,7 @@ function navigateToSystemSchedules() {
     document.getElementById('pageTitle').textContent = '系统';
     if (store.state.isMobile) {
       document.getElementById('sidebar').classList.remove('open');
+      document.getElementById('sidebarOverlay').classList.remove('open');
     }
   }
 }
@@ -3379,7 +3379,7 @@ let _logStreamConnecting = false;
 let _pendingLogStreamConn = null;
 
 function startLogStream() {
-  if (logStreamConn || _logStreamConnecting || store.state.currentPage !== 'system' || store.state._systemTab !== 'logs') return;
+  if (logStreamConn || _logStreamConnecting || store.state.currentPage !== 'logs') return;
   _logStreamConnecting = true;
   const conn = new EventSource(buildLogStreamURL());
   _pendingLogStreamConn = conn;
@@ -3408,7 +3408,7 @@ function startLogStream() {
     } else {
       conn.close();
     }
-    if (store.state.logAutoRefresh && store.state.currentPage === 'system' && store.state._systemTab === 'logs') {
+    if (store.state.logAutoRefresh && store.state.currentPage === 'logs') {
       logAutoRefreshTimer = setTimeout(() => { logAutoRefreshTimer = null; startLogStream(); }, 2000);
     }
   };
@@ -3460,7 +3460,7 @@ function syncCookiesTabView() {
   }
 }
 
-function syncLogsTabView() {
+function syncLogsPageView() {
   if (store.state.logs.length === 0) {
     loadLogs();
   }
@@ -3472,7 +3472,6 @@ function syncSystemTabView() {
 
   if (store.state._systemTab === 'config') syncConfigTabView();
   if (store.state._systemTab === 'cookies') syncCookiesTabView();
-  if (store.state._systemTab === 'logs') syncLogsTabView();
   if (store.state._systemTab === 'schedules') syncScheduleTabView();
 }
 
@@ -3484,9 +3483,6 @@ function rerenderSystemPanel(panelId, renderFn, resetEditor = null, initEditor =
 }
 
 function setSystemTab(tab) {
-  if (store.state._systemTab === 'logs' && tab !== 'logs') {
-    stopLogStream();
-  }
   store.setState({ _systemTab: tab });
   setTimeout(syncSystemTabView, 0);
 }
@@ -3506,7 +3502,8 @@ function parseRoute() {
     '/tasks': 'tasks',
     '/data': 'data',
     '/schedules': 'schedules',
-    '/system': 'system'
+    '/system': 'system',
+    '/logs': 'logs'
   };
   
   // Map hash to data sub-pages
@@ -3532,7 +3529,8 @@ function updateURL(page, dataSubPage = null) {
     'tasks': '/tasks',
     'data': '/data',
     'schedules': '/schedules',
-    'system': '/system'
+    'system': '/system',
+    'logs': '/logs'
   };
   
   const hashMap = {
@@ -3555,7 +3553,7 @@ function updateURL(page, dataSubPage = null) {
 }
 
 function navigateTo(page) {
-  if (lastPage === 'system' && page !== 'system') {
+  if ((lastPage === 'system' || lastPage === 'logs') && page !== lastPage) {
     cleanupSystemTimers();
     configCodeMirror = destroyCodeMirror(configCodeMirror);
     cookiesCodeMirror = destroyCodeMirror(cookiesCodeMirror);
@@ -3578,12 +3576,13 @@ function navigateTo(page) {
   });
   
   // Update title
-  const titles = { overview: '概览', tasks: '任务中心', data: '数据管理', schedules: '定时任务', system: '系统' };
+  const titles = { overview: '概览', tasks: '任务中心', data: '数据管理', schedules: '定时任务', system: '应用配置', logs: '系统日志' };
   document.getElementById('pageTitle').textContent = titles[page];
   
   // Close sidebar on mobile
   if (store.state.isMobile) {
     document.getElementById('sidebar').classList.remove('open');
+    document.getElementById('sidebarOverlay').classList.remove('open');
   }
   
   // Note: render() is called by subscribe callback when page changes
@@ -3592,7 +3591,7 @@ function navigateTo(page) {
 // Handle browser back/forward buttons
 window.onpopstate = (event) => {
   const { page, dataSubPage } = parseRoute();
-  if (lastPage === 'system' && page !== 'system') {
+  if ((lastPage === 'system' || lastPage === 'logs') && page !== lastPage) {
     cleanupSystemTimers();
     configCodeMirror = destroyCodeMirror(configCodeMirror);
     cookiesCodeMirror = destroyCodeMirror(cookiesCodeMirror);
@@ -3618,7 +3617,7 @@ window.onpopstate = (event) => {
   });
   
   // Update title
-  const titles = { overview: '概览', tasks: '任务中心', data: '数据管理', schedules: '定时任务', system: '系统' };
+  const titles = { overview: '概览', tasks: '任务中心', data: '数据管理', schedules: '定时任务', system: '应用配置', logs: '系统日志' };
   document.getElementById('pageTitle').textContent = titles[page];
 };
 
@@ -3650,6 +3649,8 @@ function render() {
     container.innerHTML = pages[page]();
     if (page === 'system') {
       syncSystemTabView();
+    } else if (page === 'logs') {
+      syncLogsPageView();
     }
     
     // Restore filter and search values
@@ -3666,7 +3667,7 @@ function render() {
     }
     
     // Restore search value for logs
-    if (page === 'system' && store.state._systemTab === 'logs') {
+    if (page === 'logs') {
       restoreSearchValue('logSearchInput', 'logSearch');
     }
   }
@@ -3692,7 +3693,7 @@ async function init() {
     el.classList.toggle('active', el.dataset.page === page);
   });
 
-  const titles = { overview: '概览', tasks: '任务中心', data: '数据管理', schedules: '定时任务', system: '系统' };
+  const titles = { overview: '概览', tasks: '任务中心', data: '数据管理', schedules: '定时任务', system: '应用配置', logs: '系统日志' };
   document.getElementById('pageTitle').textContent = titles[page] || '概览';
 
   document.getElementById('contentContainer').innerHTML = `
@@ -3772,7 +3773,15 @@ async function init() {
 
 // Event Listeners
 document.getElementById('menuToggle').onclick = () => {
-  document.getElementById('sidebar').classList.toggle('open');
+  const sb = document.getElementById('sidebar');
+  const ov = document.getElementById('sidebarOverlay');
+  sb.classList.toggle('open');
+  ov.classList.toggle('open', sb.classList.contains('open'));
+};
+
+document.getElementById('sidebarOverlay').onclick = () => {
+  document.getElementById('sidebar').classList.remove('open');
+  document.getElementById('sidebarOverlay').classList.remove('open');
 };
 
 document.querySelectorAll('.nav-item').forEach(el => {
@@ -3788,6 +3797,7 @@ document.getElementById('sseIndicator').onclick = () => {
   if (page === 'tasks') refreshTasks();
   else if (page === 'data') refreshDBData();
   else if (page === 'schedules') loadSchedules();
+  else if (page === 'logs') loadLogs();
   else init();
 };
 
@@ -3870,7 +3880,6 @@ store.subscribe((state) => {
 
     if (state.currentPage === 'system') {
       const tabChanged = state._systemTab !== lastSystemTab;
-      const logPagChanged = JSON.stringify(state.logPagination) !== lastLogPaginationJson;
       const configRawChanged = state.configRaw !== lastConfigRaw;
       const configSavingChanged = state.configSaving !== lastConfigSaving;
       const configFieldsChanged = JSON.stringify(state.configFields) !== lastConfigFieldsJson;
@@ -3880,8 +3889,6 @@ store.subscribe((state) => {
       const cookiesModeChanged = state.cookiesMode !== lastCookiesMode;
       const cookiesRawChanged = state.cookiesRaw !== lastCookiesRaw;
       const cookiesSavingChanged = state.cookiesSaving !== lastCookiesSaving;
-      const logsChanged = state.logs.length !== lastLogsLength;
-      const logLevelChanged = state.logLevel !== lastLogLevel;
       const schedulesChanged = JSON.stringify(state._schedules) !== lastSchedulesJson;
       const scheduleRawChanged = state._scheduleRaw !== lastScheduleRaw;
       const scheduleExistsChanged = state._scheduleExists !== lastScheduleExists;
@@ -3893,12 +3900,11 @@ store.subscribe((state) => {
         lastSystemTab = state._systemTab;
         document.querySelectorAll('.system-tabs .tab').forEach(t => {
           t.classList.toggle('active', t.textContent.includes(
-            state._systemTab === 'config' ? '配置' : state._systemTab === 'cookies' ? '账户' : state._systemTab === 'logs' ? '日志' : '任务配置'
+            state._systemTab === 'config' ? '配置' : state._systemTab === 'cookies' ? '账户' : '任务配置'
           ));
         });
         document.getElementById('systemConfigPanel').style.display = state._systemTab === 'config' ? '' : 'none';
         document.getElementById('systemCookiesPanel').style.display = state._systemTab === 'cookies' ? '' : 'none';
-        document.getElementById('systemLogsPanel').style.display = state._systemTab === 'logs' ? '' : 'none';
         document.getElementById('systemSchedulesPanel').style.display = state._systemTab === 'schedules' ? '' : 'none';
       }
 
@@ -3929,17 +3935,6 @@ store.subscribe((state) => {
         );
       }
 
-      if (logsChanged || logLevelChanged || logPagChanged) {
-        lastLogPaginationJson = JSON.stringify(state.logPagination);
-        lastLogsLength = state.logs.length;
-        lastLogLevel = state.logLevel;
-        const panel = document.getElementById('systemLogsPanel');
-        if (panel) {
-          panel.innerHTML = renderLogViewer();
-          restoreSearchValue('logSearchInput', 'logSearch');
-        }
-      }
-
       const schedulePanelSchedulesChanged = state._scheduleTab !== 'form' && schedulesChanged;
       if (schedulesChanged && !schedulePanelSchedulesChanged) {
         lastSchedulesJson = JSON.stringify(state._schedules);
@@ -3957,6 +3952,19 @@ store.subscribe((state) => {
           () => { scheduleCodeMirror = destroyCodeMirror(scheduleCodeMirror); _scheduleCmInitializing = false; },
           state._scheduleTab === 'edit' ? initScheduleCodeMirror : null
         );
+      }
+    }
+
+    if (state.currentPage === 'logs') {
+      const logPagChanged = JSON.stringify(state.logPagination) !== lastLogPaginationJson;
+      const logsChanged = state.logs.length !== lastLogsLength;
+      const logLevelChanged = state.logLevel !== lastLogLevel;
+
+      if (logsChanged || logLevelChanged || logPagChanged) {
+        lastLogPaginationJson = JSON.stringify(state.logPagination);
+        lastLogsLength = state.logs.length;
+        lastLogLevel = state.logLevel;
+        render();
       }
     }
   }

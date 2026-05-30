@@ -884,6 +884,22 @@ ul, ol {
   color: var(--text-primary);
 }
 
+/* Sidebar Overlay (mobile) */
+.sidebar-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 99;
+  opacity: 0;
+  visibility: hidden;
+  transition: all var(--duration-normal);
+}
+
+.sidebar-overlay.open {
+  opacity: 1;
+  visibility: visible;
+}
+
 /* Drawer */
 .drawer-overlay {
   position: fixed;
@@ -961,8 +977,8 @@ ul, ol {
 }
 
 .mobile-nav-items {
-  display: flex;
-  justify-content: space-around;
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   align-items: center;
   height: 100%;
 }
@@ -976,7 +992,8 @@ ul, ol {
   padding: var(--space-2);
   color: var(--text-secondary);
   font-size: var(--text-xs);
-  min-width: 64px;
+  min-width: 0;
+  text-align: center;
 }
 
 .mobile-nav-item .icon {
@@ -1499,8 +1516,6 @@ ul, ol {
 }
 
 .log-container {
-  max-height: 500px;
-  overflow-y: auto;
   font-size: 12px;
   line-height: 1.7;
   background: #0d1117;
