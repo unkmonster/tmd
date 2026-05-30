@@ -309,6 +309,34 @@ func TestStopStartDoesNotTriggerRunOnStart(t *testing.T) {
 	sc.Stop()
 }
 
+func TestStopIsIdempotent(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "schedules.yaml")
+	if err := os.WriteFile(configPath, []byte(`schedules:
+  - type: user
+    target: alice
+    name: Alice
+    schedule: "interval:1h"
+    enabled: true
+`), 0600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	sc, err := New(configPath, func(entry ScheduleEntry) string {
+		return "task-1"
+	})
+	if err != nil {
+		t.Fatalf("new scheduler: %v", err)
+	}
+
+	sc.Stop()
+	sc.Stop()
+
+	if sc.IsRunning() {
+		t.Fatal("expected scheduler to remain stopped after duplicate Stop")
+	}
+}
+
 func TestIntervalDefaultDelaysFirstRun(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "schedules.yaml")
@@ -437,6 +465,50 @@ func TestStatusChangeCallbackCanQuerySchedulerState(t *testing.T) {
 	case <-callbackDone:
 	case <-time.After(time.Second):
 		t.Fatal("status change callback was not called")
+	}
+}
+
+func TestReloadRecoversAfterConfigError(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "schedules.yaml")
+	if err := os.WriteFile(configPath, []byte(`schedules:
+  - type: user
+    target: alice
+    name: Alice
+    schedule: "interval:1h"
+    enabled: true
+`), 0600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	sc, err := New(configPath, func(entry ScheduleEntry) string {
+		return "task-1"
+	})
+	if err != nil {
+		t.Fatalf("new scheduler: %v", err)
+	}
+	t.Cleanup(sc.Stop)
+
+	sc.Start()
+	if !sc.IsRunning() {
+		t.Fatal("expected scheduler to be running after Start")
+	}
+
+	if err := os.WriteFile(configPath, []byte("schedules:\n  - type: ["), 0600); err != nil {
+		t.Fatalf("write invalid config: %v", err)
+	}
+
+	if err := sc.Reload(); err == nil {
+		t.Fatal("expected Reload to return error for invalid config")
+	}
+
+	if !sc.IsRunning() {
+		t.Fatal("expected scheduler to recover and remain running after config error")
+	}
+
+	statuses := sc.GetStatuses()
+	if len(statuses) != 1 {
+		t.Fatalf("expected existing statuses to be preserved after reload failure, got %d", len(statuses))
 	}
 }
 

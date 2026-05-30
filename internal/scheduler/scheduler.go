@@ -114,19 +114,10 @@ func (sc *Scheduler) Start() {
 	sc.lifecycleMu.Lock()
 	defer sc.lifecycleMu.Unlock()
 
-	sc.mu.Lock()
-	if !sc.hasEverStarted {
-		sc.firstStart = true
-		sc.hasEverStarted = true
-	}
-	if sc.started {
-		sc.mu.Unlock()
+	activeCount, started := sc.startLocked(true)
+	if !started {
 		return
 	}
-	log.Debugln("[scheduler] Start: initializing context and launching goroutines")
-	activeCount := sc.launchGoroutinesLocked()
-	sc.mu.Unlock()
-
 	log.Infof("[scheduler] Scheduler started with %d active schedules (total: %d)", activeCount, len(sc.entries))
 }
 
@@ -134,13 +125,37 @@ func (sc *Scheduler) Stop() {
 	sc.lifecycleMu.Lock()
 	defer sc.lifecycleMu.Unlock()
 
+	if !sc.stopLocked() {
+		log.Debugln("[scheduler] Stop: already stopped, skipping")
+		return
+	}
+	log.Infoln("[scheduler] Scheduler stopped")
+}
+
+func (sc *Scheduler) startLocked(skipIfRunning bool) (int, bool) {
+	sc.mu.Lock()
+	defer sc.mu.Unlock()
+
+	if !sc.hasEverStarted {
+		sc.firstStart = true
+		sc.hasEverStarted = true
+	}
+	if sc.started && skipIfRunning {
+		return 0, false
+	}
+
+	log.Debugln("[scheduler] Start: initializing context and launching goroutines")
+	return sc.launchGoroutinesLocked(), true
+}
+
+func (sc *Scheduler) stopLocked() bool {
 	log.Debugln("[scheduler] Stop: acquiring mu...")
 	sc.mu.Lock()
 	if !sc.started {
 		sc.mu.Unlock()
-		log.Debugln("[scheduler] Stop: already stopped, skipping")
-		return
+		return false
 	}
+
 	log.Debugln("[scheduler] Stop: cancelling context and waiting for goroutines")
 	if sc.cancel != nil {
 		sc.cancel()
@@ -152,7 +167,7 @@ func (sc *Scheduler) Stop() {
 	sc.mu.Unlock()
 
 	sc.wg.Wait()
-	log.Infoln("[scheduler] Scheduler stopped")
+	return true
 }
 
 func (sc *Scheduler) launchGoroutinesLocked() int {
@@ -205,92 +220,37 @@ func (sc *Scheduler) Reload() error {
 	wasStarted := sc.isRunningLockedLifecycle()
 	log.Debugf("[scheduler] Reload: wasStarted=%v, stopping scheduler", wasStarted)
 
-	if wasStarted {
-		sc.mu.Lock()
-		if !sc.started {
-			sc.mu.Unlock()
-		} else {
-			if sc.cancel != nil {
-				sc.cancel()
-			}
-			sc.started = false
-			sc.firstStart = false
-			sc.cancel = nil
-			sc.ctx = nil
-			sc.mu.Unlock()
-			sc.wg.Wait()
-			log.Infoln("[scheduler] Scheduler stopped (for reload)")
-		}
+	if wasStarted && sc.stopLocked() {
+		log.Infoln("[scheduler] Scheduler stopped (for reload)")
 	}
 
 	entries, parsed, statuses, err := sc.readConfig()
 	if err != nil {
 		log.Warnf("[scheduler] Reload: readConfig failed (wasStarted=%v): %v", wasStarted, err)
-		var statusesCopy []ScheduleStatus
 		if wasStarted {
-			sc.mu.Lock()
-			if !sc.hasEverStarted {
-				sc.firstStart = true
-				sc.hasEverStarted = true
-			}
 			log.Debugln("[scheduler] Reload: recovering start after readConfig failure")
-			activeCount := sc.launchGoroutinesLocked()
-			sc.mu.Unlock()
+			activeCount, _ := sc.startLocked(false)
 			log.Infof("[scheduler] Scheduler recovered with %d active schedules", activeCount)
 		}
-		if sc.OnStatusChange != nil {
-			sc.mu.Lock()
-			statusesCopy = make([]ScheduleStatus, len(sc.statuses))
-			copy(statusesCopy, sc.statuses)
-			sc.mu.Unlock()
-		}
+		callback, statusesCopy := sc.statusChangeSnapshot()
 		sc.lifecycleMu.Unlock()
-		if sc.OnStatusChange != nil {
-			sc.OnStatusChange(statusesCopy)
-		}
+		notifyStatusChange(callback, statusesCopy)
 		return err
 	}
 
-	log.Debugf("[scheduler] Reload: swapping %d entries into scheduler (generation++)", len(entries))
-	sc.mu.Lock()
-	sc.entries = entries
-	sc.parsed = parsed
-	sc.statuses = statuses
-	sc.generation++
-	sc.mu.Unlock()
+	sc.applyConfig(entries, parsed, statuses)
 
 	if wasStarted {
 		log.Debugln("[scheduler] Restarting scheduler after reload")
-		sc.mu.Lock()
-		if !sc.hasEverStarted {
-			sc.firstStart = true
-			sc.hasEverStarted = true
-		}
 		log.Debugln("[scheduler] Reload: starting fresh goroutines")
-		activeCount := sc.launchGoroutinesLocked()
-		sc.mu.Unlock()
+		activeCount, _ := sc.startLocked(false)
 		log.Infof("[scheduler] Scheduler restarted with %d active schedules", activeCount)
 	}
 
-	if sc.OnStatusChange != nil {
-		var statusesCopy []ScheduleStatus
-		sc.mu.Lock()
-		statusesCopy = make([]ScheduleStatus, len(sc.statuses))
-		copy(statusesCopy, sc.statuses)
-		sc.mu.Unlock()
-		sc.lifecycleMu.Unlock()
-		sc.OnStatusChange(statusesCopy)
-	} else {
-		sc.lifecycleMu.Unlock()
-	}
-
-	activeCount := 0
-	for _, e := range entries {
-		if e.Enabled {
-			activeCount++
-		}
-	}
-	log.Infof("[scheduler] Config reloaded: %d schedules (%d active)", len(entries), activeCount)
+	callback, statusesCopy := sc.statusChangeSnapshot()
+	sc.lifecycleMu.Unlock()
+	notifyStatusChange(callback, statusesCopy)
+	logReloadSummary(entries)
 	return nil
 }
 
@@ -554,13 +514,10 @@ func (sc *Scheduler) updateStatus(idx int, entry ScheduleEntry, update func(*Sch
 		return false
 	}
 	update(&sc.statuses[idx])
-	statuses := make([]ScheduleStatus, len(sc.statuses))
-	copy(statuses, sc.statuses)
+	callback, statuses := sc.statusChangeSnapshotLocked()
 	sc.mu.Unlock()
 
-	if sc.OnStatusChange != nil {
-		sc.OnStatusChange(statuses)
-	}
+	notifyStatusChange(callback, statuses)
 	return true
 }
 
@@ -602,18 +559,54 @@ func (sc *Scheduler) releaseAndUpdateStatus(idx int, entry ScheduleEntry, gen in
 	update(&sc.statuses[idx])
 	sc.statuses[idx].Triggering = false
 
-	callback := sc.OnStatusChange
-	var statuses []ScheduleStatus
-	if callback != nil {
-		statuses = make([]ScheduleStatus, len(sc.statuses))
-		copy(statuses, sc.statuses)
-	}
+	callback, statuses := sc.statusChangeSnapshotLocked()
 	sc.mu.Unlock()
 
+	notifyStatusChange(callback, statuses)
+	return true
+}
+
+func (sc *Scheduler) applyConfig(entries []ScheduleEntry, parsed []*ParsedSchedule, statuses []ScheduleStatus) {
+	log.Debugf("[scheduler] Reload: swapping %d entries into scheduler (generation++)", len(entries))
+	sc.mu.Lock()
+	sc.entries = entries
+	sc.parsed = parsed
+	sc.statuses = statuses
+	sc.generation++
+	sc.mu.Unlock()
+}
+
+func (sc *Scheduler) statusChangeSnapshot() (ScheduleStatusChangeFunc, []ScheduleStatus) {
+	sc.mu.Lock()
+	defer sc.mu.Unlock()
+	return sc.statusChangeSnapshotLocked()
+}
+
+func (sc *Scheduler) statusChangeSnapshotLocked() (ScheduleStatusChangeFunc, []ScheduleStatus) {
+	callback := sc.OnStatusChange
+	if callback == nil {
+		return nil, nil
+	}
+
+	statuses := make([]ScheduleStatus, len(sc.statuses))
+	copy(statuses, sc.statuses)
+	return callback, statuses
+}
+
+func notifyStatusChange(callback ScheduleStatusChangeFunc, statuses []ScheduleStatus) {
 	if callback != nil {
 		callback(statuses)
 	}
-	return true
+}
+
+func logReloadSummary(entries []ScheduleEntry) {
+	activeCount := 0
+	for _, entry := range entries {
+		if entry.Enabled {
+			activeCount++
+		}
+	}
+	log.Infof("[scheduler] Config reloaded: %d schedules (%d active)", len(entries), activeCount)
 }
 
 func nextDailyTrigger(times []time.Time) time.Time {
