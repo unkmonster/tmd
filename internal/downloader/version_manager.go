@@ -47,17 +47,18 @@ func (vm *DefaultVersionManager) CreateVersion(sourcePath string) (string, error
 	}
 
 	versionsDir := filepath.Join(dir, vm.versionsDirName)
+
+	data, err := os.ReadFile(sourcePath)
+	if err != nil {
+		return "", err
+	}
+
 	if err := os.MkdirAll(versionsDir, 0755); err != nil {
 		return "", err
 	}
 
 	timestamp := time.Now().Format("20060102_150405") + fmt.Sprintf("_%d", time.Now().Nanosecond()%1000)
 	versionPath := filepath.Join(versionsDir, fmt.Sprintf("%s_%s%s", stem, timestamp, ext))
-
-	data, err := os.ReadFile(sourcePath)
-	if err != nil {
-		return "", err
-	}
 
 	if vm.fileWriter != nil {
 		_, err = vm.fileWriter.Write(WriteRequest{Path: versionPath, Data: data})

@@ -7,6 +7,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ***
 
+## [v3.4.18] - 2026-05-30
+
+### Changed
+
+#### CI/CD：Docker 构建修复 - 版本号注入
+- `.github/workflows/docker.yml` - 新增 2 行：
+  - `build-push-action` 新增 `build-args: VERSION=${{ github.ref_name }}`，将 git tag（如 `v3.4.18`）作为 `VERSION` ARG 传入 Dockerfile
+  - 修复此前所有 Docker 镜像版本号始终显示 `dev` 的问题，现在 `tmd -version` 正确输出实际版本号
+
+#### Web UI：全高度弹性布局重构
+- `internal/api/web/app.js` - 修改 86 行：
+  - **概览页**：新增 `.overview-container` 外层容器，使用 `flex-col + full-height`；"快速下载"卡设为 `flex-shrink:0`，"最近任务"卡使用 `flex:1` 占满剩余空间，空状态列表 `overflow-y:auto` 独立滚动
+  - **任务页**：`.tasks-layout` 两侧卡片均使用 `flex:1; display:flex; flex-direction:column; overflow:hidden` 撑满父容器，"创建新任务"卡 `card-body` 使用 `flex:1; overflow-y:auto` 独立滚动；`.toolbar` 设为 `flex-shrink:0` 防止被压缩；任务列表/空状态 `flex:1; overflow-y:auto`
+  - **数据页**：卡片整体 `height:calc(100vh - ...)`，`card-header` 和 `pagination` 设为 `flex-shrink:0`，`card-body` 使用 `flex:1; overflow:hidden; flex-column`
+  - **日志页**：卡片同数据页布局，`log-container` 通过 CSS `flex:1; overflow-y:auto` 独立滚动而不依赖 JS 固定高度
+  - **定时任务页**：卡片使用全高度 flex，`card-header` `flex-shrink:0`，`card-body` 内新增 `.schedule-list` 包裹任务项列表做独立滚动
+  - **定时任务滚动位置保持**：`render()` 在重渲染前记录 `.schedule-list` 的 `scrollTop`，渲染后通过 `requestAnimationFrame` 恢复，避免 SSE 推送/状态变更导致的页面跳动
+  - 移除 `.tasks-layout` 内部旧的 card flex 样式（已改为行内 style 统一管理）
+
+- `internal/api/web/styles.css` - 修改 48 行：
+  - `content-wrapper` 新增 `overflow: hidden`，阻止外层出现双滚动条
+  - 新增 `.overview-container`：flex-column 全高度布局（使概览页所有卡片撑满视口）
+  - 新增 `.overview-tasks-list`：`flex:1; overflow-y:auto` 概览页任务列表独立滚动
+  - `.table-scroll-container` 新增 `flex:1; overflow-y:auto` 内置滚动
+  - `.task-list` / `.empty-state` 新增 `flex:1; overflow-y:auto` 撑满父容器并独立滚动
+  - `.tasks-layout` 改用 `height: calc(100vh - ...)` 固定高度而非靠内部撑开
+  - `.log-container` 新增 `flex:1; overflow-y:auto` 替代旧的 JS `max-height` 控制
+  - 新增 `.schedule-list`：`flex:1; overflow-y:auto` 定时任务列表独立滚动区
+
+#### 文件版本管理器修复
+- `internal/downloader/version_manager.go` - 修改 11 行：
+  - `CreateVersion()` 中将 `os.ReadFile(sourcePath)` 提前到 `os.MkdirAll()` 之前执行
+  - 逻辑意义：源文件不存在时直接报错返回，避免先创建空目录再失败，目录不会被残留
+
+#### README 文档清理
+- `readme.md` - 删除 64 行：
+  - 移除"场景 4：数据库锁定错误"（不再常见的问题）
+  - 移除"场景 6：Profile 下载跳过所有用户"（此为正常行为无需单独说明）
+  - 移除"获取帮助"章节（含指向旧 repo `unkmonster/tmd` 的 Issues/Discussions 链接）
+  - 场景编号重新编排：5 → 4
+
+### Stats
+
+- **5 个文件变更**
+- **+92 行 / -119 行**
+
+***
+
 ## [v3.4.17] - 2026-05-30
 
 ### Changed

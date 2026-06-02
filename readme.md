@@ -1888,26 +1888,7 @@ tmd -user elonmusk -dbg
 
 ---
 
-#### 场景 4：数据库锁定错误
-
-**症状：**
-```
-[ERROR] database is locked
-```
-
-**原因：**
-- 另一个 TMD 实例正在运行
-- 上次程序异常退出未正确关闭数据库
-
-**解决方案：**
-1. 检查是否有其他 TMD 进程：`tasklist | findstr tmd`
-2. 结束残留进程：`taskkill /f /im tmd.exe`
-3. 删除数据库锁文件：`.data/foo.db-journal`（如果存在）
-4. 重启程序
-
----
-
-#### 场景 5：大文件下载失败
+#### 场景 4：大文件下载失败
 
 **症状：**
 ```
@@ -1922,46 +1903,3 @@ tmd -user elonmusk -dbg
 2. 降低并发数减少带宽竞争
 3. 检查磁盘空间是否充足
 4. 使用 `-no-retry` 快速定位问题文件
-
----
-
-#### 场景 6：Profile 下载跳过所有用户
-
-**症状：**
-```
-=== PROFILE_DOWNLOAD_RESULTS ===
-SCREEN_NAME:user1|STATUS:SKIP
-SCREEN_NAME:user2|STATUS:SKIP
-```
-
-**原因：** Profile 文件未变更（MD5 校验通过）
-
-**这是正常行为！** 如果需要强制重新下载：
-1. 手动删除 `.loongtweet/.profile/` 目录
-2. 或删除特定用户的 profile 文件
-3. 重新运行命令
-
----
-
-### 获取帮助
-
-如果以上方法仍无法解决问题：
-
-1. **查看详细日志**：启用 `-dbg` 模式并保存输出
-   ```bash
-   tmd -user test_user -dbg > debug_log.txt 2>&1
-   ```
-
-2. **收集环境信息**：
-   - 操作系统和版本
-   - TMD 版本号（启动 Server 后访问 `/api/v1/health`）
-   - Go 版本（如从源码编译）：`go version`
-   - 错误复现步骤
-
-3. **提交 Issue**：前往 [GitHub Issues](https://github.com/unkmonster/tmd/issues) 提交
-   - 标题：简洁描述问题
-   - 内容：包含环境信息、复现步骤、完整日志（**脱敏后**）
-   - 标签：选择合适的标签（bug / question / enhancement）
-
-4. **社区支持**：查看 [已有 Issues](https://github.com/unkmonster/tmd/issues) 或 [Discussions](https://github.com/unkmonster/tmd/discussions)
-

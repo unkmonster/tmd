@@ -541,6 +541,7 @@ const pages = {
     const recentTasks = tasks.slice(0, 5);
     
     return `
+      <div class="overview-container">
       <div class="stats-grid">
         <div class="stat-card">
           <div class="stat-icon" style="color: var(--success);">●</div>
@@ -564,9 +565,9 @@ const pages = {
           </div>
         </div>
       </div>
-      
-      <div class="card" style="margin-bottom: var(--space-6);">
-        <div class="card-header">
+
+      <div class="card" style="margin-bottom: var(--space-6); flex-shrink: 0">
+        <div class="card-header" style="flex-shrink:0">
           <div>
             <div class="card-title">⚡ 快速下载</div>
             <div class="card-subtitle">输入 Twitter 用户名或链接快速创建下载任务</div>
@@ -574,8 +575,8 @@ const pages = {
         </div>
         <div class="card-body">
           <div class="flex gap-3" style="flex-wrap: wrap;">
-            <input type="text" class="form-input" id="quickDownloadInput" 
-              placeholder="输入用户名，如: elonmusk 或 https://twitter.com/elonmusk" 
+            <input type="text" class="form-input" id="quickDownloadInput"
+              placeholder="输入用户名，如: elonmusk 或 https://twitter.com/elonmusk"
               style="flex: 1; min-width: 280px;">
             <button class="btn btn-primary" onclick="handleQuickDownload()">粘贴并创建任务</button>
           </div>
@@ -584,13 +585,13 @@ const pages = {
           </div>
         </div>
       </div>
-      
-      <div class="card">
-        <div class="card-header">
+
+      <div class="card" style="flex:1;display:flex;flex-direction:column;overflow:hidden">
+        <div class="card-header" style="flex-shrink:0">
           <div class="card-title">最近任务</div>
           <button class="btn btn-ghost btn-sm" onclick="navigateTo('tasks')">查看全部 →</button>
         </div>
-        <div class="card-body" style="padding: 0;">
+        <div class="card-body" style="padding:0;flex:1;overflow:hidden;display:flex;flex-direction:column">
           ${recentTasks.length === 0 ? `
             <div class="empty-state overview-tasks-list">
               <div class="empty-icon">📋</div>
@@ -604,6 +605,7 @@ const pages = {
           `}
         </div>
       </div>
+      </div>
     `;
   },
   
@@ -614,11 +616,11 @@ const pages = {
     return `
       <div class="tasks-layout">
         <div>
-          <div class="card" style="position: sticky; top: calc(var(--header-height) + var(--space-6));">
-            <div class="card-header">
+          <div class="card" style="flex:1;display:flex;flex-direction:column;overflow:hidden">
+            <div class="card-header" style="flex-shrink:0">
               <div class="card-title">创建新任务</div>
             </div>
-            <div class="card-body">
+            <div class="card-body" style="flex:1;overflow-y:auto">
               <div class="tabs">
                 <div class="tab active" data-task-tab="user">用户</div>
                 <div class="tab" data-task-tab="list">列表</div>
@@ -628,23 +630,23 @@ const pages = {
                 <div class="tab" data-task-tab="jsonfolder"><span>JSON</span><span>文件夹</span></div>
                 <div class="tab" data-task-tab="mark">标记</div>
               </div>
-              
+
               <div id="taskFormContainer">
                 ${renderTaskForm('user')}
               </div>
             </div>
           </div>
         </div>
-        
+
         <div>
-          <div class="card">
-            <div class="card-header">
+          <div class="card" style="flex:1;display:flex;flex-direction:column;overflow:hidden">
+            <div class="card-header" style="flex-shrink:0">
               <div>
                 <div class="card-title">任务列表</div>
                 <div class="card-subtitle" data-task-count-subtitle>共 ${tasks.length} 个任务</div>
               </div>
             </div>
-            <div class="toolbar">
+            <div class="toolbar" style="flex-shrink:0">
               <div class="toolbar-left">
                 <select class="form-select" style="width: 100px;" id="taskFilter" onchange="updateSearchState('taskFilter',null,this.value);filterTasks()">
                   <option value="all">全部状态</option>
@@ -656,7 +658,7 @@ const pages = {
                 <input type="text" class="form-input search-input" id="taskSearch" placeholder="搜索任务..." oninput="updateSearchState('taskSearch',null,this.value);filterTasks()">
               </div>
             </div>
-            <div class="card-body" style="padding: 0;">
+            <div class="card-body" style="padding:0;flex:1;overflow:hidden;display:flex;flex-direction:column">
               <div class="${tasks.length === 0 ? 'empty-state' : 'task-list'}" id="taskListContainer">
                 ${tasks.length === 0 ? `
                   <div class="empty-icon">🚀</div>
@@ -690,8 +692,8 @@ const pages = {
     const sort = dbSort[dataSubPage] || { sortBy: 'id', sortOrder: 'desc' };
     
     return `
-      <div class="card">
-        <div class="card-header">
+      <div class="card" style="display:flex;flex-direction:column;height:calc(100vh - var(--header-height) - var(--space-6) * 2)">
+        <div class="card-header" style="flex-shrink:0">
           <div>
             <div class="tabs" style="margin: 0; border: none;">
               <div class="tab ${dataSubPage === 'users' ? 'active' : ''}" onclick="setDataSubPage('users')">Users</div>
@@ -702,20 +704,20 @@ const pages = {
             </div>
           </div>
           <div class="flex gap-2 items-center">
-            <input type="text" class="form-input search-input" id="dbSearchInput" 
+            <input type="text" class="form-input search-input" id="dbSearchInput"
               placeholder="搜索..." oninput="updateSearchState('dbSearch',store.state.dataSubPage,this.value)">
             <button class="btn btn-ghost btn-icon" onclick="searchDB()">🔍</button>
           </div>
         </div>
-        
-        <div class="card-body" style="padding: 0;">
+
+        <div class="card-body" style="padding:0;flex:1;overflow:hidden;display:flex;flex-direction:column">
           <div class="table-scroll-container">
             ${renderDBTable(dataSubPage, current.data, sort)}
           </div>
           ${renderDBMobileCards(dataSubPage, current.data)}
         </div>
-        
-        <div class="pagination">
+
+        <div class="pagination" style="flex-shrink:0">
           <div class="pagination-info">
             显示 ${current.data.length} / ${current.count} 条记录 
             (第 ${pagination.page} / ${pagination.totalPages} 页)
@@ -2235,8 +2237,8 @@ function renderLogViewer() {
   }
 
   return `
-    <div class="card">
-      <div class="card-header">
+    <div class="card" style="display:flex;flex-direction:column;height:calc(100vh - var(--header-height) - var(--space-6) * 2)">
+      <div class="card-header" style="flex-shrink:0">
         <div><div class="card-title">系统日志</div><div class="card-subtitle">共 ${logPagination.total} 条记录</div></div>
         <div class="flex gap-2 items-center flex-wrap">
           <input type="text" class="form-input search-input" id="logSearchInput"
@@ -2248,12 +2250,12 @@ function renderLogViewer() {
           <button class="btn btn-ghost btn-sm ${logAutoRefresh?'active':''}" onclick="toggleLogAutoRefresh()">${logAutoRefresh?'⏸️':'▶️'} 实时</button>
         </div>
       </div>
-      <div class="card-body" style="padding:0;">
+      <div class="card-body" style="padding:0;flex:1;overflow:hidden;display:flex;flex-direction:column">
         <div class="log-container" id="logContainer">
           ${logs.length === 0 ? `<div class="empty-state"><div class="empty-icon">📋</div><div class="empty-title">暂无日志</div><div class="empty-desc">选择日志级别或调整筛选条件</div></div>` : logs.map(renderLine).join('')}
         </div>
       </div>
-      <div class="pagination">
+      <div class="pagination" style="flex-shrink:0">
         <div class="pagination-info">显示 ${logs.length} / ${logPagination.total} 条 (第 ${logPagination.page}/${logPagination.totalPages} 页)</div>
         <div class="pagination-controls">
           <button class="page-btn" onclick="changeLogPage(-1)" ${logPagination.page <= 1 ? 'disabled' : ''}>←</button>
@@ -2558,15 +2560,17 @@ function renderScheduleTable(schedules, exists) {
   };
 
   return `
-    <div class="card">
-      <div class="card-header">
+    <div class="card" style="display:flex;flex-direction:column;height:calc(100vh - var(--header-height) - var(--space-6) * 2)">
+      <div class="card-header" style="flex-shrink:0">
         <div><div class="card-title">定时下载任务</div><div class="card-subtitle">共 ${total} 条规则 · ${active} 个启用</div></div>
         <div class="flex gap-2">
           <button class="btn btn-ghost btn-sm" onclick="navigateToSystemSchedules()">📝 编辑任务</button>
         </div>
       </div>
-      <div class="card-body" style="padding:0">
-        ${schedules.map(renderScheduleItem).join('')}
+      <div class="card-body" style="padding:0;flex:1;overflow:hidden;display:flex;flex-direction:column">
+        <div class="schedule-list">
+          ${schedules.map(renderScheduleItem).join('')}
+        </div>
       </div>
     </div>
   `;
@@ -3644,9 +3648,23 @@ function setDataSubPage(subPage) {
 function render() {
   const container = document.getElementById('contentContainer');
   const page = store.state.currentPage;
-  
+
   if (pages[page]) {
+    let scrollPos = 0;
+    let scrollEl = null;
+    if (page === 'schedules') {
+      scrollEl = container.querySelector('.schedule-list') || container;
+      scrollPos = scrollEl.scrollTop;
+    }
+
     container.innerHTML = pages[page]();
+
+    if (page === 'schedules' && scrollEl) {
+      requestAnimationFrame(() => {
+        const target = container.querySelector('.schedule-list') || container;
+        if (target) target.scrollTop = scrollPos;
+      });
+    }
     if (page === 'system') {
       syncSystemTabView();
     } else if (page === 'logs') {
