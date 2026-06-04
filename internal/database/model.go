@@ -43,6 +43,17 @@ type UserPreviousName struct {
 	RecordDate time.Time `db:"record_date" json:"record_date"`
 }
 
+// UserPreviousNameWithCurrent 用户历史名称（含当前用户信息）
+type UserPreviousNameWithCurrent struct {
+	Id                int32     `db:"id"`
+	UserId            uint64    `db:"user_id"`
+	ScreenName        string    `db:"screen_name"`
+	Name              string    `db:"name"`
+	RecordDate        time.Time `db:"record_date"`
+	CurrentScreenName string    `db:"current_screen_name"`
+	CurrentName       string    `db:"current_name"`
+}
+
 type Lst struct {
 	Id           uint64 `db:"id"`
 	Name         string `db:"name"`

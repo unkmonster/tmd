@@ -68,6 +68,16 @@ func (m *MockDownloadService) MarkDownloaded(ctx context.Context, taskID string,
 	return args.Error(0)
 }
 
+func (m *MockDownloadService) RetryAllFailed(ctx context.Context, taskID string, reporter service.ProgressReporter) error {
+	args := m.Called(ctx, taskID, reporter)
+	return args.Error(0)
+}
+
+func (m *MockDownloadService) ClearErrors() error {
+	args := m.Called()
+	return args.Error(0)
+}
+
 // ==================== Execute 测试 ====================
 
 func TestExecute_ParseArgsError(t *testing.T) {

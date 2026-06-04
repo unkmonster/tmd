@@ -17,6 +17,8 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
+	"github.com/unkmonster/tmd/internal/downloading"
+	"github.com/unkmonster/tmd/internal/path"
 	"github.com/unkmonster/tmd/internal/scheduler"
 	"github.com/unkmonster/tmd/internal/service"
 	"github.com/unkmonster/tmd/internal/utils"
@@ -30,6 +32,7 @@ const (
 
 func (s *Server) enqueueTask(task *Task, run func(ctx context.Context, taskID string, reporter service.ProgressReporter) error) {
 	if s.downloadQueue == nil {
+		s.taskManager.SetTaskError(task.ID, errors.New("download queue not available"))
 		return
 	}
 	s.downloadQueue.Enqueue(task, run)
@@ -106,16 +109,12 @@ func (s *Server) handleUserDownload(w http.ResponseWriter, r *http.Request, scre
 	taskID := task.ID
 	status := task.Status
 
-	opts := service.DownloadOptions{
-		AutoFollow:    req.AutoFollow,
-		FollowMembers: req.FollowMembers,
-		SkipProfile:   req.SkipProfile,
-		NoRetry:       req.NoRetry,
+	runFunc, err := s.buildTaskRunFunc(task)
+	if err != nil {
+		s.writeError(w, http.StatusInternalServerError, err.Error())
+		return
 	}
-
-	s.enqueueTask(task, func(ctx context.Context, taskID string, reporter service.ProgressReporter) error {
-		return s.downloadService.UserDownload(ctx, taskID, screenName, opts, reporter)
-	})
+	s.enqueueTask(task, runFunc)
 
 	s.writeJSON(w, http.StatusAccepted, NewSuccessResponse(map[string]interface{}{
 		"message":        "Download task queued successfully",
@@ -136,9 +135,12 @@ func (s *Server) handleUserProfile(w http.ResponseWriter, _ *http.Request, scree
 	taskID := task.ID
 	status := task.Status
 
-	s.enqueueTask(task, func(ctx context.Context, taskID string, reporter service.ProgressReporter) error {
-		return s.downloadService.ProfileDownload(ctx, taskID, []string{screenName}, reporter)
-	})
+	runFunc, err := s.buildTaskRunFunc(task)
+	if err != nil {
+		s.writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	s.enqueueTask(task, runFunc)
 
 	s.writeJSON(w, http.StatusAccepted, NewSuccessResponse(map[string]interface{}{
 		"message":     "Profile download task queued",
@@ -160,11 +162,12 @@ func (s *Server) handleUserMark(w http.ResponseWriter, r *http.Request, screenNa
 	taskID := task.ID
 	status := task.Status
 
-	markTime := formatTaskMarkTime(req.Timestamp)
-
-	s.enqueueTask(task, func(ctx context.Context, taskID string, reporter service.ProgressReporter) error {
-		return s.downloadService.MarkDownloaded(ctx, taskID, []string{screenName}, nil, nil, markTime, reporter)
-	})
+	runFunc, err := s.buildTaskRunFunc(task)
+	if err != nil {
+		s.writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	s.enqueueTask(task, runFunc)
 
 	s.writeJSON(w, http.StatusAccepted, NewSuccessResponse(map[string]interface{}{
 		"message":     "Mark downloaded task queued",
@@ -187,11 +190,12 @@ func (s *Server) handleListMark(w http.ResponseWriter, r *http.Request, listID u
 	taskID := task.ID
 	status := task.Status
 
-	markTime := formatTaskMarkTime(req.Timestamp)
-
-	s.enqueueTask(task, func(ctx context.Context, taskID string, reporter service.ProgressReporter) error {
-		return s.downloadService.MarkDownloaded(ctx, taskID, nil, []uint64{listID}, nil, markTime, reporter)
-	})
+	runFunc, err := s.buildTaskRunFunc(task)
+	if err != nil {
+		s.writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	s.enqueueTask(task, runFunc)
 
 	s.writeJSON(w, http.StatusAccepted, NewSuccessResponse(map[string]interface{}{
 		"message":   "Mark list downloaded task queued",
@@ -214,11 +218,12 @@ func (s *Server) handleFollowingMark(w http.ResponseWriter, r *http.Request, scr
 	taskID := task.ID
 	status := task.Status
 
-	markTime := formatTaskMarkTime(req.Timestamp)
-
-	s.enqueueTask(task, func(ctx context.Context, taskID string, reporter service.ProgressReporter) error {
-		return s.downloadService.MarkDownloaded(ctx, taskID, nil, nil, []string{screenName}, markTime, reporter)
-	})
+	runFunc, err := s.buildTaskRunFunc(task)
+	if err != nil {
+		s.writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	s.enqueueTask(task, runFunc)
 
 	s.writeJSON(w, http.StatusAccepted, NewSuccessResponse(map[string]interface{}{
 		"message":     "Mark following downloaded task queued",
@@ -241,16 +246,12 @@ func (s *Server) handleFollowingDownload(w http.ResponseWriter, r *http.Request,
 	taskID := task.ID
 	status := task.Status
 
-	opts := service.DownloadOptions{
-		AutoFollow:    req.AutoFollow,
-		FollowMembers: req.FollowMembers,
-		SkipProfile:   req.SkipProfile,
-		NoRetry:       req.NoRetry,
+	runFunc, err := s.buildTaskRunFunc(task)
+	if err != nil {
+		s.writeError(w, http.StatusInternalServerError, err.Error())
+		return
 	}
-
-	s.enqueueTask(task, func(ctx context.Context, taskID string, reporter service.ProgressReporter) error {
-		return s.downloadService.FollowingDownload(ctx, taskID, screenName, opts, reporter)
-	})
+	s.enqueueTask(task, runFunc)
 
 	s.writeJSON(w, http.StatusAccepted, NewSuccessResponse(map[string]interface{}{
 		"message":        "Following download task queued successfully",
@@ -316,16 +317,12 @@ func (s *Server) handleListDownload(w http.ResponseWriter, r *http.Request, list
 	taskID := task.ID
 	status := task.Status
 
-	opts := service.DownloadOptions{
-		AutoFollow:    req.AutoFollow,
-		FollowMembers: req.FollowMembers,
-		SkipProfile:   req.SkipProfile,
-		NoRetry:       req.NoRetry,
+	runFunc, err := s.buildTaskRunFunc(task)
+	if err != nil {
+		s.writeError(w, http.StatusInternalServerError, err.Error())
+		return
 	}
-
-	s.enqueueTask(task, func(ctx context.Context, taskID string, reporter service.ProgressReporter) error {
-		return s.downloadService.ListDownload(ctx, taskID, listID, opts, reporter)
-	})
+	s.enqueueTask(task, runFunc)
 
 	s.writeJSON(w, http.StatusAccepted, NewSuccessResponse(map[string]interface{}{
 		"message":        "List download task queued",
@@ -346,9 +343,12 @@ func (s *Server) handleListProfile(w http.ResponseWriter, _ *http.Request, listI
 	taskID := task.ID
 	status := task.Status
 
-	s.enqueueTask(task, func(ctx context.Context, taskID string, reporter service.ProgressReporter) error {
-		return s.downloadService.ListProfileDownload(ctx, taskID, listID, reporter)
-	})
+	runFunc, err := s.buildTaskRunFunc(task)
+	if err != nil {
+		s.writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	s.enqueueTask(task, runFunc)
 
 	s.writeJSON(w, http.StatusAccepted, NewSuccessResponse(map[string]interface{}{
 		"message": "List profile download task queued",
@@ -378,9 +378,12 @@ func (s *Server) handleJsonFileDownload(w http.ResponseWriter, r *http.Request) 
 	task := s.taskManager.CreateTask(TaskTypeJsonFileDownload, &req)
 	taskID := task.ID
 	status := task.Status
-	s.enqueueTask(task, func(ctx context.Context, taskID string, reporter service.ProgressReporter) error {
-		return s.downloadService.JsonFileDownload(ctx, taskID, req.Paths, req.NoRetry, reporter)
-	})
+	runFunc, err := s.buildTaskRunFunc(task)
+	if err != nil {
+		s.writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	s.enqueueTask(task, runFunc)
 
 	s.writeJSON(w, http.StatusAccepted, NewSuccessResponse(map[string]interface{}{
 		"message":  "JSON file download task queued",
@@ -411,9 +414,12 @@ func (s *Server) handleJsonFolderDownload(w http.ResponseWriter, r *http.Request
 	task := s.taskManager.CreateTask(TaskTypeJsonFolderDownload, &req)
 	taskID := task.ID
 	status := task.Status
-	s.enqueueTask(task, func(ctx context.Context, taskID string, reporter service.ProgressReporter) error {
-		return s.downloadService.JsonFolderDownload(ctx, taskID, req.Paths, req.NoRetry, reporter)
-	})
+	runFunc, err := s.buildTaskRunFunc(task)
+	if err != nil {
+		s.writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	s.enqueueTask(task, runFunc)
 
 	s.writeJSON(w, http.StatusAccepted, NewSuccessResponse(map[string]interface{}{
 		"message":  "JSON folder download task queued",
@@ -437,16 +443,21 @@ func (s *Server) handleJsonFileUpload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	req := JsonFileDownloadTaskData{
-		Paths:   paths,
-		NoRetry: parseMultipartNoRetry(r),
+		Paths:      paths,
+		NoRetry:    parseMultipartNoRetry(r),
+		FromUpload: true,
 	}
 
 	task := s.taskManager.CreateTask(TaskTypeJsonFileDownload, &req)
 	taskID := task.ID
 	status := task.Status
-	s.enqueueTask(task, cleanupUploadDirAfterTask(uploadDir, func(ctx context.Context, taskID string, reporter service.ProgressReporter) error {
-		return s.downloadService.JsonFileDownload(ctx, taskID, req.Paths, req.NoRetry, reporter)
-	}))
+	runFunc, err := s.buildTaskRunFunc(task)
+	if err != nil {
+		_ = os.RemoveAll(uploadDir)
+		s.writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	s.enqueueTask(task, cleanupUploadDirAfterTask(uploadDir, runFunc))
 
 	s.writeJSON(w, http.StatusAccepted, NewSuccessResponse(map[string]interface{}{
 		"message":    "JSON file upload task queued",
@@ -470,16 +481,21 @@ func (s *Server) handleJsonFolderUpload(w http.ResponseWriter, r *http.Request) 
 	}
 
 	req := JsonFolderDownloadTaskData{
-		Paths:   []string{uploadDir},
-		NoRetry: parseMultipartNoRetry(r),
+		Paths:      []string{uploadDir},
+		NoRetry:    parseMultipartNoRetry(r),
+		FromUpload: true,
 	}
 
 	task := s.taskManager.CreateTask(TaskTypeJsonFolderDownload, &req)
 	taskID := task.ID
 	status := task.Status
-	s.enqueueTask(task, cleanupUploadDirAfterTask(uploadDir, func(ctx context.Context, taskID string, reporter service.ProgressReporter) error {
-		return s.downloadService.JsonFolderDownload(ctx, taskID, req.Paths, req.NoRetry, reporter)
-	}))
+	runFunc, err := s.buildTaskRunFunc(task)
+	if err != nil {
+		_ = os.RemoveAll(uploadDir)
+		s.writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	s.enqueueTask(task, cleanupUploadDirAfterTask(uploadDir, runFunc))
 
 	s.writeJSON(w, http.StatusAccepted, NewSuccessResponse(map[string]interface{}{
 		"message":    "LoongTweet upload task queued",
@@ -713,7 +729,7 @@ func (s *Server) handleBatchDownload(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	listIDs, err := validateBatchListIDs(req.Lists)
+	_, err = validateBatchListIDs(req.Lists)
 	if err != nil {
 		s.writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -725,16 +741,12 @@ func (s *Server) handleBatchDownload(w http.ResponseWriter, r *http.Request) {
 	taskID := task.ID
 	status := task.Status
 
-	opts := service.DownloadOptions{
-		AutoFollow:    req.AutoFollow,
-		FollowMembers: req.FollowMembers,
-		SkipProfile:   req.SkipProfile,
-		NoRetry:       req.NoRetry,
+	runFunc, err := s.buildTaskRunFunc(task)
+	if err != nil {
+		s.writeError(w, http.StatusInternalServerError, err.Error())
+		return
 	}
-
-	s.enqueueTask(task, func(ctx context.Context, taskID string, reporter service.ProgressReporter) error {
-		return s.downloadService.BatchDownload(ctx, taskID, req.Users, listIDs, req.FollowingNames, opts, reporter)
-	})
+	s.enqueueTask(task, runFunc)
 
 	s.writeJSON(w, http.StatusAccepted, NewSuccessResponse(map[string]interface{}{
 		"message":         "Batch download task queued",
@@ -753,11 +765,68 @@ func (s *Server) handleBatchDownload(w http.ResponseWriter, r *http.Request) {
 	}))
 }
 
+func (s *Server) handleBatchMark(w http.ResponseWriter, r *http.Request) {
+	var req BatchMarkDownloadedTaskData
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.writeError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	if len(req.Users) == 0 && len(req.Lists) == 0 && len(req.FollowingNames) == 0 {
+		s.writeError(w, http.StatusBadRequest, "At least one of users, lists, or following_names is required")
+		return
+	}
+
+	users, err := normalizeBatchScreenNames(req.Users)
+	if err != nil {
+		s.writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	followingNames, err := normalizeBatchScreenNames(req.FollowingNames)
+	if err != nil {
+		s.writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	_, err = validateBatchListIDs(req.Lists)
+	if err != nil {
+		s.writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	req.Users = users
+	req.FollowingNames = followingNames
+
+	task := s.taskManager.CreateTask(TaskTypeMarkDownloaded, &req)
+	taskID := task.ID
+	status := task.Status
+
+	runFunc, err := s.buildTaskRunFunc(task)
+	if err != nil {
+		s.writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	s.enqueueTask(task, runFunc)
+
+	s.writeJSON(w, http.StatusAccepted, NewSuccessResponse(map[string]interface{}{
+		"message":         "Batch mark downloaded task queued",
+		"task_id":         taskID,
+		"status":          status,
+		"users":           req.Users,
+		"lists":           req.Lists,
+		"following_names": req.FollowingNames,
+		"timestamp":       req.Timestamp,
+	}))
+}
+
 func (s *Server) handleTasks(w http.ResponseWriter, r *http.Request) {
 	tasks := s.taskManager.GetAllTasks()
 	s.writeJSON(w, http.StatusOK, NewSuccessResponse(TaskListResponse{
 		Tasks: tasks,
 	}))
+}
+
+func (s *Server) handleTaskStats(w http.ResponseWriter, r *http.Request) {
+	stats := s.taskManager.GetTaskStats()
+	s.writeJSON(w, http.StatusOK, NewSuccessResponse(stats))
 }
 
 func (s *Server) handleGetTask(w http.ResponseWriter, r *http.Request) {
@@ -777,6 +846,7 @@ func (s *Server) handleCancelTask(w http.ResponseWriter, r *http.Request) {
 
 	switch s.taskManager.CancelTask(taskID) {
 	case CancelTaskResultCancelled:
+		s.downloadQueue.Wakeup()
 		s.writeJSON(w, http.StatusOK, NewSuccessResponse(map[string]interface{}{
 			"message": "Task cancelled",
 		}))
@@ -787,6 +857,269 @@ func (s *Server) handleCancelTask(w http.ResponseWriter, r *http.Request) {
 	default:
 		s.writeError(w, http.StatusInternalServerError, "Failed to cancel task")
 	}
+}
+
+func (s *Server) handleCancelQueuedTasks(w http.ResponseWriter, r *http.Request) {
+	count := s.taskManager.CancelQueuedTasks()
+	if count > 0 {
+		s.downloadQueue.Wakeup()
+	}
+	s.writeJSON(w, http.StatusOK, NewSuccessResponse(map[string]interface{}{
+		"message":         fmt.Sprintf("%d queued task(s) cancelled", count),
+		"cancelled_count": count,
+	}))
+}
+
+func (s *Server) handleDeleteTask(w http.ResponseWriter, r *http.Request) {
+	taskID := r.PathValue("task_id")
+
+	switch s.taskManager.DeleteTask(taskID) {
+	case DeleteTaskResultDeleted:
+		s.writeJSON(w, http.StatusOK, NewSuccessResponse(map[string]interface{}{
+			"message": "Task deleted",
+		}))
+	case DeleteTaskResultNotFound:
+		s.writeError(w, http.StatusNotFound, "Task not found")
+	case DeleteTaskResultNotDeletable:
+		s.writeError(w, http.StatusConflict, "Task cannot be deleted (not in a terminal status)")
+	default:
+		s.writeError(w, http.StatusInternalServerError, "Failed to delete task")
+	}
+}
+
+func (s *Server) handleRetryTask(w http.ResponseWriter, r *http.Request) {
+	taskID := r.PathValue("task_id")
+
+	// 先获取原任务快照用于重建 run 函数
+	original, ok := s.taskManager.GetTask(taskID)
+	if !ok {
+		s.writeError(w, http.StatusNotFound, "Task not found")
+		return
+	}
+
+	if original.Status != TaskStatusFailed && original.Status != TaskStatusCancelled {
+		s.writeError(w, http.StatusConflict, "Task cannot be retried (not in failed or cancelled status)")
+		return
+	}
+
+	// 上传类任务（JsonFile/JsonFolder）的临时文件在任务结束后会被清理，不可重试
+	if d, ok := original.Data.(*JsonFileDownloadTaskData); ok && d.FromUpload {
+		s.writeError(w, http.StatusConflict, "Uploaded JSON task cannot be retried (uploaded files are no longer available)")
+		return
+	}
+	if d, ok := original.Data.(*JsonFolderDownloadTaskData); ok && d.FromUpload {
+		s.writeError(w, http.StatusConflict, "Uploaded LoongTweet task cannot be retried (uploaded files are no longer available)")
+		return
+	}
+
+	runFunc, err := s.buildTaskRunFunc(original)
+	if err != nil {
+		s.writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	newTask, result := s.taskManager.RetryTask(taskID)
+	switch result {
+	case RetryTaskResultSuccess:
+		s.enqueueTask(newTask, runFunc)
+		s.writeJSON(w, http.StatusAccepted, NewSuccessResponse(map[string]interface{}{
+			"message":     "Task retried",
+			"task_id":     newTask.ID,
+			"status":      newTask.Status,
+			"original_id": taskID,
+		}))
+	case RetryTaskResultNotFound:
+		s.writeError(w, http.StatusNotFound, "Task not found")
+	case RetryTaskResultNotRetryable:
+		s.writeError(w, http.StatusConflict, "Task cannot be retried (not in failed or cancelled status)")
+	default:
+		s.writeError(w, http.StatusInternalServerError, "Failed to retry task")
+	}
+}
+
+// rebuildRunFunc 根据原任务类型重建下载执行函数
+// buildTaskRunFunc 根据 Task 的类型和数据构建对应的下载执行函数。
+// 所有创建任务的 handler 和重试逻辑共用此方法，确保 DownloadOptions 和服务调用逻辑唯一。
+func (s *Server) buildTaskRunFunc(task *Task) (func(ctx context.Context, taskID string, reporter service.ProgressReporter) error, error) {
+	switch task.Type {
+	case TaskTypeUserDownload:
+		data, ok := task.Data.(*UserDownloadTaskData)
+		if !ok || data == nil {
+			return nil, fmt.Errorf("invalid task data for user_download")
+		}
+		opts := service.DownloadOptions{
+			AutoFollow:    data.AutoFollow,
+			FollowMembers: data.FollowMembers,
+			SkipProfile:   data.SkipProfile,
+			NoRetry:       data.NoRetry,
+		}
+		return func(ctx context.Context, taskID string, reporter service.ProgressReporter) error {
+			return s.downloadService.UserDownload(ctx, taskID, data.ScreenName, opts, reporter)
+		}, nil
+
+	case TaskTypeListDownload:
+		data, ok := task.Data.(*ListDownloadTaskData)
+		if !ok || data == nil {
+			return nil, fmt.Errorf("invalid task data for list_download")
+		}
+		listID := uint64(data.ListID)
+		opts := service.DownloadOptions{
+			AutoFollow:    data.AutoFollow,
+			FollowMembers: data.FollowMembers,
+			SkipProfile:   data.SkipProfile,
+			NoRetry:       data.NoRetry,
+		}
+		return func(ctx context.Context, taskID string, reporter service.ProgressReporter) error {
+			return s.downloadService.ListDownload(ctx, taskID, listID, opts, reporter)
+		}, nil
+
+	case TaskTypeFollowingDownload:
+		data, ok := task.Data.(*FollowingDownloadTaskData)
+		if !ok || data == nil {
+			return nil, fmt.Errorf("invalid task data for following_download")
+		}
+		opts := service.DownloadOptions{
+			AutoFollow:    data.AutoFollow,
+			FollowMembers: data.FollowMembers,
+			SkipProfile:   data.SkipProfile,
+			NoRetry:       data.NoRetry,
+		}
+		return func(ctx context.Context, taskID string, reporter service.ProgressReporter) error {
+			return s.downloadService.FollowingDownload(ctx, taskID, data.ScreenName, opts, reporter)
+		}, nil
+
+	case TaskTypeProfileDownload:
+		data, ok := task.Data.(*ProfileDownloadTaskData)
+		if !ok || data == nil {
+			return nil, fmt.Errorf("invalid task data for profile_download")
+		}
+		return func(ctx context.Context, taskID string, reporter service.ProgressReporter) error {
+			return s.downloadService.ProfileDownload(ctx, taskID, []string{data.ScreenName}, reporter)
+		}, nil
+
+	case TaskTypeMarkDownloaded:
+		switch data := task.Data.(type) {
+		case *MarkDownloadedTaskData:
+			markTime := formatTaskMarkTime(data.Timestamp)
+			return func(ctx context.Context, taskID string, reporter service.ProgressReporter) error {
+				return s.downloadService.MarkDownloaded(ctx, taskID, []string{data.ScreenName}, nil, nil, markTime, reporter)
+			}, nil
+		case *FollowingMarkDownloadedTaskData:
+			markTime := formatTaskMarkTime(data.Timestamp)
+			return func(ctx context.Context, taskID string, reporter service.ProgressReporter) error {
+				return s.downloadService.MarkDownloaded(ctx, taskID, nil, nil, []string{data.ScreenName}, markTime, reporter)
+			}, nil
+		case *ListMarkDownloadedTaskData:
+			markTime := formatTaskMarkTime(data.Timestamp)
+			listID := uint64(data.ListID)
+			return func(ctx context.Context, taskID string, reporter service.ProgressReporter) error {
+				return s.downloadService.MarkDownloaded(ctx, taskID, nil, []uint64{listID}, nil, markTime, reporter)
+			}, nil
+		case *BatchMarkDownloadedTaskData:
+			markTime := formatTaskMarkTime(data.Timestamp)
+			listIDs := stringUint64SliceToUint64(data.Lists)
+			return func(ctx context.Context, taskID string, reporter service.ProgressReporter) error {
+				return s.downloadService.MarkDownloaded(ctx, taskID, data.Users, listIDs, data.FollowingNames, markTime, reporter)
+			}, nil
+		default:
+			return nil, fmt.Errorf("invalid task data for mark_downloaded")
+		}
+
+	case TaskTypeListProfile:
+		data, ok := task.Data.(*ListProfileTaskData)
+		if !ok || data == nil {
+			return nil, fmt.Errorf("invalid task data for list_profile")
+		}
+		listID := uint64(data.ListID)
+		return func(ctx context.Context, taskID string, reporter service.ProgressReporter) error {
+			return s.downloadService.ListProfileDownload(ctx, taskID, listID, reporter)
+		}, nil
+
+	case TaskTypeBatchDownload:
+		data, ok := task.Data.(*BatchDownloadTaskData)
+		if !ok || data == nil {
+			return nil, fmt.Errorf("invalid task data for batch_download")
+		}
+		listIDs := stringUint64SliceToUint64(data.Lists)
+		opts := service.DownloadOptions{
+			AutoFollow:    data.AutoFollow,
+			FollowMembers: data.FollowMembers,
+			SkipProfile:   data.SkipProfile,
+			NoRetry:       data.NoRetry,
+		}
+		return func(ctx context.Context, taskID string, reporter service.ProgressReporter) error {
+			return s.downloadService.BatchDownload(ctx, taskID, data.Users, listIDs, data.FollowingNames, opts, reporter)
+		}, nil
+
+	case TaskTypeJsonFileDownload:
+		data, ok := task.Data.(*JsonFileDownloadTaskData)
+		if !ok || data == nil {
+			return nil, fmt.Errorf("invalid task data for json_file_download")
+		}
+		return func(ctx context.Context, taskID string, reporter service.ProgressReporter) error {
+			return s.downloadService.JsonFileDownload(ctx, taskID, data.Paths, data.NoRetry, reporter)
+		}, nil
+
+	case TaskTypeJsonFolderDownload:
+		data, ok := task.Data.(*JsonFolderDownloadTaskData)
+		if !ok || data == nil {
+			return nil, fmt.Errorf("invalid task data for json_folder_download")
+		}
+		return func(ctx context.Context, taskID string, reporter service.ProgressReporter) error {
+			return s.downloadService.JsonFolderDownload(ctx, taskID, data.Paths, data.NoRetry, reporter)
+		}, nil
+
+	default:
+		return nil, fmt.Errorf("unsupported task type for retry: %s", task.Type)
+	}
+}
+
+func (s *Server) handleRetryAllFailed(w http.ResponseWriter, r *http.Request) {
+	// 作为任务创建并入队，与批量下载模式一致
+	task := s.taskManager.CreateTask(TaskTypeUserDownload, &UserDownloadTaskData{ScreenName: "_retry_all"})
+	taskID := task.ID
+
+	s.enqueueTask(task, func(ctx context.Context, taskID string, reporter service.ProgressReporter) error {
+		return s.downloadService.RetryAllFailed(ctx, taskID, reporter)
+	})
+
+	s.writeJSON(w, http.StatusAccepted, NewSuccessResponse(map[string]interface{}{
+		"message": "Retry all failed tweets task queued",
+		"task_id": taskID,
+		"status":  task.Status,
+	}))
+}
+
+func (s *Server) handleClearErrors(w http.ResponseWriter, r *http.Request) {
+	if err := s.downloadService.ClearErrors(); err != nil {
+		s.writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	s.writeJSON(w, http.StatusOK, NewSuccessResponse(map[string]interface{}{
+		"message": "All error records cleared",
+	}))
+}
+
+func (s *Server) handleErrors(w http.ResponseWriter, r *http.Request) {
+	storePath, err := path.NewStorePath(s.config.RootPath)
+	if err != nil {
+		s.writeJSON(w, http.StatusOK, NewSuccessResponse(ErrorSummaryResponse{Regular: make(map[int]int)}))
+		return
+	}
+
+	var resp ErrorSummaryResponse
+
+	// 常规下载错误
+	regDumper := downloading.NewDumper()
+	_ = regDumper.Load(storePath.ErrorsPath)
+	resp.Regular = regDumper.Summary()
+
+	// JSON 文件下载错误
+	jsonDumper := downloading.NewJsonDumper()
+	_ = jsonDumper.Load(storePath.JSONErrorsPath)
+	resp.JSON = jsonDumper.Summary()
+
+	s.writeJSON(w, http.StatusOK, NewSuccessResponse(resp))
 }
 
 func (s *Server) scheduledDownload(entry scheduler.ScheduleEntry) string {

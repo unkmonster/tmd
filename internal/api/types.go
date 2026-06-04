@@ -3,6 +3,7 @@ package api
 import (
 	"time"
 
+	"github.com/unkmonster/tmd/internal/downloading"
 	"github.com/unkmonster/tmd/internal/scheduler"
 )
 
@@ -56,16 +57,26 @@ type ListMarkDownloadedTaskData struct {
 	Timestamp *time.Time   `json:"timestamp,omitempty"`
 }
 
+// BatchMarkDownloadedTaskData 批量标记已下载任务数据
+type BatchMarkDownloadedTaskData struct {
+	Users          []string       `json:"users"`
+	Lists          []StringUint64 `json:"lists"`
+	FollowingNames []string       `json:"following_names"`
+	Timestamp      *time.Time     `json:"timestamp,omitempty"`
+}
+
 // JsonFileDownloadTaskData 第三方工具JSON下载任务数据（用户资料）
 type JsonFileDownloadTaskData struct {
-	Paths   []string `json:"paths"`
-	NoRetry bool     `json:"no_retry"`
+	Paths      []string `json:"paths"`
+	NoRetry    bool     `json:"no_retry"`
+	FromUpload bool     `json:"from_upload,omitempty"` // 标记是否来自上传（上传文件在任务结束后会被清理，不可重试）
 }
 
 // JsonFolderDownloadTaskData loongtweet文件夹下载任务数据（推文媒体）
 type JsonFolderDownloadTaskData struct {
-	Paths   []string `json:"paths"`
-	NoRetry bool     `json:"no_retry"`
+	Paths      []string `json:"paths"`
+	NoRetry    bool     `json:"no_retry"`
+	FromUpload bool     `json:"from_upload,omitempty"` // 标记是否来自上传（上传文件在任务结束后会被清理，不可重试）
 }
 
 // BatchDownloadTaskData 批量下载任务数据
@@ -119,6 +130,16 @@ type TaskListResponse struct {
 	Tasks []*Task `json:"tasks"`
 }
 
+// TaskStatsResponse 任务统计响应
+type TaskStatsResponse struct {
+	Queued    int `json:"queued"`
+	Running   int `json:"running"`
+	Completed int `json:"completed"`
+	Failed    int `json:"failed"`
+	Cancelled int `json:"cancelled"`
+	Total     int `json:"total"`
+}
+
 // DBUserItem 数据库用户项（前端友好格式）
 type DBUserItem struct {
 	ID           string `json:"id"`
@@ -164,11 +185,13 @@ type DBUserLinkItem struct {
 
 // DBUserPreviousNameItem 用户历史名称项
 type DBUserPreviousNameItem struct {
-	ID         string `json:"id"`
-	Uid        string `json:"user_id"`
-	ScreenName string `json:"screen_name"`
-	Name       string `json:"name"`
-	RecordDate string `json:"record_date"`
+	ID                string `json:"id"`
+	UserID            string `json:"user_id"`
+	ScreenName        string `json:"screen_name"`
+	Name              string `json:"name"`
+	RecordDate        string `json:"record_date"`
+	CurrentScreenName string `json:"current_screen_name"`
+	CurrentName       string `json:"current_name"`
 }
 
 // ConfigResponse 配置响应（脱敏）
@@ -273,4 +296,10 @@ type ScheduleValidateRequest struct {
 type ScheduleValidateResponse struct {
 	Valid  bool     `json:"valid"`
 	Errors []string `json:"errors,omitempty"`
+}
+
+// ErrorSummaryResponse 失败推文摘要响应
+type ErrorSummaryResponse struct {
+	Regular map[int]int                    `json:"regular"`      // entity ID → 失败推文数
+	JSON    []downloading.JsonDumpSummary  `json:"json"`         // JSON 文件来源摘要
 }

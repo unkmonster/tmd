@@ -78,6 +78,11 @@ func (q *DownloadQueue) Enqueue(task *Task, run func(ctx context.Context, taskID
 	q.cond.Signal()
 }
 
+// Wakeup 唤醒可能正在 cond.Wait 上休眠的 worker，用于任务取消后让 worker 检查清理。
+func (q *DownloadQueue) Wakeup() {
+	q.cond.Signal()
+}
+
 func (q *DownloadQueue) CloseAndWait(timeout time.Duration) {
 	q.mu.Lock()
 	if q.closed {

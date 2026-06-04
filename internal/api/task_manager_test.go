@@ -730,6 +730,276 @@ func TestTaskType_Constants(t *testing.T) {
 	assert.Equal(t, TaskType("list_profile"), TaskTypeListProfile)
 }
 
+func TestTaskManager_GetTaskStats(t *testing.T) {
+	t.Run("空任务管理器", func(t *testing.T) {
+		tm := NewTaskManager(nil)
+		stats := tm.GetTaskStats()
+		assert.Equal(t, 0, stats.Queued)
+		assert.Equal(t, 0, stats.Running)
+		assert.Equal(t, 0, stats.Completed)
+		assert.Equal(t, 0, stats.Failed)
+		assert.Equal(t, 0, stats.Cancelled)
+		assert.Equal(t, 0, stats.Total)
+	})
+
+	t.Run("混合状态任务", func(t *testing.T) {
+		tm := NewTaskManager(nil)
+
+		// 2 个 queued（默认状态）
+		queued1 := tm.CreateTask(TaskTypeUserDownload, nil)
+		queued2 := tm.CreateTask(TaskTypeUserDownload, nil)
+
+		// 1 个 running
+		running := tm.CreateTask(TaskTypeUserDownload, nil)
+		tm.UpdateTaskStatus(running.ID, TaskStatusRunning)
+
+		// 1 个 completed
+		completed := tm.CreateTask(TaskTypeUserDownload, nil)
+		tm.UpdateTaskStatus(completed.ID, TaskStatusCompleted)
+
+		// 1 个 failed
+		failed := tm.CreateTask(TaskTypeUserDownload, nil)
+		tm.SetTaskError(failed.ID, assert.AnError)
+
+		// 1 个 cancelled
+		cancelled := tm.CreateTask(TaskTypeUserDownload, nil)
+		tm.CancelTask(cancelled.ID)
+
+		// 验证 queued1 和 queued2 仍为 queued
+		q1, _ := tm.GetTask(queued1.ID)
+		q2, _ := tm.GetTask(queued2.ID)
+		assert.Equal(t, TaskStatusQueued, q1.Status)
+		assert.Equal(t, TaskStatusQueued, q2.Status)
+
+		stats := tm.GetTaskStats()
+		assert.Equal(t, 2, stats.Queued)
+		assert.Equal(t, 1, stats.Running)
+		assert.Equal(t, 1, stats.Completed)
+		assert.Equal(t, 1, stats.Failed)
+		assert.Equal(t, 1, stats.Cancelled)
+		assert.Equal(t, 6, stats.Total)
+	})
+}
+
+func TestTaskManager_CancelQueuedTasks(t *testing.T) {
+	t.Run("取消排队任务", func(t *testing.T) {
+		tm := NewTaskManager(nil)
+		task1 := tm.CreateTask(TaskTypeUserDownload, nil)
+		task2 := tm.CreateTask(TaskTypeListDownload, nil)
+		task3 := tm.CreateTask(TaskTypeBatchDownload, nil)
+
+		count := tm.CancelQueuedTasks()
+		assert.Equal(t, 3, count)
+
+		for _, id := range []string{task1.ID, task2.ID, task3.ID} {
+			got, ok := tm.GetTask(id)
+			assert.True(t, ok)
+			assert.Equal(t, TaskStatusCancelled, got.Status)
+			assert.NotNil(t, got.EndedAt)
+
+			select {
+			case <-got.Ctx.Done():
+			case <-time.After(time.Second):
+				t.Error("Context should be cancelled")
+			}
+		}
+	})
+
+	t.Run("不影响运行中任务", func(t *testing.T) {
+		tm := NewTaskManager(nil)
+		queued := tm.CreateTask(TaskTypeUserDownload, nil)
+		running := tm.CreateTask(TaskTypeUserDownload, nil)
+		tm.UpdateTaskStatus(running.ID, TaskStatusRunning)
+
+		count := tm.CancelQueuedTasks()
+		assert.Equal(t, 1, count)
+
+		gotQueued, _ := tm.GetTask(queued.ID)
+		assert.Equal(t, TaskStatusCancelled, gotQueued.Status)
+
+		gotRunning, _ := tm.GetTask(running.ID)
+		assert.Equal(t, TaskStatusRunning, gotRunning.Status)
+	})
+
+	t.Run("空队列", func(t *testing.T) {
+		tm := NewTaskManager(nil)
+		count := tm.CancelQueuedTasks()
+		assert.Equal(t, 0, count)
+	})
+
+	t.Run("不影响终态任务", func(t *testing.T) {
+		tm := NewTaskManager(nil)
+		completed := tm.CreateTask(TaskTypeUserDownload, nil)
+		tm.UpdateTaskStatus(completed.ID, TaskStatusCompleted)
+		failed := tm.CreateTask(TaskTypeUserDownload, nil)
+		tm.SetTaskError(failed.ID, assert.AnError)
+
+		count := tm.CancelQueuedTasks()
+		assert.Equal(t, 0, count)
+
+		gotCompleted, _ := tm.GetTask(completed.ID)
+		assert.Equal(t, TaskStatusCompleted, gotCompleted.Status)
+
+		gotFailed, _ := tm.GetTask(failed.ID)
+		assert.Equal(t, TaskStatusFailed, gotFailed.Status)
+	})
+}
+
+func TestTaskManager_DeleteTask(t *testing.T) {
+	t.Run("删除已完成任务", func(t *testing.T) {
+		tm := NewTaskManager(nil)
+		task := tm.CreateTask(TaskTypeUserDownload, nil)
+		tm.UpdateTaskStatus(task.ID, TaskStatusCompleted)
+
+		result := tm.DeleteTask(task.ID)
+		assert.Equal(t, DeleteTaskResultDeleted, result)
+
+		_, ok := tm.GetTask(task.ID)
+		assert.False(t, ok)
+
+		assert.Empty(t, tm.GetAllTasks())
+	})
+
+	t.Run("删除失败任务", func(t *testing.T) {
+		tm := NewTaskManager(nil)
+		task := tm.CreateTask(TaskTypeUserDownload, nil)
+		tm.SetTaskError(task.ID, assert.AnError)
+
+		result := tm.DeleteTask(task.ID)
+		assert.Equal(t, DeleteTaskResultDeleted, result)
+
+		_, ok := tm.GetTask(task.ID)
+		assert.False(t, ok)
+	})
+
+	t.Run("删除已取消任务", func(t *testing.T) {
+		tm := NewTaskManager(nil)
+		task := tm.CreateTask(TaskTypeUserDownload, nil)
+		tm.CancelTask(task.ID)
+
+		result := tm.DeleteTask(task.ID)
+		assert.Equal(t, DeleteTaskResultDeleted, result)
+
+		_, ok := tm.GetTask(task.ID)
+		assert.False(t, ok)
+	})
+
+	t.Run("不可删除运行中任务", func(t *testing.T) {
+		tm := NewTaskManager(nil)
+		task := tm.CreateTask(TaskTypeUserDownload, nil)
+		tm.UpdateTaskStatus(task.ID, TaskStatusRunning)
+
+		result := tm.DeleteTask(task.ID)
+		assert.Equal(t, DeleteTaskResultNotDeletable, result)
+
+		got, ok := tm.GetTask(task.ID)
+		assert.True(t, ok)
+		assert.Equal(t, TaskStatusRunning, got.Status)
+	})
+
+	t.Run("不可删除排队中任务", func(t *testing.T) {
+		tm := NewTaskManager(nil)
+		task := tm.CreateTask(TaskTypeUserDownload, nil)
+
+		result := tm.DeleteTask(task.ID)
+		assert.Equal(t, DeleteTaskResultNotDeletable, result)
+
+		got, ok := tm.GetTask(task.ID)
+		assert.True(t, ok)
+		assert.Equal(t, TaskStatusQueued, got.Status)
+	})
+
+	t.Run("不存在的任务", func(t *testing.T) {
+		tm := NewTaskManager(nil)
+		result := tm.DeleteTask("non_existent")
+		assert.Equal(t, DeleteTaskResultNotFound, result)
+	})
+}
+
+func TestTaskManager_RetryTask(t *testing.T) {
+	t.Run("重试失败任务", func(t *testing.T) {
+		tm := NewTaskManager(nil)
+		original := tm.CreateTask(TaskTypeUserDownload, &UserDownloadTaskData{ScreenName: "testuser"})
+		tm.SetTaskError(original.ID, assert.AnError)
+
+		newTask, result := tm.RetryTask(original.ID)
+		assert.Equal(t, RetryTaskResultSuccess, result)
+		assert.NotNil(t, newTask)
+		assert.NotEqual(t, original.ID, newTask.ID)
+		assert.Equal(t, TaskTypeUserDownload, newTask.Type)
+		assert.Equal(t, TaskStatusQueued, newTask.Status)
+
+		newData, ok := newTask.Data.(*UserDownloadTaskData)
+		assert.True(t, ok)
+		assert.Equal(t, "testuser", newData.ScreenName)
+
+		// 原任务状态不变
+		gotOriginal, _ := tm.GetTask(original.ID)
+		assert.Equal(t, TaskStatusFailed, gotOriginal.Status)
+	})
+
+	t.Run("重试取消任务", func(t *testing.T) {
+		tm := NewTaskManager(nil)
+		original := tm.CreateTask(TaskTypeListDownload, &ListDownloadTaskData{ListID: 123})
+		tm.CancelTask(original.ID)
+
+		newTask, result := tm.RetryTask(original.ID)
+		assert.Equal(t, RetryTaskResultSuccess, result)
+		assert.NotNil(t, newTask)
+		assert.Equal(t, TaskTypeListDownload, newTask.Type)
+
+		newData, ok := newTask.Data.(*ListDownloadTaskData)
+		assert.True(t, ok)
+		assert.Equal(t, StringUint64(123), newData.ListID)
+	})
+
+	t.Run("不可重试运行中任务", func(t *testing.T) {
+		tm := NewTaskManager(nil)
+		task := tm.CreateTask(TaskTypeUserDownload, nil)
+		tm.UpdateTaskStatus(task.ID, TaskStatusRunning)
+
+		newTask, result := tm.RetryTask(task.ID)
+		assert.Equal(t, RetryTaskResultNotRetryable, result)
+		assert.Nil(t, newTask)
+	})
+
+	t.Run("不可重试已完成任务", func(t *testing.T) {
+		tm := NewTaskManager(nil)
+		task := tm.CreateTask(TaskTypeUserDownload, nil)
+		tm.UpdateTaskStatus(task.ID, TaskStatusCompleted)
+
+		newTask, result := tm.RetryTask(task.ID)
+		assert.Equal(t, RetryTaskResultNotRetryable, result)
+		assert.Nil(t, newTask)
+	})
+
+	t.Run("不存在的任务", func(t *testing.T) {
+		tm := NewTaskManager(nil)
+		newTask, result := tm.RetryTask("non_existent")
+		assert.Equal(t, RetryTaskResultNotFound, result)
+		assert.Nil(t, newTask)
+	})
+
+	t.Run("Data 被深拷贝", func(t *testing.T) {
+		tm := NewTaskManager(nil)
+		original := tm.CreateTask(TaskTypeBatchDownload, &BatchDownloadTaskData{
+			Users: []string{"user1"},
+		})
+		tm.SetTaskError(original.ID, assert.AnError)
+
+		newTask, result := tm.RetryTask(original.ID)
+		assert.Equal(t, RetryTaskResultSuccess, result)
+
+		// 修改新任务的 Data，原任务不受影响
+		newData := newTask.Data.(*BatchDownloadTaskData)
+		newData.Users[0] = "mutated"
+
+		gotOriginal, _ := tm.GetTask(original.ID)
+		originalData := gotOriginal.Data.(*BatchDownloadTaskData)
+		assert.Equal(t, "user1", originalData.Users[0])
+	})
+}
+
 func TestTaskManager_Cleanup(t *testing.T) {
 	tm := NewTaskManager(nil)
 	assert.NotNil(t, tm)

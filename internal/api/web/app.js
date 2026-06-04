@@ -86,29 +86,34 @@ const store = {
       lists: { data: [], total: 0, page: 1, pageSize: 200 },
       entities: { data: [], total: 0, page: 1, pageSize: 200 },
       listEntities: { data: [], total: 0, page: 1, pageSize: 200 },
-      userLinks: { data: [], total: 0, page: 1, pageSize: 200 }
+      userLinks: { data: [], total: 0, page: 1, pageSize: 200 },
+      previousNames: { data: [], total: 0, page: 1, pageSize: 200 }
     },
     dbPagination: {
       users: { page: 1, pageSize: 200, totalPages: 1 },
       lists: { page: 1, pageSize: 200, totalPages: 1 },
       entities: { page: 1, pageSize: 200, totalPages: 1 },
       listEntities: { page: 1, pageSize: 200, totalPages: 1 },
-      userLinks: { page: 1, pageSize: 200, totalPages: 1 }
+      userLinks: { page: 1, pageSize: 200, totalPages: 1 },
+      previousNames: { page: 1, pageSize: 200, totalPages: 1 }
     },
     dbSort: {
       users: { sortBy: 'id', sortOrder: 'desc' },
       lists: { sortBy: 'id', sortOrder: 'desc' },
       entities: { sortBy: 'id', sortOrder: 'desc' },
       listEntities: { sortBy: 'id', sortOrder: 'desc' },
-      userLinks: { sortBy: 'id', sortOrder: 'desc' }
+      userLinks: { sortBy: 'id', sortOrder: 'desc' },
+      previousNames: { sortBy: 'record_date', sortOrder: 'desc' }
     },
     dbSearch: {
       users: '',
       lists: '',
       entities: '',
       listEntities: '',
-      userLinks: ''
+      userLinks: '',
+      previousNames: ''
     },
+    _prevNameUserIdFilter: '',
     configRaw: '',
     configExists: false,
     configSaving: false,
@@ -116,6 +121,7 @@ const store = {
     logs: [],
     logLevel: 'all',
     logSearch: '',
+    logStats: { debug: 0, info: 0, warn: 0, error: 0, total: 0 },
     logAutoRefresh: true,
     logPagination: { page: 1, pageSize: 100, total: 0, totalPages: 1 },
     _systemTab: 'config',
@@ -190,7 +196,7 @@ const api = {
     }
     
     const res = await fetch(this.base + path, options);
-    const data = await res.json().catch(() => ({ success: false, error: 'Invalid response' }));
+    const data = await res.json().catch(() => ({ success: false, error: `Invalid response (HTTP ${res.status})` }));
     if (!res.ok || !data.success) throw new Error(data.error || `HTTP ${res.status}`);
     return data.data;
   },
@@ -205,6 +211,10 @@ const api = {
   getTasks() { return this.get('/api/v1/tasks'); },
   getTask(id) { return this.get(`/api/v1/tasks/${id}`); },
   cancelTask(id) { return this.post(`/api/v1/tasks/${id}/cancel`, {}); },
+  cancelQueuedTasks() { return this.post('/api/v1/tasks/cancel-queued', {}); },
+  retryTask(id) { return this.post(`/api/v1/tasks/${id}/retry`, {}); },
+  deleteTask(id) { return this.request('DELETE', `/api/v1/tasks/${id}`); },
+  getTaskStats() { return this.get('/api/v1/tasks/stats'); },
   
   // Task Creation
   createUserDownload(screenName, opts) { 
@@ -234,6 +244,9 @@ const api = {
   createBatchDownload(data) { 
     return this.post('/api/v1/batch/download', data); 
   },
+  createBatchMark(data) {
+    return this.post('/api/v1/batch/mark', data);
+  },
   createJsonFileDownload(data) {
     return this.post('/api/v1/json/file/download', data);
   },
@@ -258,6 +271,8 @@ const api = {
 
   // Logs
   getLogs(params = '') { return this.get(`/api/v1/logs${params}`); },
+  getLogStats() { return this.get('/api/v1/logs/stats'); },
+  downloadLogExport() { window.open('/api/v1/logs/export', '_blank'); },
 
   // Schedules
   getSchedules() { return this.get('/api/v1/schedules'); },
@@ -273,8 +288,7 @@ const api = {
   getDBUser(id) { return this.get(`/api/v1/db/users/${id}`); },
   updateDBUser(id, data) { return this.request('PUT', `/api/v1/db/users/${id}`, data); },
   deleteDBUser(id) { return this.request('DELETE', `/api/v1/db/users/${id}`); },
-  getDBUserPreviousNames(id, params = '') { return this.get(`/api/v1/db/users/${id}/previous-names${params ? '?' + params : ''}`); },
-  
+
   getDBLists(params = '') { return this.get(`/api/v1/db/lists${params ? '?' + params : ''}`); },
   getDBList(id) { return this.get(`/api/v1/db/lists/${id}`); },
   updateDBList(id, data) { return this.request('PUT', `/api/v1/db/lists/${id}`, data); },
@@ -290,7 +304,12 @@ const api = {
   updateDBListEntity(id, data) { return this.request('PUT', `/api/v1/db/list-entities/${id}`, data); },
   deleteDBListEntity(id) { return this.request('DELETE', `/api/v1/db/list-entities/${id}`); },
   
-  getDBUserLinks(params = '') { return this.get(`/api/v1/db/user-links${params ? '?' + params : ''}`); }
+  getDBUserLinks(params = '') { return this.get(`/api/v1/db/user-links${params ? '?' + params : ''}`); },
+  getDBUserLink(id) { return this.get(`/api/v1/db/user-links/${id}`); },
+  updateDBUserLink(id, data) { return this.request('PUT', `/api/v1/db/user-links/${id}`, data); },
+  deleteDBUserLink(id) { return this.request('DELETE', `/api/v1/db/user-links/${id}`); },
+  getDBPreviousNames(params = '') { return this.get(`/api/v1/db/user-previous-names${params ? '?' + params : ''}`); },
+  getDBUserPreviousNames(id, params = '') { return this.get(`/api/v1/db/users/${id}/previous-names${params ? '?' + params : ''}`); }
 };
 
 // ============================================
@@ -541,7 +560,7 @@ const pages = {
     const recentTasks = tasks.slice(0, 5);
     
     return `
-      <div class="overview-container">
+      <div class="page-container">
       <div class="stats-grid">
         <div class="stat-card">
           <div class="stat-icon" style="color: var(--success);">●</div>
@@ -567,7 +586,7 @@ const pages = {
       </div>
 
       <div class="card" style="margin-bottom: var(--space-6); flex-shrink: 0">
-        <div class="card-header" style="flex-shrink:0">
+        <div class="card-header">
           <div>
             <div class="card-title">⚡ 快速下载</div>
             <div class="card-subtitle">输入 Twitter 用户名或链接快速创建下载任务</div>
@@ -586,14 +605,14 @@ const pages = {
         </div>
       </div>
 
-      <div class="card" style="flex:1;display:flex;flex-direction:column;overflow:hidden">
-        <div class="card-header" style="flex-shrink:0">
+      <div class="card card-fill">
+        <div class="card-header">
           <div class="card-title">最近任务</div>
           <button class="btn btn-ghost btn-sm" onclick="navigateTo('tasks')">查看全部 →</button>
         </div>
-        <div class="card-body" style="padding:0;flex:1;overflow:hidden;display:flex;flex-direction:column">
+        <div class="card-body card-body-scroll">
           ${recentTasks.length === 0 ? `
-            <div class="empty-state overview-tasks-list">
+            <div class="empty-state">
               <div class="empty-icon">📋</div>
               <div class="empty-title">暂无任务</div>
               <div class="empty-desc">创建一个新任务开始下载 Twitter 媒体文件</div>
@@ -616,8 +635,8 @@ const pages = {
     return `
       <div class="tasks-layout">
         <div>
-          <div class="card" style="flex:1;display:flex;flex-direction:column;overflow:hidden">
-            <div class="card-header" style="flex-shrink:0">
+          <div class="card card-fill">
+            <div class="card-header">
               <div class="card-title">创建新任务</div>
             </div>
             <div class="card-body" style="flex:1;overflow-y:auto">
@@ -639,14 +658,14 @@ const pages = {
         </div>
 
         <div>
-          <div class="card" style="flex:1;display:flex;flex-direction:column;overflow:hidden">
-            <div class="card-header" style="flex-shrink:0">
+          <div class="card card-fill">
+            <div class="card-header">
               <div>
                 <div class="card-title">任务列表</div>
                 <div class="card-subtitle" data-task-count-subtitle>共 ${tasks.length} 个任务</div>
               </div>
             </div>
-            <div class="toolbar" style="flex-shrink:0">
+            <div class="toolbar">
               <div class="toolbar-left">
                 <select class="form-select" style="width: 100px;" id="taskFilter" onchange="updateSearchState('taskFilter',null,this.value);filterTasks()">
                   <option value="all">全部状态</option>
@@ -657,8 +676,11 @@ const pages = {
                 </select>
                 <input type="text" class="form-input search-input" id="taskSearch" placeholder="搜索任务..." oninput="updateSearchState('taskSearch',null,this.value);filterTasks()">
               </div>
+              <div class="toolbar-right">
+                <button class="btn btn-secondary btn-sm" onclick="cancelQueuedTasks()">取消排队中任务</button>
+              </div>
             </div>
-            <div class="card-body" style="padding:0;flex:1;overflow:hidden;display:flex;flex-direction:column">
+            <div class="card-body card-body-scroll">
               <div class="${tasks.length === 0 ? 'empty-state' : 'task-list'}" id="taskListContainer">
                 ${tasks.length === 0 ? `
                   <div class="empty-icon">🚀</div>
@@ -684,7 +706,8 @@ const pages = {
       lists: { title: 'Lists', data: dbData.lists?.data || [], count: dbData.lists?.total || 0 },
       entities: { title: 'User Entities', data: dbData.entities?.data || [], count: dbData.entities?.total || 0 },
       listEntities: { title: 'List Entities', data: dbData.listEntities?.data || [], count: dbData.listEntities?.total || 0 },
-      userLinks: { title: 'User Links', data: dbData.userLinks?.data || [], count: dbData.userLinks?.total || 0 }
+      userLinks: { title: 'User Links', data: dbData.userLinks?.data || [], count: dbData.userLinks?.total || 0 },
+      previousNames: { title: 'Previous Names', data: dbData.previousNames?.data || [], count: dbData.previousNames?.total || 0 }
     };
     
     const current = dataMap[dataSubPage];
@@ -692,8 +715,8 @@ const pages = {
     const sort = dbSort[dataSubPage] || { sortBy: 'id', sortOrder: 'desc' };
     
     return `
-      <div class="card" style="display:flex;flex-direction:column;height:calc(100vh - var(--header-height) - var(--space-6) * 2)">
-        <div class="card-header" style="flex-shrink:0">
+      <div class="card card-page">
+        <div class="card-header">
           <div>
             <div class="tabs" style="margin: 0; border: none;">
               <div class="tab ${dataSubPage === 'users' ? 'active' : ''}" onclick="setDataSubPage('users')">Users</div>
@@ -701,6 +724,7 @@ const pages = {
               <div class="tab ${dataSubPage === 'entities' ? 'active' : ''}" onclick="setDataSubPage('entities')">User Entities</div>
               <div class="tab ${dataSubPage === 'listEntities' ? 'active' : ''}" onclick="setDataSubPage('listEntities')">List Entities</div>
               <div class="tab ${dataSubPage === 'userLinks' ? 'active' : ''}" onclick="setDataSubPage('userLinks')">User Links</div>
+              <div class="tab ${dataSubPage === 'previousNames' ? 'active' : ''}" onclick="setDataSubPage('previousNames')">Previous Names</div>
             </div>
           </div>
           <div class="flex gap-2 items-center">
@@ -710,14 +734,14 @@ const pages = {
           </div>
         </div>
 
-        <div class="card-body" style="padding:0;flex:1;overflow:hidden;display:flex;flex-direction:column">
+        <div class="card-body card-body-scroll">
           <div class="table-scroll-container">
             ${renderDBTable(dataSubPage, current.data, sort)}
           </div>
           ${renderDBMobileCards(dataSubPage, current.data)}
         </div>
 
-        <div class="pagination" style="flex-shrink:0">
+        <div class="pagination">
           <div class="pagination-info">
             显示 ${current.data.length} / ${current.count} 条记录 
             (第 ${pagination.page} / ${pagination.totalPages} 页)
@@ -739,31 +763,38 @@ const pages = {
       ? `<div class="alert alert-warning" style="margin-bottom:var(--space-3)">⚠️ 调度器未启动，定时任务不会自动执行。请在「定时任务」页面中添加并启用规则后重载配置。</div>`
       : '';
 
-    return schedulerBanner + renderScheduleTable(_schedules, _scheduleExists);
+    return `
+      <div class="page-container">
+        <div style="flex-shrink:0">${schedulerBanner}</div>
+        ${renderScheduleTable(_schedules, _scheduleExists)}
+      </div>
+    `;
   },
 
   // System Page
   system() {
     return `
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:var(--space-4)">
-        <div class="system-tabs" style="margin:0">
-          <div class="tab ${store.state._systemTab === 'config' ? 'active' : ''}" onclick="setSystemTab('config')">⚙️ 配置编辑</div>
-          <div class="tab ${store.state._systemTab === 'cookies' ? 'active' : ''}" onclick="setSystemTab('cookies')">🍪 额外账户</div>
-          <div class="tab ${store.state._systemTab === 'schedules' ? 'active' : ''}" onclick="setSystemTab('schedules')">⏰ 任务配置</div>
+      <div class="page-container">
+        <div class="system-tab-bar">
+          <div class="system-tabs" style="margin:0">
+            <div class="tab ${store.state._systemTab === 'config' ? 'active' : ''}" data-tab="config" onclick="setSystemTab('config')">⚙️ 配置编辑</div>
+            <div class="tab ${store.state._systemTab === 'cookies' ? 'active' : ''}" data-tab="cookies" onclick="setSystemTab('cookies')">🍪 额外账户</div>
+            <div class="tab ${store.state._systemTab === 'schedules' ? 'active' : ''}" data-tab="schedules" onclick="setSystemTab('schedules')">⏰ 任务配置</div>
+          </div>
+          <button class="btn btn-danger btn-sm" onclick="shutdownServer()">⏻ 关闭服务器</button>
         </div>
-        <button class="btn btn-danger btn-sm" onclick="shutdownServer()">⏻ 关闭服务器</button>
-      </div>
 
-      <div id="systemConfigPanel" class="system-panel" style="${store.state._systemTab === 'config' ? '' : 'display:none'}">
-        ${renderConfigEditor()}
-      </div>
+        <div id="systemConfigPanel" class="system-panel system-panel-scroll" style="${store.state._systemTab === 'config' ? '' : 'display:none'}">
+          ${renderConfigEditor()}
+        </div>
 
-      <div id="systemCookiesPanel" class="system-panel" style="${store.state._systemTab === 'cookies' ? '' : 'display:none'}">
-        ${renderCookiesEditor()}
-      </div>
+        <div id="systemCookiesPanel" class="system-panel system-panel-scroll" style="${store.state._systemTab === 'cookies' ? '' : 'display:none'}">
+          ${renderCookiesEditor()}
+        </div>
 
-      <div id="systemSchedulesPanel" class="system-panel" style="${store.state._systemTab === 'schedules' ? '' : 'display:none'}">
-        ${renderScheduleViewer()}
+        <div id="systemSchedulesPanel" class="system-panel system-panel-scroll" style="${store.state._systemTab === 'schedules' ? '' : 'display:none'}">
+          ${renderScheduleViewer()}
+        </div>
       </div>
     `;
   },
@@ -1026,7 +1057,7 @@ function renderTaskForm(type) {
       </div>
       <div class="form-group">
         <label class="form-label">标记时间（可选）</label>
-        <input type="datetime-local" class="form-input" id="markTimestamp">
+        <input type="datetime-local" class="form-input" id="markTimestamp" placeholder="选择日期和时间">
         <div class="text-sm text-tertiary mt-2">留空则使用服务器当前时间。每个输入目标会创建独立标记任务。</div>
       </div>
       <button class="btn btn-primary" onclick="createMarkTask()">创建标记任务</button>
@@ -1135,9 +1166,6 @@ function renderDBTable(type, data, sort) {
   `;
 
   const renderActionButtons = (type, item) => {
-    if (type === 'userLinks') {
-      return '<span style="color: var(--text-tertiary);">-</span>';
-    }
     const idStr = String(item.id);
     return `
       <div class="flex gap-2">
@@ -1182,6 +1210,14 @@ function renderDBTable(type, data, sort) {
         <td>${escapeHtml(item.parent_dir)}</td>
         <td>${renderActionButtons(type, item)}</td>
       </tr>`;
+    } else if (type === 'previousNames') {
+      const currentLabel = item.current_screen_name ? `@${escapeHtml(item.current_screen_name)}` : escapeHtml(item.user_id || '');
+      return `<tr>
+        <td><a href="javascript:void(0)" onclick="filterPreviousNamesByUser('${escapeHtml(item.user_id || '')}')">${currentLabel}</a></td>
+        <td>@${escapeHtml(item.screen_name)}</td>
+        <td>${escapeHtml(item.name)}</td>
+        <td>${escapeHtml(item.record_date || '-')}</td>
+      </tr>`;
     } else {
       return `<tr>
         <td>${escapeHtml(item.id)}</td>
@@ -1223,6 +1259,11 @@ function renderDBTable(type, data, sort) {
             ${sortableHeader('name', 'Name')}
             <th>Parent Dir</th>
             <th>Actions</th>
+          ` : type === 'previousNames' ? `
+            ${sortableHeader('current_screen_name', 'Current User')}
+            ${sortableHeader('screen_name', 'Previous @Handle')}
+            ${sortableHeader('name', 'Previous Name')}
+            ${sortableHeader('record_date', 'Date')}
           ` : `
             ${sortableHeader('id', 'ID')}
             ${sortableHeader('user_id', 'User ID')}
@@ -1241,7 +1282,6 @@ function renderDBMobileCards(type, data) {
   if (!data || data.length === 0) return '';
 
   const renderActionButtons = (type, item) => {
-    if (type === 'userLinks') return '';
     const idStr = String(item.id);
     return `
       <div class="flex gap-2">
@@ -1298,6 +1338,17 @@ function renderDBMobileCards(type, data) {
             <div>Dir: ${escapeHtml(item.parent_dir)}</div>
           </div>
           <div>${renderActionButtons(type, item)}</div>
+        </div>
+      `;
+    } else if (type === 'previousNames') {
+      const currentLabel = item.current_screen_name ? `@${item.current_screen_name}` : (item.user_id || '');
+      return `
+        <div class="mobile-card">
+          <div style="font-weight: var(--font-semibold); margin-bottom: var(--space-2);">${escapeHtml(currentLabel)}</div>
+          <div style="color: var(--text-secondary); font-size: var(--text-sm); margin-bottom: var(--space-2);">
+            <div>Previous: @${escapeHtml(item.screen_name || '')} (${escapeHtml(item.name || '')})</div>
+            <div>Date: ${escapeHtml(item.record_date || '-')}</div>
+          </div>
         </div>
       `;
     } else {
@@ -1376,6 +1427,12 @@ async function refreshDBData() {
         break;
       case 'userLinks':
         response = await api.getDBUserLinks(params.toString());
+        break;
+      case 'previousNames':
+        if (store.state._prevNameUserIdFilter) {
+          params.append('userId', store.state._prevNameUserIdFilter);
+        }
+        response = await api.getDBPreviousNames(params.toString());
         break;
     }
 
@@ -1459,7 +1516,21 @@ function searchDB() {
     dbPagination: {
       ...store.state.dbPagination,
       [store.state.dataSubPage]: { ...store.state.dbPagination[store.state.dataSubPage], page: 1 }
-    }
+    },
+    _prevNameUserIdFilter: ''
+  });
+  refreshDBData();
+}
+
+function filterPreviousNamesByUser(userId) {
+  if (!userId) return;
+  store.setState({
+    dataSubPage: 'previousNames',
+    dbPagination: {
+      ...store.state.dbPagination,
+      previousNames: { ...store.state.dbPagination.previousNames, page: 1 }
+    },
+    _prevNameUserIdFilter: userId
   });
   refreshDBData();
 }
@@ -1479,6 +1550,9 @@ async function editDBItem(type, id) {
         break;
       case 'listEntities':
         item = await api.getDBListEntity(id);
+        break;
+      case 'userLinks':
+        item = await api.getDBUserLink(id);
         break;
       default:
         throw new Error('Unknown type: ' + type);
@@ -1563,6 +1637,22 @@ async function editDBItem(type, id) {
           </div>
         `;
         break;
+      case 'userLinks':
+        content += `
+          <div class="form-group">
+            <label class="form-label">Name</label>
+            <input type="text" class="form-input" id="editUserLinkName" value="${escapeAttr(item.name || '')}">
+          </div>
+          <div class="form-group">
+            <label class="form-label">User ID</label>
+            <div class="font-mono text-sm" style="background: var(--bg-primary); padding: var(--space-3); border-radius: var(--radius-md);">${escapeHtml(item.user_id)}</div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Parent Entity ID</label>
+            <div class="font-mono text-sm" style="background: var(--bg-primary); padding: var(--space-3); border-radius: var(--radius-md);">${escapeHtml(item.parent_lst_entity_id)}</div>
+          </div>
+        `;
+        break;
     }
 
     const footer = `
@@ -1603,6 +1693,10 @@ async function saveDBItem(type, id) {
       data.name = document.getElementById('editListEntityName').value.trim();
       if (!data.name) return toast.show('Name is required', 'error');
       break;
+    case 'userLinks':
+      data.name = document.getElementById('editUserLinkName').value.trim();
+      if (!data.name) return toast.show('Name is required', 'error');
+      break;
   }
 
   try {
@@ -1618,6 +1712,9 @@ async function saveDBItem(type, id) {
         break;
       case 'listEntities':
         await api.updateDBListEntity(id, data);
+        break;
+      case 'userLinks':
+        await api.updateDBUserLink(id, data);
         break;
       default:
         throw new Error('Unknown type: ' + type);
@@ -1646,6 +1743,9 @@ async function deleteDBItem(type, id) {
         break;
       case 'listEntities':
         await api.deleteDBListEntity(id);
+        break;
+      case 'userLinks':
+        await api.deleteDBUserLink(id);
         break;
       default:
         throw new Error('Unknown type: ' + type);
@@ -1695,7 +1795,7 @@ async function handleQuickDownload() {
   const userMatch = value.match(/(?:twitter\.com|x\.com)\/([^/\s?]+)/);
   if (userMatch) {
     const pathPart = userMatch[1];
-    if (!['i', 'search', 'status', 'home', 'explore', 'notifications', 'messages', 'settings', 'compose'].includes(pathPart.toLowerCase())) {
+    if (!['i', 'search', 'status', 'home', 'explore', 'notifications', 'messages', 'settings', 'compose', 'bookmarks', 'lists', 'communities'].includes(pathPart.toLowerCase())) {
       username = pathPart;
     }
   }
@@ -1801,31 +1901,20 @@ async function createMarkTask() {
 
   try {
     const timestamp = getOptionalTimestamp('markTimestamp');
-    const requests = [
-      ...users.map(screenName => () => api.createUserMark(screenName, timestamp)),
-      ...listIDs.map(listID => () => api.createListMark(listID, timestamp)),
-      ...followingNames.map(screenName => () => api.createFollowingMark(screenName, timestamp))
-    ];
+    const data = {};
+    if (users.length) data.users = users;
+    if (listIDs.length) data.lists = listIDs;
+    if (followingNames.length) data.following_names = followingNames;
+    if (timestamp) data.timestamp = timestamp;
 
-    const results = await Promise.allSettled(requests.map(run => run()));
-    const successCount = results.filter(result => result.status === 'fulfilled').length;
-    const failedResults = results.filter(result => result.status === 'rejected');
-
-    if (successCount === 0) {
-      throw failedResults[0]?.reason || new Error('创建标记任务失败');
-    }
-
+    await api.createBatchMark(data);
     document.getElementById('markUsers').value = '';
     document.getElementById('markLists').value = '';
     document.getElementById('markFollowingNames').value = '';
     document.getElementById('markTimestamp').value = '';
 
-    if (failedResults.length > 0) {
-      toast.show(`已创建 ${successCount} 个标记任务，${failedResults.length} 个失败`, 'warning');
-      return;
-    }
-
-    toast.show(`已创建 ${successCount} 个标记任务`);
+    const totalCount = users.length + listIDs.length + followingNames.length;
+    toast.show(`已创建批量标记任务（共 ${totalCount} 个目标）`);
   } catch (err) {
     toast.show(err.message, 'error');
   }
@@ -1940,6 +2029,39 @@ async function cancelTask(id) {
   }
 }
 
+async function retryTask(id) {
+  try {
+    await api.retryTask(id);
+    toast.show('任务已重新创建');
+  } catch (err) {
+    toast.show(err.message, 'error');
+  }
+}
+
+async function deleteTask(id) {
+  if (!confirm('确定要删除这个任务吗？')) return;
+  
+  try {
+    await api.deleteTask(id);
+    toast.show('任务已删除');
+  } catch (err) {
+    toast.show(err.message, 'error');
+  }
+}
+
+async function cancelQueuedTasks() {
+  const queuedCount = store.state.tasks.filter(t => t.status === 'queued').length;
+  if (queuedCount === 0) return toast.show('没有排队中的任务', 'error');
+  if (!confirm(`确定要取消 ${queuedCount} 个排队中的任务吗？`)) return;
+  
+  try {
+    const result = await api.cancelQueuedTasks();
+    toast.show(`已取消 ${result.cancelled_count} 个排队中的任务`);
+  } catch (err) {
+    toast.show(err.message, 'error');
+  }
+}
+
 function showTaskDetail(id) {
   const task = store.state.tasks.find(t => t.task_id === id);
   if (!task) return;
@@ -2000,7 +2122,9 @@ function showTaskDetail(id) {
   
   const footer = task.status === 'running' || task.status === 'queued' ?
     `<button class="btn btn-danger" data-task-id="${escapeAttr(task.task_id)}" onclick="cancelTask(this.dataset.taskId); drawer.close();">取消任务</button>` :
-    '<button class="btn btn-secondary" onclick="drawer.close()">关闭</button>';
+    `<button class="btn btn-primary" data-task-id="${escapeAttr(task.task_id)}" onclick="retryTask(this.dataset.taskId); drawer.close();">重试</button>
+     <button class="btn btn-danger" data-task-id="${escapeAttr(task.task_id)}" onclick="deleteTask(this.dataset.taskId); drawer.close();">删除</button>
+     <button class="btn btn-secondary" onclick="drawer.close()">关闭</button>`;
   
   drawer.open('任务详情', content, footer);
 }
@@ -2039,8 +2163,8 @@ function renderConfigEditor() {
     </div>
   `;
 
-  if (configMode === 'raw') return modeTabs + renderConfigRawEditor(configRaw, configSaving, configExists);
-  return modeTabs + renderConfigForm(configFields, configSaving, configExists, configFieldsLoading);
+  if (configMode === 'raw') return `<div style="display:flex;flex-direction:column;height:100%">${modeTabs}${renderConfigRawEditor(configRaw, configSaving, configExists)}</div>`;
+  return `<div style="display:flex;flex-direction:column;height:100%">${modeTabs}${renderConfigForm(configFields, configSaving, configExists, configFieldsLoading)}</div>`;
 }
 
 function renderConfigForm(fields, saving, exists, loading = false) {
@@ -2106,9 +2230,9 @@ function renderConfigRawEditor(raw, saving, exists) {
           </button>
         </div>
       </div>
-      <div class="card-body" style="padding:0;">
-        <div id="configEditorContainer"></div>
-        <div class="config-hint text-sm text-tertiary p-3 mt-3">
+      <div class="card-body" style="padding:0;display:flex;flex-direction:column;overflow:hidden">
+        <div id="configEditorContainer" style="flex:1;min-height:0"></div>
+        <div class="config-hint text-sm text-tertiary p-3 mt-3" style="flex-shrink:0">
           ⚠️ 直接编辑 YAML 需要了解语法格式。建议使用简易模式。
         </div>
       </div>
@@ -2126,8 +2250,8 @@ function renderCookiesEditor() {
     </div>
   `;
 
-  if (cookiesMode === 'raw') return modeTabs + renderCookiesRawEditor(cookiesRaw, cookiesSaving, cookiesExists);
-  return modeTabs + renderCookiesForm(cookieItems, cookiesSaving, cookiesExists);
+  if (cookiesMode === 'raw') return `<div style="display:flex;flex-direction:column;height:100%">${modeTabs}${renderCookiesRawEditor(cookiesRaw, cookiesSaving, cookiesExists)}</div>`;
+  return `<div style="display:flex;flex-direction:column;height:100%">${modeTabs}${renderCookiesForm(cookieItems, cookiesSaving, cookiesExists)}</div>`;
 }
 
 function renderCookiesForm(items, saving, exists) {
@@ -2202,9 +2326,9 @@ function renderCookiesRawEditor(raw, saving, exists) {
           </button>
         </div>
       </div>
-      <div class="card-body" style="padding:0;">
-        <div id="cookiesEditorContainer"></div>
-        <div class="config-hint text-sm text-tertiary p-3 mt-3">
+      <div class="card-body" style="padding:0;display:flex;flex-direction:column;overflow:hidden">
+        <div id="cookiesEditorContainer" style="flex:1;min-height:0"></div>
+        <div class="config-hint text-sm text-tertiary p-3 mt-3" style="flex-shrink:0">
           ⚠️ 直接编辑 YAML 需要了解语法格式。建议使用简易模式。
         </div>
       </div>
@@ -2213,7 +2337,7 @@ function renderCookiesRawEditor(raw, saving, exists) {
 }
 
 function renderLogViewer() {
-  const { logs, logLevel, logSearch, logPagination, logAutoRefresh } = store.state;
+  const { logs, logLevel, logSearch, logPagination, logAutoRefresh, logStats } = store.state;
 
   function getLineColor(line) {
     if (line.startsWith('ERRO[')) return 'var(--danger)';
@@ -2237,25 +2361,29 @@ function renderLogViewer() {
   }
 
   return `
-    <div class="card" style="display:flex;flex-direction:column;height:calc(100vh - var(--header-height) - var(--space-6) * 2)">
-      <div class="card-header" style="flex-shrink:0">
+    <div class="card card-page">
+      <div class="card-header">
         <div><div class="card-title">系统日志</div><div class="card-subtitle">共 ${logPagination.total} 条记录</div></div>
         <div class="flex gap-2 items-center flex-wrap">
           <input type="text" class="form-input search-input" id="logSearchInput"
             placeholder="🔍 搜索..."
-            oninput="updateSearchState('logSearch',null,this.value)">
+            oninput="onLogSearchInput(this.value)">
           <div class="log-level-filters">
-            ${['all','debug','info','warn','error'].map(l => `<button class="btn btn-sm ${logLevel===l?'btn-primary':'btn-ghost'}" onclick="setLogLevel('${l}')">${l.toUpperCase()}</button>`).join('')}
+            ${['all','debug','info','warn','error'].map(l => {
+              const count = l === 'all' ? logStats.total : (logStats[l] || 0);
+              return `<button class="btn btn-sm ${logLevel===l?'btn-primary':'btn-ghost'}" onclick="setLogLevel('${l}')">${l.toUpperCase()}${count > 0 ? ` (${count})` : ''}</button>`;
+            }).join('')}
           </div>
           <button class="btn btn-ghost btn-sm ${logAutoRefresh?'active':''}" onclick="toggleLogAutoRefresh()">${logAutoRefresh?'⏸️':'▶️'} 实时</button>
+          <button class="btn btn-ghost btn-sm" onclick="api.downloadLogExport()" title="导出完整日志文件">📥 导出</button>
         </div>
       </div>
-      <div class="card-body" style="padding:0;flex:1;overflow:hidden;display:flex;flex-direction:column">
+      <div class="card-body card-body-scroll">
         <div class="log-container" id="logContainer">
           ${logs.length === 0 ? `<div class="empty-state"><div class="empty-icon">📋</div><div class="empty-title">暂无日志</div><div class="empty-desc">选择日志级别或调整筛选条件</div></div>` : logs.map(renderLine).join('')}
         </div>
       </div>
-      <div class="pagination" style="flex-shrink:0">
+      <div class="pagination">
         <div class="pagination-info">显示 ${logs.length} / ${logPagination.total} 条 (第 ${logPagination.page}/${logPagination.totalPages} 页)</div>
         <div class="pagination-controls">
           <button class="page-btn" onclick="changeLogPage(-1)" ${logPagination.page <= 1 ? 'disabled' : ''}>←</button>
@@ -2330,8 +2458,8 @@ function renderScheduleViewer() {
     </div>
   `;
 
-  if (_scheduleTab === 'edit') return schedulerBanner + modeTabs + renderScheduleRawEditor(_scheduleRaw, _scheduleSaving, _scheduleExists);
-  return schedulerBanner + modeTabs + renderScheduleForm(_scheduleFormItems, _scheduleSaving, _scheduleExists);
+  if (_scheduleTab === 'edit') return `<div style="display:flex;flex-direction:column;height:100%">${schedulerBanner}${modeTabs}${renderScheduleRawEditor(_scheduleRaw, _scheduleSaving, _scheduleExists)}</div>`;
+  return `<div style="display:flex;flex-direction:column;height:100%">${schedulerBanner}${modeTabs}${renderScheduleForm(_scheduleFormItems, _scheduleSaving, _scheduleExists)}</div>`;
 }
 
 function renderScheduleForm(items, saving, exists) {
@@ -2367,16 +2495,11 @@ function renderScheduleForm(items, saving, exists) {
     return `
     <div class="config-group">
       <div class="config-group-title">
-        <span>#${idx + 1}${item.name ? ' · ' + escapeHtml(item.name) : ''}</span>
-        <div class="flex gap-2">
-          <label style="display:flex;align-items:center;gap:4px;font-size:12px;color:var(--text-secondary);cursor:pointer;">
-            <input type="checkbox" id="sf_enabled_${idx}" ${item.enabled ? 'checked' : ''} style="margin:0">
-            启用
-          </label>
-          <button class="btn btn-danger btn-sm" onclick="removeScheduleItem(${idx})">删除</button>
-        </div>
+        <span>📋 任务 #${idx + 1}${item.name ? ' · ' + escapeHtml(item.name) : ''}</span>
+        <button class="btn btn-danger btn-sm" onclick="removeScheduleItem(${idx})">删除</button>
       </div>
       <div class="config-field">
+        <label class="config-label" for="sf_type_${idx}">类型</label>
         <select class="form-input config-input" id="sf_type_${idx}" onchange="updateScheduleFormItem(${idx}, 'type', this.value)">
           ${typeOptions(item.type)}
         </select>
@@ -2429,23 +2552,27 @@ function renderScheduleForm(items, saving, exists) {
           onblur="validateScheduleField(${idx})" oninput="scheduleFieldChanged(${idx})">
       </div>
       <div class="config-field" style="display:flex;gap:16px;flex-wrap:wrap;">
-        <label style="display:flex;align-items:center;gap:4px;font-size:13px;cursor:pointer;">
+        <label class="config-label" style="display:inline-flex;align-items:center;gap:4px">
+          <input type="checkbox" id="sf_enabled_${idx}" ${item.enabled ? 'checked' : ''} style="margin:0">
+          启用
+        </label>
+        <label class="config-label" style="display:inline-flex;align-items:center;gap:4px">
           <input type="checkbox" id="sf_auto_follow_${idx}" ${item.auto_follow ? 'checked' : ''} style="margin:0">
           自动申请受保护账号
         </label>
-        <label style="display:flex;align-items:center;gap:4px;font-size:13px;cursor:pointer;">
+        <label class="config-label" style="display:inline-flex;align-items:center;gap:4px">
           <input type="checkbox" id="sf_follow_members_${idx}" ${item.follow_members ? 'checked' : ''} style="margin:0">
           下载时关注目标/成员
         </label>
-        <label style="display:flex;align-items:center;gap:4px;font-size:13px;cursor:pointer;">
+        <label class="config-label" style="display:inline-flex;align-items:center;gap:4px">
           <input type="checkbox" id="sf_skip_profile_${idx}" ${item.skip_profile ? 'checked' : ''} style="margin:0">
           跳过 Profile
         </label>
-        <label style="display:flex;align-items:center;gap:4px;font-size:13px;cursor:pointer;">
+        <label class="config-label" style="display:inline-flex;align-items:center;gap:4px">
           <input type="checkbox" id="sf_no_retry_${idx}" ${item.no_retry ? 'checked' : ''} style="margin:0">
           不重试
         </label>
-        <label style="display:flex;align-items:center;gap:4px;font-size:13px;cursor:pointer;">
+        <label class="config-label" style="display:inline-flex;align-items:center;gap:4px">
           <input type="checkbox" id="sf_run_on_start_${idx}" ${item.run_on_start ? 'checked' : ''} style="margin:0">
           首次启动时立即运行
         </label>
@@ -2553,24 +2680,33 @@ function renderScheduleTable(schedules, exists) {
           <div>下次 ${fmtTime(s.next_run_at)}</div>
         </div>
         <div class="schedule-actions">
-          <button class="btn btn-ghost btn-sm" data-schedule-id="${escapeAttr(entry.id)}" onclick="triggerSchedule(this.dataset.scheduleId)" ${!entry.enabled ? 'disabled title="规则已禁用"' : ''}>▶️</button>
+          <button class="btn btn-primary btn-sm" data-schedule-id="${escapeAttr(entry.id)}" onclick="triggerSchedule(this.dataset.scheduleId)" ${!entry.enabled ? 'disabled title="规则已禁用"' : ''}>▶ 执行</button>
         </div>
       </div>
     `;
   };
 
   return `
-    <div class="card" style="display:flex;flex-direction:column;height:calc(100vh - var(--header-height) - var(--space-6) * 2)">
-      <div class="card-header" style="flex-shrink:0">
+    <div class="card card-fill">
+      <div class="card-header">
         <div><div class="card-title">定时下载任务</div><div class="card-subtitle">共 ${total} 条规则 · ${active} 个启用</div></div>
         <div class="flex gap-2">
+          <button class="btn btn-primary btn-sm" id="btnTriggerAll" onclick="triggerAllSchedules()">⬇️ 下载全部</button>
           <button class="btn btn-ghost btn-sm" onclick="navigateToSystemSchedules()">📝 编辑任务</button>
         </div>
       </div>
-      <div class="card-body" style="padding:0;flex:1;overflow:hidden;display:flex;flex-direction:column">
-        <div class="schedule-list">
-          ${schedules.map(renderScheduleItem).join('')}
-        </div>
+      <div class="card-body card-body-scroll">
+        ${schedules.length === 0 ? `
+          <div class="empty-state">
+            <div class="empty-icon">⏰</div>
+            <div class="empty-title">暂无定时任务</div>
+            <div class="empty-desc">点击上方「编辑任务」按钮创建新的定时下载规则</div>
+          </div>
+        ` : `
+          <div class="schedule-list">
+            ${schedules.map(renderScheduleItem).join('')}
+          </div>
+        `}
       </div>
     </div>
   `;
@@ -2587,9 +2723,9 @@ function renderScheduleRawEditor(raw, saving, exists) {
           </button>
         </div>
       </div>
-      <div class="card-body" style="padding:0;">
-        <div id="scheduleEditorContainer"></div>
-        <div class="config-hint text-sm text-tertiary p-3 mt-3">
+      <div class="card-body" style="padding:0;display:flex;flex-direction:column;overflow:hidden">
+        <div id="scheduleEditorContainer" style="flex:1;min-height:0"></div>
+        <div class="config-hint text-sm text-tertiary p-3 mt-3" style="flex-shrink:0">
           ⚠️ 保存后将自动重载调度配置，无需重启服务。
         </div>
       </div>
@@ -2717,6 +2853,43 @@ async function triggerSchedule(id) {
     toast.show('已触发定时任务: ' + data.task_id);
   } catch (e) {
     toast.show('触发失败: ' + e.message, 'error');
+  }
+}
+
+async function triggerAllSchedules() {
+  const btn = document.getElementById('btnTriggerAll');
+  const schedules = store.state._schedules.filter(s => readScheduleEntryField(s.entry, 'enabled', 'Enabled'));
+  if (schedules.length === 0) {
+    toast.show('没有已启用的调度任务', 'error');
+    return;
+  }
+  if (!confirm(`确定要触发全部 ${schedules.length} 个已启用的调度任务吗？`)) return;
+
+  // 禁用按钮，显示 loading
+  btn.disabled = true;
+  btn.innerHTML = '<span class="loading-spinner"></span> 触发中...';
+
+  let success = 0, fail = 0;
+  const failedIds = [];
+  for (const s of schedules) {
+    const sid = readScheduleEntryField(s.entry, 'id', 'ID');
+    try {
+      await api.triggerSchedule(sid);
+      success++;
+    } catch (e) {
+      fail++;
+      failedIds.push(sid);
+      console.error(`[triggerAllSchedules] 调度 ${sid} 触发失败:`, e.message);
+    }
+  }
+
+  // 恢复按钮
+  btn.disabled = false;
+  btn.innerHTML = '⬇️ 下载全部';
+  if (fail > 0) {
+    toast.show(`${success} 成功, ${fail} 失败 (ID: ${failedIds.join(', ')})`, 'error');
+  } else {
+    toast.show(`已全部触发成功 (${success})`);
   }
 }
 
@@ -3223,7 +3396,9 @@ function handleServerShutdown(message) {
   api.abortAll();
   sseManager.disconnect();
   configCodeMirror = destroyCodeMirror(configCodeMirror);
+  _configCmInitializing = false;
   cookiesCodeMirror = destroyCodeMirror(cookiesCodeMirror);
+  _cookiesCmInitializing = false;
   scheduleCodeMirror = destroyCodeMirror(scheduleCodeMirror);
   _scheduleCmInitializing = false;
   renderServerClosedState();
@@ -3248,12 +3423,27 @@ async function loadLogs() {
     const d = await api.getLogs('?' + p.toString());
     store.setState({ logs: d.logs || [], logPagination: { page: d.page, pageSize: d.pageSize, total: d.total, totalPages: d.totalPages } });
   } catch (e) { toast.show('加载日志失败: ' + e.message, 'error'); }
+
+  // 异步获取统计（不阻塞日志加载）
+  api.getLogStats()
+    .then(s => store.setState({ logStats: { debug: s.debug || 0, info: s.info || 0, warn: s.warn || 0, error: s.error || 0, total: s.total || 0 } }))
+    .catch(() => {});
 }
 
 function setLogLevel(level) {
   store.setState({ logLevel: level, logPagination: { ...store.state.logPagination, page: 1 } });
   loadLogs();
   restartLogStreamIfNeeded();
+}
+
+let _logSearchTimer = null;
+function onLogSearchInput(value) {
+  store.setState({ logSearch: value, logPagination: { ...store.state.logPagination, page: 1 } });
+  clearTimeout(_logSearchTimer);
+  _logSearchTimer = setTimeout(() => {
+    loadLogs();
+    restartLogStreamIfNeeded();
+  }, 300);
 }
 
 function changeLogPage(delta) {
@@ -3271,6 +3461,8 @@ let logAutoRefreshTimer = null;
 let logStreamConn = null;
 let configCodeMirror = null;
 let cookiesCodeMirror = null;
+let _configCmInitializing = false;
+let _cookiesCmInitializing = false;
 
 let _cmWaitCancelled = false;
 
@@ -3318,7 +3510,7 @@ function initCodeMirror(containerId, content, mode) {
     autoCloseBrackets: true,
   });
 
-  cm.setSize('100%', 400);
+  cm.setSize('100%', '100%');
   return cm;
 }
 
@@ -3344,13 +3536,23 @@ function setEditorValue(editor, value) {
 }
 
 async function initConfigCodeMirror() {
+  if (_configCmInitializing || configCodeMirror) return;
+  _configCmInitializing = true;
   await waitForCodeMirror(3000);
-  configCodeMirror = initCodeMirror('configEditorContainer', store.state.configRaw, 'yaml');
+  if (document.getElementById('configEditorContainer')) {
+    configCodeMirror = initCodeMirror('configEditorContainer', store.state.configRaw, 'yaml');
+  }
+  _configCmInitializing = false;
 }
 
 async function initCookiesCodeMirror() {
+  if (_cookiesCmInitializing || cookiesCodeMirror) return;
+  _cookiesCmInitializing = true;
   await waitForCodeMirror(3000);
-  cookiesCodeMirror = initCodeMirror('cookiesEditorContainer', store.state.cookiesRaw, 'yaml');
+  if (document.getElementById('cookiesEditorContainer')) {
+    cookiesCodeMirror = initCodeMirror('cookiesEditorContainer', store.state.cookiesRaw, 'yaml');
+  }
+  _cookiesCmInitializing = false;
 }
 
 function toggleLogAutoRefresh() {
@@ -3362,6 +3564,7 @@ function toggleLogAutoRefresh() {
 
 function cleanupSystemTimers() {
   _cmWaitCancelled = true;
+  _logsPageLoaded = false;
   if (logAutoRefreshTimer) {
     clearTimeout(logAutoRefreshTimer);
     logAutoRefreshTimer = null;
@@ -3381,6 +3584,7 @@ function buildLogStreamURL() {
 
 let _logStreamConnecting = false;
 let _pendingLogStreamConn = null;
+let _logsPageLoaded = false;
 
 function startLogStream() {
   if (logStreamConn || _logStreamConnecting || store.state.currentPage !== 'logs') return;
@@ -3396,8 +3600,8 @@ function startLogStream() {
     const line = e.data || '';
     if (!line) return;
     const logs = [line, ...store.state.logs].slice(0, 1000);
-    const total = Math.max(store.state.logPagination.total + 1, logs.length);
-    store.setState({ logs, logPagination: { ...store.state.logPagination, total, totalPages: Math.max(1, Math.ceil(total / store.state.logPagination.pageSize)) } });
+    const total = Math.min(store.state.logPagination.total + 1, 1000);
+    store.setState({ logs, logPagination: { ...store.state.logPagination, total: Math.max(total, logs.length), totalPages: Math.max(1, Math.ceil(Math.max(total, logs.length) / store.state.logPagination.pageSize)) } });
     setTimeout(() => {
       const el = document.getElementById('logContainer');
       if (el) el.scrollTop = 0;
@@ -3465,7 +3669,8 @@ function syncCookiesTabView() {
 }
 
 function syncLogsPageView() {
-  if (store.state.logs.length === 0) {
+  if (!_logsPageLoaded) {
+    _logsPageLoaded = true;
     loadLogs();
   }
   if (store.state.logAutoRefresh) startLogStream();
@@ -3560,7 +3765,9 @@ function navigateTo(page) {
   if ((lastPage === 'system' || lastPage === 'logs') && page !== lastPage) {
     cleanupSystemTimers();
     configCodeMirror = destroyCodeMirror(configCodeMirror);
+    _configCmInitializing = false;
     cookiesCodeMirror = destroyCodeMirror(cookiesCodeMirror);
+    _cookiesCmInitializing = false;
     scheduleCodeMirror = destroyCodeMirror(scheduleCodeMirror);
     _scheduleCmInitializing = false;
   }
@@ -3598,7 +3805,9 @@ window.onpopstate = (event) => {
   if ((lastPage === 'system' || lastPage === 'logs') && page !== lastPage) {
     cleanupSystemTimers();
     configCodeMirror = destroyCodeMirror(configCodeMirror);
+    _configCmInitializing = false;
     cookiesCodeMirror = destroyCodeMirror(cookiesCodeMirror);
+    _cookiesCmInitializing = false;
     scheduleCodeMirror = destroyCodeMirror(scheduleCodeMirror);
     _scheduleCmInitializing = false;
   }
@@ -3635,7 +3844,8 @@ function setDataSubPage(subPage) {
     dbSearch: {
       ...store.state.dbSearch,
       [subPage]: ''
-    }
+    },
+    _prevNameUserIdFilter: subPage === 'previousNames' ? store.state._prevNameUserIdFilter : ''
   });
   
   // Update URL when changing data sub-page
@@ -3917,9 +4127,7 @@ store.subscribe((state) => {
       if (tabChanged) {
         lastSystemTab = state._systemTab;
         document.querySelectorAll('.system-tabs .tab').forEach(t => {
-          t.classList.toggle('active', t.textContent.includes(
-            state._systemTab === 'config' ? '配置' : state._systemTab === 'cookies' ? '账户' : '任务配置'
-          ));
+          t.classList.toggle('active', t.dataset.tab === state._systemTab);
         });
         document.getElementById('systemConfigPanel').style.display = state._systemTab === 'config' ? '' : 'none';
         document.getElementById('systemCookiesPanel').style.display = state._systemTab === 'cookies' ? '' : 'none';
@@ -3935,7 +4143,7 @@ store.subscribe((state) => {
         rerenderSystemPanel(
           'systemConfigPanel',
           renderConfigEditor,
-          () => { configCodeMirror = destroyCodeMirror(configCodeMirror); },
+          () => { configCodeMirror = destroyCodeMirror(configCodeMirror); _configCmInitializing = false; },
           state.configMode === 'raw' ? initConfigCodeMirror : null
         );
       }
@@ -3948,7 +4156,7 @@ store.subscribe((state) => {
         rerenderSystemPanel(
           'systemCookiesPanel',
           renderCookiesEditor,
-          () => { cookiesCodeMirror = destroyCodeMirror(cookiesCodeMirror); },
+          () => { cookiesCodeMirror = destroyCodeMirror(cookiesCodeMirror); _cookiesCmInitializing = false; },
           state.cookiesMode === 'raw' ? initCookiesCodeMirror : null
         );
       }

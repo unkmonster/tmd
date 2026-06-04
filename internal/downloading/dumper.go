@@ -119,6 +119,15 @@ func (td *TweetDumper) Count() int {
 	return td.count
 }
 
+// Summary 返回每个 entity 的失败推文计数，不包含完整的 Tweet 数据。
+func (td *TweetDumper) Summary() map[int]int {
+	out := make(map[int]int, len(td.data))
+	for eid, tweets := range td.data {
+		out[eid] = len(tweets)
+	}
+	return out
+}
+
 func (td *TweetDumper) EntityCount() int {
 	return len(td.data)
 }
@@ -277,6 +286,26 @@ func (d *JsonTweetDumper) GetTotal() []JsonPackagedTweet {
 
 func (d *JsonTweetDumper) Count() int {
 	return d.count
+}
+
+// JsonDumpSummary JSON 错误文件摘要，用于 API 返回。
+type JsonDumpSummary struct {
+	SourcePath string `json:"source_path"`
+	Type       string `json:"type"`
+	Count      int    `json:"count"`
+}
+
+// Summary 返回每个来源文件的失败推文计数摘要，不包含完整的 Tweet 数据。
+func (d *JsonTweetDumper) Summary() []JsonDumpSummary {
+	out := make([]JsonDumpSummary, 0, len(d.data))
+	for _, entry := range d.data {
+		out = append(out, JsonDumpSummary{
+			SourcePath: entry.SourcePath,
+			Type:       entry.Type,
+			Count:      len(entry.Tweets),
+		})
+	}
+	return out
 }
 
 func (d *JsonTweetDumper) EntryCount() int {

@@ -24,6 +24,22 @@ const (
 	CancelTaskResultNotCancellable CancelTaskResult = "not_cancellable"
 )
 
+type DeleteTaskResult string
+
+const (
+	DeleteTaskResultDeleted      DeleteTaskResult = "deleted"
+	DeleteTaskResultNotFound     DeleteTaskResult = "not_found"
+	DeleteTaskResultNotDeletable DeleteTaskResult = "not_deletable"
+)
+
+type RetryTaskResult string
+
+const (
+	RetryTaskResultSuccess       RetryTaskResult = "success"
+	RetryTaskResultNotFound      RetryTaskResult = "not_found"
+	RetryTaskResultNotRetryable  RetryTaskResult = "not_retryable"
+)
+
 // TaskType 任务类型
 type TaskType string
 

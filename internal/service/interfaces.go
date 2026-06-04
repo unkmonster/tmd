@@ -33,4 +33,10 @@ type DownloadService interface {
 	JsonFolderDownload(ctx context.Context, taskID string, paths []string, noRetry bool, reporter ProgressReporter) error
 
 	BatchDownload(ctx context.Context, taskID string, screenNames []string, listIDs []uint64, followingNames []string, opts DownloadOptions, reporter ProgressReporter) error
+
+	// RetryAllFailed 重试所有历史失败推文（普通下载和 JSON 导入）
+	RetryAllFailed(ctx context.Context, taskID string, reporter ProgressReporter) error
+
+	// ClearErrors 清除所有失败推文记录
+	ClearErrors() error
 }

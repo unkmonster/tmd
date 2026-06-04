@@ -114,10 +114,13 @@ func QueryLstEntities(db *sqlx.DB, where string, args []interface{}, orderBy str
 }
 
 // QueryUserLinks 查询用户链接
-func QueryUserLinks(db *sqlx.DB, where string, args []interface{}, limit, offset int) ([]UserLink, error) {
+func QueryUserLinks(db *sqlx.DB, where string, args []interface{}, orderBy string, limit, offset int) ([]UserLink, error) {
 	query := "SELECT * FROM user_links"
 	if where != "" {
 		query += " WHERE " + where
+	}
+	if orderBy != "" {
+		query += " " + orderBy
 	}
 	query += " LIMIT ? OFFSET ?"
 
@@ -132,5 +135,26 @@ func QueryUserPreviousNames(db *sqlx.DB, uid uint64, limit, offset int) ([]UserP
 	err := db.Select(&names,
 		"SELECT * FROM user_previous_names WHERE user_id = ? ORDER BY record_date DESC LIMIT ? OFFSET ?",
 		uid, limit, offset)
+	return names, err
+}
+
+// QueryAllUserPreviousNames 全局查询用户历史名称（支持筛选、搜索、排序，JOIN users 获取当前名称）
+func QueryAllUserPreviousNames(db *sqlx.DB, where string, args []interface{}, orderBy string, limit, offset int) ([]UserPreviousNameWithCurrent, error) {
+	query := `SELECT pn.id, pn.user_id, pn.screen_name, pn.name, pn.record_date,
+		u.screen_name AS current_screen_name, u.name AS current_name
+		FROM user_previous_names pn
+		LEFT JOIN users u ON pn.user_id = u.id`
+	if where != "" {
+		query += " WHERE " + where
+	}
+	if orderBy != "" {
+		query += " " + orderBy
+	} else {
+		query += " ORDER BY pn.record_date DESC"
+	}
+	query += " LIMIT ? OFFSET ?"
+
+	var names []UserPreviousNameWithCurrent
+	err := db.Select(&names, query, append(args, limit, offset)...)
 	return names, err
 }

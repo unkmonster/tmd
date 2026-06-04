@@ -7,6 +7,126 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ***
 
+## [v3.4.19] - 2026-06-04
+
+### Added
+
+#### 任务管理增强：统计、批量取消、删除、重试
+- `internal/api/task_manager.go` - 新增 4 个方法：
+  - `GetTaskStats()` - 按状态（queued/running/completed/failed/cancelled）统计任务数量，用于前端概览展示
+  - `CancelQueuedTasks()` - 批量取消所有排队中（queued）的任务，返回取消数量，通过 eventBus 发布通知
+  - `DeleteTask(id)` - 删除指定终端状态（completed/failed/cancelled）任务，返回 DeleteTaskResult
+  - `RetryTask(id)` - 基于失败或取消的原始任务创建新任务（克隆 taskData），返回新 Task
+  - 清理周期从 8 小时延长至 24 小时，减少已完成任务过早被清理
+- `internal/api/task_types.go` - 新增 `DeleteTaskResult`（deleted/not_found/not_deletable）和 `RetryTaskResult`（success/not_found/not_retryable）类型
+- `internal/api/server.go` - 注册新路由：`GET /api/v1/tasks/stats`、`POST /api/v1/tasks/cancel-queued`、`POST /api/v1/tasks/{task_id}/retry`、`DELETE /api/v1/tasks/{task_id}`
+- `internal/api/server_test.go` - 新增 `TestHandleTaskStats`、`TestHandleCancelQueuedTasks`、`TestHandleDeleteTask`、`TestHandleRetryTask` 等端到端测试（+308 行）
+
+#### 批量标记下载（Batch Mark）
+- `internal/api/download_handlers.go` - 新增 `handleBatchMark` 处理器：
+  - 接收 `BatchMarkDownloadedTaskData`，支持同时标记用户、列表、关注列表
+  - 内部使用 `buildTaskRunFunc` 统一构建任务运行函数
+  - 路由：`POST /api/v1/batch/mark`
+- `internal/api/types.go` - 新增 `BatchMarkDownloadedTaskData` 结构体，包含 `Users`、`Lists`、`FollowingNames`、`Timestamp` 字段
+- `internal/api/task_manager.go` - `cloneTaskData` 新增 `BatchMarkDownloadedTaskData` 分支的深拷贝支持
+
+#### 失败推文管理：重试全部 & 清除记录
+- `internal/service/download_service.go` - 新增 2 个方法：
+  - `RetryAllFailed()` - 重试所有历史失败推文（先重试常规下载错误，再重试 JSON 导入错误），兼容两种 dumper
+  - `ClearErrors()` - 清除所有失败推文记录文件（errors.json + json_errors.json）
+- `internal/service/interfaces.go` - `DownloadService` 接口新增 `RetryAllFailed()` 和 `ClearErrors()`
+- `internal/downloading/dumper.go` - 新增方法：
+  - `TweetDumper.Summary()` - 返回每个 entity 的失败推文计数（map[int]int）
+  - `JsonTweetDumper.Summary()` - 返回每个来源文件的失败推文摘要（[]JsonDumpSummary）
+  - `JsonDumpSummary` 结构体：包含 `SourcePath`、`Type`、`Count`
+- `internal/api/types.go` - 新增 `ErrorSummaryResponse`，含 `Regular`（entity ID → count）和 `JSON`（来源文件摘要）
+- `internal/api/server.go` - 注册新路由：`GET /api/v1/errors`、`POST /api/v1/retry/failed`、`DELETE /api/v1/errors`
+
+#### JSON 下载并发限流与上传标记
+- `internal/downloading/json_file_download.go` - `DownloadThirdPartyTweets` 新增信号量（semaphore）并发控制：
+  - 限制同时处理的 JSON 文件数不超过 `maxDownloadRoutine`
+  - 避免大量文件同时启动 goroutine 导致内部 BatchDownloadTweet 并发叠加
+- `internal/api/types.go` - `JsonFileDownloadTaskData` 和 `JsonFolderDownloadTaskData` 新增 `FromUpload` 字段：
+  - 标记任务来源是否为上传，上传文件在任务结束后会被清理，不可重试
+- `internal/api/download_handlers.go` - `handleJsonFileUpload` 和 `handleJsonFolderUpload`：
+  - 设置 `FromUpload: true`
+  - 初始化失败时清理已创建的 uploadDir
+
+#### 用户历史名称查询增强
+- `internal/database/query.go` - 新增 `QueryUserPreviousNames()` 函数：
+  - 支持 `currentName` 参数按当前名称（screen_name 或 name）筛选
+  - 返回 `UserPreviousNameWithCurrent` 结构，含 `current_screen_name` 和 `current_name`
+- `internal/database/model.go` - 新增 `UserPreviousNameWithCurrent` 结构体，含 `CurrentScreenName` 和 `CurrentName` 字段
+- `internal/api/types.go` - `DBUserPreviousNameItem` 新增 `CurrentScreenName` 和 `CurrentName` 字段
+- `internal/api/server.go` - 注册路由 `GET /api/v1/db/user-previous-names`
+- `internal/api/server_test.go` - 新增相关测试用例
+
+#### 下载处理器重构：统一任务构建
+- `internal/api/download_handlers.go` - 大规模重构（+481 行）：
+  - 新增 `buildTaskRunFunc(task)` 方法：根据 Task 类型自动构建运行函数，集中分发到对应的 DownloadService 方法
+  - 所有下载处理器入口（handleUserDownload、handleListDownload、handleFollowingDownload、handleBatchDownload、handleUserProfile、handleListProfile、handleUserMark、handleListMark、handleFollowingMark、handleJsonFileDownload、handleJsonFileUpload、handleJsonFolderDownload、handleJsonFolderUpload）统一使用 `buildTaskRunFunc` + `buildTaskOptions` 模式
+  - 消除每个处理器中的重复 `service.DownloadOptions{}` 构造和闭包定义
+  - `enqueueTask` 在 `downloadQueue == nil` 时正确设置任务错误状态
+- `internal/api/download_queue.go` - 新增 `Wakeup()` 方法：唤醒可能正在 cond.Wait 上休眠的 worker，用于任务取消后让 worker 检查清理
+
+### Changed
+
+#### API-Version 响应头
+- `internal/api/server.go` - 新增 API-Version 响应头中间件，在所有 API 响应中添加 `API-Version: v1` 头部，为未来版本迁移预留
+
+### Fixed
+
+#### Dumper 并发安全修复
+- `internal/service/download_service.go` - `executeDownloadTemplate` 和 `BatchDownload` 中 `dumper.Load()` 调用前后添加 `s.dumperMu.Lock()/Unlock()`，修复并发写入 dumper 时的竞态条件
+
+### Web UI
+
+#### 日志统计与导出功能
+- `internal/api/log_handlers.go` - 新增 2 个处理器：
+  - `handleLogStats` - 按日志级别统计计数（debug/info/warn/error）
+  - `handleLogExport` - 提供完整日志文件下载
+- `internal/api/server.go` - 注册路由：`GET /api/v1/logs/stats`、`GET /api/v1/logs/export`
+- `internal/api/web/app.js` - 日志页面新增：
+  - 级别过滤按钮显示各级别计数（如 `DEBUG (3)`、`INFO (42)`）
+  - 新增"📥 导出"按钮，调用 `api.downloadLogExport()` 下载完整日志
+  - 日志搜索输入新增 300ms 防抖（debounce），减少输入过程中的请求频率
+  - 修复日志分页 total 上限（min(total+1, 1000)），防止溢出
+  - 新增 `_logsPageLoaded` 标志位，防止日志页面重复加载
+- `internal/api/web/styles.css` - 日志相关样式优化
+
+#### 编辑器初始化竞态条件修复（CodeMirror）
+- `internal/api/web/app.js` - 修复配置和额外账户页面 CodeMirror 编辑器初始化竞态：
+  - 新增 `_configCmInitializing` 和 `_cookiesCmInitializing` 标志位，防止重复初始化
+  - `initConfigCodeMirror()` / `initCookiesCodeMirror()` 增加初始化中检查和容器存在性检查
+  - 页面切换清理逻辑中重置标志位
+  - 系统标签页选中改用 `data-tab` 属性而非 `textContent` 比较，更可靠
+- `internal/api/web/styles.css` - 系统面板 `.card` 和 `.card-body` 新增 flex 布局，CodeMirror 自适应高度
+
+#### 配置/额外账户/定时任务编辑器全高度布局
+- `internal/api/web/app.js` - `renderConfigEditor()`、`renderCookiesEditor()`、`renderScheduleViewer()`：
+  - 外部包裹 `flex-col + height:100%` 容器，使编辑器面板占满可用空间
+  - CodeMirror 高度从固定 `400px` 改为 `100%`，自适应容器
+  - `card-body` 使用 `flex-col + overflow:hidden`，`config-hint` 设为 `flex-shrink:0`
+  - 定时任务 schedule raw editor 同理适配
+- `internal/api/web/styles.css` - 新增样式：
+  - `.system-panel .card` / `.card-body`：flex 弹性布局 + overflow 控制
+  - `.system-panel .CodeMirror`：`height: 100% !important`
+  - `.system-panel .CodeMirror-scroll`：移除 `max-height` 限制
+  - `.mode-tab`：新增 `flex-shrink:0` 防止被压缩
+
+#### 定时任务表单 UI 改进
+- `internal/api/web/app.js` - `renderScheduleForm()`：
+  - 新增"类型"选择器（`sf_type`）下拉框
+  - "启用"复选框移到表单字段内（`config-group-title` 移至 `config-field` 区域），所有 checkbox label 使用 `inline-flex` 布局
+  - 各配置项标签（auto_follow、follow_members 等）改为 `display:inline-flex;align-items:center;gap:4px` 对齐
+
+### Stats
+
+- **25 个文件变更**
+- **+2,100 行 / -254 行**
+
+***
+
 ## [v3.4.18] - 2026-05-30
 
 ### Changed

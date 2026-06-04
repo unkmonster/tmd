@@ -313,9 +313,11 @@ func (s *downloadServiceImpl) executeDownloadTemplate(ctx context.Context, confi
 	}
 
 	dumper := downloading.NewDumper()
+	s.dumperMu.Lock()
 	if err := dumper.Load(pathHelper.ErrorsPath); err != nil {
 		log.Warnf("Failed to load dumper: %v", err)
 	}
+	s.dumperMu.Unlock()
 	defer s.saveDumper(dumper, pathHelper.ErrorsPath)
 
 	users, lists, explicitProfileUsers, err := config.Prepare(ctx, pathHelper)
@@ -709,9 +711,11 @@ func (s *downloadServiceImpl) BatchDownload(ctx context.Context, taskID string, 
 
 	// 初始化 Dumper
 	dumper := downloading.NewDumper()
+	s.dumperMu.Lock()
 	if err := dumper.Load(pathHelper.ErrorsPath); err != nil {
 		log.Warnf("Failed to load dumper: %v", err)
 	}
+	s.dumperMu.Unlock()
 	defer s.saveDumper(dumper, pathHelper.ErrorsPath)
 
 	reporter.OnProgress(taskID, Progress{Stage: "downloading"})
@@ -793,6 +797,52 @@ func (s *downloadServiceImpl) saveDumper(dumper *downloading.TweetDumper, path s
 		return
 	}
 	_ = os.Remove(path)
+}
+
+// RetryAllFailed 重试所有历史失败推文
+func (s *downloadServiceImpl) RetryAllFailed(ctx context.Context, taskID string, reporter ProgressReporter) error {
+	pathHelper, err := path.NewStorePath(s.deps.Config.RootPath)
+	if err != nil {
+		return fmt.Errorf("failed to create store path: %w", err)
+	}
+
+	_, fileWriter, dwn := s.initDownloader()
+	runtimeOptions := s.runtimeOptions()
+
+	// 重试常规下载错误
+	regDumper := downloading.NewDumper()
+	_ = regDumper.Load(pathHelper.ErrorsPath)
+	if regDumper.Count() > 0 {
+		if _, err := downloading.RetryFailedTweets(ctx, regDumper, s.deps.DB, s.deps.Client, dwn, fileWriter, runtimeOptions, nil); err != nil {
+			return fmt.Errorf("retry regular failed tweets: %w", err)
+		}
+		s.saveDumper(regDumper, pathHelper.ErrorsPath)
+	}
+
+	// 重试 JSON 导入错误
+	jsonDumper := downloading.NewJsonDumper()
+	_ = jsonDumper.Load(pathHelper.JSONErrorsPath)
+	if jsonDumper.Count() > 0 {
+		if _, err := downloading.RetryFailedJsonTweets(ctx, jsonDumper, s.deps.Client, dwn, fileWriter, runtimeOptions, nil); err != nil {
+			return fmt.Errorf("retry JSON failed tweets: %w", err)
+		}
+		s.saveJsonDumper(jsonDumper, pathHelper.JSONErrorsPath)
+	}
+
+	reporter.OnComplete(taskID, Result{Message: "completed"})
+	return nil
+}
+
+// ClearErrors 清除所有失败推文记录
+func (s *downloadServiceImpl) ClearErrors() error {
+	pathHelper, err := path.NewStorePath(s.deps.Config.RootPath)
+	if err != nil {
+		return fmt.Errorf("failed to create store path: %w", err)
+	}
+
+	_ = os.Remove(pathHelper.ErrorsPath)
+	_ = os.Remove(pathHelper.JSONErrorsPath)
+	return nil
 }
 
 // collectFailedTweets 收集失败的推文到 Dumper

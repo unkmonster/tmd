@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"fmt"
 	"sort"
 	"sync"
 	"time"
@@ -94,6 +95,30 @@ func (tm *TaskManager) GetAllTasks() []*Task {
 	result := make([]*Task, len(tm.tasksSnapshot))
 	copy(result, tm.tasksSnapshot)
 	return result
+}
+
+// GetTaskStats 返回各状态的任务计数
+func (tm *TaskManager) GetTaskStats() TaskStatsResponse {
+	tm.mu.RLock()
+	defer tm.mu.RUnlock()
+
+	var stats TaskStatsResponse
+	for _, task := range tm.tasksSnapshot {
+		stats.Total++
+		switch task.Status {
+		case TaskStatusQueued:
+			stats.Queued++
+		case TaskStatusRunning:
+			stats.Running++
+		case TaskStatusCompleted:
+			stats.Completed++
+		case TaskStatusFailed:
+			stats.Failed++
+		case TaskStatusCancelled:
+			stats.Cancelled++
+		}
+	}
+	return stats
 }
 
 // snapshotForPublish 返回当前只读快照本身，供内部 SSE 广播复用，避免重复复制。
@@ -230,6 +255,16 @@ func cloneTaskData(data interface{}) interface{} {
 		copied.Users = append([]string(nil), v.Users...)
 		copied.Lists = append([]StringUint64(nil), v.Lists...)
 		copied.FollowingNames = append([]string(nil), v.FollowingNames...)
+		return &copied
+	case *BatchMarkDownloadedTaskData:
+		if v == nil {
+			return (*BatchMarkDownloadedTaskData)(nil)
+		}
+		copied := *v
+		copied.Users = append([]string(nil), v.Users...)
+		copied.Lists = append([]StringUint64(nil), v.Lists...)
+		copied.FollowingNames = append([]string(nil), v.FollowingNames...)
+		copied.Timestamp = cloneTimePtr(v.Timestamp)
 		return &copied
 	case *ListProfileTaskData:
 		if v == nil {
@@ -472,6 +507,76 @@ func (tm *TaskManager) CancelAllTasks() {
 	tm.publishTasks()
 }
 
+// CancelQueuedTasks 取消所有排队中的任务，返回取消数量
+func (tm *TaskManager) CancelQueuedTasks() int {
+	tm.mu.Lock()
+	now := time.Now()
+	var count int
+	for _, task := range tm.tasks {
+		if task.Status == TaskStatusQueued {
+			task.Status = TaskStatusCancelled
+			applyTerminalProgress(task, TaskStatusCancelled, nil)
+			task.Cancel()
+			task.EndedAt = &now
+			count++
+		}
+	}
+	tm.rebuildSnapshotLocked()
+	tm.mu.Unlock()
+
+	if count > 0 {
+		tm.publishTasks()
+		if tm.eventBus != nil {
+			tm.eventBus.PublishNotification("tasks_cancelled", fmt.Sprintf("%d queued tasks cancelled", count), nil)
+		}
+	}
+	return count
+}
+
+// DeleteTask 删除终态任务
+func (tm *TaskManager) DeleteTask(id string) DeleteTaskResult {
+	tm.mu.Lock()
+	task, ok := tm.tasks[id]
+	if !ok {
+		tm.mu.Unlock()
+		return DeleteTaskResultNotFound
+	}
+
+	if !isTerminalStatus(task.Status) {
+		tm.mu.Unlock()
+		return DeleteTaskResultNotDeletable
+	}
+
+	delete(tm.tasks, id)
+	tm.rebuildSnapshotLocked()
+	tm.mu.Unlock()
+
+	tm.publishTasks()
+	return DeleteTaskResultDeleted
+}
+
+// RetryTask 重试失败或取消的任务，创建新任务并返回
+func (tm *TaskManager) RetryTask(id string) (*Task, RetryTaskResult) {
+	tm.mu.RLock()
+	original, ok := tm.tasks[id]
+	if !ok {
+		tm.mu.RUnlock()
+		return nil, RetryTaskResultNotFound
+	}
+
+	if original.Status != TaskStatusFailed && original.Status != TaskStatusCancelled {
+		tm.mu.RUnlock()
+		return nil, RetryTaskResultNotRetryable
+	}
+
+	taskType := original.Type
+	taskData := cloneTaskData(original.Data)
+	tm.mu.RUnlock()
+
+	newTask := tm.CreateTask(taskType, taskData)
+	return newTask, RetryTaskResultSuccess
+}
+
 // Close 停止后台清理 goroutine
 func (tm *TaskManager) Close() {
 	tm.closeOnce.Do(func() {
@@ -494,10 +599,10 @@ func (tm *TaskManager) cleanupLoop() {
 	}
 }
 
-// cleanup 清理 8 小时前的已完成任务
+// cleanup 清理 24 小时前的已完成任务
 func (tm *TaskManager) cleanup() {
 	tm.mu.Lock()
-	cutoff := time.Now().Add(-8 * time.Hour)
+	cutoff := time.Now().Add(-24 * time.Hour)
 	for id, task := range tm.tasks {
 		if task.Status == TaskStatusCompleted || task.Status == TaskStatusFailed || task.Status == TaskStatusCancelled {
 			if task.EndedAt != nil && task.EndedAt.Before(cutoff) {

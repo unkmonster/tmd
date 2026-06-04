@@ -83,6 +83,14 @@ func (f *fakeDownloadService) BatchDownload(_ context.Context, taskID string, sc
 	return nil
 }
 
+func (f *fakeDownloadService) RetryAllFailed(context.Context, string, service.ProgressReporter) error {
+	return nil
+}
+
+func (f *fakeDownloadService) ClearErrors() error {
+	return nil
+}
+
 // setupTestServer 创建测试服务器
 func setupTestServer(t *testing.T) (*Server, *sqlx.DB) {
 	return setupTestServerWithAppRoot(t, "/app")
@@ -2479,4 +2487,312 @@ func TestServer_RequestPathVariations(t *testing.T) {
 			// 验证不会 panic
 		})
 	}
+}
+
+func TestHandleTaskStats(t *testing.T) {
+	t.Run("空统计", func(t *testing.T) {
+		server, db := setupTestServer(t)
+		defer db.Close()
+
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/tasks/stats", nil)
+		rr := serveAPI(server, req)
+
+		assert.Equal(t, http.StatusOK, rr.Code)
+
+		var resp APIResponse
+		err := json.Unmarshal(rr.Body.Bytes(), &resp)
+		assert.NoError(t, err)
+		assert.True(t, resp.Success)
+
+		data, ok := resp.Data.(map[string]interface{})
+		assert.True(t, ok)
+		assert.Equal(t, float64(0), data["queued"])
+		assert.Equal(t, float64(0), data["running"])
+		assert.Equal(t, float64(0), data["completed"])
+		assert.Equal(t, float64(0), data["failed"])
+		assert.Equal(t, float64(0), data["cancelled"])
+		assert.Equal(t, float64(0), data["total"])
+	})
+
+	t.Run("有任务统计", func(t *testing.T) {
+		server, db := setupTestServer(t)
+		defer db.Close()
+
+		// 创建不同状态的任务
+		server.taskManager.CreateTask(TaskTypeUserDownload, nil) // queued
+		running := server.taskManager.CreateTask(TaskTypeUserDownload, nil)
+		server.taskManager.UpdateTaskStatus(running.ID, TaskStatusRunning)
+		completed := server.taskManager.CreateTask(TaskTypeUserDownload, nil)
+		server.taskManager.UpdateTaskStatus(completed.ID, TaskStatusCompleted)
+
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/tasks/stats", nil)
+		rr := serveAPI(server, req)
+
+		assert.Equal(t, http.StatusOK, rr.Code)
+
+		var resp APIResponse
+		err := json.Unmarshal(rr.Body.Bytes(), &resp)
+		assert.NoError(t, err)
+		assert.True(t, resp.Success)
+
+		data, ok := resp.Data.(map[string]interface{})
+		assert.True(t, ok)
+		assert.Equal(t, float64(1), data["queued"])
+		assert.Equal(t, float64(1), data["running"])
+		assert.Equal(t, float64(1), data["completed"])
+		assert.Equal(t, float64(3), data["total"])
+	})
+}
+
+func TestHandleCancelQueuedTasks(t *testing.T) {
+	t.Run("取消排队任务", func(t *testing.T) {
+		server, db := setupTestServer(t)
+		defer db.Close()
+
+		server.taskManager.CreateTask(TaskTypeUserDownload, nil)
+		server.taskManager.CreateTask(TaskTypeListDownload, nil)
+
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/tasks/cancel-queued", strings.NewReader("{}"))
+		req.Header.Set("Content-Type", "application/json")
+		rr := serveAPI(server, req)
+
+		assert.Equal(t, http.StatusOK, rr.Code)
+
+		var resp APIResponse
+		err := json.Unmarshal(rr.Body.Bytes(), &resp)
+		assert.NoError(t, err)
+		assert.True(t, resp.Success)
+
+		data, ok := resp.Data.(map[string]interface{})
+		assert.True(t, ok)
+		assert.Equal(t, float64(2), data["cancelled_count"])
+	})
+
+	t.Run("空队列", func(t *testing.T) {
+		server, db := setupTestServer(t)
+		defer db.Close()
+
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/tasks/cancel-queued", strings.NewReader("{}"))
+		req.Header.Set("Content-Type", "application/json")
+		rr := serveAPI(server, req)
+
+		assert.Equal(t, http.StatusOK, rr.Code)
+
+		var resp APIResponse
+		err := json.Unmarshal(rr.Body.Bytes(), &resp)
+		assert.NoError(t, err)
+		assert.True(t, resp.Success)
+
+		data, ok := resp.Data.(map[string]interface{})
+		assert.True(t, ok)
+		assert.Equal(t, float64(0), data["cancelled_count"])
+	})
+}
+
+func TestHandleDeleteTask(t *testing.T) {
+	t.Run("删除终态任务", func(t *testing.T) {
+		server, db := setupTestServer(t)
+		defer db.Close()
+
+		task := server.taskManager.CreateTask(TaskTypeUserDownload, nil)
+		server.taskManager.UpdateTaskStatus(task.ID, TaskStatusCompleted)
+
+		req := httptest.NewRequest(http.MethodDelete, "/api/v1/tasks/"+task.ID, nil)
+		rr := serveAPI(server, req)
+
+		assert.Equal(t, http.StatusOK, rr.Code)
+
+		var resp APIResponse
+		err := json.Unmarshal(rr.Body.Bytes(), &resp)
+		assert.NoError(t, err)
+		assert.True(t, resp.Success)
+	})
+
+	t.Run("删除不存在任务", func(t *testing.T) {
+		server, db := setupTestServer(t)
+		defer db.Close()
+
+		req := httptest.NewRequest(http.MethodDelete, "/api/v1/tasks/non_existent", nil)
+		rr := serveAPI(server, req)
+
+		assert.Equal(t, http.StatusNotFound, rr.Code)
+	})
+
+	t.Run("删除运行中任务", func(t *testing.T) {
+		server, db := setupTestServer(t)
+		defer db.Close()
+
+		task := server.taskManager.CreateTask(TaskTypeUserDownload, nil)
+		server.taskManager.UpdateTaskStatus(task.ID, TaskStatusRunning)
+
+		req := httptest.NewRequest(http.MethodDelete, "/api/v1/tasks/"+task.ID, nil)
+		rr := serveAPI(server, req)
+
+		assert.Equal(t, http.StatusConflict, rr.Code)
+	})
+}
+
+func TestHandleRetryTask(t *testing.T) {
+	t.Run("重试失败任务", func(t *testing.T) {
+		server, db := setupTestServer(t)
+		defer db.Close()
+
+		task := server.taskManager.CreateTask(TaskTypeUserDownload, &UserDownloadTaskData{ScreenName: "testuser"})
+		server.taskManager.SetTaskError(task.ID, assert.AnError)
+
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/tasks/"+task.ID+"/retry", strings.NewReader("{}"))
+		req.Header.Set("Content-Type", "application/json")
+		rr := serveAPI(server, req)
+
+		assert.Equal(t, http.StatusAccepted, rr.Code)
+
+		var resp APIResponse
+		err := json.Unmarshal(rr.Body.Bytes(), &resp)
+		assert.NoError(t, err)
+		assert.True(t, resp.Success)
+
+		data, ok := resp.Data.(map[string]interface{})
+		assert.True(t, ok)
+		assert.NotEmpty(t, data["task_id"])
+		assert.NotEqual(t, task.ID, data["task_id"])
+		assert.Equal(t, task.ID, data["original_id"])
+	})
+
+	t.Run("重试不存在任务", func(t *testing.T) {
+		server, db := setupTestServer(t)
+		defer db.Close()
+
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/tasks/non_existent/retry", strings.NewReader("{}"))
+		req.Header.Set("Content-Type", "application/json")
+		rr := serveAPI(server, req)
+
+		assert.Equal(t, http.StatusNotFound, rr.Code)
+	})
+
+	t.Run("重试运行中任务", func(t *testing.T) {
+		server, db := setupTestServer(t)
+		defer db.Close()
+
+		task := server.taskManager.CreateTask(TaskTypeUserDownload, nil)
+		server.taskManager.UpdateTaskStatus(task.ID, TaskStatusRunning)
+
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/tasks/"+task.ID+"/retry", strings.NewReader("{}"))
+		req.Header.Set("Content-Type", "application/json")
+		rr := serveAPI(server, req)
+
+		assert.Equal(t, http.StatusConflict, rr.Code)
+	})
+
+	t.Run("重试上传来源的JSON任务被拒绝", func(t *testing.T) {
+		server, db := setupTestServer(t)
+		defer db.Close()
+
+		task := server.taskManager.CreateTask(TaskTypeJsonFileDownload, &JsonFileDownloadTaskData{
+			Paths:      []string{"/tmp/uploaded.json"},
+			FromUpload: true,
+		})
+		server.taskManager.SetTaskError(task.ID, assert.AnError)
+
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/tasks/"+task.ID+"/retry", strings.NewReader("{}"))
+		req.Header.Set("Content-Type", "application/json")
+		rr := serveAPI(server, req)
+
+		assert.Equal(t, http.StatusConflict, rr.Code)
+	})
+}
+
+func TestAPIVersionHeader(t *testing.T) {
+	server, db := setupTestServer(t)
+	defer db.Close()
+
+	tests := []struct {
+		name   string
+		method string
+		path   string
+	}{
+		{"健康检查", http.MethodGet, "/api/v1/health"},
+		{"任务列表", http.MethodGet, "/api/v1/tasks"},
+		{"任务统计", http.MethodGet, "/api/v1/tasks/stats"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(tt.method, tt.path, nil)
+			rr := serveAPI(server, req)
+
+			assert.Equal(t, "v1", rr.Header().Get("API-Version"))
+		})
+	}
+}
+
+func TestHandleErrors(t *testing.T) {
+	server, db := setupTestServer(t)
+	defer db.Close()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/errors", nil)
+	rr := serveAPI(server, req)
+
+	assert.Equal(t, http.StatusOK, rr.Code)
+
+	var resp APIResponse
+	err := json.Unmarshal(rr.Body.Bytes(), &resp)
+	assert.NoError(t, err)
+	assert.True(t, resp.Success)
+
+	data, ok := resp.Data.(map[string]interface{})
+	assert.True(t, ok)
+	// regular 和 json 字段都存在
+	assert.NotNil(t, data["regular"])
+	assert.NotNil(t, data["json"])
+}
+
+func TestHandleBatchMark(t *testing.T) {
+	server, db := setupTestServer(t)
+	defer db.Close()
+
+	reqData := BatchMarkDownloadedTaskData{
+		Users:          []string{"user1"},
+		Lists:          []StringUint64{100},
+		FollowingNames: []string{"user2"},
+	}
+	body, _ := json.Marshal(reqData)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/batch/mark", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rr := serveAPI(server, req)
+
+	assert.Equal(t, http.StatusAccepted, rr.Code)
+	tasks := server.taskManager.GetAllTasks()
+	assert.Len(t, tasks, 1)
+	assert.Equal(t, TaskTypeMarkDownloaded, tasks[0].Type)
+}
+
+func TestHandleRetryAllFailed(t *testing.T) {
+	server, db := setupTestServer(t)
+	defer db.Close()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/retry/failed", nil)
+	rr := serveAPI(server, req)
+
+	assert.Equal(t, http.StatusAccepted, rr.Code)
+
+	var resp APIResponse
+	err := json.Unmarshal(rr.Body.Bytes(), &resp)
+	assert.NoError(t, err)
+	assert.True(t, resp.Success)
+}
+
+func TestHandleClearErrors(t *testing.T) {
+	server, db := setupTestServer(t)
+	defer db.Close()
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/errors", nil)
+	rr := serveAPI(server, req)
+
+	assert.Equal(t, http.StatusOK, rr.Code)
+
+	var resp APIResponse
+	err := json.Unmarshal(rr.Body.Bytes(), &resp)
+	assert.NoError(t, err)
+	assert.True(t, resp.Success)
 }

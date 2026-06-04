@@ -421,16 +421,18 @@ func TestDBUserLinkItem(t *testing.T) {
 
 func TestDBUserPreviousNameItem(t *testing.T) {
 	item := DBUserPreviousNameItem{
-		ID:         "1",
-		Uid:        "123",
-		ScreenName: "old_name",
-		Name:       "Old Name",
-		RecordDate: "2024-01-01",
+		ID:                "1",
+		UserID:            "123",
+		ScreenName:        "old_name",
+		Name:              "Old Name",
+		RecordDate:        "2024-01-01",
+		CurrentScreenName: "current_name",
+		CurrentName:       "Current Name",
 	}
 
 	bytes, err := json.Marshal(item)
 	assert.NoError(t, err)
-	assert.JSONEq(t, `{"id":"1","user_id":"123","screen_name":"old_name","name":"Old Name","record_date":"2024-01-01"}`, string(bytes))
+	assert.JSONEq(t, `{"id":"1","user_id":"123","screen_name":"old_name","name":"Old Name","record_date":"2024-01-01","current_screen_name":"current_name","current_name":"Current Name"}`, string(bytes))
 }
 
 func TestConfigResponse(t *testing.T) {

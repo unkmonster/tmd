@@ -112,10 +112,19 @@ func DownloadThirdPartyTweets(
 	var mu sync.Mutex
 	var wg sync.WaitGroup
 
+	// 限制并发处理的文件数，避免大量文件同时启动 goroutine + 内部 BatchDownloadTweet 并发叠加
+	maxConcurrent := opts.normalizedMaxDownloadRoutine()
+	if maxConcurrent < 1 {
+		maxConcurrent = 1
+	}
+	sem := make(chan struct{}, maxConcurrent)
+
 	for _, filePath := range filePaths {
 		wg.Add(1)
+		sem <- struct{}{}
 		go func(fp string) {
 			defer wg.Done()
+			defer func() { <-sem }()
 			start := time.Now()
 
 			result := ThirdPartyTweetResult{Path: fp}

@@ -360,6 +360,7 @@ ul, ol {
   padding: var(--space-4) var(--space-5);
   border-bottom: 1px solid var(--border-primary);
   min-height: 56px;
+  flex-shrink: 0;
 }
 
 .card-title {
@@ -731,6 +732,7 @@ ul, ol {
   justify-content: space-between;
   padding: var(--space-4) var(--space-5);
   border-top: 1px solid var(--border-primary);
+  flex-shrink: 0;
 }
 
 .pagination-info {
@@ -1013,6 +1015,7 @@ ul, ol {
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
   gap: var(--space-4);
   margin-bottom: var(--space-6);
+  flex-shrink: 0;
 }
 
 .stat-card {
@@ -1089,13 +1092,6 @@ ul, ol {
   line-height: 1.3;
   padding-top: var(--space-2);
   padding-bottom: var(--space-2);
-}
-
-/* Overview Container */
-.overview-container {
-  display: flex;
-  flex-direction: column;
-  height: calc(100vh - var(--header-height) - var(--space-6) * 2);
 }
 
 /* Overview Tasks List */
@@ -1175,6 +1171,7 @@ ul, ol {
   background: var(--bg-tertiary);
   border-bottom: 1px solid var(--border-primary);
   gap: var(--space-4);
+  flex-shrink: 0;
 }
 
 .toolbar-left,
@@ -1201,6 +1198,71 @@ ul, ol {
   display: flex;
   flex-direction: column;
   min-height: 0;
+}
+
+/* ===== Page Layout Utilities ===== */
+
+.page-container {
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - var(--header-height) - var(--space-6) * 2);
+}
+
+.card-page {
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - var(--header-height) - var(--space-6) * 2);
+}
+
+.card-fill {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.card-body-scroll {
+  padding: 0;
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.system-tab-bar {
+  flex-shrink: 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--space-4);
+}
+
+.system-panel-scroll {
+  flex: 1;
+  overflow-y: auto;
+}
+
+/* System panel flex cards: mode-tabs + card-header fixed, card-body scrolls */
+.system-panel .card {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-height: 0;
+}
+
+.system-panel .card-body {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.config-label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+  cursor: pointer;
 }
 
 /* Task list scroll area */
@@ -1511,9 +1573,18 @@ ul, ol {
   border-radius: var(--radius-md) !important;
 }
 
+/* CodeMirror fills card-body in system panels */
+.system-panel .CodeMirror {
+  height: 100% !important;
+}
+
 .CodeMirror-scroll {
   min-height: 300px;
   max-height: 500px;
+}
+
+.system-panel .CodeMirror-scroll {
+  max-height: none;
 }
 
 .config-hint {
@@ -1621,6 +1692,7 @@ ul, ol {
   display: flex;
   gap: var(--space-2);
   margin-bottom: var(--space-5);
+  flex-shrink: 0;
 }
 
 .mode-tab {

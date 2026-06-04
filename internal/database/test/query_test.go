@@ -246,13 +246,13 @@ func TestQueryUserLinks(t *testing.T) {
 	}
 
 	t.Run("query_all", func(t *testing.T) {
-		links, err := database.QueryUserLinks(db, "", nil, 10, 0)
+		links, err := database.QueryUserLinks(db, "", nil, "", 10, 0)
 		assert.NoError(t, err)
 		assert.Len(t, links, 5)
 	})
 
 	t.Run("query_with_where", func(t *testing.T) {
-		links, err := database.QueryUserLinks(db, "user_id = ?", []interface{}{uint64(1)}, 10, 0)
+		links, err := database.QueryUserLinks(db, "user_id = ?", []interface{}{uint64(1)}, "", 10, 0)
 		assert.NoError(t, err)
 		assert.Len(t, links, 1)
 		assert.Equal(t, "link0", links[0].Name)

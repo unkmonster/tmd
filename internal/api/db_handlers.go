@@ -35,6 +35,28 @@ var entitySortFields = map[string]string{
 	"latest_release_time": "latest_release_time",
 }
 
+var lstEntitySortFields = map[string]string{
+	"id":     "id",
+	"lst_id": "lst_id",
+	"name":   "name",
+}
+
+var linkSortFields = map[string]string{
+	"id":                   "id",
+	"user_id":              "user_id",
+	"name":                 "name",
+	"parent_lst_entity_id": "parent_lst_entity_id",
+}
+
+var prevNameSortFields = map[string]string{
+	"id":                  "pn.id",
+	"user_id":             "pn.user_id",
+	"screen_name":         "pn.screen_name",
+	"name":                "pn.name",
+	"record_date":         "pn.record_date",
+	"current_screen_name": "u.screen_name",
+}
+
 func optionalUint64Query(r *http.Request, name string) (uint64, bool, error) {
 	raw := r.URL.Query().Get(name)
 	if raw == "" {
@@ -613,7 +635,7 @@ func (s *Server) handleDBListEntities(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	orderBy := pagination.BuildOrderBy(entitySortFields)
+	orderBy := pagination.BuildOrderBy(lstEntitySortFields)
 	entities, err := database.QueryLstEntities(s.db, whereClause, args, orderBy, pagination.PageSize, pagination.Offset)
 	if err != nil {
 		s.writeError(w, http.StatusInternalServerError, err.Error())
@@ -763,6 +785,16 @@ func (s *Server) handleDBUserLinks(w http.ResponseWriter, r *http.Request) {
 		args = append(args, listEntityID)
 	}
 
+	// 搜索关键词
+	if keyword := r.URL.Query().Get("q"); keyword != "" {
+		cond, searchArgs := database.BuildSearchCondition(
+			[]string{"name"},
+			keyword,
+		)
+		whereConditions = append(whereConditions, cond)
+		args = append(args, searchArgs...)
+	}
+
 	whereClause := ""
 	if len(whereConditions) > 0 {
 		whereClause = strings.Join(whereConditions, " AND ")
@@ -777,7 +809,8 @@ func (s *Server) handleDBUserLinks(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	links, err := database.QueryUserLinks(s.db, whereClause, args, pagination.PageSize, pagination.Offset)
+	orderBy := pagination.BuildOrderBy(linkSortFields)
+	links, err := database.QueryUserLinks(s.db, whereClause, args, orderBy, pagination.PageSize, pagination.Offset)
 	if err != nil {
 		s.writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -907,17 +940,20 @@ func (s *Server) handleDBUserPreviousNames(w http.ResponseWriter, r *http.Reques
 
 	pagination := NewPagination(r)
 
-	names, err := database.QueryUserPreviousNames(s.db, uid, pagination.PageSize, pagination.Offset)
+	whereClause := "pn.user_id = ?"
+	args := []interface{}{uid}
+
+	total, err := database.Count(s.db, "user_previous_names pn LEFT JOIN users u ON pn.user_id = u.id", &database.QueryOptions{
+		Where: whereClause,
+		Args:  args,
+	})
 	if err != nil {
 		s.writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	// 获取总数
-	total, err := database.Count(s.db, "user_previous_names", &database.QueryOptions{
-		Where: "user_id = ?",
-		Args:  []interface{}{uid},
-	})
+	orderBy := pagination.BuildOrderBy(prevNameSortFields)
+	names, err := database.QueryAllUserPreviousNames(s.db, whereClause, args, orderBy, pagination.PageSize, pagination.Offset)
 	if err != nil {
 		s.writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -926,11 +962,82 @@ func (s *Server) handleDBUserPreviousNames(w http.ResponseWriter, r *http.Reques
 	items := make([]DBUserPreviousNameItem, len(names))
 	for i, n := range names {
 		items[i] = DBUserPreviousNameItem{
-			ID:         strconv.Itoa(int(n.Id)),
-			Uid:        strconv.FormatUint(n.UserId, 10),
-			ScreenName: n.ScreenName,
-			Name:       n.Name,
-			RecordDate: n.RecordDate.Format("2006-01-02"),
+			ID:                strconv.Itoa(int(n.Id)),
+			UserID:            strconv.FormatUint(n.UserId, 10),
+			ScreenName:        n.ScreenName,
+			Name:              n.Name,
+			RecordDate:        n.RecordDate.Format("2006-01-02"),
+			CurrentScreenName: n.CurrentScreenName,
+			CurrentName:       n.CurrentName,
+		}
+	}
+
+	response := pagination.ToResponse(items, total)
+	s.writeJSON(w, http.StatusOK, NewSuccessResponse(response))
+}
+
+// ============ Previous Names 全局列表 ============
+
+func (s *Server) handleDBPreviousNames(w http.ResponseWriter, r *http.Request) {
+	pagination := NewPagination(r)
+
+	var whereConditions []string
+	var args []interface{}
+
+	// 可选：按 user_id 筛选
+	if userID, ok, err := optionalUint64Query(r, "userId"); err != nil {
+		s.writeError(w, http.StatusBadRequest, "Invalid user ID")
+		return
+	} else if ok {
+		whereConditions = append(whereConditions, "pn.user_id = ?")
+		args = append(args, userID)
+	}
+
+	// 搜索关键词（pn.screen_name、pn.name、u.screen_name）
+	if keyword := r.URL.Query().Get("q"); keyword != "" {
+		cond, searchArgs := database.BuildSearchCondition(
+			[]string{"pn.screen_name", "pn.name", "u.screen_name"},
+			keyword,
+		)
+		whereConditions = append(whereConditions, cond)
+		args = append(args, searchArgs...)
+	}
+
+	// 基础条件：只统计有多条记录的用户（实际改过名的）
+	baseWhere := "pn.user_id IN (SELECT user_id FROM user_previous_names GROUP BY user_id HAVING COUNT(*) > 1)"
+	var whereClause string
+	if len(whereConditions) > 0 {
+		whereClause = baseWhere + " AND " + strings.Join(whereConditions, " AND ")
+	} else {
+		whereClause = baseWhere
+	}
+
+	total, err := database.Count(s.db, "user_previous_names pn LEFT JOIN users u ON pn.user_id = u.id", &database.QueryOptions{
+		Where: whereClause,
+		Args:  args,
+	})
+	if err != nil {
+		s.writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	orderBy := pagination.BuildOrderBy(prevNameSortFields)
+	names, err := database.QueryAllUserPreviousNames(s.db, whereClause, args, orderBy, pagination.PageSize, pagination.Offset)
+	if err != nil {
+		s.writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	items := make([]DBUserPreviousNameItem, len(names))
+	for i, n := range names {
+		items[i] = DBUserPreviousNameItem{
+			ID:                strconv.Itoa(int(n.Id)),
+			UserID:            strconv.FormatUint(n.UserId, 10),
+			ScreenName:        n.ScreenName,
+			Name:              n.Name,
+			RecordDate:        n.RecordDate.Format("2006-01-02"),
+			CurrentScreenName: n.CurrentScreenName,
+			CurrentName:       n.CurrentName,
 		}
 	}
 

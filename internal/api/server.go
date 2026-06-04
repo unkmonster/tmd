@@ -112,15 +112,24 @@ func (s *Server) buildHandler() http.Handler {
 	mux.HandleFunc("POST /api/v1/json/file/download", s.handleJsonFileDownload)
 	mux.HandleFunc("POST /api/v1/json/folder/download", s.handleJsonFolderDownload)
 	mux.HandleFunc("POST /api/v1/batch/download", s.handleBatchDownload)
+	mux.HandleFunc("POST /api/v1/batch/mark", s.handleBatchMark)
 	mux.HandleFunc("GET /api/v1/tasks", s.handleTasks)
+	mux.HandleFunc("GET /api/v1/tasks/stats", s.handleTaskStats)
 	mux.HandleFunc("GET /api/v1/tasks/{task_id}", s.handleGetTask)
 	mux.HandleFunc("POST /api/v1/tasks/{task_id}/cancel", s.handleCancelTask)
+	mux.HandleFunc("POST /api/v1/tasks/cancel-queued", s.handleCancelQueuedTasks)
+	mux.HandleFunc("POST /api/v1/tasks/{task_id}/retry", s.handleRetryTask)
+	mux.HandleFunc("DELETE /api/v1/tasks/{task_id}", s.handleDeleteTask)
+	mux.HandleFunc("GET /api/v1/errors", s.handleErrors)
+	mux.HandleFunc("POST /api/v1/retry/failed", s.handleRetryAllFailed)
+	mux.HandleFunc("DELETE /api/v1/errors", s.handleClearErrors)
 
 	mux.HandleFunc("GET /{$}", s.handleWeb)
 	mux.HandleFunc("GET /tasks", s.handleWeb)
 	mux.HandleFunc("GET /data", s.handleWeb)
 	mux.HandleFunc("GET /schedules", s.handleWeb)
 	mux.HandleFunc("GET /system", s.handleWeb)
+	mux.HandleFunc("GET /logs", s.handleWeb)
 	mux.HandleFunc("GET /static/{$}", s.handleStatic)
 	mux.HandleFunc("GET /static/{path...}", s.handleStatic)
 	mux.HandleFunc("GET /api/v1/sse/tasks", s.handleSSETasks)
@@ -150,6 +159,7 @@ func (s *Server) buildHandler() http.Handler {
 	mux.HandleFunc("GET /api/v1/db/user-links/{id}", s.handleDBUserLinkDetail)
 	mux.HandleFunc("PUT /api/v1/db/user-links/{id}", s.handleDBUserLinkUpdate)
 	mux.HandleFunc("DELETE /api/v1/db/user-links/{id}", s.handleDBUserLinkDelete)
+	mux.HandleFunc("GET /api/v1/db/user-previous-names", s.handleDBPreviousNames)
 
 	mux.HandleFunc("GET /api/v1/config", s.handleConfig)
 	mux.HandleFunc("GET /api/v1/config/raw", s.handleGetConfigRaw)
@@ -162,6 +172,8 @@ func (s *Server) buildHandler() http.Handler {
 	mux.HandleFunc("PUT /api/v1/cookies/raw", s.handleUpdateCookiesRaw)
 	mux.HandleFunc("POST /api/v1/server/shutdown", s.handleServerShutdown)
 	mux.HandleFunc("GET /api/v1/logs", s.handleGetLogs)
+	mux.HandleFunc("GET /api/v1/logs/stats", s.handleLogStats)
+	mux.HandleFunc("GET /api/v1/logs/export", s.handleLogExport)
 	mux.HandleFunc("GET /api/v1/logs/stream", s.handleLogStream)
 
 	mux.HandleFunc("GET /api/v1/schedules", s.handleGetSchedules)
@@ -185,6 +197,13 @@ func (s *Server) buildHandler() http.Handler {
 		AllowedMethods: []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowedHeaders: []string{"Content-Type", "Authorization"},
 	}).Handler(handler)
+
+	// API 版本头中间件：在所有响应中添加 API-Version 头，为未来版本迁移预留
+	corsHandler := handler
+	handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("API-Version", "v1")
+		corsHandler.ServeHTTP(w, r)
+	})
 
 	handler = loggingMiddleware(handler)
 	return handler
