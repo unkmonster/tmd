@@ -15,4 +15,8 @@
 
 ## user_id
 
-略
+user_id 是 Twitter 用户的唯一数字标识符。可以通过以下方式获取：
+
+1. 使用第三方工具如 [twitter-id](https://twitter-id.vercel.app/) 查找
+2. 通过 API 响应中的 `user.id` 字段获取
+3. 在浏览器开发者工具的 Network 标签页中，查看 Twitter API 请求响应中的 `rest_id` 字段

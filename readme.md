@@ -5,7 +5,7 @@
 [![CI/CD](https://github.com/unkmonster/tmd/actions/workflows/go.yml/badge.svg)](.github/workflows/go.yml)
 [Release](https://github.com/unkmonster/tmd/releases/latest)
 
-> **版本**: 3.4.4 | **状态**: 活跃维护 | **许可证**: GPL-3.0
+> **版本**: 3.4.19 | **状态**: 活跃维护 | **许可证**: GPL-3.0
 
 本项目的代码基于 [unkmonster/tmd](https://github.com/unkmonster/tmd) 项目，修改了部分代码，添加了新的功能特性。新增的功能见 [CHANGELOG.md文件](CHANGELOG.md)
 
@@ -146,11 +146,11 @@ GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 go build -o tmd-macos .
 ```bash
 # Docker Hub
 docker pull leeexx00/tmd:latest
-docker pull leeexx00/tmd:v3.4.4
+docker pull leeexx00/tmd:v3.4.19
 
 # GHCR
 docker pull ghcr.io/leeexx2001/tmd:latest
-docker pull ghcr.io/leeexx2001/tmd:v3.4.4
+docker pull ghcr.io/leeexx2001/tmd:v3.4.19
 ```
 
 **推荐方式：使用 docker compose**
@@ -414,6 +414,7 @@ tmd -server -port 8080
 | **Cookie 管理** | 独立管理主 Cookie 和备用 Cookie，支持表单和原始 YAML 编辑 |
 | **日志查看** | 实时日志流（SSE）+ 历史日志查看，支持按级别筛选、搜索、分页 |
 | **定时任务** | 可视化调度器管理，支持创建/编辑/启禁/手动触发 |
+| **失败推文管理** | 查看失败推文摘要、一键重试所有失败推文、清除错误记录 |
 | **服务器控制** | 支持通过 API/Web 优雅关闭服务器 |
 
 ### API 端点速查
@@ -432,15 +433,21 @@ tmd -server -port 8080
 | **POST** | `/api/v1/json/file/download` | JSON 文件导入下载（支持路径列表/文件上传） | ❌ |
 | **POST** | `/api/v1/json/folder/download` | LoongTweet 文件夹下载（支持路径列表/文件上传） | ❌ |
 | **POST** | `/api/v1/batch/download` | 批量下载（多用户/列表） | ❌ |
+| **POST** | `/api/v1/batch/mark` | 批量标记下载（多用户/列表/关注） | ❌ |
 | **GET** | `/api/v1/tasks` | 任务列表 | ❌ |
+| **GET** | `/api/v1/tasks/stats` | 任务统计（按状态计数） | ❌ |
 | **GET** | `/api/v1/tasks/{task_id}` | 任务详情 | ❌ |
 | **POST** | `/api/v1/tasks/{task_id}/cancel` | 取消任务 | ❌ |
+| **POST** | `/api/v1/tasks/cancel-queued` | 取消所有排队中的任务 | ❌ |
+| **POST** | `/api/v1/tasks/{task_id}/retry` | 重试失败/取消的任务 | ❌ |
+| **DELETE** | `/api/v1/tasks/{task_id}` | 删除终端状态任务 | ❌ |
 | **GET** | `/api/v1/sse/tasks` | SSE 实时任务推送 | ❌ |
 | **GET** | `/api/v1/db/users` | 用户列表（分页） | ❌ |
 | **GET** | `/api/v1/db/users/{id}` | 用户详情 | ❌ |
 | **PUT** | `/api/v1/db/users/{id}` | 更新用户 | ❌ |
 | **DELETE** | `/api/v1/db/users/{id}` | 删除用户 | ❌ |
 | **GET** | `/api/v1/db/users/{id}/previous-names` | 用户历史名称 | ❌ |
+| **GET** | `/api/v1/db/user-previous-names` | 全局历史名称查询（含当前名称） | ❌ |
 | **GET** | `/api/v1/db/lists` | 列表列表（分页） | ❌ |
 | **GET** | `/api/v1/db/lists/{id}` | 列表详情 | ❌ |
 | **PUT** | `/api/v1/db/lists/{id}` | 更新列表 | ❌ |
@@ -469,6 +476,8 @@ tmd -server -port 8080
 | **POST** | `/api/v1/server/shutdown` | 优雅关闭服务器 | ❌ |
 | **GET** | `/api/v1/logs` | 获取系统日志（支持筛选/分页） | ❌ |
 | **GET** | `/api/v1/logs/stream` | SSE 实时日志流 | ❌ |
+| **GET** | `/api/v1/logs/stats` | 日志级别统计计数 | ❌ |
+| **GET** | `/api/v1/logs/export` | 导出完整日志文件 | ❌ |
 | **GET** | `/api/v1/schedules` | 获取定时任务列表和状态 | ❌ |
 | **PUT** | `/api/v1/schedules` | 替换全部调度配置 | ❌ |
 | **POST** | `/api/v1/schedules` | 创建定时任务 | ❌ |
@@ -480,11 +489,15 @@ tmd -server -port 8080
 | **DELETE** | `/api/v1/schedules/{id}` | 删除定时任务 | ❌ |
 | **PATCH** | `/api/v1/schedules/{id}/enabled` | 启用/禁用定时任务 | ❌ |
 | **POST** | `/api/v1/schedules/{id}/trigger` | 手动触发定时任务 | ❌ |
+| **GET** | `/api/v1/errors` | 失败推文摘要（含常规+JSON来源） | ❌ |
+| **POST** | `/api/v1/retry/failed` | 重试所有历史失败推文 | ❌ |
+| **DELETE** | `/api/v1/errors` | 清除所有失败推文记录 | ❌ |
 | **GET** | `/` | Web 管理界面 - 仪表盘 | ❌ |
 | **GET** | `/tasks` | Web 管理界面 - 任务 | ❌ |
 | **GET** | `/data` | Web 管理界面 - 数据 | ❌ |
 | **GET** | `/schedules` | Web 管理界面 - 调度 | ❌ |
 | **GET** | `/system` | Web 管理界面 - 系统 | ❌ |
+| **GET** | `/logs` | Web 管理界面 - 日志 | ❌ |
 | **GET** | `/static/{$}` | 静态资源文件（精确匹配） | ❌ |
 | **GET** | `/static/{path...}` | 静态资源文件（路径匹配） | ❌ |
 
@@ -527,9 +540,8 @@ JSON 导入端点（`/api/v1/json/file/download` 和 `/api/v1/json/folder/downlo
 
 **任务状态推送** - `GET /api/v1/sse/tasks`：
 
-- 每 **2 秒**推送一次所有任务列表（全量推送，非增量）
+- 任务状态变更时通过事件总线实时推送（全量推送，非增量），心跳间隔 25 秒
 - 客户端断开时服务端通过 `context.Done()` 自动感知
-- 无心跳机制，依赖 HTTP keep-alive 保持连接
 
 **实时日志流** - `GET /api/v1/logs/stream`：
 
@@ -539,7 +551,7 @@ JSON 导入端点（`/api/v1/json/file/download` 和 `/api/v1/json/folder/downlo
 
 ### 任务自动清理
 
-- 已完成/失败/取消的任务在 **8 小时**后自动清理
+- 已完成/失败/取消的任务在 **24 小时**后自动清理
 - 清理每 **1 小时**执行一次
 - 运行中的任务不会被清理
 
@@ -589,9 +601,10 @@ http://localhost:25556/
     - 敏感信息脱敏显示
   - **日志查看器**：
     - 实时日志流（SSE 推送，无需轮询）
-    - 按级别筛选（DEBUG/INFO/WARN/ERROR）
-    - 关键词搜索
+    - 按级别筛选（DEBUG/INFO/WARN/ERROR），显示各级别日志计数
+    - 关键词搜索（300ms 防抖，减少请求频率）
     - 分页浏览
+    - **日志导出**：一键下载完整日志文件
   - **服务器控制**：优雅关闭服务器
 
 ### API 文档
@@ -624,6 +637,23 @@ curl http://localhost:25556/api/v1/tasks
 
 # 4. 取消任务
 curl -X POST http://localhost:25556/api/v1/tasks/task_xxx/cancel
+
+# 5. 查看任务统计
+curl http://localhost:25556/api/v1/tasks/stats
+
+# 6. 批量标记已下载
+curl -X POST http://localhost:25556/api/v1/batch/mark \
+  -H "Content-Type: application/json" \
+  -d '{"users": ["elonmusk", "twitter"]}'
+
+# 7. 重试所有失败推文
+curl -X POST http://localhost:25556/api/v1/retry/failed
+
+# 8. 查看失败推文摘要
+curl http://localhost:25556/api/v1/errors
+
+# 9. 清除失败推文记录
+curl -X DELETE http://localhost:25556/api/v1/errors
 ```
 
 ***
@@ -1096,6 +1126,8 @@ start-server.bat -port 8080
 | `-jsonfolder` + `-mark-downloaded`      |  ⚠️  | **仅执行 `-jsonfolder`**（高优先级独占） |
 | `-conf` + 其他参数                        |  ⚠️ | CLI 模式：配置后退出，忽略其他；Server 模式：配置后启动 Server |
 | `-noprofile` + 推文下载参数                 |  ✅  | 下载推文但跳过 Profile         |
+| `-follow-members` + 推文下载 |  ✅  | 下载时关注目标/成员（失败仅 warning） |
+| `-mark-downloaded` + `-user` + `-list` + `-foll` |  ✅  | 批量标记多种来源 |
 | `-server` + `-port`                   |  ✅  | 指定 API Server 端口        |
 | `-server` + 下载参数                      |  ⚠️ | Server 模式下忽略下载参数        |
 | `-server` + `-conf`                   |  ⚠️ | 配置后启动 Server           |
@@ -1464,6 +1496,7 @@ tmd/
 │   ├── consolelog/              # 控制台日志捕获与分发
 │   └── utils/                   # 工具函数
 ├── doc/                         # 详细文档
+├── tools/                       # 工具脚本（迁移工具、Tampermonkey脚本）
 ├── .github/workflows/           # CI/CD 配置
 └── test/                        # 集成测试
 ```
@@ -1526,7 +1559,7 @@ go tool cover -html=covprofile -o coverage.html
   - 创建版本标签 (v*)
 
 执行步骤:
-  1. 多平台构建 (Windows / Linux / macOS)
+  1. 多平台构建 (Windows / Linux / macOS) + Docker 镜像构建
   2. 运行测试套件 (go test -race)
   3. 上报覆盖率到 Coveralls
   4. 发布版本时自动创建 Release

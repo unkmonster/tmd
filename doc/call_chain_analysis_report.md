@@ -17,14 +17,19 @@
 | `/api/v1/json/file/download` | POST | `handleJsonFileDownload` | JSON文件下载 |
 | `/api/v1/json/folder/download` | POST | `handleJsonFolderDownload` | 文件夹下载 |
 | `/api/v1/batch/download` | POST | `handleBatchDownload` | 批量下载 |
+| `/api/v1/batch/mark` | POST | `handleBatchMark` | 批量标记下载 |
 
 ### 1.2 任务管理端点 (download_handlers.go + task_manager.go)
 
 | 端点 | 方法 | 处理器 | 功能 |
 |------|------|--------|------|
 | `/api/v1/tasks` | GET | `handleTasks` | 获取所有任务 |
+| `/api/v1/tasks/stats` | GET | `handleTaskStats` | 任务统计（按状态计数） |
 | `/api/v1/tasks/{task_id}` | GET | `handleGetTask` | 获取单个任务 |
 | `/api/v1/tasks/{task_id}/cancel` | POST | `handleCancelTask` | 取消任务 |
+| `/api/v1/tasks/cancel-queued` | POST | `handleCancelQueuedTasks` | 取消所有排队中的任务 |
+| `/api/v1/tasks/{task_id}/retry` | POST | `handleRetryTask` | 重试失败/取消的任务 |
+| `/api/v1/tasks/{task_id}` | DELETE | `handleDeleteTask` | 删除终端状态任务 |
 
 ### 1.3 数据库管理端点 (db_handlers.go)
 
@@ -35,6 +40,7 @@
 | `/api/v1/db/users/{id}` | PUT | `handleDBUserUpdate` | 更新用户 |
 | `/api/v1/db/users/{id}` | DELETE | `handleDBUserDelete` | 删除用户 |
 | `/api/v1/db/users/{id}/previous-names` | GET | `handleDBUserPreviousNames` | 获取用户历史名称 |
+| `/api/v1/db/user-previous-names` | GET | `handleDBPreviousNames` | 全局历史名称查询（含当前名称） |
 | `/api/v1/db/lists` | GET | `handleDBLists` | 查询列表 |
 | `/api/v1/db/lists/{id}` | GET | `handleDBListDetail` | 获取列表详情 |
 | `/api/v1/db/lists/{id}` | PUT | `handleDBListUpdate` | 更新列表 |
@@ -66,6 +72,8 @@
 | 端点 | 方法 | 处理器 | 功能 |
 |------|------|--------|------|
 | `/api/v1/logs` | GET | `handleGetLogs` | 获取日志 |
+| `/api/v1/logs/stats` | GET | `handleLogStats` | 日志级别统计 |
+| `/api/v1/logs/export` | GET | `handleLogExport` | 导出日志文件 |
 | `/api/v1/logs/stream` | GET | `handleLogStream` | 日志流(SSE) |
 
 ### 1.7 系统端点 (server.go)
@@ -75,13 +83,16 @@
 | `/api/v1/health` | GET | `handleHealth` | 健康检查 |
 | `/api/v1/server/shutdown` | POST | `handleServerShutdown` | 关闭服务器 |
 | `/api/v1/sse/tasks` | GET | `handleSSETasks` | 任务实时推送(SSE) |
+| `/api/v1/errors` | GET | `handleErrors` | 失败推文摘要 |
+| `/api/v1/retry/failed` | POST | `handleRetryAllFailed` | 重试所有失败推文 |
+| `/api/v1/errors` | DELETE | `handleClearErrors` | 清除失败推文记录 |
 
 ### 1.8 静态资源端点 (handlers.go)
 
 | 端点 | 方法 | 处理器 | 功能 |
 |------|------|--------|------|
 | `/` | GET | `handleWeb` | 主页 |
-| `/tasks`, `/data`, `/system` | GET | `handleWeb` | 页面路由 |
+| `/`, `/tasks`, `/data`, `/system`, `/logs` | GET | `handleWeb` | 页面路由 |
 | `/static/*` | GET | `handleStatic` | 静态文件服务 |
 
 ---
@@ -315,6 +326,10 @@ Client Request
 └─────────┘      └──────────┘      └───────────┘
 
 Terminal Status: completed, failed, cancelled
+
+New in v3.4.19:
+- DeleteTask: 删除 completed/failed/cancelled 状态的任务
+- RetryTask: 基于 failed/cancelled 任务的 taskData 创建新任务
 ```
 
 ### 4.3 下载服务调用图
@@ -365,6 +380,16 @@ DownloadService Interface
     │
     └── JsonFolderDownload(paths)
             └── DownloadFromLoongTweetFolder
+
+    │
+    ├── RetryAllFailed()
+    │       ├── downloading.NewDumper
+    │       ├── downloading.RetryFailedTweets
+    │       ├── downloading.NewJsonDumper
+    │       └── downloading.RetryFailedJsonTweets
+    │
+    └── ClearErrors()
+            └── os.Remove(errors.json + json_errors.json)
 ```
 
 ---

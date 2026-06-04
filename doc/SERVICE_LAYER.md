@@ -67,6 +67,8 @@ type DownloadService interface {
     JsonFileDownload(ctx, taskID, paths, noRetry, reporter) error
     JsonFolderDownload(ctx, taskID, paths, noRetry, reporter) error
     BatchDownload(ctx, taskID, screenNames, listIDs, followingNames, opts, reporter) error
+    RetryAllFailed(ctx, taskID, reporter) error
+    ClearErrors() error
 }
 ```
 
@@ -83,14 +85,17 @@ type DownloadService interface {
 | 标记操作 | `MarkDownloaded` | 标记用户/列表为已下载（跳过下载） |
 | JSON 导入 | `JsonFileDownload` | 从第三方工具导出的 JSON 文件下载媒体 |
 | | `JsonFolderDownload` | 从 TMD 生成的 .loongtweet 文件夹下载媒体 |
+| 错误管理 | `RetryAllFailed` | 重试所有历史失败推文（常规+JSON导入） |
+| | `ClearErrors` | 清除所有失败推文记录文件 |
 
 ### 3.2 DownloadOptions
 
 ```go
 type DownloadOptions struct {
-    AutoFollow  bool  // 自动关注列表中的用户
-    SkipProfile bool  // 跳过资料（头像/横幅）下载
-    NoRetry     bool  // 不重试失败的推文
+    AutoFollow    bool  // 自动关注列表中的用户
+    FollowMembers bool  // 下载时关注目标/成员
+    SkipProfile   bool  // 跳过资料（头像/横幅）下载
+    NoRetry       bool  // 不重试失败的推文
 }
 ```
 
@@ -167,6 +172,7 @@ type Result struct {
 | `"marking"` | 标记中 | MarkDownloaded 执行时 |
 | `"preparing"` | 准备中 | BatchDownload 准备阶段 |
 | `"resolving"` | 解析中 | 解析用户名/列表ID时 |
+| `"completed"` | 已完成 | 任务完成时 |
 
 ---
 
@@ -220,6 +226,15 @@ type downloadServiceImpl struct {
 | `saveDumper(dumper, path)` | 保存失败推文记录到文件，无记录则删除文件 |
 | `collectFailedTweets(dumper, failedTweets)` | 将失败推文推入 Dumper |
 | `downloadProfile(ctx, taskID, users, ...)` | 执行资料下载，创建 `ProfileDownloaderWithDB`，统计结果 |
+| `RetryAllFailed(ctx, taskID, reporter)` | 重试所有历史失败推文（先常规下载错误，再 JSON 导入错误） |
+| `ClearErrors()` | 清除所有失败推文记录文件（errors.json + json_errors.json） |
+| `executeDownloadTemplate(ctx, config)` | 下载流程模板方法，被 UserDownload/ListDownload/FollowingDownload 复用 |
+| `maxDownloadRoutine()` | 获取最大下载并发数 |
+| `runtimeOptions()` | 构建 RuntimeOptions 配置 |
+| `followMembersIfNeeded(ctx, users)` | 执行批量关注操作 |
+| `dedupeProfileUsers(users)` | 对 Profile 用户列表去重 |
+| `collectJsonFailedTweets(dumper, failedBySource, entryType)` | 收集 JSON 下载失败推文 |
+| `saveJsonDumper(dumper, path)` | 保存 JsonTweetDumper 到文件 |
 
 ### 4.4 失败推文追踪机制
 
@@ -238,6 +253,9 @@ RetryFailedTweets() → 重试 dumper 中的推文
             用于构建最终的 MainResult.Failed
 ```
 
+JSON 导入错误通过 JsonTweetDumper 独立管理，使用 saveJsonDumper() 持久化到 json_errors.json，
+可通过 RetryAllFailed() 统一重试两种类型的失败推文。
+
 ### 4.5 Profile 下载流程
 
 ```
@@ -255,8 +273,8 @@ downloadProfile(ctx, taskID, users, pathHelper, versionManager, fileWriter, dwn,
 ### 4.6 特殊方法说明
 
 **JsonFileDownload** / **JsonFolderDownload**：
-- `noRetry` 参数被显式忽略（`_ = noRetry`）
-- 原因：第三方 JSON / loongtweet 文件夹下载不涉及 `TweetDumper` 机制，失败项不会进入 `error.json`，因此无需重试逻辑
+- `noRetry` 参数正常生效，控制是否跳过失败推文重试
+- JSON 下载失败项会进入 `json_errors.json` 文件，可通过 `RetryAllFailed()` 重试
 
 **MarkDownloaded**：
 - 不执行实际下载，仅标记用户为已下载状态
@@ -425,7 +443,7 @@ func (r *MyReporter) OnError(taskID string, err error)     { ... }
 |------|------|
 | Service 层错误直接返回 error，不调用 `OnError` | 让外层（API/CLI）统一决定错误处理策略 |
 | `AdditionalClients` 可为空 | 单账号场景下无需附加客户端 |
-| `JsonFileDownload`/`JsonFolderDownload` 忽略 `noRetry` | 这些场景不涉及 TweetDumper 机制，无重试基础 |
+| `JsonFileDownload`/`JsonFolderDownload` 使用 `noRetry` 参数 | JSON 下载失败项进入 `json_errors.json`，可通过 `RetryAllFailed()` 重试 |
 | `NopReporter` 替换 nil reporter | 避免每个方法都做 nil 检查 |
 | `LogReporter` 静默 `downloading` 阶段 | 下载过程进度更新过于频繁，不适合日志输出 |
 | Profile 下载复用 `BatchDownloadAny` 返回的 `listMembers` | 避免重复调用 `GetMembers` API |

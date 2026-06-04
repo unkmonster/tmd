@@ -217,10 +217,10 @@ if markDownloaded {
 }
 ```
 
-### 核心函数 (features.go)
+### 核心函数 (mark_downloaded.go)
 
 ```go
-// features.go:849-938
+// mark_downloaded.go:849-938
 func MarkUsersAsDownloaded(ctx context.Context, client *resty.Client, 
     db *sqlx.DB, lists []twitter.ListBase, users []*twitter.User, 
     dir string, markTimeStr string) ([]MarkedUserInfo, error) {
@@ -306,10 +306,10 @@ func MarkUsersAsDownloaded(ctx context.Context, client *resty.Client,
 }
 ```
 
-### 标记单个用户 (features.go)
+### 标记单个用户 (mark_downloaded.go)
 
 ```go
-// features.go:941-995
+// mark_downloaded.go:941-995
 // markSingleUserWithInfo 标记单个用户为已下载并返回详细信息
 func markSingleUserWithInfo(db *sqlx.DB, user *twitter.User, 
     dir string, timestamp *time.Time) (info MarkedUserInfo) {
@@ -439,7 +439,7 @@ func ClearUserEntityLatestReleaseTime(db *sqlx.DB, id int) error {
 
 ```go
 // user.go:174-223
-func (u *User) GetMeidas(ctx context.Context, client *resty.Client, 
+func (u *User) GetMedias(ctx context.Context, client *resty.Client, 
     timeRange *utils.TimeRange) ([]*Tweet, error) {
     
     if !u.IsVisiable() {
@@ -586,7 +586,7 @@ func filterTweetsByTimeRange(tweets []*Tweet, min *time.Time, max *time.Time)
 ### 代码实现
 
 ```go
-// features.go:348-362
+// user_sync.go
 func syncUserAndEntity(db *sqlx.DB, user *twitter.User, dir string) (*UserEntity, error) {
     // 1. 同步用户信息到 users 表
     if err := syncUser(db, user, true); err != nil {
@@ -608,7 +608,7 @@ func syncUserAndEntity(db *sqlx.DB, user *twitter.User, dir string) (*UserEntity
     return entity, nil
 }
 
-// features.go:271-304
+// database/user_sync.go
 func syncUser(db *sqlx.DB, user *twitter.User, accessible bool) error {
     renamed := false
     isNew := false
@@ -645,7 +645,7 @@ func syncUser(db *sqlx.DB, user *twitter.User, accessible bool) error {
     return err
 }
 
-// entity.go:47-60
+// user.go
 func NewUserEntity(db *sqlx.DB, uid uint64, parentDir string) (*UserEntity, error) {
     created := true
     record, err := database.LocateUserEntity(db, uid, parentDir)
@@ -660,7 +660,7 @@ func NewUserEntity(db *sqlx.DB, uid uint64, parentDir string) (*UserEntity, erro
     return &UserEntity{record: record, db: db, created: created}, nil
 }
 
-// entity.go:24-39
+// sync.go
 func syncPath(path SmartPath, expectedName string) error {
     if !path.Recorded() {
         // 新用户：创建文件夹 + 数据库记录
@@ -843,7 +843,7 @@ tmd -user elonmusk -mark-downloaded -mark-time "null"
 | `-mark-downloaded` + `-user` | ✅ | 标记指定用户 |
 | `-mark-downloaded` + `-list` | ✅ | 标记列表成员 |
 | `-mark-downloaded` + `-foll` | ✅ | 标记关注用户 |
-| `-mark-downloaded` + `--profile` | ⚠️ | 只标记，不下载 profile |
+| `-mark-downloaded` + 任何下载参数 | ⚠️ | 只标记，不下载内容 |
 | `-mark-downloaded` + `-mark-time` | ✅ | 指定标记时间 |
 
 ### 5. 时间格式严格
@@ -869,26 +869,29 @@ tmd -user elonmusk -mark-downloaded -mark-time "2024/06/15 10:30:00"
 
 ## 附录：相关源码文件
 
-| 文件 | 行号 | 说明 |
-|------|------|------|
-| `main.go` | 252-253 | 参数定义 |
-| `main.go` | 429-447 | 入口调用 |
-| `internal/downloading/features.go` | 849-938 | MarkUsersAsDownloaded 核心实现 |
-| `internal/downloading/features.go` | 942-995 | markSingleUserWithInfo 单用户标记 |
-| `internal/downloading/features.go` | 348-362 | syncUserAndEntity 用户同步 |
-| `internal/downloading/features.go` | 271-304 | syncUser 用户信息同步 |
-| `internal/downloading/entity.go` | 142-162 | SetLatestReleaseTime/ClearLatestReleaseTime |
-| `internal/database/crud.go` | 286-310 | 数据库操作函数 |
-| `internal/twitter/user.go` | 174-223 | GetMeidas 时间过滤 |
-| `internal/twitter/user.go` | 139-172 | filterTweetsByTimeRange 过滤函数 |
+| 文件 | 说明 |
+|------|------|
+| `main.go` | CLI 参数定义与入口调用 |
+| `internal/cli/args.go` | CLI 参数解析（`-mark-downloaded` / `-mark-time`） |
+| `internal/cli/executor.go` | CLI 模式执行入口，调用 Service 层 |
+| `internal/service/download_service.go` | `DownloadService` 实现，包含 `MarkDownloaded` 方法和失败重试 |
+| `internal/service/interfaces.go` | `DownloadService` 接口定义，含 `MarkDownloaded` 签名 |
+| `internal/downloading/mark_downloaded.go` | `MarkUsersAsDownloaded` 核心实现 |
+| `internal/downloading/user_sync.go` | `syncUserAndEntity` 用户同步 |
+| `internal/database/user_sync.go` | `SyncUser` 用户信息同步 |
+| `internal/entity/user.go` | `SetLatestReleaseTime` / `ClearLatestReleaseTime` |
+| `internal/twitter/user.go` | `GetMedias` 时间过滤 |
+| `internal/api/download_handlers.go` | API 模式的标记处理器（`handleUserMark`、`handleListMark`、`handleFollowingMark`、`handleBatchMark`） |
+| `internal/api/types.go` | API 任务数据结构（`MarkDownloadedTaskData`、`BatchMarkDownloadedTaskData`） |
 
 ---
 
 ## 版本历史
 
 - 初始版本：支持基本标记功能
-- 当前版本：支持 `null`/`nil` 重置、详细输出、错误处理
+- v2.x：支持 `null`/`nil` 重置、详细输出、错误处理
+- v3.4.x：Service 层重构后通过 `DownloadService.MarkDownloaded()` 统一入口，CLI 和 API 共享同一标记逻辑；新增批量标记（`batch/mark`）支持同时标记用户/列表/关注列表
 
 ---
 
-*文档生成日期：2024年*
+*文档生成日期：2026-06-04*

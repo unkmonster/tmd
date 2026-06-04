@@ -42,7 +42,7 @@ GET /api/v1/health
   "success": true,
   "data": {
     "status": "ok",
-    "version": "2.0.0",
+    "version": "3.4.19",
     "timestamp": "2024-01-15T10:30:00Z"
   }
 }
@@ -116,7 +116,7 @@ curl -X POST http://localhost:25556/api/v1/users/elonmusk/download
 # 跳过 Profile 下载
 curl -X POST http://localhost:25556/api/v1/users/elonmusk/download \
   -H "Content-Type: application/json" \
-  -d '{"skip_profile": true}'
+  -d '{"skip_profile": true, "follow_members": false}'
 ```
 
 ***
@@ -968,7 +968,7 @@ POST /api/v1/tasks/{task_id}/cancel
 ```json
 {
   "success": false,
-  "error": "Task cannot be cancelled"
+  "error": "Task cannot be cancelled (not in queued or running status)"
 }
 ```
 
@@ -976,6 +976,426 @@ POST /api/v1/tasks/{task_id}/cancel
 
 ```bash
 curl -X POST http://localhost:25556/api/v1/tasks/task_abc123/cancel
+```
+
+***
+
+### 13. 任务统计
+
+获取按状态分类的任务计数。
+
+**请求：**
+
+```http
+GET /api/v1/tasks/stats
+```
+
+**响应：**
+
+```json
+{
+  "success": true,
+  "data": {
+    "queued": 2,
+    "running": 1,
+    "completed": 15,
+    "failed": 1,
+    "cancelled": 0,
+    "total": 19
+  }
+}
+```
+
+**示例：**
+
+```bash
+curl http://localhost:25556/api/v1/tasks/stats
+```
+
+***
+
+### 14. 取消所有排队任务
+
+批量取消所有排队中（queued）的任务。
+
+**请求：**
+
+```http
+POST /api/v1/tasks/cancel-queued
+```
+
+> **说明：** 无需请求体，直接取消所有排队中的任务。
+
+**响应：**
+
+```json
+{
+  "success": true,
+  "data": {
+    "cancelled_count": 3,
+    "message": "3 queued task(s) cancelled"
+  }
+}
+```
+
+**示例：**
+
+```bash
+curl -X POST http://localhost:25556/api/v1/tasks/cancel-queued \
+  -H "Content-Type: application/json" \
+  -d '{}'
+```
+
+***
+
+### 15. 重试任务
+
+基于失败或取消的原始任务创建新的下载任务（克隆 taskData）。
+
+**请求：**
+
+```http
+POST /api/v1/tasks/{task_id}/retry
+```
+
+**URL 参数：**
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `task_id` | string | 是 | 任务 ID（例如：task_abc123） |
+
+**响应：**
+
+```json
+{
+  "success": true,
+  "data": {
+    "task_id": "task_new_xyz",
+    "message": "Task retry successful"
+  }
+}
+```
+
+**错误响应：**
+
+- 任务不存在：`{"success": false, "error": "Task not found"}`
+- 任务状态不可重试：`{"success": false, "error": "Task cannot be retried (not in failed or cancelled status)"}`
+
+**示例：**
+
+```bash
+curl -X POST http://localhost:25556/api/v1/tasks/task_failed_123/retry
+```
+
+***
+
+### 16. 删除任务
+
+删除指定终端状态（completed/failed/cancelled）的任务。
+
+**请求：**
+
+```http
+DELETE /api/v1/tasks/{task_id}
+```
+
+**URL 参数：**
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `task_id` | string | 是 | 任务 ID（例如：task_abc123） |
+
+**响应：**
+
+```json
+{
+  "success": true,
+  "data": {
+    "message": "Task deleted"
+  }
+}
+```
+
+**错误响应：**
+
+- 任务不存在：`{"success": false, "error": "Task not found"}`
+- 任务正在运行：`{"success": false, "error": "Task cannot be deleted (not in a terminal status)"}`
+
+**示例：**
+
+```bash
+curl -X DELETE http://localhost:25556/api/v1/tasks/task_completed_123
+```
+
+***
+
+### 17. 批量标记下载
+
+同时标记多个用户、列表和关注列表为已下载状态。
+
+**请求：**
+
+```http
+POST /api/v1/batch/mark
+Content-Type: application/json
+
+{
+  "users": ["elonmusk", "twitter"],
+  "lists": ["123456789"],
+  "following_names": ["userA"],
+  "timestamp": "2024-01-15T10:30:00Z"
+}
+```
+
+**请求体参数：**
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `users` | []string | 否 | 要标记的用户名列表 |
+| `lists` | []string | 否 | 要标记的列表 ID 列表（uint64 十进制字符串） |
+| `following_names` | []string | 否 | 要标记其关注列表的用户名列表 |
+| `timestamp` | string | 否 | 标记时间（ISO 8601格式），不传则使用当前时间 |
+
+**注意：** `users`、`lists` 和 `following_names` 至少需要一个。
+
+**响应：**
+
+```json
+{
+  "success": true,
+  "data": {
+    "task_id": "task_vwx235",
+    "status": "queued",
+    "users": ["elonmusk", "twitter"],
+    "lists": ["123456789"],
+    "following_names": ["userA"],
+    "message": "Batch mark task queued"
+  }
+}
+```
+
+**示例：**
+
+```bash
+curl -X POST http://localhost:25556/api/v1/batch/mark \
+  -H "Content-Type: application/json" \
+  -d '{"users": ["elonmusk", "twitter"]}'
+```
+
+***
+
+### 18. 失败推文管理
+
+管理下载过程中失败的推文记录，支持查看摘要、重试和清除。
+
+#### 获取失败推文摘要
+
+**请求：**
+
+```http
+GET /api/v1/errors
+```
+
+**响应：**
+
+```json
+{
+  "success": true,
+  "data": {
+    "regular": {
+      "1": 5,
+      "2": 3
+    },
+    "json": [
+      {
+        "source_path": "/path/to/tweets.json",
+        "type": "third_party",
+        "count": 2
+      }
+    ]
+  }
+}
+```
+
+**响应字段：**
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `regular` | object | 常规下载错误，key 为 entity ID，value 为失败推文数 |
+| `json` | array | JSON 导入错误，每个元素包含 source_path、type、count |
+
+**示例：**
+
+```bash
+curl http://localhost:25556/api/v1/errors
+```
+
+#### 重试所有失败推文
+
+重试所有历史失败推文（先重试常规下载错误，再重试 JSON 导入错误）。
+
+**请求：**
+
+```http
+POST /api/v1/retry/failed
+```
+
+**响应：**
+
+```json
+{
+  "success": true,
+  "data": {
+    "task_id": "task_retry_123",
+    "status": "queued",
+    "message": "Retry all failed tweets task queued"
+  }
+}
+```
+
+> **说明：** 该操作是异步的，返回 202 Accepted。任务完成后会通过 SSE 推送结果。
+
+**示例：**
+
+```bash
+curl -X POST http://localhost:25556/api/v1/retry/failed
+```
+
+#### 清除失败推文记录
+
+清除所有失败推文记录文件。
+
+**请求：**
+
+```http
+DELETE /api/v1/errors
+```
+
+**响应：**
+
+```json
+{
+  "success": true,
+  "data": {
+    "message": "All error records cleared"
+  }
+}
+```
+
+**示例：**
+
+```bash
+curl -X DELETE http://localhost:25556/api/v1/errors
+```
+
+***
+
+### 19. 日志统计
+
+按日志级别统计计数（debug/info/warn/error）。
+
+**请求：**
+
+```http
+GET /api/v1/logs/stats
+```
+
+**响应：**
+
+```json
+{
+  "success": true,
+  "data": {
+    "debug": 0,
+    "info": 42,
+    "warn": 3,
+    "error": 1,
+    "total": 46
+  }
+}
+```
+
+**示例：**
+
+```bash
+curl http://localhost:25556/api/v1/logs/stats
+```
+
+***
+
+### 20. 日志导出
+
+下载完整日志文件。
+
+**请求：**
+
+```http
+GET /api/v1/logs/export
+```
+
+**响应：**
+
+直接返回日志文件内容，`Content-Type: application/octet-stream`，浏览器会自动下载。
+
+**示例：**
+
+```bash
+curl -o tmd.log http://localhost:25556/api/v1/logs/export
+```
+
+***
+
+### 21. 用户历史名称查询（全局）
+
+查询所有用户的历史名称记录，支持按当前名称筛选。
+
+**请求：**
+
+```http
+GET /api/v1/db/user-previous-names?q=elonmusk
+```
+
+**查询参数：**
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `page` | int | 1 | 页码 |
+| `pageSize` | int | 20 | 每页数量 |
+| `sortBy` | string | `id` | 排序字段 |
+| `sortOrder` | string | `desc` | 排序方向 |
+| `q` | string | - | 搜索关键词（匹配当前 screen_name 或 name） |
+
+**响应：**
+
+```json
+{
+  "success": true,
+  "data": {
+    "data": [
+      {
+        "id": "1",
+        "user_id": "44196397",
+        "screen_name": "elonmusk_old",
+        "name": "Elon Musk Old Name",
+        "record_date": "2023-01-15",
+        "current_screen_name": "elonmusk",
+        "current_name": "Elon Musk"
+      }
+    ],
+    "total": 1,
+    "page": 1,
+    "pageSize": 20,
+    "totalPages": 1
+  }
+}
+```
+
+**说明：** 与 `/api/v1/db/users/{id}/previous-names` 不同，该端点支持全局搜索和按当前名称筛选，返回结果包含当前用户名和 screen name。
+
+**示例：**
+
+```bash
+curl "http://localhost:25556/api/v1/db/user-previous-names?q=elonmusk"
 ```
 
 ***
@@ -1024,7 +1444,7 @@ API Server 记录所有请求的详细信息：
 API 默认启用 CORS 支持，允许 Web 前端直接调用：
 
 - **允许来源：** `*`（所有来源）
-- **允许方法：** GET, POST, PUT, DELETE, OPTIONS
+- **允许方法：** GET, POST, PUT, PATCH, DELETE, OPTIONS
 - **允许头：** Content-Type, Authorization
 
 SSE 端点 (`/api/v1/sse/tasks`) 同样支持 CORS，确保 Web 界面可以跨域接收实时推送。
@@ -1071,17 +1491,17 @@ Web 界面响应包含适当的缓存头：
 
 ### 自动清理
 
-- 任务保留时间：8 小时
-- 最大任务数：1000 个
+- 任务保留时间：24 小时
 - 清理频率：每小时
 
 ### SSE 实时更新
 
 Web 界面使用 Server-Sent Events (SSE) 技术实现任务状态实时推送：
 
-- **推送频率**：每 2 秒
+- **推送机制**：任务状态变更时通过事件总线实时推送（全量推送，非增量）
+- **心跳间隔**：25 秒
 - **重连策略**：指数退避（2s → 4s → 8s ... 最大 30s）
-- **连接断开**：客户端断开时立即清理 goroutine，无资源泄漏
+- **连接断开**：客户端断开时通过 `context.Done()` 自动感知，无资源泄漏
 
 ***
 
@@ -1128,8 +1548,9 @@ GET /api/v1/sse/tasks
 
 **说明：**
 
-- 建立 SSE 连接，服务器每 2 秒推送一次任务列表更新
+- 建立 SSE 连接，任务状态变更时通过事件总线实时推送
 - 支持跨域访问（CORS）
+- 心跳间隔 25 秒
 - 连接断开后会自动重连（指数退避策略）
 
 **响应格式：**
@@ -3017,9 +3438,14 @@ TASK_ID=$(curl -s -X POST http://localhost:25556/api/v1/lists/123456789/download
 | `/api/v1/json/file/download`              | POST | 从 JSON 文件下载    |
 | `/api/v1/json/folder/download`            | POST | 从 JSON 文件夹下载   |
 | `/api/v1/batch/download`                  | POST | 批量下载           |
+| `/api/v1/batch/mark`                      | POST | 批量标记下载        |
 | `/api/v1/tasks`                           | GET  | 获取任务列表         |
 | `/api/v1/tasks/{id}`                      | GET  | 获取任务详情         |
 | `/api/v1/tasks/{id}/cancel`               | POST | 取消任务           |
+| `/api/v1/tasks/stats`                     | GET  | 任务统计（按状态计数） |
+| `/api/v1/tasks/cancel-queued`             | POST | 取消所有排队中的任务 |
+| `/api/v1/tasks/{id}/retry`                | POST | 重试失败/取消的任务 |
+| `/api/v1/tasks/{id}`                      | DELETE | 删除终端状态任务 |
 
 ### Web 界面与数据 API
 
@@ -3028,7 +3454,9 @@ TASK_ID=$(curl -s -X POST http://localhost:25556/api/v1/lists/123456789/download
 | `/`                                       | GET  | Web 管理界面首页     |
 | `/tasks`                                  | GET  | Web 任务页面（SPA路由） |
 | `/data`                                   | GET  | Web 数据浏览页（SPA路由） |
+| `/schedules`                              | GET  | Web 调度管理页（SPA路由） |
 | `/system`                                 | GET  | Web 系统配置页（SPA路由） |
+| `/logs`                                   | GET  | Web 日志页面（SPA路由） |
 | `/static/*`                               | GET  | 静态资源（CSS/JS）   |
 | `/api/v1/sse/tasks`                       | GET  | SSE 实时任务推送     |
 | `/api/v1/config`                          | GET  | 获取系统配置（脱敏）  |
@@ -3042,7 +3470,12 @@ TASK_ID=$(curl -s -X POST http://localhost:25556/api/v1/lists/123456789/download
 | `/api/v1/cookies/raw`                     | PUT  | 更新原始 Cookie 文件  |
 | `/api/v1/logs`                            | GET  | 获取系统日志         |
 | `/api/v1/logs/stream`                     | GET  | SSE 实时日志流      |
+| `/api/v1/logs/stats`                      | GET  | 日志级别统计计数 |
+| `/api/v1/logs/export`                     | GET  | 导出完整日志文件 |
 | `/api/v1/server/shutdown`                 | POST | 优雅关闭服务器        |
+| `/api/v1/errors`                          | GET  | 失败推文摘要 |
+| `/api/v1/retry/failed`                    | POST | 重试所有历史失败推文 |
+| `/api/v1/errors`                          | DELETE | 清除所有失败推文记录 |
 
 ### 调度器 API
 
@@ -3069,6 +3502,7 @@ TASK_ID=$(curl -s -X POST http://localhost:25556/api/v1/lists/123456789/download
 | `/api/v1/db/users/{id}`                   | PUT  | 更新用户信息       |
 | `/api/v1/db/users/{id}`                   | DELETE | 删除用户         |
 | `/api/v1/db/users/{id}/previous-names`    | GET  | 获取用户历史名称    |
+| `/api/v1/db/user-previous-names`          | GET  | 全局历史名称查询（含当前名称） |
 | `/api/v1/db/lists`                        | GET  | 查询列表（分页/排序/搜索） |
 | `/api/v1/db/lists/{id}`                   | GET  | 获取列表详情       |
 | `/api/v1/db/lists/{id}`                   | PUT  | 更新列表信息       |
@@ -3104,13 +3538,13 @@ TASK_ID=$(curl -s -X POST http://localhost:25556/api/v1/lists/123456789/download
 | `/api/v1/lists/{list_id}/mark`                   | `list_id`     | uint64 | 列表 ID       |
 | `/api/v1/tasks/{task_id}`                        | `task_id`     | string | 任务 ID       |
 | `/api/v1/tasks/{task_id}/cancel`                 | `task_id`     | string | 任务 ID       |
+| `/api/v1/tasks/{task_id}/retry`                  | `task_id`     | string | 任务 ID       |
+| `/api/v1/tasks/{task_id}`                        | `task_id`     | string | 任务 ID       |
 | `/api/v1/schedules/{id}`                         | `id`          | string | 调度 ID       |
 | `/api/v1/schedules/{id}/enabled`                 | `id`          | string | 调度 ID       |
 | `/api/v1/schedules/{id}/trigger`                 | `id`          | string | 调度 ID       |
 
 ### 请求体参数
-
-#### 
 
 | 参数             | 类型   | 默认值     | 说明                  |
 | -------------- | ---- | ------- | ------------------- |

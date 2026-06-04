@@ -114,6 +114,8 @@ CREATE TABLE IF NOT EXISTS users (
 
 记录用户历史名称变更，用于追踪改名历史。
 
+> **注意**: 该表在 v3.4.19 中新增了全局查询功能，通过 `GET /api/v1/db/user-previous-names` 端点（含 `current_screen_name` 和 `current_name` 字段）支持按当前名称筛选历史记录，详见 [API_DOCUMENTATION.md](API_DOCUMENTATION.md) 第 21 节。
+
 ```sql
 CREATE TABLE IF NOT EXISTS user_previous_names (
     id INTEGER NOT NULL,              -- 自增主键
@@ -724,8 +726,8 @@ SELECT 'user_links', COUNT(*) FROM user_links;
 ### 11.1 添加新表
 
 1. 在 `model.go` 中定义结构体
-2. 在 `crud.go` 的 `schema` 常量中添加 `CREATE TABLE` 语句
-3. 实现 CRUD 函数
+2. 在 `schema.go` 中添加 `CREATE TABLE` 语句
+3. 在对应文件（`user.go`、`lst.go`、`user_entity.go` 等）中实现 CRUD 函数
 4. 编写单元测试
 
 ### 11.2 扩展现有表
@@ -776,6 +778,16 @@ func TestUserEntity(t *testing.T) {
     }
 }
 ```
+
+### 11.4 用户历史名称全局查询
+
+v3.4.19 新增了全局历史名称查询功能：
+
+- **端点**: `GET /api/v1/db/user-previous-names`
+- **功能**: 查询所有用户的历史名称记录，返回结果包含当前用户名和 screen name
+- **筛选**: 支持 `q` 参数按当前名称（screen_name 或 name）筛选
+- **相关结构**: `UserPreviousNameWithCurrent`（含 `CurrentScreenName` 和 `CurrentName` 字段）
+- **相关文件**: `internal/database/query.go`、`internal/database/model.go`
 
 ***
 
@@ -869,17 +881,17 @@ CREATE INDEX IF NOT EXISTS idx_user_previous_names_uid ON user_previous_names(ui
 | -------------------------------- | --------- |
 | `internal/database/model.go`     | 数据模型定义    |
 | `internal/database/schema.go`    | Schema 定义 |
-| `internal/database/crud.go`      | CRUD 操作实现 |
+| `internal/database/user.go`      | 用户 CRUD 操作 |
+| `internal/database/lst.go`       | 列表 CRUD 操作 |
+| `internal/database/user_entity.go` | 用户实体 CRUD 操作 |
+| `internal/database/lst_entity.go` | 列表实体 CRUD 操作 |
+| `internal/database/user_link.go` | 用户链接 CRUD 操作 |
 | `internal/database/connect.go`   | 数据库连接与迁移  |
 | `internal/database/helpers.go`   | 辅助查询函数    |
-| `internal/database/user.go`      | 用户相关操作    |
-| `internal/database/user_entity.go` | 用户实体操作  |
-| `internal/database/user_link.go` | 用户链接操作    |
-| `internal/database/lst.go`       | 列表相关操作    |
-| `internal/database/lst_entity.go` | 列表实体操作   |
 | `internal/database/user_sync.go` | 用户同步操作    |
-| `internal/database/db_test.go`   | 单元测试      |
-| `internal/downloading/entity.go` | 实体管理封装    |
+| `internal/database/query.go`     | 通用查询构建器   |
+| `internal/database/test/`        | 数据库集成测试  |
+| `internal/entity/`               | 实体管理封装    |
 | `internal/downloading/dumper.go` | 失败数据转储    |
 | `main.go`                        | 数据库初始化入口  |
 
@@ -893,7 +905,7 @@ CREATE INDEX IF NOT EXISTS idx_user_previous_names_uid ON user_previous_names(ui
 
 ## 文档版本
 
-- **版本**: 1.1
-- **更新日期**: 2026-04-27
+- **版本**: 1.2
+- **更新日期**: 2026-06-04
 - **作者**: AI Assistant
-- **适用版本**: TMD v3.0.3
+- **适用版本**: TMD v3.4.19

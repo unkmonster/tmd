@@ -4,7 +4,7 @@
 
 本报告对比分析 Twitter Media Downloader (TMD) 的两个版本：
 - **旧版本**: `tmd-2.4.4` (历史版本)
-- **当前版本**: 基于 `unkmonster/tmd` 的最新修改版本
+- **当前版本**: 基于 `unkmonster/tmd` 的修改版本（当前 v3.4.19）
 
 ---
 
@@ -19,7 +19,7 @@
 | API客户端层 | `internal/twitter/` | `internal/twitter/` |
 | 数据持久化层 | `internal/database/` | `internal/database/` (扩展) |
 | 业务层-推文下载 | `internal/downloading/` | `internal/downloading/` (扩展) |
-| 业务层-用户资料 | ❌ 无 | `internal/profile/` (新增) |
+| 业务层-用户资料 | ❌ 无 | `internal/downloading/profile/` (新增) |
 | 基础设施层 | ❌ 无 | `internal/downloader/` (新增) |
 | 命名服务 | ❌ 无 | `internal/naming/` (新增) |
 | 实体层 | ❌ 无 | `internal/entity/` (新增) |
@@ -114,7 +114,7 @@
            │                                    │
 ┌──────────▼────────────────────────────────────┴─────────────┐
 │  internal/downloading (业务层 - 推文下载)                    │
-│  internal/profile (业务层 - 用户资料)                        │
+│  internal/downloading/profile (业务层 - 用户资料)                        │
 └──────────┬──────────────────────────────────────────────────┘
            │
 ┌──────────▼──────────────────────────────────────────────────┐
@@ -156,7 +156,7 @@
 
 **当前版本**: 
 ```go
-// internal/profile/downloader.go
+// internal/downloading/profile/downloader.go
 func (pd *ProfileDownloader) DownloadMultiple(ctx context.Context, requests []DownloadRequest) []DownloadResult
 ```
 
@@ -721,4 +721,4 @@ tmd-2.4.4 (基础版本)
 ---
 
 *报告生成时间: 2026-04-17*
-*对比版本: tmd-2.4.4 vs 当前版本*
+*对比版本: tmd-2.4.4 vs v3.4.19*
