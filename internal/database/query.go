@@ -2,10 +2,19 @@ package database
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/jmoiron/sqlx"
 )
+
+// validIdent 允许的标识符：字母/数字/下划线，防止 SQL 注入。
+var validIdent = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
+// countTableIdent 验证表名（支持可选的 JOIN 子句，用于 COUNT 子查询）。
+// 此函数仅接受受信的字面量表名（来自同仓库 API 层），不可暴露给外部用户输入。
+// ON 子句限制为列比较表达式（标识符、=、!=、<、>、空格、点号）。
+var countTableIdent = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*(?:\s+\w+)?(?:\s+(?:LEFT\s+)?JOIN\s+[A-Za-z_][A-Za-z0-9_]*(?:\s+\w+)?(?:\s+ON\s+[A-Za-z0-9_.=<>\s!]+)?)?$`)
 
 // QueryOptions 查询选项
 type QueryOptions struct {
@@ -18,6 +27,9 @@ type QueryOptions struct {
 
 // Count 获取总数
 func Count(db *sqlx.DB, table string, opts *QueryOptions) (int, error) {
+	if !countTableIdent.MatchString(table) {
+		return 0, fmt.Errorf("invalid table name: %q", table)
+	}
 	query := fmt.Sprintf("SELECT COUNT(*) FROM %s", table)
 	if opts != nil && opts.Where != "" {
 		query += " WHERE " + opts.Where
@@ -39,11 +51,17 @@ func BuildSearchCondition(fields []string, keyword string) (string, []interface{
 		return "", nil
 	}
 
-	conditions := make([]string, len(fields))
-	args := make([]interface{}, len(fields))
-	for i, field := range fields {
-		conditions[i] = fmt.Sprintf("%s LIKE ?", field)
-		args[i] = "%" + keyword + "%"
+	conditions := make([]string, 0, len(fields))
+	args := make([]interface{}, 0, len(fields))
+	for _, field := range fields {
+		if !validIdent.MatchString(field) {
+			continue
+		}
+		conditions = append(conditions, fmt.Sprintf("%s LIKE ?", field))
+		args = append(args, "%"+keyword+"%")
+	}
+	if len(conditions) == 0 {
+		return "", nil
 	}
 
 	return "(" + strings.Join(conditions, " OR ") + ")", args
@@ -61,7 +79,7 @@ func QueryUsers(db *sqlx.DB, where string, args []interface{}, orderBy string, l
 	query += " LIMIT ? OFFSET ?"
 
 	var users []User
-	err := db.Select(&users, query, append(args, limit, offset)...)
+	err := db.Select(&users, query, appendQueryArgs(args, limit, offset)...)
 	return users, err
 }
 
@@ -77,7 +95,7 @@ func QueryLists(db *sqlx.DB, where string, args []interface{}, orderBy string, l
 	query += " LIMIT ? OFFSET ?"
 
 	var lists []Lst
-	err := db.Select(&lists, query, append(args, limit, offset)...)
+	err := db.Select(&lists, query, appendQueryArgs(args, limit, offset)...)
 	return lists, err
 }
 
@@ -93,7 +111,7 @@ func QueryUserEntities(db *sqlx.DB, where string, args []interface{}, orderBy st
 	query += " LIMIT ? OFFSET ?"
 
 	var entities []UserEntity
-	err := db.Select(&entities, query, append(args, limit, offset)...)
+	err := db.Select(&entities, query, appendQueryArgs(args, limit, offset)...)
 	return entities, err
 }
 
@@ -109,7 +127,7 @@ func QueryLstEntities(db *sqlx.DB, where string, args []interface{}, orderBy str
 	query += " LIMIT ? OFFSET ?"
 
 	var entities []LstEntity
-	err := db.Select(&entities, query, append(args, limit, offset)...)
+	err := db.Select(&entities, query, appendQueryArgs(args, limit, offset)...)
 	return entities, err
 }
 
@@ -125,7 +143,7 @@ func QueryUserLinks(db *sqlx.DB, where string, args []interface{}, orderBy strin
 	query += " LIMIT ? OFFSET ?"
 
 	var links []UserLink
-	err := db.Select(&links, query, append(args, limit, offset)...)
+	err := db.Select(&links, query, appendQueryArgs(args, limit, offset)...)
 	return links, err
 }
 
@@ -155,6 +173,15 @@ func QueryAllUserPreviousNames(db *sqlx.DB, where string, args []interface{}, or
 	query += " LIMIT ? OFFSET ?"
 
 	var names []UserPreviousNameWithCurrent
-	err := db.Select(&names, query, append(args, limit, offset)...)
+	err := db.Select(&names, query, appendQueryArgs(args, limit, offset)...)
 	return names, err
+}
+
+// appendQueryArgs 将 limit/offset 追加到 args 的副本中，避免 append 可能
+// 因 args 底层容量足够而修改原始切片。
+func appendQueryArgs(args []interface{}, limit, offset int) []interface{} {
+	queryArgs := make([]interface{}, 0, len(args)+2)
+	queryArgs = append(queryArgs, args...)
+	queryArgs = append(queryArgs, limit, offset)
+	return queryArgs
 }

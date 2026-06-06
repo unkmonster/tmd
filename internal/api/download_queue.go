@@ -241,6 +241,12 @@ func (q *DownloadQueue) detachJob(job *downloadJob, done <-chan error) {
 	go func() {
 		defer q.detachedWG.Done()
 		err := <-done
+		q.mu.Lock()
+		if q.closed {
+			q.mu.Unlock()
+			return
+		}
+		q.mu.Unlock()
 		q.handleRunResult(job.taskID, err)
 		q.mu.Lock()
 		delete(q.detached, job.taskID)
@@ -272,4 +278,11 @@ func (q *DownloadQueue) releaseTargets(taskID string) {
 	}
 	q.mu.Unlock()
 	q.cond.Broadcast()
+}
+
+// Status 返回队列状态
+func (q *DownloadQueue) Status() (int, int, int) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	return len(q.pending), len(q.heldTargets), len(q.detached)
 }

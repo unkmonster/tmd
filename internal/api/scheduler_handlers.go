@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 
 	log "github.com/sirupsen/logrus"
@@ -27,6 +26,12 @@ func (s *Server) handleGetSchedules(w http.ResponseWriter, _ *http.Request) {
 		return
 	}
 
+	schedulesPath := filepath.Join(s.appRootPath, "schedules.yaml")
+	exists := true
+	if _, err := os.Stat(schedulesPath); os.IsNotExist(err) {
+		exists = false
+	}
+
 	statuses := sched.GetStatuses()
 	active := 0
 	for _, st := range statuses {
@@ -40,6 +45,7 @@ func (s *Server) handleGetSchedules(w http.ResponseWriter, _ *http.Request) {
 		"entries":           statuses,
 		"active":            active,
 		"total":             len(statuses),
+		"exists":            exists,
 	}))
 }
 
@@ -222,6 +228,10 @@ func (s *Server) handleUpdateSchedule(w http.ResponseWriter, r *http.Request) {
 	s.schedulesMu.Lock()
 	defer s.schedulesMu.Unlock()
 
+	if _, err := os.Stat(schedulesPath); os.IsNotExist(err) {
+		s.writeError(w, http.StatusNotFound, "Schedules config file not found")
+		return
+	}
 	cfg, err := s.readScheduleConfigLocked(schedulesPath)
 	if err != nil {
 		s.writeError(w, http.StatusInternalServerError, "Failed to read schedules: "+err.Error())
@@ -267,6 +277,10 @@ func (s *Server) handleDeleteSchedule(w http.ResponseWriter, r *http.Request) {
 	s.schedulesMu.Lock()
 	defer s.schedulesMu.Unlock()
 
+	if _, err := os.Stat(schedulesPath); os.IsNotExist(err) {
+		s.writeError(w, http.StatusNotFound, "Schedules config file not found")
+		return
+	}
 	cfg, err := s.readScheduleConfigLocked(schedulesPath)
 	if err != nil {
 		s.writeError(w, http.StatusInternalServerError, "Failed to read schedules: "+err.Error())
@@ -278,8 +292,7 @@ func (s *Server) handleDeleteSchedule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	cfg.Schedules = append(cfg.Schedules[:idx], cfg.Schedules[idx+1:]...)
-	cfg, err = normalizeAndValidateScheduleConfig(cfg)
-	if err != nil {
+	if err := validateScheduleConfig(cfg); err != nil {
 		s.writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -315,6 +328,10 @@ func (s *Server) handleSetScheduleEnabled(w http.ResponseWriter, r *http.Request
 	s.schedulesMu.Lock()
 	defer s.schedulesMu.Unlock()
 
+	if _, err := os.Stat(schedulesPath); os.IsNotExist(err) {
+		s.writeError(w, http.StatusNotFound, "Schedules config file not found")
+		return
+	}
 	cfg, err := s.readScheduleConfigLocked(schedulesPath)
 	if err != nil {
 		s.writeError(w, http.StatusInternalServerError, "Failed to read schedules: "+err.Error())
@@ -326,8 +343,7 @@ func (s *Server) handleSetScheduleEnabled(w http.ResponseWriter, r *http.Request
 		return
 	}
 	cfg.Schedules[idx].Enabled = req.Enabled
-	cfg, err = normalizeAndValidateScheduleConfig(cfg)
-	if err != nil {
+	if err := validateScheduleConfig(cfg); err != nil {
 		s.writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -377,11 +393,6 @@ func (s *Server) handleTriggerSchedule(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
 	taskID, err := sched.TriggerByID(id)
-	if err != nil {
-		if index, convErr := strconv.Atoi(id); convErr == nil {
-			taskID, err = sched.Trigger(index)
-		}
-	}
 	if err != nil {
 		s.writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -442,12 +453,12 @@ func (s *Server) reloadSchedulesLocked(schedulesPath string) error {
 		return fmt.Errorf("scheduler initialization failed: %w", err)
 	}
 	newSched.OnStatusChange = s.handleScheduleStatusChange
+	newSched.Start()
 
 	s.schedulerMu.Lock()
 	if s.scheduler == nil {
 		s.scheduler = newSched
 		s.schedulerMu.Unlock()
-		newSched.Start()
 		return nil
 	}
 	existingSched := s.scheduler
@@ -486,6 +497,32 @@ func normalizeAndValidateScheduleConfig(cfg scheduler.ScheduleConfig) (scheduler
 		}
 	}
 	return scheduler.ScheduleConfig{Schedules: entries}, nil
+}
+
+// validateScheduleConfig 只做校验不做 ID 自动分配，用于 delete/enable 等局部操作。
+func validateScheduleConfig(cfg scheduler.ScheduleConfig) error {
+	used := make(map[string]struct{}, len(cfg.Schedules))
+	for i, entry := range cfg.Schedules {
+		id := strings.TrimSpace(entry.ID)
+		if id == "" {
+			return fmt.Errorf("schedule #%d (%s): missing id", i+1, entry.Name)
+		}
+		if !scheduler.ScheduleIDPattern.MatchString(id) {
+			return fmt.Errorf("schedule #%d (%s): invalid id %q (use letters, numbers, '_' or '-')", i+1, entry.Name, id)
+		}
+		if _, exists := used[id]; exists {
+			return fmt.Errorf("schedule #%d (%s): duplicate id %q", i+1, entry.Name, id)
+		}
+		used[id] = struct{}{}
+
+		if err := scheduler.ValidateEntry(entry); err != nil {
+			return fmt.Errorf("schedule #%d (%s): %w", i+1, entry.Name, err)
+		}
+		if _, err := scheduler.ParseSchedule(entry.Schedule); err != nil {
+			return fmt.Errorf("schedule #%d (%s): %w", i+1, entry.Name, err)
+		}
+	}
+	return nil
 }
 
 func findScheduleIndex(entries []scheduler.ScheduleEntry, id string) int {
@@ -549,4 +586,70 @@ func (s *Server) handleValidateSchedule(w http.ResponseWriter, r *http.Request) 
 	s.writeJSON(w, http.StatusOK, NewSuccessResponse(ScheduleValidateResponse{
 		Valid: true,
 	}))
+}
+
+func (s *Server) handleTriggerAllSchedules(w http.ResponseWriter, _ *http.Request) {
+	sched := s.getScheduler()
+	if sched == nil {
+		s.writeError(w, http.StatusBadRequest, "Scheduler not initialized")
+		return
+	}
+
+	statuses := sched.GetStatuses()
+	var enabled []scheduler.ScheduleStatus
+	for _, st := range statuses {
+		if st.Entry.Enabled {
+			enabled = append(enabled, st)
+		}
+	}
+	if len(enabled) == 0 {
+		s.writeError(w, http.StatusBadRequest, "No enabled schedules to trigger")
+		return
+	}
+
+	results := make([]ScheduleTriggerAllResult, 0, len(enabled))
+	succeeded := 0
+	failed := 0
+
+	for _, st := range enabled {
+		taskID, err := sched.TriggerByID(st.Entry.ID)
+		result := ScheduleTriggerAllResult{EntryID: st.Entry.ID}
+		if err != nil {
+			result.Error = err.Error()
+			failed++
+		} else {
+			result.TaskID = taskID
+			succeeded++
+		}
+		results = append(results, result)
+	}
+
+	s.writeJSON(w, http.StatusOK, NewSuccessResponse(ScheduleTriggerAllResponse{
+		Total:     len(enabled),
+		Succeeded: succeeded,
+		Failed:    failed,
+		Results:   results,
+	}))
+}
+
+func (s *Server) handleScheduleStats(w http.ResponseWriter, _ *http.Request) {
+	sched := s.getScheduler()
+	if sched == nil {
+		s.writeJSON(w, http.StatusOK, NewSuccessResponse(ScheduleStatsResponse{}))
+		return
+	}
+
+	statuses := sched.GetStatuses()
+	resp := ScheduleStatsResponse{Total: len(statuses)}
+	for _, st := range statuses {
+		if st.Entry.Enabled {
+			resp.Enabled++
+		} else {
+			resp.Disabled++
+		}
+		if st.ConsecutiveFailures > 0 {
+			resp.Failures++
+		}
+	}
+	s.writeJSON(w, http.StatusOK, NewSuccessResponse(resp))
 }

@@ -58,6 +58,11 @@ downloads/
 config/
 data/
 
+# === Migration / Temp Files ===
+*.backup.*
+*.migrating
+*.replacing
+
 # === OS Generated Files ===
 .DS_Store
 Desktop.ini
@@ -76,3 +81,4 @@ json示例/
 
 # === Misc ===
 todo.md
+.review/

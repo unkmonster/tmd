@@ -351,7 +351,7 @@ func TestIntervalDefaultDelaysFirstRun(t *testing.T) {
 	}
 
 	oldRandomIntervalDelay := randomIntervalDelay
-	randomIntervalDelay = func(interval time.Duration) time.Duration {
+	randomIntervalDelay = func(interval time.Duration, entryID string) time.Duration {
 		return 80 * time.Millisecond
 	}
 	t.Cleanup(func() {

@@ -88,6 +88,9 @@ func (p *Pagination) ToResponse(data interface{}, total int) *PaginatedResponse 
 	if total%p.PageSize > 0 {
 		totalPages++
 	}
+	if totalPages == 0 {
+		totalPages = 1 // total=0 时至少 1 页，避免前端显示"第 1/0 页"
+	}
 	return &PaginatedResponse{
 		Data:       data,
 		Total:      total,

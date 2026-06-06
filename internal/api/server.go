@@ -136,30 +136,34 @@ func (s *Server) buildHandler() http.Handler {
 
 	mux.HandleFunc("GET /api/v1/db/users", s.handleDBUsers)
 	mux.HandleFunc("GET /api/v1/db/users/{id}", s.handleDBUserDetail)
-	mux.HandleFunc("PUT /api/v1/db/users/{id}", s.handleDBUserUpdate)
+	mux.HandleFunc("PATCH /api/v1/db/users/{id}", s.handleDBUserUpdate)
 	mux.HandleFunc("DELETE /api/v1/db/users/{id}", s.handleDBUserDelete)
 	mux.HandleFunc("GET /api/v1/db/users/{id}/previous-names", s.handleDBUserPreviousNames)
+	mux.HandleFunc("GET /api/v1/db/users/{id}/entities", s.handleDBUserEntitiesByUserID)
+	mux.HandleFunc("GET /api/v1/db/users/{id}/links", s.handleDBUserLinksByUserID)
 
 	mux.HandleFunc("GET /api/v1/db/lists", s.handleDBLists)
 	mux.HandleFunc("GET /api/v1/db/lists/{id}", s.handleDBListDetail)
-	mux.HandleFunc("PUT /api/v1/db/lists/{id}", s.handleDBListUpdate)
+	mux.HandleFunc("PATCH /api/v1/db/lists/{id}", s.handleDBListUpdate)
 	mux.HandleFunc("DELETE /api/v1/db/lists/{id}", s.handleDBListDelete)
+	mux.HandleFunc("GET /api/v1/db/lists/{id}/entities", s.handleDBLstEntitiesByListID)
 
 	mux.HandleFunc("GET /api/v1/db/user-entities", s.handleDBUserEntities)
 	mux.HandleFunc("GET /api/v1/db/user-entities/{id}", s.handleDBUserEntityDetail)
-	mux.HandleFunc("PUT /api/v1/db/user-entities/{id}", s.handleDBUserEntityUpdate)
+	mux.HandleFunc("PATCH /api/v1/db/user-entities/{id}", s.handleDBUserEntityUpdate)
 	mux.HandleFunc("DELETE /api/v1/db/user-entities/{id}", s.handleDBUserEntityDelete)
 
 	mux.HandleFunc("GET /api/v1/db/list-entities", s.handleDBListEntities)
 	mux.HandleFunc("GET /api/v1/db/list-entities/{id}", s.handleDBListEntityDetail)
-	mux.HandleFunc("PUT /api/v1/db/list-entities/{id}", s.handleDBListEntityUpdate)
+	mux.HandleFunc("PATCH /api/v1/db/list-entities/{id}", s.handleDBListEntityUpdate)
 	mux.HandleFunc("DELETE /api/v1/db/list-entities/{id}", s.handleDBListEntityDelete)
 
 	mux.HandleFunc("GET /api/v1/db/user-links", s.handleDBUserLinks)
 	mux.HandleFunc("GET /api/v1/db/user-links/{id}", s.handleDBUserLinkDetail)
-	mux.HandleFunc("PUT /api/v1/db/user-links/{id}", s.handleDBUserLinkUpdate)
+	mux.HandleFunc("PATCH /api/v1/db/user-links/{id}", s.handleDBUserLinkUpdate)
 	mux.HandleFunc("DELETE /api/v1/db/user-links/{id}", s.handleDBUserLinkDelete)
 	mux.HandleFunc("GET /api/v1/db/user-previous-names", s.handleDBPreviousNames)
+	mux.HandleFunc("GET /api/v1/db/stats", s.handleDBStats)
 
 	mux.HandleFunc("GET /api/v1/config", s.handleConfig)
 	mux.HandleFunc("GET /api/v1/config/raw", s.handleGetConfigRaw)
@@ -171,6 +175,7 @@ func (s *Server) buildHandler() http.Handler {
 	mux.HandleFunc("GET /api/v1/cookies/raw", s.handleGetCookiesRaw)
 	mux.HandleFunc("PUT /api/v1/cookies/raw", s.handleUpdateCookiesRaw)
 	mux.HandleFunc("POST /api/v1/server/shutdown", s.handleServerShutdown)
+	mux.HandleFunc("GET /api/v1/queue/status", s.handleQueueStatus)
 	mux.HandleFunc("GET /api/v1/logs", s.handleGetLogs)
 	mux.HandleFunc("GET /api/v1/logs/stats", s.handleLogStats)
 	mux.HandleFunc("GET /api/v1/logs/export", s.handleLogExport)
@@ -183,6 +188,8 @@ func (s *Server) buildHandler() http.Handler {
 	mux.HandleFunc("PUT /api/v1/schedules/raw", s.handleUpdateSchedulesRaw)
 	mux.HandleFunc("POST /api/v1/schedules/reload", s.handleReloadSchedules)
 	mux.HandleFunc("POST /api/v1/schedules/validate", s.handleValidateSchedule)
+	mux.HandleFunc("POST /api/v1/schedules/trigger-all", s.handleTriggerAllSchedules)
+	mux.HandleFunc("GET /api/v1/schedules/stats", s.handleScheduleStats)
 	mux.HandleFunc("PUT /api/v1/schedules/{id}", s.handleUpdateSchedule)
 	mux.HandleFunc("DELETE /api/v1/schedules/{id}", s.handleDeleteSchedule)
 	mux.HandleFunc("PATCH /api/v1/schedules/{id}/enabled", s.handleSetScheduleEnabled)
@@ -298,21 +305,13 @@ func (s *Server) GracefulShutdown(reason string) {
 		}
 
 		if s.httpServer != nil {
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
+			shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer shutdownCancel()
 
-			if err := s.httpServer.Shutdown(ctx); err != nil {
+			if err := s.httpServer.Shutdown(shutdownCtx); err != nil {
 				log.Warnf("[server] http server shutdown error: %v", err)
 			} else {
 				log.Infoln("[server] http server stopped gracefully")
-			}
-		}
-
-		if s.db != nil {
-			if err := s.db.Close(); err != nil {
-				log.Warnf("[server] failed to close database: %v", err)
-			} else {
-				log.Infoln("[server] database connection closed")
 			}
 		}
 
@@ -321,6 +320,17 @@ func (s *Server) GracefulShutdown(reason string) {
 				log.Warnf("[server] failed to close log writer: %v", err)
 			} else {
 				log.Infoln("[server] log writer closed")
+			}
+		}
+
+		// 给仍在运行的 handler / detached goroutine 一个缓冲期完成对 DB 的访问
+		time.Sleep(2 * time.Second)
+
+		if s.db != nil {
+			if err := s.db.Close(); err != nil {
+				log.Warnf("[server] failed to close database: %v", err)
+			} else {
+				log.Infoln("[server] database connection closed")
 			}
 		}
 

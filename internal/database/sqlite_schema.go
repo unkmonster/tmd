@@ -8,6 +8,7 @@ import (
 	"github.com/jmoiron/sqlx"
 )
 
+// requiredSchema 定义预期的数据库表结构。包内代码应当只读使用此映射。
 var requiredSchema = map[string][]string{
 	"users":               {"id", "screen_name", "name", "protected", "friends_count", "is_accessible"},
 	"user_previous_names": {"id", "user_id", "screen_name", "name", "record_date"},

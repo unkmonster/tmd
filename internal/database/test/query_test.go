@@ -58,7 +58,14 @@ func TestCount(t *testing.T) {
 		}
 		count, err := database.Count(db, "users", opts)
 		assert.NoError(t, err)
-		assert.Equal(t, 6, count)
+		// Users 0..9: IsAccessible = i%3 != 0 → accessible count = 10 - 4 = 6
+		accessibleCount := 0
+		for i := 0; i < 10; i++ {
+			if i%3 != 0 {
+				accessibleCount++
+			}
+		}
+		assert.Equal(t, accessibleCount, count)
 	})
 
 	t.Run("count_empty_table", func(t *testing.T) {

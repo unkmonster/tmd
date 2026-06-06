@@ -7,6 +7,7 @@ import (
 	"html"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -144,8 +145,10 @@ func getIntFromMap(m map[string]any, key string) int {
 }
 
 func parseUint64(s string) uint64 {
-	var v uint64
-	fmt.Sscanf(s, "%d", &v)
+	v, err := strconv.ParseUint(s, 10, 64)
+	if err != nil {
+		log.Debugf("failed to parse uint64 from %q: %v", s, err)
+	}
 	return v
 }
 

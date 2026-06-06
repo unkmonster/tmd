@@ -819,6 +819,7 @@ GET /api/v1/tasks
     "tasks": [
       {
         "task_id": "task_abc123",
+        "entry_id": "sch_abc123",
         "type": "user_download",
         "status": "running",
         "progress": {
@@ -2269,6 +2270,7 @@ GET /api/v1/schedules
   "success": true,
   "data": {
     "scheduler_running": true,
+    "exists": true,
     "entries": [
       {
         "entry": {
@@ -2305,6 +2307,7 @@ GET /api/v1/schedules
 | 字段 | 类型 | 说明 |
 |------|------|------|
 | `scheduler_running` | bool | 调度器是否正在运行 |
+| `exists` | bool | 调度配置文件是否存在 |
 | `entries` | array | 调度条目列表 |
 | `active` | int | 启用中的调度数量 |
 | `total` | int | 调度总数 |
@@ -2697,6 +2700,140 @@ Content-Type: application/json
 
 ***
 
+#### 批量触发所有调度
+
+批量触发所有已启用的调度规则，返回每个规则的触发结果。
+
+**请求：**
+
+```http
+POST /api/v1/schedules/trigger-all
+```
+
+**响应：**
+
+```json
+{
+  "success": true,
+  "data": {
+    "total": 3,
+    "succeeded": 3,
+    "failed": 0,
+    "results": [
+      { "entry_id": "sch_abc123", "task_id": "task_xxx" },
+      { "entry_id": "sch_def456", "task_id": "task_yyy" },
+      { "entry_id": "sch_ghi789", "task_id": "task_zzz" }
+    ]
+  }
+}
+```
+
+**响应字段：**
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `total` | int | 尝试触发的调度总数 |
+| `succeeded` | int | 成功触发的数量 |
+| `failed` | int | 失败的数量 |
+| `results[].entry_id` | string | 调度条目 ID |
+| `results[].task_id` | string | 创建的任务 ID（成功时） |
+| `results[].error` | string | 错误信息（失败时） |
+
+**错误响应：**
+
+- 调度器未初始化：`{"success": false, "error": "Scheduler not initialized"}`
+- 没有已启用的调度：`{"success": false, "error": "No enabled schedules to trigger"}`
+
+**示例：**
+
+```bash
+curl -X POST http://localhost:25556/api/v1/schedules/trigger-all
+```
+
+***
+
+#### 获取调度概览统计
+
+获取调度的概览统计信息，包括总数、启用数、禁用数和异常数。
+
+**请求：**
+
+```http
+GET /api/v1/schedules/stats
+```
+
+**响应：**
+
+```json
+{
+  "success": true,
+  "data": {
+    "total": 10,
+    "enabled": 8,
+    "disabled": 2,
+    "failures": 1
+  }
+}
+```
+
+**响应字段：**
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `total` | int | 调度总数 |
+| `enabled` | int | 启用中的调度数量 |
+| `disabled` | int | 禁用的调度数量 |
+| `failures` | int | 有连续失败记录的调度数量 |
+
+**示例：**
+
+```bash
+curl http://localhost:25556/api/v1/schedules/stats
+```
+
+***
+
+#### 获取下载队列状态
+
+获取下载队列的实时状态，包括待处理、活跃和分离的任务数量。
+
+**请求：**
+
+```http
+GET /api/v1/queue/status
+```
+
+**响应：**
+
+```json
+{
+  "success": true,
+  "data": {
+    "queue_depth": 5,
+    "active_jobs": 2,
+    "pending_jobs": 3,
+    "detached_jobs": 0
+  }
+}
+```
+
+**响应字段：**
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `queue_depth` | int | 队列总深度（活跃 + 待处理 + 分离） |
+| `active_jobs` | int | 正在执行的任务数 |
+| `pending_jobs` | int | 排队等待的任务数 |
+| `detached_jobs` | int | 分离任务数（超过取消宽限期仍在运行） |
+
+**示例：**
+
+```bash
+curl http://localhost:25556/api/v1/queue/status
+```
+
+***
+
 ## 数据库管理 API 详解
 
 ### 通用查询参数
@@ -2792,7 +2929,7 @@ GET /api/v1/db/users/44196397
 **请求：**
 
 ```http
-PUT /api/v1/db/users/44196397
+PATCH /api/v1/db/users/44196397
 Content-Type: application/json
 
 {
@@ -2956,7 +3093,7 @@ GET /api/v1/db/lists/123456789
 **请求：**
 
 ```http
-PUT /api/v1/db/lists/123456789
+PATCH /api/v1/db/lists/123456789
 Content-Type: application/json
 
 {
@@ -3075,7 +3212,7 @@ GET /api/v1/db/user-entities/1
 **请求：**
 
 ```http
-PUT /api/v1/db/user-entities/1
+PATCH /api/v1/db/user-entities/1
 Content-Type: application/json
 
 {
@@ -3195,7 +3332,7 @@ GET /api/v1/db/list-entities/1
 **请求：**
 
 ```http
-PUT /api/v1/db/list-entities/1
+PATCH /api/v1/db/list-entities/1
 Content-Type: application/json
 
 {
@@ -3312,7 +3449,7 @@ GET /api/v1/db/user-links/1
 **请求：**
 
 ```http
-PUT /api/v1/db/user-links/1
+PATCH /api/v1/db/user-links/1
 Content-Type: application/json
 
 {
@@ -3488,10 +3625,13 @@ TASK_ID=$(curl -s -X POST http://localhost:25556/api/v1/lists/123456789/download
 | `/api/v1/schedules/raw`                   | PUT  | 更新原始调度文件      |
 | `/api/v1/schedules/reload`                | POST | 重新加载调度         |
 | `/api/v1/schedules/validate`              | POST | 验证调度条目         |
+| `/api/v1/schedules/trigger-all`           | POST | 批量触发所有已启用调度 |
+| `/api/v1/schedules/stats`                 | GET  | 调度概览统计         |
 | `/api/v1/schedules/{id}`                  | PUT  | 更新调度           |
 | `/api/v1/schedules/{id}`                  | DELETE | 删除调度         |
 | `/api/v1/schedules/{id}/enabled`          | PATCH | 启用/禁用调度       |
 | `/api/v1/schedules/{id}/trigger`          | POST | 手动触发调度         |
+| `/api/v1/queue/status`                    | GET  | 下载队列状态         |
 
 ### 数据库管理 API
 
@@ -3499,26 +3639,30 @@ TASK_ID=$(curl -s -X POST http://localhost:25556/api/v1/lists/123456789/download
 | ----------------------------------------- | ---- | ---------------- |
 | `/api/v1/db/users`                        | GET  | 查询用户列表（分页/排序/搜索） |
 | `/api/v1/db/users/{id}`                   | GET  | 获取用户详情       |
-| `/api/v1/db/users/{id}`                   | PUT  | 更新用户信息       |
+| `/api/v1/db/users/{id}`                   | PATCH | 部分更新用户信息     |
 | `/api/v1/db/users/{id}`                   | DELETE | 删除用户         |
 | `/api/v1/db/users/{id}/previous-names`    | GET  | 获取用户历史名称    |
+| `/api/v1/db/users/{id}/entities`          | GET  | 获取用户的所有实体（分页） |
+| `/api/v1/db/users/{id}/links`             | GET  | 获取用户的所有链接（分页） |
 | `/api/v1/db/user-previous-names`          | GET  | 全局历史名称查询（含当前名称） |
 | `/api/v1/db/lists`                        | GET  | 查询列表（分页/排序/搜索） |
 | `/api/v1/db/lists/{id}`                   | GET  | 获取列表详情       |
-| `/api/v1/db/lists/{id}`                   | PUT  | 更新列表信息       |
+| `/api/v1/db/lists/{id}`                   | PATCH | 部分更新列表信息     |
 | `/api/v1/db/lists/{id}`                   | DELETE | 删除列表         |
+| `/api/v1/db/lists/{id}/entities`          | GET  | 获取列表的所有实体（分页） |
 | `/api/v1/db/user-entities`                | GET  | 查询用户实体（分页/排序/搜索） |
 | `/api/v1/db/user-entities/{id}`           | GET  | 获取用户实体详情    |
-| `/api/v1/db/user-entities/{id}`           | PUT  | 更新用户实体       |
+| `/api/v1/db/user-entities/{id}`           | PATCH | 部分更新用户实体     |
 | `/api/v1/db/user-entities/{id}`           | DELETE | 删除用户实体     |
 | `/api/v1/db/list-entities`                | GET  | 查询列表实体（分页/排序/搜索） |
 | `/api/v1/db/list-entities/{id}`           | GET  | 获取列表实体详情    |
-| `/api/v1/db/list-entities/{id}`           | PUT  | 更新列表实体       |
+| `/api/v1/db/list-entities/{id}`           | PATCH | 部分更新列表实体     |
 | `/api/v1/db/list-entities/{id}`           | DELETE | 删除列表实体     |
 | `/api/v1/db/user-links`                   | GET  | 查询用户链接（分页/搜索） |
 | `/api/v1/db/user-links/{id}`              | GET  | 获取用户链接详情    |
-| `/api/v1/db/user-links/{id}`              | PUT  | 更新用户链接       |
+| `/api/v1/db/user-links/{id}`              | PATCH | 部分更新用户链接     |
 | `/api/v1/db/user-links/{id}`              | DELETE | 删除用户链接     |
+| `/api/v1/db/stats`                        | GET  | 数据库各表记录数统计 |
 
 ***
 

@@ -23,8 +23,8 @@ func GetLst(db *sqlx.DB, lid uint64) (*Lst, error) {
 }
 
 func UpdateLst(db *sqlx.DB, lst *Lst) error {
-	stmt := `UPDATE lsts SET name=? WHERE id=?`
-	result, err := db.Exec(stmt, lst.Name, lst.Id)
+	stmt := `UPDATE lsts SET name=?, owner_user_id=? WHERE id=?`
+	result, err := db.Exec(stmt, lst.Name, lst.OwnerUserId, lst.Id)
 	if err != nil {
 		return fmt.Errorf("failed to update list %d: %w", lst.Id, err)
 	}

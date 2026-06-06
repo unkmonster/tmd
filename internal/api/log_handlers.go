@@ -80,17 +80,14 @@ func (s *Server) handleGetLogs(w http.ResponseWriter, r *http.Request) {
 		filtered = filtered[start:end]
 	}
 
-	totalPages := 1
-	if total > 0 {
-		totalPages = (total + pagination.PageSize - 1) / pagination.PageSize
-	}
+	resp := pagination.ToResponse(filtered, total)
 
 	s.writeJSON(w, http.StatusOK, NewSuccessResponse(LogsResponse{
 		Logs:       filtered,
-		Total:      total,
-		Page:       pagination.Page,
-		PageSize:   pagination.PageSize,
-		TotalPages: totalPages,
+		Total:      resp.Total,
+		Page:       resp.Page,
+		PageSize:   resp.PageSize,
+		TotalPages: resp.TotalPages,
 	}))
 }
 
@@ -161,7 +158,6 @@ func matchLogFilters(line, level, search string) bool {
 }
 
 func matchLogLevel(line, level string) bool {
-	line = stripAnsiCodes(line)
 	level = strings.ToLower(strings.TrimSpace(level))
 	if level == "" || level == "all" {
 		return true
@@ -192,8 +188,4 @@ func logLevelPrefix(level string) string {
 	}
 }
 
-var ansiRegex = regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]`)
 
-func stripAnsiCodes(s string) string {
-	return ansiRegex.ReplaceAllString(s, "")
-}

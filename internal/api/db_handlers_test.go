@@ -83,6 +83,17 @@ func TestHandleDBUsers_WithData(t *testing.T) {
 	err = json.Unmarshal(rr.Body.Bytes(), &resp)
 	assert.NoError(t, err)
 	assert.True(t, resp.Success)
+
+	// 验证响应数据
+	data, ok := resp.Data.(map[string]interface{})
+	assert.True(t, ok)
+	assert.Equal(t, float64(1), data["total"])
+	items, ok := data["data"].([]interface{})
+	assert.True(t, ok)
+	assert.Len(t, items, 1)
+	item, ok := items[0].(map[string]interface{})
+	assert.True(t, ok)
+	assert.Equal(t, "testuser", item["screen_name"])
 }
 
 func TestHandleDBUsers_WithSearch(t *testing.T) {
@@ -309,6 +320,11 @@ func TestHandleDBUserDelete_Success(t *testing.T) {
 	server.handleDBUserDelete(rr, req)
 
 	assert.Equal(t, http.StatusOK, rr.Code)
+
+	// Verify user was deleted
+	deletedUser, err := database.GetUserById(db, 1)
+	assert.NoError(t, err)
+	assert.Nil(t, deletedUser)
 }
 
 func TestHandleDBUserDelete_NotFound(t *testing.T) {

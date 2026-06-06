@@ -29,6 +29,32 @@ func (vm *DefaultVersionManager) SetFileWriter(fw FileWriter) {
 	vm.fileWriter = fw
 }
 
+// CleanupOldVersions 删除超过 maxAge 的旧版本文件。
+// TODO: 当前没有调用方，后续可接入定时清理。
+func (vm *DefaultVersionManager) CleanupOldVersions(maxAge time.Duration) error {
+	entries, err := os.ReadDir(vm.versionsDirName)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	now := time.Now()
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil {
+			continue
+		}
+		if now.Sub(info.ModTime()) > maxAge {
+			os.Remove(filepath.Join(vm.versionsDirName, entry.Name()))
+		}
+	}
+	return nil
+}
+
 // CreateVersion 创建版本备份
 func (vm *DefaultVersionManager) CreateVersion(sourcePath string) (string, error) {
 	// P1: 空路径校验

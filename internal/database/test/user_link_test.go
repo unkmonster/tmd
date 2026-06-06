@@ -73,16 +73,15 @@ func TestCreateUserLink(t *testing.T) {
 
 	t.Run("create_link_nonexistent_user", func(t *testing.T) {
 		// SQLite默认不强制执行外键约束，除非启用
-		// 所以这个测试可能不会产生错误
+		// 所以这个创建应该成功
 		link := &database.UserLink{
 			UserId:            99999,
 			Name:              "orphan",
 			ParentLstEntityId: database.NullInt32(le.Id),
 		}
 		err := database.CreateUserLink(db, link)
-		// 由于SQLite默认不强制执行外键，这里不强制要求错误
-		// 实际行为取决于数据库配置
-		_ = err
+		assert.NoError(t, err)
+		assert.Greater(t, link.Id, int32(0))
 	})
 }
 

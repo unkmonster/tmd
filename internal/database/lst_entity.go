@@ -57,6 +57,9 @@ func LocateLstEntity(db *sqlx.DB, lid int64, parentDir string) (*LstEntity, erro
 }
 
 func UpdateLstEntity(db *sqlx.DB, entity *LstEntity) error {
+	if !entity.Id.Valid {
+		return fmt.Errorf("cannot update list entity with invalid (zero) id")
+	}
 	stmt := `UPDATE lst_entities SET name=? WHERE id=?`
 	result, err := db.Exec(stmt, entity.Name, entity.Id.Int32)
 	if err != nil {

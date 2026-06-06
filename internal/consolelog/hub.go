@@ -112,6 +112,12 @@ func (s *logSubscriber) run() {
 			return
 		}
 
+		// 排空多余的 wake 信号，避免时序导致的空转
+		select {
+		case <-s.wake:
+		default:
+		}
+
 		for {
 			line, ok := s.nextLine()
 			if !ok {

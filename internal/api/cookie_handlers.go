@@ -54,6 +54,16 @@ func (s *Server) handleUpdateCookiesRaw(w http.ResponseWriter, r *http.Request) 
 		s.writeError(w, http.StatusBadRequest, "Invalid YAML format: "+err.Error())
 		return
 	}
+	for i, c := range testCookies {
+		if c == nil {
+			continue
+		}
+		if strings.TrimSpace(c.AuthToken) == "" && strings.TrimSpace(c.Ct0) == "" {
+			s.writeError(w, http.StatusBadRequest,
+				fmt.Sprintf("Account #%d: Auth Token and CT0 cannot both be empty", i+1))
+			return
+		}
+	}
 
 	cookiesPath := filepath.Join(s.appRootPath, "additional_cookies.yaml")
 
@@ -79,15 +89,14 @@ func (s *Server) handleGetCookies(w http.ResponseWriter, _ *http.Request) {
 	cookiesPath := filepath.Join(s.appRootPath, "additional_cookies.yaml")
 	exists := true
 
+	if _, err := os.Stat(cookiesPath); os.IsNotExist(err) {
+		exists = false
+	}
+
 	cookies, err := config.ReadAdditionalCookies(cookiesPath)
 	if err != nil {
-		if os.IsNotExist(err) {
-			exists = false
-			cookies = nil
-		} else {
-			s.writeError(w, http.StatusInternalServerError, "Failed to read cookies: "+err.Error())
-			return
-		}
+		s.writeError(w, http.StatusInternalServerError, "Failed to read cookies: "+err.Error())
+		return
 	}
 
 	items := make([]CookieItem, 0, len(cookies))

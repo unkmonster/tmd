@@ -15,8 +15,6 @@ import (
 	"github.com/unkmonster/tmd/internal/database"
 )
 
-var db *sqlx.DB
-
 func opentmpdb() *sqlx.DB {
 	var err error
 	tmpFile, err := os.CreateTemp("", "")
@@ -25,7 +23,7 @@ func opentmpdb() *sqlx.DB {
 	}
 	path := tmpFile.Name()
 
-	db, err = sqlx.Connect(database.DriverName, database.MustFileDSN(path, true))
+	db, err := sqlx.Connect(database.DriverName, database.MustFileDSN(path, true))
 
 	if err != nil {
 		panic(err)
@@ -45,7 +43,7 @@ func generateUser(n int) *database.User {
 	return usr
 }
 func TestUserOperation(t *testing.T) {
-	db = opentmpdb()
+	db := opentmpdb()
 	defer db.Close()
 
 	n := 100
@@ -55,18 +53,18 @@ func TestUserOperation(t *testing.T) {
 	}
 
 	for _, usr := range users {
-		testUser(t, usr)
+		testUser(t, db, usr)
 	}
 }
 
-func testUser(t *testing.T, usr *database.User) {
+func testUser(t *testing.T, db *sqlx.DB, usr *database.User) {
 	// create
 	if err := database.CreateUser(db, usr); err != nil {
 		t.Error(err)
 		return
 	}
 
-	same, err := hasSameUserRecord(usr)
+	same, err := hasSameUserRecord(db, usr)
 	if err != nil {
 		t.Error(err)
 		return
@@ -83,7 +81,7 @@ func testUser(t *testing.T, usr *database.User) {
 		return
 	}
 
-	same, err = hasSameUserRecord(usr)
+	same, err = hasSameUserRecord(db, usr)
 	if err != nil {
 		t.Error(err)
 		return
@@ -100,7 +98,7 @@ func testUser(t *testing.T, usr *database.User) {
 	}
 }
 
-func hasSameUserRecord(usr *database.User) (bool, error) {
+func hasSameUserRecord(db *sqlx.DB, usr *database.User) (bool, error) {
 	retrieved, err := database.GetUserById(db, usr.Id)
 	return retrieved != nil && *retrieved == *usr, err
 }
@@ -113,7 +111,7 @@ func generateList(id int) *database.Lst {
 }
 
 func TestList(t *testing.T) {
-	db = opentmpdb()
+	db := opentmpdb()
 	defer db.Close()
 	n := 100
 	lsts := make([]*database.Lst, n)
@@ -129,7 +127,7 @@ func TestList(t *testing.T) {
 		}
 
 		// read
-		same, err := isSameLstRecord(lst)
+		same, err := isSameLstRecord(db, lst)
 		if err != nil {
 			t.Error(err)
 			return
@@ -145,7 +143,7 @@ func TestList(t *testing.T) {
 			t.Error(err)
 			return
 		}
-		same, err = isSameLstRecord(lst)
+		same, err = isSameLstRecord(db, lst)
 		if err != nil {
 			t.Error(err)
 			return
@@ -157,19 +155,19 @@ func TestList(t *testing.T) {
 	}
 }
 
-func isSameLstRecord(lst *database.Lst) (bool, error) {
+func isSameLstRecord(db *sqlx.DB, lst *database.Lst) (bool, error) {
 	record, err := database.GetLst(db, lst.Id)
 	return record != nil && *record == *lst, err
 }
 
 func TestUserEntity(t *testing.T) {
-	db = opentmpdb()
+	db := opentmpdb()
 	defer db.Close()
 	n := 100
 	entities := make([]*database.UserEntity, n)
 	tempDir := os.TempDir()
 	for i := 0; i < n; i++ {
-		entities[i] = generateUserEntity(uint64(i), tempDir)
+		entities[i] = generateUserEntity(db, uint64(i), tempDir)
 	}
 
 	for _, entity := range entities {
@@ -192,7 +190,7 @@ func TestUserEntity(t *testing.T) {
 		}
 
 		// read
-		yes, err := hasSameUserEntityRecord(entity)
+		yes, err := hasSameUserEntityRecord(db, entity)
 		if err != nil {
 			t.Error(err)
 			return
@@ -208,7 +206,7 @@ func TestUserEntity(t *testing.T) {
 			t.Error(err)
 			return
 		}
-		yes, err = hasSameUserEntityRecord(entity)
+		yes, err = hasSameUserEntityRecord(db, entity)
 		if err != nil {
 			t.Error(err)
 			return
@@ -253,7 +251,7 @@ func TestUserEntity(t *testing.T) {
 			return
 		}
 
-		yes, err = hasSameUserEntityRecord(entity)
+		yes, err = hasSameUserEntityRecord(db, entity)
 		if err != nil {
 			t.Error(err)
 			return
@@ -264,7 +262,7 @@ func TestUserEntity(t *testing.T) {
 	}
 }
 
-func generateUserEntity(uid uint64, pdir string) *database.UserEntity {
+func generateUserEntity(db *sqlx.DB, uid uint64, pdir string) *database.UserEntity {
 	ue := database.UserEntity{}
 	user := generateUser(int(uid))
 	if err := database.CreateUser(db, user); err != nil {
@@ -277,19 +275,19 @@ func generateUserEntity(uid uint64, pdir string) *database.UserEntity {
 	return &ue
 }
 
-func hasSameUserEntityRecord(entity *database.UserEntity) (bool, error) {
+func hasSameUserEntityRecord(db *sqlx.DB, entity *database.UserEntity) (bool, error) {
 	record, err := database.GetUserEntity(db, int(database.NullInt32(entity.Id)))
 	return record != nil && *record == *entity, err
 }
 
 func TestLstEntity(t *testing.T) {
-	db = opentmpdb()
+	db := opentmpdb()
 	defer db.Close()
 	tempdir := os.TempDir()
 	n := 100
 	entities := make([]*database.LstEntity, n)
 	for i := 0; i < n; i++ {
-		entities[i] = generateLstEntity(int64(i), tempdir)
+		entities[i] = generateLstEntity(db, int64(i), tempdir)
 	}
 
 	for _, entity := range entities {
@@ -311,7 +309,7 @@ func TestLstEntity(t *testing.T) {
 		}
 
 		// read
-		yes, err := hasSameLstEntityRecord(entity)
+		yes, err := hasSameLstEntityRecord(db, entity)
 		if err != nil {
 			t.Error(err)
 			return
@@ -326,7 +324,7 @@ func TestLstEntity(t *testing.T) {
 			t.Error(err)
 			return
 		}
-		yes, err = hasSameLstEntityRecord(entity)
+		yes, err = hasSameLstEntityRecord(db, entity)
 		if err != nil {
 			t.Error(err)
 			return
@@ -352,7 +350,7 @@ func TestLstEntity(t *testing.T) {
 			t.Error(err)
 			return
 		}
-		yes, err = hasSameLstEntityRecord(entity)
+		yes, err = hasSameLstEntityRecord(db, entity)
 		if err != nil {
 			t.Error(err)
 			return
@@ -364,7 +362,7 @@ func TestLstEntity(t *testing.T) {
 	}
 }
 
-func generateLstEntity(lid int64, pdir string) *database.LstEntity {
+func generateLstEntity(db *sqlx.DB, lid int64, pdir string) *database.LstEntity {
 	lst := generateList(int(lid))
 	if err := database.CreateLst(db, lst); err != nil {
 		panic(err)
@@ -376,18 +374,18 @@ func generateLstEntity(lid int64, pdir string) *database.LstEntity {
 	return &entity
 }
 
-func hasSameLstEntityRecord(entity *database.LstEntity) (bool, error) {
+func hasSameLstEntityRecord(db *sqlx.DB, entity *database.LstEntity) (bool, error) {
 	record, err := database.GetLstEntity(db, int(database.NullInt32(entity.Id)))
 	return record != nil && *record == *entity, err
 }
 
 func TestLink(t *testing.T) {
-	db = opentmpdb()
+	db := opentmpdb()
 	defer db.Close()
 	n := 100
 	links := make([]*database.UserLink, n)
 	for i := 0; i < n; i++ {
-		links[i] = generateLink(i, i)
+		links[i] = generateLink(db, i, i)
 	}
 
 	for _, link := range links {
@@ -420,7 +418,7 @@ func TestLink(t *testing.T) {
 		}
 
 		// r
-		yes, err := hasSameUserLinkRecord(link)
+		yes, err := hasSameUserLinkRecord(db, link)
 		if err != nil {
 			t.Error(err)
 			return
@@ -446,7 +444,7 @@ func TestLink(t *testing.T) {
 			t.Error(err)
 			return
 		}
-		yes, err = hasSameUserLinkRecord(link)
+		yes, err = hasSameUserLinkRecord(db, link)
 		if err != nil {
 			t.Error(err)
 			return
@@ -458,9 +456,9 @@ func TestLink(t *testing.T) {
 	}
 }
 
-func generateLink(uid int, lid int) *database.UserLink {
+func generateLink(db *sqlx.DB, uid int, lid int) *database.UserLink {
 	usr := generateUser(uid)
-	le := generateLstEntity(int64(lid), os.TempDir())
+	le := generateLstEntity(db, int64(lid), os.TempDir())
 	if err := database.CreateLstEntity(db, le); err != nil {
 		panic(err)
 	}
@@ -472,13 +470,13 @@ func generateLink(uid int, lid int) *database.UserLink {
 	return &ul
 }
 
-func hasSameUserLinkRecord(link *database.UserLink) (bool, error) {
+func hasSameUserLinkRecord(db *sqlx.DB, link *database.UserLink) (bool, error) {
 	record, err := database.GetUserLink(db, link.UserId, link.ParentLstEntityId)
 	return record != nil && *record == *link, err
 }
 
 func benchmarkUpdateUser(b *testing.B, routines int) {
-	db = opentmpdb()
+	db := opentmpdb()
 	defer db.Close()
 
 	n := 500
@@ -531,7 +529,7 @@ func BenchmarkUpdateUser24(b *testing.B) {
 }
 
 func TestSetUserAccessible(t *testing.T) {
-	db = opentmpdb()
+	db := opentmpdb()
 	defer db.Close()
 
 	t.Run("update_existing_user_to_inaccessible", func(t *testing.T) {
@@ -620,7 +618,7 @@ func TestSetUserAccessible(t *testing.T) {
 }
 
 func TestSetUserAccessibleConcurrent(t *testing.T) {
-	db = opentmpdb()
+	db := opentmpdb()
 	defer db.Close()
 
 	const n = 100
@@ -755,7 +753,7 @@ CREATE TABLE users (
 }
 
 func TestIsAccessibleInCRUD(t *testing.T) {
-	db = opentmpdb()
+	db := opentmpdb()
 	defer db.Close()
 
 	t.Run("create_with_is_accessible_true", func(t *testing.T) {

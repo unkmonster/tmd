@@ -1,6 +1,7 @@
 package database
 
 import (
+	"database/sql"
 	"fmt"
 	"time"
 
@@ -59,6 +60,17 @@ func UpdateUserEntity(db *sqlx.DB, entity *UserEntity) error {
 	_, err = result.RowsAffected()
 	if err != nil {
 		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+	return nil
+}
+
+// UpdateUserEntityFields 仅更新 name 和 media_count，不碰 latest_release_time，
+// 避免 PATCH 语义下因读取-写入窗口覆盖其他进程对该字段的修改（丢失更新）。
+func UpdateUserEntityFields(db *sqlx.DB, id int, name string, mediaCount sql.NullInt32) error {
+	stmt := `UPDATE user_entities SET name=?, media_count=? WHERE id=?`
+	_, err := db.Exec(stmt, name, mediaCount, id)
+	if err != nil {
+		return fmt.Errorf("failed to update user entity %d fields: %w", id, err)
 	}
 	return nil
 }

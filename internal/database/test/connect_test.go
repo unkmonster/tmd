@@ -3,6 +3,7 @@ package database_test
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/jmoiron/sqlx"
@@ -75,6 +76,10 @@ func TestConnect_WALMode(t *testing.T) {
 }
 
 func TestConnect_InvalidPath(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("path semantics differ on Windows")
+	}
+
 	invalidPath := "/nonexistent/directory/test.db"
 
 	db, err := database.Connect(invalidPath)

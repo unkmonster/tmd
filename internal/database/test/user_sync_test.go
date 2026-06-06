@@ -70,6 +70,11 @@ func TestSyncUser_RenamedUser(t *testing.T) {
 	require.NotNil(t, user)
 	assert.Equal(t, "New Name", user.Name)
 	assert.Equal(t, "newname", user.ScreenName)
+
+	var historyCount int
+	err = db.Get(&historyCount, "SELECT COUNT(*) FROM user_previous_names WHERE user_id = ? AND name = ?", uint64(12345), "Old Name")
+	assert.NoError(t, err)
+	assert.Greater(t, historyCount, 0)
 }
 
 func TestSyncUser_ProfileScenario(t *testing.T) {

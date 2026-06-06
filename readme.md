@@ -444,26 +444,30 @@ tmd -server -port 8080
 | **GET** | `/api/v1/sse/tasks` | SSE 实时任务推送 | ❌ |
 | **GET** | `/api/v1/db/users` | 用户列表（分页） | ❌ |
 | **GET** | `/api/v1/db/users/{id}` | 用户详情 | ❌ |
-| **PUT** | `/api/v1/db/users/{id}` | 更新用户 | ❌ |
+| **PATCH** | `/api/v1/db/users/{id}` | 部分更新用户 | ❌ |
 | **DELETE** | `/api/v1/db/users/{id}` | 删除用户 | ❌ |
 | **GET** | `/api/v1/db/users/{id}/previous-names` | 用户历史名称 | ❌ |
+| **GET** | `/api/v1/db/users/{id}/entities` | 获取用户的所有实体 | ❌ |
+| **GET** | `/api/v1/db/users/{id}/links` | 获取用户的所有链接 | ❌ |
 | **GET** | `/api/v1/db/user-previous-names` | 全局历史名称查询（含当前名称） | ❌ |
 | **GET** | `/api/v1/db/lists` | 列表列表（分页） | ❌ |
 | **GET** | `/api/v1/db/lists/{id}` | 列表详情 | ❌ |
-| **PUT** | `/api/v1/db/lists/{id}` | 更新列表 | ❌ |
+| **PATCH** | `/api/v1/db/lists/{id}` | 部分更新列表 | ❌ |
 | **DELETE** | `/api/v1/db/lists/{id}` | 删除列表 | ❌ |
+| **GET** | `/api/v1/db/lists/{id}/entities` | 获取列表的所有实体 | ❌ |
 | **GET** | `/api/v1/db/user-entities` | 用户实体列表（分页） | ❌ |
 | **GET** | `/api/v1/db/user-entities/{id}` | 用户实体详情 | ❌ |
-| **PUT** | `/api/v1/db/user-entities/{id}` | 更新用户实体 | ❌ |
+| **PATCH** | `/api/v1/db/user-entities/{id}` | 部分更新用户实体 | ❌ |
 | **DELETE** | `/api/v1/db/user-entities/{id}` | 删除用户实体 | ❌ |
 | **GET** | `/api/v1/db/list-entities` | 列表实体列表（分页） | ❌ |
 | **GET** | `/api/v1/db/list-entities/{id}` | 列表实体详情 | ❌ |
-| **PUT** | `/api/v1/db/list-entities/{id}` | 更新列表实体 | ❌ |
+| **PATCH** | `/api/v1/db/list-entities/{id}` | 部分更新列表实体 | ❌ |
 | **DELETE** | `/api/v1/db/list-entities/{id}` | 删除列表实体 | ❌ |
 | **GET** | `/api/v1/db/user-links` | 用户链接查询 | ❌ |
 | **GET** | `/api/v1/db/user-links/{id}` | 用户链接详情 | ❌ |
-| **PUT** | `/api/v1/db/user-links/{id}` | 更新用户链接 | ❌ |
+| **PATCH** | `/api/v1/db/user-links/{id}` | 部分更新用户链接 | ❌ |
 | **DELETE** | `/api/v1/db/user-links/{id}` | 删除用户链接 | ❌ |
+| **GET** | `/api/v1/db/stats` | 数据库各表记录数统计 | ❌ |
 | **GET** | `/api/v1/config` | 系统配置（脱敏） | ❌ |
 | **GET** | `/api/v1/config/raw` | 获取原始配置文件内容 | ❌ |
 | **PUT** | `/api/v1/config/raw` | 更新原始配置文件 (YAML) | ❌ |
@@ -485,6 +489,8 @@ tmd -server -port 8080
 | **PUT** | `/api/v1/schedules/raw` | 更新原始调度配置 (YAML) | ❌ |
 | **POST** | `/api/v1/schedules/reload` | 重载调度配置 | ❌ |
 | **POST** | `/api/v1/schedules/validate` | 验证调度配置 | ❌ |
+| **POST** | `/api/v1/schedules/trigger-all` | 批量触发所有已启用的调度 | ❌ |
+| **GET** | `/api/v1/schedules/stats` | 调度概览统计（总数/启用/异常） | ❌ |
 | **PUT** | `/api/v1/schedules/{id}` | 更新定时任务 | ❌ |
 | **DELETE** | `/api/v1/schedules/{id}` | 删除定时任务 | ❌ |
 | **PATCH** | `/api/v1/schedules/{id}/enabled` | 启用/禁用定时任务 | ❌ |
@@ -492,6 +498,7 @@ tmd -server -port 8080
 | **GET** | `/api/v1/errors` | 失败推文摘要（含常规+JSON来源） | ❌ |
 | **POST** | `/api/v1/retry/failed` | 重试所有历史失败推文 | ❌ |
 | **DELETE** | `/api/v1/errors` | 清除所有失败推文记录 | ❌ |
+| **GET** | `/api/v1/queue/status` | 下载队列状态（待处理/活跃/分离） | ❌ |
 | **GET** | `/` | Web 管理界面 - 仪表盘 | ❌ |
 | **GET** | `/tasks` | Web 管理界面 - 任务 | ❌ |
 | **GET** | `/data` | Web 管理界面 - 数据 | ❌ |
@@ -736,10 +743,13 @@ schedules:
 | **PUT** | `/api/v1/schedules/raw` | 更新原始调度配置 (YAML) |
 | **POST** | `/api/v1/schedules/reload` | 重载调度配置 |
 | **POST** | `/api/v1/schedules/validate` | 验证调度配置 |
+| **POST** | `/api/v1/schedules/trigger-all` | 批量触发所有已启用调度 |
+| **GET** | `/api/v1/schedules/stats` | 调度概览统计 |
 | **PUT** | `/api/v1/schedules/{id}` | 更新定时任务 |
 | **DELETE** | `/api/v1/schedules/{id}` | 删除定时任务 |
 | **PATCH** | `/api/v1/schedules/{id}/enabled` | 启用/禁用定时任务 |
 | **POST** | `/api/v1/schedules/{id}/trigger` | 手动触发定时任务 |
+| **GET** | `/api/v1/queue/status` | 下载队列状态 |
 
 ### 调度器状态
 
@@ -747,9 +757,13 @@ schedules:
 
 | 字段 | 说明 |
 |------|------|
+| `exists` | 调度配置文件是否存在 |
 | `scheduler_running` | 调度器是否运行中 |
+| `active` | 启用中的调度数量 |
+| `total` | 调度总数 |
 | `entries[].last_run_at` | 上次执行时间 |
 | `entries[].next_run_at` | 下次执行时间 |
+| `entries[].schedule_display` | 调度时间格式化显示（如 "每天 08:00"） |
 | `entries[].run_count` | 累计执行次数 |
 | `entries[].last_task_id` | 上次执行的任务 ID |
 | `entries[].last_error` | 上次执行的错误信息 |
@@ -1154,59 +1168,59 @@ internal/service
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│  main.go (应用入口层)                                        │
-│  - 预解析全局参数                                            │
-│  - 初始化配置、日志、数据库、Twitter 客户端                    │
+│  main.go (应用入口层)                                         │
+│  - 预解析全局参数                                             │
+│  - 初始化配置、日志、数据库、Twitter 客户端                      │
 │  - 模式选择：Server / CLI                                    │
 └──────────┬──────────────────────────────────────────────────┘
            │
 ┌──────────▼──────────────────────────────────────────────────┐
-│  internal/config (配置层)                                   │
-│  - config.go: 配置结构、读写、环境变量覆盖、交互式配置          │
+│  internal/config (配置层)                                    │
+│  - config.go: 配置结构、读写、环境变量覆盖、交互式配置             │
 └──────────┬──────────────────────────────────────────────────┘
            │
-┌──────────▼───────────────────┐  ┌────────────────────────────▼┐
-│  internal/twitter            │  │  internal/database          │
-│  (API 客户端层)               │  │  (数据持久化层)              │
-│                              │  │                             │
-│  - client.go: 登录与客户端管理 │  │  - connect/sqlite/schema     │
-│  - api.go: 请求封装与通用能力  │  │  - sqlite_schema/sqlite_migration │
-│  - user/tweet/list/timeline  │  │  - model/query/helpers       │
-│  - batch_login.go: 多账号     │  │  - user/lst/user_entity/lst_entity │
-│                              │  │  - user_link/user_sync       │
-│                              │  │  - parent_dir_migration/path_validation │
-│                              │  │  - tx/manager                │
-└──────────┬───────────────────┘  └─────────────┬───────────────┘
-           │                                    │
-           └──────────────┬─────────────────────┘
-                          │
-          ┌───────────────▼───────────────────────┐
-          │  🎯 internal/service (Service 层)     │
-          │        ★ 核心业务编排层 ★             │
-          │                                       │
-          │  - interfaces.go: DownloadService 接口 │
-          │  - download_service.go: 用户/列表/关注/ │
-          │    JSON/Profile/重试等统一入口          │
-          │  - deps.go: 依赖注入与构造              │
-          │  - progress.go: 进度上报               │
-          └───────────────┬───────────────────────┘
-                          │
-          ┌───────────────┼───────────────────────────────┐
-          │               │                               │
-┌─────────▼────────┐ ┌────▼───────────┐         ┌─────────▼─────────┐
-│  internal/api    │ │  internal/cli  │         │  internal/path    │
-│  (Server 层)      │ │  (CLI 层)       │         │  (路径工具)        │
-│                   │ │                 │         │                   │
-│  - server.go      │ │  - args.go      │         │  - store.go       │
-│  - download_*     │ │  - executor.go  │         │                   │
-│  - task_manager   │ │                 │         │                   │
-│  - download_queue │ │                 │         │                   │
-│  - progress / sse │ │                 │         │                   │
-│  - db/config/     │ │                 │         │                   │
-│    cookie/log_*   │ │                 │         │                   │
-│  - scheduler_*    │ │                 │         │                   │
-│  - event_bus.go   │ │                 │         │                   │
-└────────┬─────────┘ └─────────────────┘         └───────────────────┘
+┌──────────▼───────────────────┐  ┌─────────────────────▼─────────────────────────┐
+│  internal/twitter            │  │  internal/database                            │
+│  (API 客户端层)               │  │  (数据持久化层)                                  │
+│                              │  │                                               │
+│  - client.go: 登录与客户端管理 │  │  - connect/sqlite/schema                       │
+│  - api.go: 请求封装与通用能力  │  │  - sqlite_schema/sqlite_migration              │
+│  - user/tweet/list/timeline  │  │  - model/query/helpers                        │
+│  - batch_login.go: 多账号     │  │  - user/lst/user_entity/lst_entity            │
+│                              │  │  - user_link/user_sync                        │
+│                              │  │  - parent_dir_migration/path_validation       │
+│                              │  │  - tx/manager                                 │
+└──────────┬───────────────────┘  └────────────────────────┬──────────────────────┘
+           │                                               │
+           └────────────────┬──────────────────────────────┘
+                            │
+          ┌─────────────────▼───────────────────────────┐
+          │  🎯 internal/service (Service 层)           │
+          │        ★ 核心业务编排层 ★                    │
+          │                                             │
+          │  - interfaces.go: DownloadService 接口       │
+          │  - download_service.go: 用户/列表/关注/       │
+          │    JSON/Profile/重试等统一入口                 │
+          │  - deps.go: 依赖注入与构造                     │
+          │  - progress.go: 进度上报                      │
+          └─────────────────┬───────────────────────────┘
+                            │
+          ┌─────────────────┼───────────────────────────┐
+          │                 │                           │
+┌─────────▼────────┐   ┌────▼───────────┐     ┌─────────▼─────────┐
+│  internal/api    │   │  internal/cli  │     │  internal/path    │
+│  (Server 层)     │   │  (CLI 层)       │     │  (路径工具)        │
+│                  │   │                │     │                   │
+│  - server.go     │   │  - args.go     │     │  - store.go       │
+│  - download_*    │   │  - executor.go │     │                   │
+│  - task_manager  │   │                │     │                   │
+│  - download_queue│   │                │     │                   │
+│  - progress / sse│   │                │     │                   │
+│  - db/config/    │   │                │     │                   │
+│    cookie/log_*  │   │                │     │                   │
+│  - scheduler_*   │   │                │     │                   │
+│  - event_bus.go  │   │                │     │                   │
+└────────┬─────────┘   └────────────────┘     └───────────────────┘
          │
          ▼
 ┌─────────────────────────────────────────────────────────────┐
@@ -1217,31 +1231,31 @@ internal/service
 │  - list_download.go / json_file_download.go / json_folder_download.go │
 │  - mark_downloaded.go / retry.go / dumper.go                │
 │  - entity.go / types.go / tweet_json_converter.go           │
-│  - 负责抓取、同步实体、组织批量下载、失败重试                   │
+│  - 负责抓取、同步实体、组织批量下载、失败重试                       │
 ├─────────────────────────────────────────────────────────────┤
 │  internal/downloading/profile (Profile 业务子包)             │
 │  - downloader.go / storage.go / types.go                    │
-│  - 负责头像、横幅、简介、profile.json 与版本备份               │
+│  - 负责头像、横幅、简介、profile.json 与版本备份                  │
 └──────────┬──────────────────────────────────────────────────┘
            │
 ┌──────────▼──────────────────────────────────────────────────┐
-│  internal/entity (数据实体层)                                │
+│  internal/entity (数据实体层)                                 │
 │  - interface.go / user.go / list.go / sync.go               │
 ├─────────────────────────────────────────────────────────────┤
-│  internal/downloader (基础设施层 - 通用下载)                  │
-│  - downloader.go: 单文件下载、流式下载、大小校验               │
-│  - file_writer.go: 原子写入、跳过未变化文件、并发锁管理         │
-│  - version_manager.go: 版本备份管理                          │
+│  internal/downloader (基础设施层 - 通用下载)                   │
+│  - downloader.go: 单文件下载、流式下载、大小校验                 │
+│  - file_writer.go: 原子写入、跳过未变化文件、并发锁管理           │
+│  - version_manager.go: 版本备份管理                           │
 ├─────────────────────────────────────────────────────────────┤
 │  internal/naming (命名服务)                                  │
 │  - base.go / tweet_naming.go / user_naming.go / list_naming.go │
 ├─────────────────────────────────────────────────────────────┤
-│  internal/scheduler (定时任务调度器)                         │
-│  - scheduler.go: 调度执行与状态维护                           │
+│  internal/scheduler (定时任务调度器)                          │
+│  - scheduler.go: 调度执行与状态维护                            │
 │  - types.go: ScheduleEntry / ScheduleStatus / ParsedSchedule│
 ├─────────────────────────────────────────────────────────────┤
-│  internal/consolelog (控制台日志)                            │
-│  - hub.go: 日志捕获和分发中心，支持 SSE 实时推送               │
+│  internal/consolelog (控制台日志)                             │
+│  - hub.go: 日志捕获和分发中心，支持 SSE 实时推送                  │
 ├─────────────────────────────────────────────────────────────┤
 │  internal/utils (工具层)                                     │
 │  - fs.go / http.go / algo.go / time_range.go / recovery.go  │

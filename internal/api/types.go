@@ -173,14 +173,16 @@ type DBListEntityItem struct {
 	LstID     string `json:"lst_id"`
 	Name      string `json:"name"`
 	ParentDir string `json:"parent_dir"`
+	ListName  string `json:"list_name,omitempty"`
 }
 
 // DBUserLinkItem 用户链接项
 type DBUserLinkItem struct {
-	ID                string `json:"id"`
-	UserID            string `json:"user_id"`
-	Name              string `json:"name"`
-	ParentLstEntityID string `json:"parent_lst_entity_id"`
+	ID                  string `json:"id"`
+	UserID              string `json:"user_id"`
+	Name                string `json:"name"`
+	ParentLstEntityID   string `json:"parent_lst_entity_id"`
+	ParentLstEntityName string `json:"parent_lst_entity_name,omitempty"`
 }
 
 // DBUserPreviousNameItem 用户历史名称项
@@ -298,7 +300,33 @@ type ScheduleValidateResponse struct {
 	Errors []string `json:"errors,omitempty"`
 }
 
-// ErrorSummaryResponse 失败推文摘要响应
+type ScheduleTriggerAllResponse struct {
+	Total     int                        `json:"total"`
+	Succeeded int                        `json:"succeeded"`
+	Failed    int                        `json:"failed"`
+	Results   []ScheduleTriggerAllResult `json:"results"`
+}
+
+type ScheduleTriggerAllResult struct {
+	EntryID string `json:"entry_id"`
+	TaskID  string `json:"task_id,omitempty"`
+	Error   string `json:"error,omitempty"`
+}
+
+type ScheduleStatsResponse struct {
+	Total     int `json:"total"`
+	Enabled   int `json:"enabled"`
+	Disabled  int `json:"disabled"`
+	Failures  int `json:"failures"`
+}
+
+type QueueStatusResponse struct {
+	QueueDepth   int `json:"queue_depth"`
+	ActiveJobs   int `json:"active_jobs"`
+	PendingJobs  int `json:"pending_jobs"`
+	DetachedJobs int `json:"detached_jobs"`
+}
+
 type ErrorSummaryResponse struct {
 	Regular map[int]int                    `json:"regular"`      // entity ID → 失败推文数
 	JSON    []downloading.JsonDumpSummary  `json:"json"`         // JSON 文件来源摘要

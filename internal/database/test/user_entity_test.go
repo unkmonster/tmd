@@ -50,9 +50,8 @@ func TestCreateUserEntity(t *testing.T) {
 		assert.Greater(t, entity.Id.Int32, int32(0))
 	})
 
-	t.Run("create_duplicate_entity", func(t *testing.T) {
-		// 使用相同的Uid和ParentDir创建重复实体应该失败
-		// 第一个实体已经在上面创建成功，使用相同Uid但不同目录
+	t.Run("create_same_user_different_dir", func(t *testing.T) {
+		// 使用相同Uid但不同ParentDir创建实体应该成功
 		tmpDir := t.TempDir()
 		entity := &database.UserEntity{
 			UserId:    1,
@@ -60,8 +59,6 @@ func TestCreateUserEntity(t *testing.T) {
 			ParentDir: tmpDir,
 		}
 		err := database.CreateUserEntity(db, entity)
-		// 注意：由于使用了不同的ParentDir，这个测试可能不应该期望错误
-		// 这里改为测试相同Uid和相同ParentDir的情况
 		assert.NoError(t, err)
 	})
 

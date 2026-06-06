@@ -5,6 +5,7 @@ import (
 	"crypto/sha1"
 	"encoding/hex"
 	"fmt"
+	"hash/fnv"
 	"math/rand"
 	"os"
 	"regexp"
@@ -20,13 +21,27 @@ import (
 	"github.com/unkmonster/tmd/internal/utils"
 )
 
-var scheduleIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
+var ScheduleIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 
-var randomIntervalDelay = func(interval time.Duration) time.Duration {
+// randomIntervalDelay 根据 entry ID 的哈希值在 interval 中确定一个位置，
+// 同一个 entry 始终得到相同的延迟，不同 entry 自然均匀散开，避免扎堆。
+var randomIntervalDelay = func(interval time.Duration, entryID string) time.Duration {
 	if interval <= time.Nanosecond {
 		return interval
 	}
-	return time.Duration(rand.Int63n(int64(interval-time.Nanosecond))) + time.Nanosecond
+	if entryID == "" {
+		// 回退到随机延迟（用于没有 ID 的条目，如测试中的配置）
+		return time.Duration(rand.Int63n(int64(interval-time.Nanosecond))) + time.Nanosecond
+	}
+	h := fnv.New64a()
+	_, _ = h.Write([]byte(entryID))
+	v := h.Sum64()
+	// 取模限制到 [1ns, interval) 范围内
+	pos := v % uint64(interval)
+	if pos == 0 {
+		pos = 1 // 至少 1ns，避免零延迟
+	}
+	return time.Duration(pos)
 }
 
 type ScheduleStatusChangeFunc func(statuses []ScheduleStatus)
@@ -166,7 +181,16 @@ func (sc *Scheduler) stopLocked() bool {
 	sc.ctx = nil
 	sc.mu.Unlock()
 
-	sc.wg.Wait()
+	done := make(chan struct{})
+	go func() {
+		sc.wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		log.Warnf("[scheduler] stop timed out waiting for goroutines after 5s")
+	}
 	return true
 }
 
@@ -209,7 +233,11 @@ func (sc *Scheduler) entrySnapshot(idx int) (ScheduleEntry, *ParsedSchedule, con
 	if idx < 0 || idx >= len(sc.entries) || idx >= len(sc.parsed) || sc.parsed[idx] == nil {
 		return ScheduleEntry{}, nil, nil, false, 0, false
 	}
-	return sc.entries[idx], sc.parsed[idx], sc.ctx, sc.firstStart, sc.generation, true
+	ctx := sc.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return sc.entries[idx], sc.parsed[idx], ctx, sc.firstStart, sc.generation, true
 }
 
 func (sc *Scheduler) Reload() error {
@@ -391,7 +419,7 @@ func (sc *Scheduler) runIntervalLoop(ctx context.Context, idx int, entry Schedul
 	if entry.RunOnStart && firstStart {
 		sc.execute(idx, entry, gen)
 	} else {
-		delay := randomIntervalDelay(parsed.Interval)
+		delay := randomIntervalDelay(parsed.Interval, entry.ID)
 		if !sc.waitInterval(ctx, idx, entry, delay, gen) {
 			return
 		}
@@ -433,6 +461,10 @@ func (sc *Scheduler) waitInterval(ctx context.Context, idx int, entry ScheduleEn
 func (sc *Scheduler) runDailyLoop(ctx context.Context, idx int, entry ScheduleEntry, parsed *ParsedSchedule, gen int64) {
 	for {
 		next := nextDailyTrigger(parsed.SortedTimes)
+		if next.IsZero() {
+			log.Warnf("[scheduler] runDailyLoop[%d]: empty times, stopping daily loop", idx)
+			return
+		}
 		sc.updateNextRunAt(idx, entry, next, gen)
 
 		timer := time.NewTimer(time.Until(next))
@@ -610,6 +642,9 @@ func logReloadSummary(entries []ScheduleEntry) {
 }
 
 func nextDailyTrigger(times []time.Time) time.Time {
+	if len(times) == 0 {
+		return time.Time{}
+	}
 	now := time.Now()
 	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
 
@@ -721,6 +756,11 @@ func ValidateEntry(entry ScheduleEntry) error {
 			return fmt.Errorf("invalid list_id %q: must be a positive integer", entry.Target)
 		}
 	}
+	if entry.Type == ScheduleTypeUser || entry.Type == ScheduleTypeFollowing {
+		if !utils.IsValidScreenName(entry.Target) {
+			return fmt.Errorf("invalid screen_name %q: must be 1-15 characters (letters, digits, underscores)", entry.Target)
+		}
+	}
 	return nil
 }
 
@@ -734,7 +774,7 @@ func NormalizeEntries(entries []ScheduleEntry) ([]ScheduleEntry, error) {
 		id := normalized[i].ID
 		if id == "" {
 			id = uniqueScheduleID(normalized[i], used)
-		} else if !scheduleIDPattern.MatchString(id) {
+		} else if !ScheduleIDPattern.MatchString(id) {
 			return nil, fmt.Errorf("schedule #%d (%s): invalid id %q (use letters, numbers, '_' or '-')", i+1, normalized[i].Name, id)
 		} else if _, exists := used[id]; exists {
 			return nil, fmt.Errorf("schedule #%d (%s): duplicate id %q", i+1, normalized[i].Name, id)
@@ -841,7 +881,7 @@ func FormatScheduleDisplay(parsed *ParsedSchedule, raw string) string {
 		m := int(parsed.Interval.Minutes()) % 60
 		if d > 0 && h == 0 && m == 0 {
 			if d == 1 {
-				return "每天"
+				return "每 24 小时"
 			}
 			return fmt.Sprintf("每 %d 天", d)
 		}

@@ -251,9 +251,7 @@ func (b *EventBus) Publish(event string, data interface{}) {
 	}
 	b.mu.Unlock()
 
-	for range overflowed {
-		log.Warnf("[SSE] closing slow subscriber after %s event queue overflow", event)
-	}
+	log.Warnf("[SSE] closing %d slow subscriber(s) after %s event queue overflow", len(overflowed), event)
 }
 
 func (b *EventBus) PublishTasks(tasks []*Task) {

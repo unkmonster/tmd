@@ -471,7 +471,7 @@ func convertSourceToTarget(source *sourceTweet) *targetTweet {
 		CreatedAt:                 sourceLegacy.CreatedAt,
 		DisplayTextRange:          sourceLegacy.DisplayTextRange,
 		Entities:                  convertTweetEntities(sourceLegacy.Entities),
-		ExtendedEntities:          cleanMediaHighQuality(sourceLegacy.ExtendedEntities),
+		ExtendedEntities:          upgradeMediaToHighQuality(sourceLegacy.ExtendedEntities),
 		FavoriteCount:             sourceLegacy.FavoriteCount,
 		Favorited:                 sourceLegacy.Favorited,
 		FullText:                  sourceLegacy.FullText,
@@ -563,7 +563,8 @@ func getAvatarURL(a *avatar) string {
 	return a.ImageURL
 }
 
-func cleanMediaHighQuality(ee *extendedEntities) *extendedEntities {
+// upgradeMediaToHighQuality 将推文媒体 URL 升级为最高质量（原地修改 ee 并返回）。
+func upgradeMediaToHighQuality(ee *extendedEntities) *extendedEntities {
 	if ee == nil || len(ee.Media) == 0 {
 		return ee
 	}

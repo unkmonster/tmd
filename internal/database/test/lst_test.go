@@ -142,7 +142,10 @@ func TestLst_CRUD(t *testing.T) {
 		err = database.UpdateLst(db, lst)
 		require.NoError(t, err)
 
-		retrieved, _ = database.GetLst(db, 42)
+		retrieved, err = database.GetLst(db, 42)
+		require.NoError(t, err)
+		require.NotNil(t, retrieved)
+		assert.Equal(t, uint64(999), retrieved.OwnerUserId)
 		assert.Equal(t, "Updated Lifecycle List", retrieved.Name)
 	})
 }

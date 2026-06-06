@@ -1,13 +1,16 @@
 package database
 
 import (
+	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/jmoiron/sqlx"
 	log "github.com/sirupsen/logrus"
 )
+
+// ErrUserNotFound 标记"用户不存在"错误，供调用方用 errors.Is 判断。
+var ErrUserNotFound = errors.New("user not found")
 
 func CreateUser(db *sqlx.DB, usr *User) error {
 	stmt := `INSERT INTO Users(id, screen_name, name, protected, friends_count, is_accessible) VALUES(:id, :screen_name, :name, :protected, :friends_count, :is_accessible)`
@@ -36,7 +39,7 @@ func SetUserAccessible(db *sqlx.DB, uid uint64, accessible bool) error {
 		return fmt.Errorf("failed to get rows affected for user %d: %w", uid, err)
 	}
 	if rows == 0 {
-		return fmt.Errorf("user %d not found, cannot set accessible status", uid)
+		return fmt.Errorf("user %d not found, cannot set accessible status: %w", uid, ErrUserNotFound)
 	}
 	return nil
 }
@@ -52,7 +55,7 @@ func SetUserAccessibleByScreenName(db *sqlx.DB, screenName string, accessible bo
 		return fmt.Errorf("failed to get rows affected for user %s: %w", screenName, err)
 	}
 	if rows == 0 {
-		return fmt.Errorf("user %s not found, cannot set accessible status", screenName)
+		return fmt.Errorf("user %s not found, cannot set accessible status: %w", screenName, ErrUserNotFound)
 	}
 	return nil
 }
@@ -112,13 +115,13 @@ func RecordUserPreviousName(db *sqlx.DB, uid uint64, name string, screenName str
 func MarkUserInaccessible(db *sqlx.DB, uid uint64, screenName string) {
 	if uid > 0 {
 		if markErr := SetUserAccessible(db, uid, false); markErr != nil {
-			if !strings.Contains(markErr.Error(), "not found") {
+			if !errors.Is(markErr, ErrUserNotFound) {
 				log.Warnln("failed to mark user as inaccessible:", uid, markErr)
 			}
 		}
 	} else if screenName != "" {
 		if markErr := SetUserAccessibleByScreenName(db, screenName, false); markErr != nil {
-			if !strings.Contains(markErr.Error(), "not found") {
+			if !errors.Is(markErr, ErrUserNotFound) {
 				log.Warnln("failed to mark user as inaccessible by screen_name:", screenName, markErr)
 			}
 		}

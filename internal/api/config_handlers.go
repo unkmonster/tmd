@@ -184,13 +184,16 @@ func (s *Server) handleGetConfigFields(w http.ResponseWriter, _ *http.Request) {
 	confPath := filepath.Join(s.appRootPath, "conf.yaml")
 	exists := true
 
+	if _, err := os.Stat(confPath); os.IsNotExist(err) {
+		exists = false
+	}
+
 	currentConf := s.config
 	if currentConf == nil {
 		var err error
 		currentConf, err = config.ReadConf(confPath)
 		if err != nil {
 			if os.IsNotExist(err) {
-				exists = false
 				currentConf = &config.Config{}
 			} else {
 				s.writeError(w, http.StatusInternalServerError, "Failed to read config: "+err.Error())

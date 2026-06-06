@@ -230,6 +230,10 @@ func applyParentDirUpdates(tx *sqlx.Tx, table string, updates []parentDirUpdate)
 }
 
 func remapParentDir(parentDir string, fromRoot portablePath, toRoot portablePath) (string, bool, error) {
+	// 空字符串视为无需迁移，跳过
+	if strings.TrimSpace(parentDir) == "" {
+		return parentDir, false, nil
+	}
 	current, err := parsePortablePath(parentDir)
 	if err != nil {
 		return "", false, err

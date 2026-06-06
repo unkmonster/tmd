@@ -114,6 +114,9 @@ func copyFile(srcPath string, dstPath string) error {
 	if _, err := io.Copy(dstFile, srcFile); err != nil {
 		return fmt.Errorf("failed to copy %q to %q: %w", srcPath, dstPath, err)
 	}
+	if err := dstFile.Sync(); err != nil {
+		return fmt.Errorf("failed to sync %q: %w", dstPath, err)
+	}
 	return nil
 }
 
@@ -201,38 +204,48 @@ func rollbackSQLiteFileMoves(srcPath string, dstPath string, suffixes []string) 
 }
 
 func copyAllData(sourceDB *sqlx.DB, targetDB *sqlx.DB) error {
+	sourceTx, err := sourceDB.Beginx()
+	if err != nil {
+		return fmt.Errorf("failed to begin source transaction: %w", err)
+	}
+	defer sourceTx.Rollback()
+
 	tx, err := targetDB.Beginx()
 	if err != nil {
 		return fmt.Errorf("failed to begin target transaction: %w", err)
 	}
 	defer tx.Rollback()
 
-	if err := copyUsers(sourceDB, tx); err != nil {
+	if err := copyUsers(sourceTx, tx); err != nil {
 		return err
 	}
-	if err := copyUserPreviousNames(sourceDB, tx); err != nil {
+	if err := copyUserPreviousNames(sourceTx, tx); err != nil {
 		return err
 	}
-	if err := copyLsts(sourceDB, tx); err != nil {
+	if err := copyLsts(sourceTx, tx); err != nil {
 		return err
 	}
-	if err := copyUserEntities(sourceDB, tx); err != nil {
+	if err := copyUserEntities(sourceTx, tx); err != nil {
 		return err
 	}
-	if err := copyLstEntities(sourceDB, tx); err != nil {
+	if err := copyLstEntities(sourceTx, tx); err != nil {
 		return err
 	}
-	if err := copyUserLinks(sourceDB, tx); err != nil {
+	if err := copyUserLinks(sourceTx, tx); err != nil {
 		return err
 	}
 
-	if err := validateRowCounts(sourceDB, tx); err != nil {
+	if err := validateRowCounts(sourceTx, tx); err != nil {
 		return err
+	}
+
+	if err := sourceTx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit source transaction: %w", err)
 	}
 	return tx.Commit()
 }
 
-func copyUsers(sourceDB *sqlx.DB, targetTx *sqlx.Tx) error {
+func copyUsers(sourceDB *sqlx.Tx, targetTx *sqlx.Tx) error {
 	userColumns, err := getTableColumns(sourceDB, "users")
 	if err != nil {
 		return err
@@ -264,7 +277,7 @@ func copyUsers(sourceDB *sqlx.DB, targetTx *sqlx.Tx) error {
 	return nil
 }
 
-func copyUserPreviousNames(sourceDB *sqlx.DB, targetTx *sqlx.Tx) error {
+func copyUserPreviousNames(sourceDB *sqlx.Tx, targetTx *sqlx.Tx) error {
 	exists, err := tableExists(sourceDB, "user_previous_names")
 	if err != nil {
 		return err
@@ -308,7 +321,7 @@ func copyUserPreviousNames(sourceDB *sqlx.DB, targetTx *sqlx.Tx) error {
 	return nil
 }
 
-func copyLsts(sourceDB *sqlx.DB, targetTx *sqlx.Tx) error {
+func copyLsts(sourceDB *sqlx.Tx, targetTx *sqlx.Tx) error {
 	exists, err := tableExists(sourceDB, "lsts")
 	if err != nil {
 		return err
@@ -349,7 +362,7 @@ func copyLsts(sourceDB *sqlx.DB, targetTx *sqlx.Tx) error {
 	return nil
 }
 
-func copyUserEntities(sourceDB *sqlx.DB, targetTx *sqlx.Tx) error {
+func copyUserEntities(sourceDB *sqlx.Tx, targetTx *sqlx.Tx) error {
 	exists, err := tableExists(sourceDB, "user_entities")
 	if err != nil {
 		return err
@@ -379,7 +392,7 @@ func copyUserEntities(sourceDB *sqlx.DB, targetTx *sqlx.Tx) error {
 	return nil
 }
 
-func copyLstEntities(sourceDB *sqlx.DB, targetTx *sqlx.Tx) error {
+func copyLstEntities(sourceDB *sqlx.Tx, targetTx *sqlx.Tx) error {
 	exists, err := tableExists(sourceDB, "lst_entities")
 	if err != nil {
 		return err
@@ -406,7 +419,7 @@ func copyLstEntities(sourceDB *sqlx.DB, targetTx *sqlx.Tx) error {
 	return nil
 }
 
-func copyUserLinks(sourceDB *sqlx.DB, targetTx *sqlx.Tx) error {
+func copyUserLinks(sourceDB *sqlx.Tx, targetTx *sqlx.Tx) error {
 	exists, err := tableExists(sourceDB, "user_links")
 	if err != nil {
 		return err
@@ -433,7 +446,7 @@ func copyUserLinks(sourceDB *sqlx.DB, targetTx *sqlx.Tx) error {
 	return nil
 }
 
-func validateRowCounts(sourceDB *sqlx.DB, targetQueryer interface {
+func validateRowCounts(sourceDB *sqlx.Tx, targetQueryer interface {
 	Get(dest interface{}, query string, args ...interface{}) error
 }) error {
 	tableNames := make([]string, 0, len(requiredSchema))

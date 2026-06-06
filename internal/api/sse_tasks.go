@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -62,9 +64,15 @@ func (s *Server) handleSSETasks(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if sched := s.getScheduler(); sched != nil {
+		schedulesPath := filepath.Join(s.appRootPath, "schedules.yaml")
+		exists := true
+		if _, err := os.Stat(schedulesPath); os.IsNotExist(err) {
+			exists = false
+		}
 		if err := s.writeSSENamedEvent(w, flusher, "schedules", map[string]interface{}{
 			"scheduler_running": sched.IsRunning(),
 			"entries":           sched.GetStatuses(),
+			"exists":            exists,
 		}); err != nil {
 			return
 		}

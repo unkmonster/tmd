@@ -93,33 +93,60 @@ func CreateIndexes(db *sqlx.DB) {
 	db.MustExec(indexes)
 }
 
+// renameMigration 描述一条 ALTER TABLE RENAME COLUMN 迁移。
+type renameMigration struct {
+	table      string // 表名
+	newColumn  string // 目标列名（RENAME 之后的列名）
+}
+
 // MigrateDatabase keeps idempotent in-place schema upgrades for databases that
 // are already readable by the current SQLite driver. These ALTER/RENAME steps
 // can be removed after support for upgrading pre-is_accessible / pre-user_id /
 // pre-owner_user_id databases is explicitly dropped.
 func MigrateDatabase(db *sqlx.DB) error {
-	migrations := []string{
-		`ALTER TABLE users ADD COLUMN is_accessible BOOLEAN NOT NULL DEFAULT 1`,
-		`ALTER TABLE user_previous_names RENAME COLUMN uid TO user_id`,
-		`ALTER TABLE lsts RENAME COLUMN owner_uid TO owner_user_id`,
+	type migrationStep struct {
+		sql    string
+		rename *renameMigration // 非 nil 表示这是 RENAME COLUMN 迁移
+	}
+	migrations := []migrationStep{
+		{`ALTER TABLE users ADD COLUMN is_accessible BOOLEAN NOT NULL DEFAULT 1`, nil},
+		{`ALTER TABLE user_previous_names RENAME COLUMN uid TO user_id`, &renameMigration{"user_previous_names", "user_id"}},
+		{`ALTER TABLE lsts RENAME COLUMN owner_uid TO owner_user_id`, &renameMigration{"lsts", "owner_user_id"}},
 	}
 
-	for i, migration := range migrations {
-		if _, err := db.Exec(migration); err != nil {
-			if !strings.Contains(err.Error(), "duplicate column name") && !isColumnAlreadyRenamed(err) && !isTableNotExist(err) {
-				return fmt.Errorf("migration %d failed: %w", i+1, err)
+	for i, m := range migrations {
+		if _, err := db.Exec(m.sql); err != nil {
+			// ADD COLUMN 失败：列已存在（重复列名）
+			if strings.Contains(err.Error(), "duplicate column name") {
+				continue
 			}
+			// 表不存在，跳过
+			if strings.Contains(err.Error(), "no such table") {
+				continue
+			}
+			// RENAME COLUMN 失败
+			if m.rename != nil {
+				// "cannot rename" 无法区分具体原因，安全跳过
+				if strings.Contains(err.Error(), "cannot rename") {
+					continue
+				}
+				// "no such column"：旧列不存在。验证目标列已存在来区分
+				// "已重命名" 和 "真的 schema 损坏"。
+				if strings.Contains(err.Error(), "no such column") && columnExists(db, m.rename.table, m.rename.newColumn) {
+					continue
+				}
+			}
+			return fmt.Errorf("migration %d failed: %w", i+1, err)
 		}
 	}
 	return nil
 }
 
-func isColumnAlreadyRenamed(err error) bool {
-	msg := err.Error()
-	return strings.Contains(msg, "no such column") || strings.Contains(msg, "cannot rename")
-}
-
-func isTableNotExist(err error) bool {
-	msg := err.Error()
-	return strings.Contains(msg, "no such table")
+// columnExists 检查指定表中是否存在指定列。
+func columnExists(db *sqlx.DB, table, column string) bool {
+	var count int
+	if err := db.Get(&count, `SELECT COUNT(*) FROM pragma_table_info(?) WHERE name=?`, table, column); err != nil {
+		return false
+	}
+	return count > 0
 }

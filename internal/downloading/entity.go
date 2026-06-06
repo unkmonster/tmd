@@ -1,6 +1,7 @@
 package downloading
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 
@@ -85,7 +86,8 @@ func replaceStaleUserSymlink(targetPath, linkPath string, existErr error) error 
 	}
 	if err := os.Symlink(targetPath, linkPath); err != nil {
 		if restoreErr := os.Rename(backupPath, linkPath); restoreErr != nil {
-			return restoreErr
+			os.Remove(backupPath) // best-effort cleanup of .stale
+			return fmt.Errorf("symlink failed: %w (restore rename also failed: %v)", err, restoreErr)
 		}
 		return err
 	}

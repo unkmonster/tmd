@@ -7,8 +7,14 @@ import (
 )
 
 func CreateUserLink(db *sqlx.DB, lnk *UserLink) error {
+	tx, err := db.Beginx()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
 	stmt := `INSERT OR IGNORE INTO user_links(user_id, name, parent_lst_entity_id) VALUES(:user_id, :name, :parent_lst_entity_id)`
-	res, err := db.NamedExec(stmt, lnk)
+	res, err := tx.NamedExec(stmt, lnk)
 	if err != nil {
 		return fmt.Errorf("failed to create user link for user %d in list entity %d: %w", lnk.UserId, lnk.ParentLstEntityId, err)
 	}
@@ -17,18 +23,19 @@ func CreateUserLink(db *sqlx.DB, lnk *UserLink) error {
 		return fmt.Errorf("failed to get rows affected for user link insert: %w", err)
 	}
 	if affected > 0 {
-		return handleInsertWithId(res, err, func(id int64) { lnk.Id = int32(id) })
+		if err := handleInsertWithId(res, err, func(id int64) { lnk.Id = int32(id) }); err != nil {
+			return err
+		}
+		return tx.Commit()
 	}
 
-	existing, err := GetUserLink(db, lnk.UserId, lnk.ParentLstEntityId)
-	if err != nil {
-		return err
-	}
-	if existing == nil {
-		return fmt.Errorf("failed to locate existing user link for user %d in list entity %d after insert ignore", lnk.UserId, lnk.ParentLstEntityId)
+	var existing UserLink
+	if err := tx.Get(&existing, `SELECT * FROM user_links WHERE user_id = ? AND parent_lst_entity_id = ?`, lnk.UserId, lnk.ParentLstEntityId); err != nil {
+		return fmt.Errorf("failed to locate existing user link for user %d in list entity %d after insert ignore: %w", lnk.UserId, lnk.ParentLstEntityId, err)
 	}
 	lnk.Id = existing.Id
-	return nil
+	lnk.Name = existing.Name
+	return tx.Commit()
 }
 
 func GetUserLinks(db *sqlx.DB, uid uint64) ([]*UserLink, error) {

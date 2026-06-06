@@ -123,6 +123,8 @@ const store = {
     logSearch: '',
     logStats: { debug: 0, info: 0, warn: 0, error: 0, total: 0 },
     logAutoRefresh: true,
+    _logAutoScrollPaused: false,
+    _logNewArrived: false,
     logPagination: { page: 1, pageSize: 100, total: 0, totalPages: 1 },
     _systemTab: 'config',
     configMode: 'form',
@@ -138,6 +140,8 @@ const store = {
     _scheduleExists: false,
     _scheduleSaving: false,
     _scheduleFormItems: [],
+    _scheduleFormDirty: false,
+    _scheduleRunHistory: {},
     _schedulerRunning: false,
   },
 
@@ -169,18 +173,18 @@ const store = {
 // ============================================
 const api = {
   base: '',
-  _abortController: null,
+  _abortControllers: new Set(),
 
   abortAll() {
-    if (this._abortController) {
-      this._abortController.abort();
-      this._abortController = null;
-    }
+    const controllers = this._abortControllers;
+    this._abortControllers = new Set();
+    for (const ctrl of controllers) ctrl.abort();
   },
 
   _getAbortSignal() {
-    if (!this._abortController) this._abortController = new AbortController();
-    return this._abortController.signal;
+    const controller = new AbortController();
+    this._abortControllers.add(controller);
+    return controller.signal;
   },
   
   async request(method, path, body = null, extra = {}) {
@@ -281,34 +285,43 @@ const api = {
   getSchedulesRaw() { return this.get('/api/v1/schedules/raw'); },
   updateSchedulesRaw(content) { return this.request('PUT', '/api/v1/schedules/raw', { content }); },
   triggerSchedule(id) { return this.request('POST', `/api/v1/schedules/${encodeURIComponent(id)}/trigger`, {}); },
+  triggerAllSchedules() { return this.post('/api/v1/schedules/trigger-all', {}); },
+  getScheduleStats() { return this.get('/api/v1/schedules/stats'); },
   validateSchedule(body) { return this.post('/api/v1/schedules/validate', body); },
+
+  // Queue
+  getQueueStatus() { return this.get('/api/v1/queue/status'); },
 
   // Database CRUD with pagination
   getDBUsers(params = '') { return this.get(`/api/v1/db/users${params ? '?' + params : ''}`); },
   getDBUser(id) { return this.get(`/api/v1/db/users/${id}`); },
-  updateDBUser(id, data) { return this.request('PUT', `/api/v1/db/users/${id}`, data); },
+  updateDBUser(id, data) { return this.request('PATCH', `/api/v1/db/users/${id}`, data); },
   deleteDBUser(id) { return this.request('DELETE', `/api/v1/db/users/${id}`); },
+  getDBUserEntities(id, params = '') { return this.get(`/api/v1/db/users/${id}/entities${params ? '?' + params : ''}`); },
+  getDBUserLinks(id, params = '') { return this.get(`/api/v1/db/users/${id}/links${params ? '?' + params : ''}`); },
 
   getDBLists(params = '') { return this.get(`/api/v1/db/lists${params ? '?' + params : ''}`); },
   getDBList(id) { return this.get(`/api/v1/db/lists/${id}`); },
-  updateDBList(id, data) { return this.request('PUT', `/api/v1/db/lists/${id}`, data); },
+  updateDBList(id, data) { return this.request('PATCH', `/api/v1/db/lists/${id}`, data); },
   deleteDBList(id) { return this.request('DELETE', `/api/v1/db/lists/${id}`); },
+  getDBListEntities(id, params = '') { return this.get(`/api/v1/db/lists/${id}/entities${params ? '?' + params : ''}`); },
   
   getDBUserEntities(params = '') { return this.get(`/api/v1/db/user-entities${params ? '?' + params : ''}`); },
   getDBUserEntity(id) { return this.get(`/api/v1/db/user-entities/${id}`); },
-  updateDBUserEntity(id, data) { return this.request('PUT', `/api/v1/db/user-entities/${id}`, data); },
+  updateDBUserEntity(id, data) { return this.request('PATCH', `/api/v1/db/user-entities/${id}`, data); },
   deleteDBUserEntity(id) { return this.request('DELETE', `/api/v1/db/user-entities/${id}`); },
   
   getDBListEntities(params = '') { return this.get(`/api/v1/db/list-entities${params ? '?' + params : ''}`); },
   getDBListEntity(id) { return this.get(`/api/v1/db/list-entities/${id}`); },
-  updateDBListEntity(id, data) { return this.request('PUT', `/api/v1/db/list-entities/${id}`, data); },
+  updateDBListEntity(id, data) { return this.request('PATCH', `/api/v1/db/list-entities/${id}`, data); },
   deleteDBListEntity(id) { return this.request('DELETE', `/api/v1/db/list-entities/${id}`); },
   
   getDBUserLinks(params = '') { return this.get(`/api/v1/db/user-links${params ? '?' + params : ''}`); },
   getDBUserLink(id) { return this.get(`/api/v1/db/user-links/${id}`); },
-  updateDBUserLink(id, data) { return this.request('PUT', `/api/v1/db/user-links/${id}`, data); },
+  updateDBUserLink(id, data) { return this.request('PATCH', `/api/v1/db/user-links/${id}`, data); },
   deleteDBUserLink(id) { return this.request('DELETE', `/api/v1/db/user-links/${id}`); },
   getDBPreviousNames(params = '') { return this.get(`/api/v1/db/user-previous-names${params ? '?' + params : ''}`); },
+  getDBStats() { return this.get('/api/v1/db/stats'); },
   getDBUserPreviousNames(id, params = '') { return this.get(`/api/v1/db/users/${id}/previous-names${params ? '?' + params : ''}`); }
 };
 
@@ -355,13 +368,39 @@ const sseManager = {
 
     const debouncedSchedulesUpdate = debounce((data) => {
       const entries = data.entries || [];
+      const prevSchedules = store.state._schedules || [];
       const update = {
         _schedules: entries,
         _schedulerRunning: !!data.scheduler_running,
+        _scheduleExists: data.exists !== undefined ? !!data.exists : store.state._scheduleExists,
       };
-      if (!isScheduleFormEditing()) {
+      if (!store.state._scheduleFormDirty && !isScheduleFormEditing()) {
         update._scheduleFormItems = entries.map(s => scheduleStatusToFormItem(s));
       }
+      // 检测 last_task_id 变化，追加执行历史
+      const history = { ...(store.state._scheduleRunHistory || {}) };
+      let changed = false;
+      for (const newEntry of entries) {
+        const entryId = newEntry.entry?.id;
+        if (!entryId || !newEntry.last_task_id) continue;
+        const prevEntry = prevSchedules.find(s => s.entry?.id === entryId);
+        const prevTaskId = prevEntry?.last_task_id;
+        if (prevTaskId && prevTaskId !== newEntry.last_task_id) {
+          const oldTask = (store.state.tasks || []).find(t => t.task_id === prevTaskId);
+          if (oldTask) {
+            if (!history[entryId]) history[entryId] = [];
+            history[entryId] = [{
+              task_id: oldTask.task_id,
+              status: oldTask.status,
+              started_at: oldTask.started_at,
+              ended_at: oldTask.ended_at,
+              error: oldTask.error,
+            }, ...(history[entryId] || [])].slice(0, 10);
+            changed = true;
+          }
+        }
+      }
+      if (changed) update._scheduleRunHistory = history;
       store.setState(update);
     }, 100);
 
@@ -1213,7 +1252,7 @@ function renderDBTable(type, data, sort) {
     } else if (type === 'previousNames') {
       const currentLabel = item.current_screen_name ? `@${escapeHtml(item.current_screen_name)}` : escapeHtml(item.user_id || '');
       return `<tr>
-        <td><a href="javascript:void(0)" onclick="filterPreviousNamesByUser('${escapeHtml(item.user_id || '')}')">${currentLabel}</a></td>
+        <td><a href="javascript:void(0)" onclick="filterPreviousNamesByUser('${escapeAttr(item.user_id || '')}')">${currentLabel}</a></td>
         <td>@${escapeHtml(item.screen_name)}</td>
         <td>${escapeHtml(item.name)}</td>
         <td>${escapeHtml(item.record_date || '-')}</td>
@@ -1674,7 +1713,10 @@ async function saveDBItem(type, id) {
     case 'users':
       data.screen_name = document.getElementById('editScreenName').value.trim();
       data.name = document.getElementById('editName').value.trim();
-      data.friends_count = parseInt(document.getElementById('editFriendsCount').value) || 0;
+      const fcVal = document.getElementById('editFriendsCount').value;
+      if (fcVal !== '') {
+        data.friends_count = parseInt(fcVal, 10) || 0;
+      }
       data.protected = document.getElementById('editProtected').checked;
       data.is_accessible = document.getElementById('editAccessible').checked;
       if (!data.name) return toast.show('Name is required', 'error');
@@ -1686,7 +1728,10 @@ async function saveDBItem(type, id) {
       break;
     case 'entities':
       data.name = document.getElementById('editEntityName').value.trim();
-      data.media_count = parseInt(document.getElementById('editEntityMediaCount').value) || 0;
+      const mcVal = document.getElementById('editEntityMediaCount').value;
+      if (mcVal !== '') {
+        data.media_count = parseInt(mcVal, 10) || 0;
+      }
       if (!data.name) return toast.show('Name is required', 'error');
       break;
     case 'listEntities':
@@ -2356,8 +2401,21 @@ function renderLogViewer() {
     }
     return 'var(--text-secondary)';
   }
+  function highlightLogTimestamp(line) {
+    // logrus 格式: time="..." → escapeHtml 后 time=&quot;...&quot;
+    line = line.replace(
+      /time=(&quot;)(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[-+]\d{2}:\d{2})(&quot;)/g,
+      'time=<span class="log-timestamp">$2</span>'
+    );
+    // text 格式: LEVEL[TIMESTAMP]
+    line = line.replace(
+      /(ERRO|WARN|INFO|DEBU)\[(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})\]/g,
+      '$1[<span class="log-timestamp">$2</span>]'
+    );
+    return line;
+  }
   function renderLine(line) {
-    return `<div class="log-line" style="color:${getLineColor(line)}">${escapeHtml(stripAnsi(line))}</div>`;
+    return `<div class="log-line" style="color:${getLineColor(line)}">${highlightLogTimestamp(escapeHtml(stripAnsi(line)))}</div>`;
   }
 
   return `
@@ -2378,10 +2436,15 @@ function renderLogViewer() {
           <button class="btn btn-ghost btn-sm" onclick="api.downloadLogExport()" title="导出完整日志文件">📥 导出</button>
         </div>
       </div>
-      <div class="card-body card-body-scroll">
+      <div class="card-body card-body-scroll" style="position:relative">
         <div class="log-container" id="logContainer">
           ${logs.length === 0 ? `<div class="empty-state"><div class="empty-icon">📋</div><div class="empty-title">暂无日志</div><div class="empty-desc">选择日志级别或调整筛选条件</div></div>` : logs.map(renderLine).join('')}
         </div>
+        <button class="log-scroll-to-top-btn" id="logScrollToTopBtn"
+          onclick="scrollLogToTop()"
+          style="display:${store.state._logNewArrived ? 'flex' : 'none'}">
+          📌 新日志已到达
+        </button>
       </div>
       <div class="pagination">
         <div class="pagination-info">显示 ${logs.length} / ${logPagination.total} 条 (第 ${logPagination.page}/${logPagination.totalPages} 页)</div>
@@ -2603,6 +2666,7 @@ function renderScheduleForm(items, saving, exists) {
 function renderScheduleTable(schedules, exists) {
   const active = schedules.filter(s => readScheduleEntryField(s.entry, 'enabled', 'Enabled')).length;
   const total = schedules.length;
+  const failures = schedules.filter(s => (s.consecutive_failures || 0) > 0).length;
 
   if (schedules.length === 0) {
     return `
@@ -2631,6 +2695,38 @@ function renderScheduleTable(schedules, exists) {
     if (!count || count === 0) return '';
     if (count >= 3) return `<span class="tag tag-danger">⚠ ${count}次失败</span>`;
     return `<span class="tag tag-warning">${count}次失败</span>`;
+  };
+
+  const getLastTask = (s) => {
+    const taskId = s ? s.last_task_id : null;
+    if (!taskId) return null;
+    return (store.state.tasks || []).find(t => t.task_id === taskId);
+  };
+
+  const taskStatusTag = (task) => {
+    if (!task) return '';
+    const statusMap = { completed: '成功', failed: '失败', running: '执行中', queued: '排队中', cancelled: '已取消' };
+    const clsMap = { completed: 'tag-success', failed: 'tag-danger', running: 'tag-info', queued: 'tag-warning', cancelled: 'tag-secondary' };
+    const label = statusMap[task.status] || task.status;
+    const cls = clsMap[task.status] || '';
+    let html = `<span class="tag ${cls}">${label}</span>`;
+    if (task.started_at && task.ended_at) {
+      const dur = new Date(task.ended_at) - new Date(task.started_at);
+      if (dur >= 60000) html += ` <span class="text-secondary">${Math.round(dur/60000)}分</span>`;
+      else html += ` <span class="text-secondary">${Math.round(dur/1000)}秒</span>`;
+    }
+    return html;
+  };
+
+  const renderScheduleHistory = (hist) => {
+    if (!hist || hist.length === 0) return '';
+    const rows = hist.map(r => `
+      <div style="display:flex;gap:8px;font-size:12px;line-height:1.8;color:var(--text-secondary)">
+        <span>${r.started_at ? new Date(r.started_at).toLocaleString() : '-'}</span>
+        <span class="tag ${r.status === 'completed' ? 'tag-success' : r.status === 'failed' ? 'tag-danger' : 'tag-secondary'}">${r.status}</span>
+        ${r.error ? `<span style="color:var(--danger)">${escapeHtml(r.error)}</span>` : ''}
+      </div>`).join('');
+    return `<div class="schedule-history" style="margin-top:4px;padding:6px 8px;background:var(--bg-secondary);border-radius:4px">${rows}</div>`;
   };
 
   const fmtTime = (t) => t ? new Date(t).toLocaleString() : '-';
@@ -2665,12 +2761,21 @@ function renderScheduleTable(schedules, exists) {
     const fTag = failureTag(failures);
     if (fTag) metaParts.push(fTag);
 
+    const lastTask = getLastTask(s);
+    const tTag = taskStatusTag(lastTask);
+    if (tTag) metaParts.push(tTag);
+
+    const entryId = escapeAttr(entry.id);
+    const histKey = entry.id || '';
+    const historyHtml = renderScheduleHistory(store.state._scheduleRunHistory[histKey]);
+
     return `
       <div class="schedule-item${failures >= 3 ? ' has-failure' : ''}">
         <div class="schedule-type">${typeTag(entry.type)}</div>
         <div class="schedule-info">
           <div class="schedule-title">${escapeHtml(displayName)}</div>
           <div class="schedule-meta">${metaParts.join('<span style="color:var(--border-secondary)">·</span>')}</div>
+          ${historyHtml}
         </div>
         <div class="schedule-status">
           <span class="tag ${entry.enabled ? 'tag-success' : 'tag-danger'}" style="cursor:pointer" data-schedule-id="${escapeAttr(entry.id)}" data-enabled="${entry.enabled}" onclick="toggleScheduleEnabled(this.dataset.scheduleId, this.dataset.enabled === 'true')">${entry.enabled ? '启用' : '禁用'}</span>
@@ -2681,6 +2786,7 @@ function renderScheduleTable(schedules, exists) {
         </div>
         <div class="schedule-actions">
           <button class="btn btn-primary btn-sm" data-schedule-id="${escapeAttr(entry.id)}" onclick="triggerSchedule(this.dataset.scheduleId)" ${!entry.enabled ? 'disabled title="规则已禁用"' : ''}>▶ 执行</button>
+          ${historyHtml ? `<button class="btn btn-ghost btn-sm" onclick="toggleScheduleHistory('${entryId}')" id="schedule_hist_btn_${entryId}">📋 历史</button>` : ''}
         </div>
       </div>
     `;
@@ -2689,7 +2795,7 @@ function renderScheduleTable(schedules, exists) {
   return `
     <div class="card card-fill">
       <div class="card-header">
-        <div><div class="card-title">定时下载任务</div><div class="card-subtitle">共 ${total} 条规则 · ${active} 个启用</div></div>
+        <div><div class="card-title">定时下载任务</div><div class="card-subtitle">共 ${total} 条规则 · ${active} 个启用${failures > 0 ? ` · ${failures} 个异常` : ''}</div></div>
         <div class="flex gap-2">
           <button class="btn btn-primary btn-sm" id="btnTriggerAll" onclick="triggerAllSchedules()">⬇️ 下载全部</button>
           <button class="btn btn-ghost btn-sm" onclick="navigateToSystemSchedules()">📝 编辑任务</button>
@@ -2754,6 +2860,7 @@ async function loadSchedules(options = {}) {
     };
     if (options.updateFormItems !== false) {
       update._scheduleFormItems = entries.map(s => scheduleStatusToFormItem(s));
+      update._scheduleFormDirty = false;
     }
     store.setState(update);
   } catch (e) { /* ignore */ }
@@ -2770,6 +2877,10 @@ function scheduleStatusToFormItem(status) {
   } else if (raw.startsWith('interval:')) {
     scheduleMode = 'interval';
     scheduleValue = raw.replace('interval:', '');
+  } else if (raw) {
+    // 未知格式，尝试按 interval 解析，保留原值以便用户修正
+    scheduleMode = 'interval';
+    scheduleValue = raw;
   }
   return {
     id: e.id || '',
@@ -2834,6 +2945,7 @@ async function saveScheduleRaw() {
     }
     await api.updateSchedulesRaw(content);
     toast.show('调度配置已保存并重载');
+    await loadSchedules({ updateFormItems: false });
     const rawData = await api.getSchedulesRaw();
     store.setState({
       _scheduleRaw: rawData.content || '',
@@ -2869,27 +2981,19 @@ async function triggerAllSchedules() {
   btn.disabled = true;
   btn.innerHTML = '<span class="loading-spinner"></span> 触发中...';
 
-  let success = 0, fail = 0;
-  const failedIds = [];
-  for (const s of schedules) {
-    const sid = readScheduleEntryField(s.entry, 'id', 'ID');
-    try {
-      await api.triggerSchedule(sid);
-      success++;
-    } catch (e) {
-      fail++;
-      failedIds.push(sid);
-      console.error(`[triggerAllSchedules] 调度 ${sid} 触发失败:`, e.message);
+  try {
+    const data = await api.triggerAllSchedules();
+    if (data.failed > 0) {
+      const errMsgs = (data.results || []).filter(r => r.error).map(r => `${r.entry_id}: ${r.error}`).join('; ');
+      toast.show(`${data.succeeded} 成功, ${data.failed} 失败: ${errMsgs}`, 'error');
+    } else {
+      toast.show(`已全部触发成功 (${data.succeeded})`);
     }
-  }
-
-  // 恢复按钮
-  btn.disabled = false;
-  btn.innerHTML = '⬇️ 下载全部';
-  if (fail > 0) {
-    toast.show(`${success} 成功, ${fail} 失败 (ID: ${failedIds.join(', ')})`, 'error');
-  } else {
-    toast.show(`已全部触发成功 (${success})`);
+  } catch (e) {
+    toast.show('触发失败: ' + e.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '⬇️ 下载全部';
   }
 }
 
@@ -2922,6 +3026,18 @@ function navigateToSystemSchedules() {
   }
 }
 
+function toggleScheduleHistory(entryId) {
+  const items = document.querySelectorAll('.schedule-item');
+  for (const item of items) {
+    const btn = item.querySelector(`[onclick*="toggleScheduleHistory('${entryId}')"]`);
+    if (btn) {
+      const hist = item.querySelector('.schedule-history');
+      if (hist) hist.style.display = hist.style.display === 'none' ? '' : 'none';
+      break;
+    }
+  }
+}
+
 function setScheduleTab(tab) {
   if (tab !== 'edit' && scheduleCodeMirror) {
     scheduleCodeMirror = destroyCodeMirror(scheduleCodeMirror);
@@ -2950,7 +3066,7 @@ function addScheduleItem() {
     skip_profile: false,
     no_retry: false,
   }, ...readScheduleFormItemsFromDOM()];
-  store.setState({ _scheduleFormItems: items });
+  store.setState({ _scheduleFormItems: items, _scheduleFormDirty: true });
   glowNewFirstItem('systemSchedulesPanel');
 }
 
@@ -2967,7 +3083,7 @@ function clearAllScheduleValidationTimers() {
 function removeScheduleItem(index) {
   clearAllScheduleValidationTimers();
   const items = readScheduleFormItemsFromDOM().filter((_, i) => i !== index);
-  store.setState({ _scheduleFormItems: items });
+  store.setState({ _scheduleFormItems: items, _scheduleFormDirty: true });
 }
 
 function readScheduleFormItemsFromDOM() {
@@ -3051,7 +3167,7 @@ function updateScheduleFormItem(index, field, value) {
       scheduleValue.placeholder = value === 'interval' ? '例如: 2h, 30m, 6h30m, 24h' : '例如: 07:00,21:00 或 02:30';
     }
   }
-  store.setState({ _scheduleFormItems: items });
+  store.setState({ _scheduleFormItems: items, _scheduleFormDirty: true });
 }
 
 const _scheduleValidateTimers = {};
@@ -3073,10 +3189,10 @@ async function validateScheduleField(idx) {
   if (!scheduleValue) {
     hint.innerHTML = '';
     setScheduleValidationAriaState(idx, false);
-    return;
+    // schedule 为空时仍继续验证 target 等其他字段
   }
 
-  const entry = { type, schedule: `${mode}:${scheduleValue}` };
+  const entry = { type, schedule: scheduleValue ? `${mode}:${scheduleValue}` : '' };
 
   if (type === 'mixed') {
     const usersRaw = document.getElementById(`sf_users_${idx}`)?.value || '';
@@ -3089,6 +3205,7 @@ async function validateScheduleField(idx) {
     entry.target = document.getElementById(`sf_target_${idx}`)?.value?.trim() || '';
   }
 
+  // schedule 为空时也发送请求，让后端验证 target 等其他字段
   const requestSeq = ++_scheduleValidateRequestSeq;
   _scheduleValidateRequests[idx] = requestSeq;
   try {
@@ -3178,6 +3295,7 @@ async function saveScheduleForm() {
     if (saved?.entries) {
       store.setState({
         _scheduleFormItems: saved.entries.map(entry => scheduleStatusToFormItem({ entry })),
+        _scheduleFormDirty: false,
       });
     }
     await loadSchedules({ updateFormItems: false });
@@ -3558,7 +3676,11 @@ async function initCookiesCodeMirror() {
 function toggleLogAutoRefresh() {
   const ns = !store.state.logAutoRefresh;
   store.setState({ logAutoRefresh: ns });
-  if (ns) startLogStream();
+  if (ns) {
+    store.setState({ _logAutoScrollPaused: false, _logNewArrived: false });
+    _logScrollListenerAttached = false;
+    startLogStream();
+  }
   else stopLogStream();
 }
 
@@ -3588,6 +3710,7 @@ let _logsPageLoaded = false;
 
 function startLogStream() {
   if (logStreamConn || _logStreamConnecting || store.state.currentPage !== 'logs') return;
+  _logScrollListenerAttached = false;
   _logStreamConnecting = true;
   const conn = new EventSource(buildLogStreamURL());
   _pendingLogStreamConn = conn;
@@ -3595,6 +3718,8 @@ function startLogStream() {
     _pendingLogStreamConn = null;
     logStreamConn = conn;
     _logStreamConnecting = false;
+    // 挂载日志容器的滚动监听
+    attachLogScrollListener();
   };
   conn.onmessage = (e) => {
     const line = e.data || '';
@@ -3604,7 +3729,12 @@ function startLogStream() {
     store.setState({ logs, logPagination: { ...store.state.logPagination, total: Math.max(total, logs.length), totalPages: Math.max(1, Math.ceil(Math.max(total, logs.length) / store.state.logPagination.pageSize)) } });
     setTimeout(() => {
       const el = document.getElementById('logContainer');
-      if (el) el.scrollTop = 0;
+      if (!el) return;
+      if (store.state._logAutoScrollPaused) {
+        store.setState({ _logNewArrived: true });
+      } else {
+        el.scrollTop = 0;
+      }
     }, 0);
   };
   conn.onerror = () => {
@@ -3624,6 +3754,7 @@ function startLogStream() {
 
 function stopLogStream() {
   _logStreamConnecting = false;
+  _logScrollListenerAttached = false;
   if (_pendingLogStreamConn) {
     _pendingLogStreamConn.close();
     _pendingLogStreamConn = null;
@@ -3638,8 +3769,36 @@ function stopLogStream() {
   }
 }
 
+let _logScrollListenerAttached = false;
+
+function attachLogScrollListener() {
+  if (_logScrollListenerAttached) return;
+  const el = document.getElementById('logContainer');
+  if (!el) return;
+  el.addEventListener('scroll', () => {
+    if (el.scrollTop > 50) {
+      if (!store.state._logAutoScrollPaused) {
+        store.setState({ _logAutoScrollPaused: true });
+      }
+    } else {
+      if (store.state._logAutoScrollPaused || store.state._logNewArrived) {
+        store.setState({ _logAutoScrollPaused: false, _logNewArrived: false });
+      }
+    }
+  });
+  _logScrollListenerAttached = true;
+}
+
+function scrollLogToTop() {
+  const el = document.getElementById('logContainer');
+  if (el) el.scrollTop = 0;
+  store.setState({ _logAutoScrollPaused: false, _logNewArrived: false });
+}
+
 function restartLogStreamIfNeeded() {
   if (!store.state.logAutoRefresh) return;
+  _logScrollListenerAttached = false;
+  store.setState({ _logAutoScrollPaused: false, _logNewArrived: false });
   stopLogStream();
   startLogStream();
 }
@@ -4053,6 +4212,7 @@ let lastCookieItemsJson = JSON.stringify(store.state.cookieItems);
 let lastCookiesMode = store.state.cookiesMode;
 let lastLogsLength = store.state.logs.length;
 let lastLogLevel = store.state.logLevel;
+let lastLogNewArrived = store.state._logNewArrived;
 let lastDataSubPage = store.state.dataSubPage;
 let lastDbDataJson = JSON.stringify(store.state.dbData);
 let lastDbPaginationJson = JSON.stringify(store.state.dbPagination);
@@ -4161,12 +4321,13 @@ store.subscribe((state) => {
         );
       }
 
-      const schedulePanelSchedulesChanged = state._scheduleTab !== 'form' && schedulesChanged;
+      const schedulePanelSchedulesChanged = state._scheduleTab !== 'form' && (schedulesChanged || tasksChanged);
       if (schedulesChanged && !schedulePanelSchedulesChanged) {
         lastSchedulesJson = JSON.stringify(state._schedules);
       }
       if (schedulePanelSchedulesChanged || scheduleRawChanged || scheduleExistsChanged || scheduleSavingChanged || scheduleTabChanged || scheduleFormItemsChanged) {
         lastSchedulesJson = JSON.stringify(state._schedules);
+        lastTasksJson = JSON.stringify(state.tasks);
         lastScheduleRaw = state._scheduleRaw;
         lastScheduleExists = state._scheduleExists;
         lastScheduleSaving = state._scheduleSaving;
@@ -4185,6 +4346,13 @@ store.subscribe((state) => {
       const logPagChanged = JSON.stringify(state.logPagination) !== lastLogPaginationJson;
       const logsChanged = state.logs.length !== lastLogsLength;
       const logLevelChanged = state.logLevel !== lastLogLevel;
+      const logNewArrivedChanged = state._logNewArrived !== lastLogNewArrived;
+
+      if (logNewArrivedChanged) {
+        lastLogNewArrived = state._logNewArrived;
+        const btn = document.getElementById('logScrollToTopBtn');
+        if (btn) btn.style.display = state._logNewArrived ? 'flex' : 'none';
+      }
 
       if (logsChanged || logLevelChanged || logPagChanged) {
         lastLogPaginationJson = JSON.stringify(state.logPagination);

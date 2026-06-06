@@ -58,6 +58,7 @@ const (
 // Task 任务
 type Task struct {
 	ID        string             `json:"task_id"`
+	EntryID   string             `json:"entry_id,omitempty"`
 	Type      TaskType           `json:"type"`
 	Status    TaskStatus         `json:"status"`
 	Data      interface{}        `json:"data"`

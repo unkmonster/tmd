@@ -1609,9 +1609,43 @@ ul, ol {
   word-break: break-all;
 }
 
+.log-timestamp {
+  color: #58a6ff;
+  font-weight: 500;
+}
+
 .log-level-filters {
   display: flex;
   gap: var(--space-1);
+}
+
+.log-scroll-to-top-btn {
+  position: absolute;
+  bottom: 48px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 16px;
+  font-size: 12px;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 20px;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+  animation: log-scroll-btn-pulse 2s ease-in-out infinite;
+  transition: opacity 0.2s;
+  white-space: nowrap;
+}
+.log-scroll-to-top-btn:hover {
+  opacity: 0.85;
+}
+@keyframes log-scroll-btn-pulse {
+  0%, 100% { box-shadow: 0 2px 8px rgba(0,0,0,0.3); }
+  50% { box-shadow: 0 2px 16px rgba(58,134,255,0.5); }
 }
 
 /* ===== Schedule List ===== */

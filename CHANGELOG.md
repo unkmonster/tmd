@@ -7,6 +7,66 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ***
 
+## [v3.4.20] - 2026-06-04
+
+### Changed
+
+#### 调度器：随机延迟改为确定性 FNV-1a 哈希
+- `internal/scheduler/scheduler.go`:
+  - 将 `math/rand` 替换为 `hash/fnv`，启动延迟由纯随机改为基于 entry ID 的确定性 FNV-1a 哈希值取模，避免多任务同时期扎堆
+  - `randomIntervalDelay` 新增 `entryID` 参数，空 ID 时回退纯随机（兼容测试场景）
+  - `Stop()` 新增 5 秒超时保护，避免 goroutine 停止卡死
+  - `entrySnapshot()` 检测 `sc.ctx` 为 nil 时返回 `context.Background()`，防止空上下文 panic
+  - `runDailyLoop` 遇到空 times 时提前返回，跳过日志
+  - 导出 `ScheduleIDPattern` 供外部复用
+  - 新增 User/Following 类型校验 `screen_name` 合法性
+  - 中文描述 "每天" → "每 24 小时"，消除歧义
+
+#### API 路由：PUT → PATCH
+- `internal/api/server.go`:
+  - 6 个 DB 更新端点由 `PUT` 改为 `PATCH`：`/db/users/{id}`、`/db/lists/{id}`、`/db/user-entities/{id}`、`/db/list-entities/{id}`、`/db/user-links/{id}`
+  - 关闭超时从 5 秒延长至 30 秒
+  - `Shutdown()` 中增加 2 秒延迟再关闭 DB，确保处理中的 handler 和 detached goroutine 完成
+
+#### 新增 API 路由
+- `internal/api/server.go`:
+  - `GET /api/v1/db/users/{id}/entities` - 查询指定用户的所有 entities
+  - `GET /api/v1/db/users/{id}/links` - 查询指定用户的所有 links
+  - `GET /api/v1/db/lists/{id}/entities` - 查询指定列表的所有 entities
+  - `GET /api/v1/db/stats` - 数据库统计概览（各表记录数）
+  - `GET /api/v1/queue/status` - 下载队列状态（pending/held/detached 数）
+  - `POST /api/v1/schedules/trigger-all` - 手动触发所有调度
+  - `GET /api/v1/schedules/stats` - 调度统计
+
+#### 下载队列增强
+- `internal/api/download_queue.go`:
+  - 新增 `close` 状态检查，关闭队列上阻止后续操作
+  - 新增 `Status()` 方法返回 pending/held/detached 三级队列计数
+
+#### 下载器：版本管理 + 质量升级
+- `internal/downloader/version_manager.go` - 新增 `CleanupOldVersions()` 方法，按修改时间清理过期版本备份（当前无调用方，预留给定时清理）
+- `internal/downloading/tweet_json_converter.go` - `cleanMediaHighQuality` 重命名为 `upgradeMediaToHighQuality`，语义更明确
+- `internal/downloading/json_folder_download.go` - 将 `fmt.Sscanf` 替换为 `strconv.ParseUint`，提供更可靠的 uint64 解析和错误日志
+
+#### 数据库迁移增强
+- `internal/database/parent_dir_migration.go` - 空字符串视为无需迁移，跳过处理
+- `internal/database/sqlite_schema.go` - 新增 `requiredSchema` 注释说明，明确声明预期表结构
+
+#### 错误处理与日志改进
+- `internal/downloading/entity.go` - 符号链接失败时输出 restore rename 的具体错误详情
+- `internal/api/event_bus.go` - 慢订阅者警告日志打印具体溢出数量
+
+### Documentation
+
+- 全面同步 10+ 个文档文件与代码库一致（API_DOCUMENTATION.md、SERVICE_LAYER.md、call_chain_analysis_report.md、readme.md 等）
+- 新增 CLAUDE.md（AI 编码规范）和用户状态变更日志
+
+### Fixed
+
+- 修复 SSE 慢订阅者日志格式（未显示具体订阅者数量）
+- 修复 JSON 文件夹下载中 `fmt.Sscanf` 的 uint64 解析问题
+- 修复符号链接失败时错误信息遗漏 restore 失败详情
+
 ## [v3.4.19] - 2026-06-04
 
 ### Added

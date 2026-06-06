@@ -315,7 +315,7 @@ func TestPagination_ToResponse(t *testing.T) {
 			pageSize:  20,
 			total:     0,
 			data:      []string{},
-			wantPages: 0,
+			wantPages: 1,
 			wantTotal: 0,
 			wantPage:  1,
 			wantSize:  20,
@@ -368,7 +368,7 @@ func TestPagination_ToResponse_TotalPagesCalculation(t *testing.T) {
 		pageSize int
 		expected int
 	}{
-		{0, 20, 0},
+		{0, 20, 1},
 		{1, 20, 1},
 		{19, 20, 1},
 		{20, 20, 1},

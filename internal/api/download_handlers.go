@@ -1149,6 +1149,7 @@ func (s *Server) scheduledDownload(entry scheduler.ScheduleEntry) string {
 			NoRetry:       entry.NoRetry,
 		}
 		task := s.taskManager.CreateTask(TaskTypeListDownload, req)
+		task.EntryID = entry.ID
 		s.enqueueTask(task, func(ctx context.Context, taskID string, reporter service.ProgressReporter) error {
 			return s.downloadService.ListDownload(ctx, taskID, listID, opts, reporter)
 		})
@@ -1168,6 +1169,7 @@ func (s *Server) scheduledDownload(entry scheduler.ScheduleEntry) string {
 			NoRetry:       entry.NoRetry,
 		}
 		task := s.taskManager.CreateTask(TaskTypeUserDownload, req)
+		task.EntryID = entry.ID
 		s.enqueueTask(task, func(ctx context.Context, taskID string, reporter service.ProgressReporter) error {
 			return s.downloadService.UserDownload(ctx, taskID, screenName, opts, reporter)
 		})
@@ -1187,6 +1189,7 @@ func (s *Server) scheduledDownload(entry scheduler.ScheduleEntry) string {
 			NoRetry:       entry.NoRetry,
 		}
 		task := s.taskManager.CreateTask(TaskTypeFollowingDownload, req)
+		task.EntryID = entry.ID
 		s.enqueueTask(task, func(ctx context.Context, taskID string, reporter service.ProgressReporter) error {
 			return s.downloadService.FollowingDownload(ctx, taskID, screenName, opts, reporter)
 		})
@@ -1228,6 +1231,7 @@ func (s *Server) scheduledDownload(entry scheduler.ScheduleEntry) string {
 			NoRetry:        entry.NoRetry,
 		}
 		task := s.taskManager.CreateTask(TaskTypeBatchDownload, req)
+		task.EntryID = entry.ID
 		s.enqueueTask(task, func(ctx context.Context, taskID string, reporter service.ProgressReporter) error {
 			return s.downloadService.BatchDownload(ctx, taskID, req.Users, listIDs, req.FollowingNames, opts, reporter)
 		})
@@ -1238,4 +1242,18 @@ func (s *Server) scheduledDownload(entry scheduler.ScheduleEntry) string {
 	}
 
 	return ""
+}
+
+func (s *Server) handleQueueStatus(w http.ResponseWriter, _ *http.Request) {
+	if s.downloadQueue == nil {
+		s.writeJSON(w, http.StatusOK, NewSuccessResponse(QueueStatusResponse{}))
+		return
+	}
+	pending, active, detached := s.downloadQueue.Status()
+	s.writeJSON(w, http.StatusOK, NewSuccessResponse(QueueStatusResponse{
+		QueueDepth:   pending + active + detached,
+		ActiveJobs:   active,
+		PendingJobs:  pending,
+		DetachedJobs: detached,
+	}))
 }
