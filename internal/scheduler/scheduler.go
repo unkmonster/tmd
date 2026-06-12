@@ -177,20 +177,9 @@ func (sc *Scheduler) stopLocked() bool {
 	}
 	sc.started = false
 	sc.firstStart = false
-	sc.cancel = nil
-	sc.ctx = nil
 	sc.mu.Unlock()
 
-	done := make(chan struct{})
-	go func() {
-		sc.wg.Wait()
-		close(done)
-	}()
-	select {
-	case <-done:
-	case <-time.After(5 * time.Second):
-		log.Warnf("[scheduler] stop timed out waiting for goroutines after 5s")
-	}
+	sc.wg.Wait()
 	return true
 }
 
@@ -354,13 +343,29 @@ func (sc *Scheduler) findEnabledEntryByID(id string) (int, ScheduleEntry, error)
 	return index, entry, nil
 }
 
-func (sc *Scheduler) triggerEntry(index int, entry ScheduleEntry) (string, error) {
+func (sc *Scheduler) triggerEntry(index int, entry ScheduleEntry) (taskID string, err error) {
 	gen, ok := sc.tryAcquireExecution(index, entry, nil)
 	if !ok {
 		return "", fmt.Errorf("schedule %q is already triggering, please wait for the current trigger to complete", entry.Name)
 	}
 
-	taskID := sc.downloadFunc(entry)
+	var released bool
+	defer func() {
+		if r := recover(); r != nil {
+			if !released {
+				now := time.Now()
+				sc.releaseAndUpdateStatus(index, entry, gen, func(status *ScheduleStatus) {
+					status.LastRunAt = &now
+					status.RunCount++
+					status.LastError = fmt.Sprintf("panic: %v", r)
+					status.ConsecutiveFailures++
+				})
+			}
+			panic(r)
+		}
+	}()
+
+	taskID = sc.downloadFunc(entry)
 	if taskID == "" {
 		if !sc.releaseAndUpdateStatus(index, entry, gen, func(status *ScheduleStatus) {
 			now := time.Now()
@@ -371,6 +376,7 @@ func (sc *Scheduler) triggerEntry(index int, entry ScheduleEntry) (string, error
 		}) {
 			log.Warnf("[scheduler] triggerEntry[%d]: status update rejected for empty-task_id failure on entry %q", index, entry.Name)
 		}
+		released = true
 		log.Warnf("[scheduler] Manual trigger failed [%s]: target=%s name=%q (empty task_id)", entry.Type, entry.Target, entry.Name)
 		return "", fmt.Errorf("download function returned empty task_id")
 	}
@@ -385,6 +391,7 @@ func (sc *Scheduler) triggerEntry(index int, entry ScheduleEntry) (string, error
 	}) {
 		log.Warnf("[scheduler] triggerEntry[%d]: status update rejected for successful trigger on entry %q (task_id=%s)", index, entry.Name, taskID)
 	}
+	released = true
 
 	log.Infof("[scheduler] Manual trigger [%s]: target=%s name=%q task_id=%s", entry.Type, entry.Target, entry.Name, taskID)
 	return taskID, nil
@@ -510,7 +517,21 @@ func (sc *Scheduler) execute(idx int, entry ScheduleEntry, gen int64) {
 		return
 	}
 
-	taskID := sc.downloadFunc(entry)
+	var taskID string
+	defer func() {
+		if r := recover(); r != nil {
+			log.Errorf("[scheduler] execute[%d]: panic in downloadFunc for entry %q: %v", idx, entry.Name, r)
+			now := time.Now()
+			sc.releaseAndUpdateStatus(idx, entry, acquiredGen, func(status *ScheduleStatus) {
+				status.LastRunAt = &now
+				status.RunCount++
+				status.LastError = fmt.Sprintf("panic: %v", r)
+				status.ConsecutiveFailures++
+			})
+		}
+	}()
+
+	taskID = sc.downloadFunc(entry)
 
 	if !sc.releaseAndUpdateStatus(idx, entry, acquiredGen, func(status *ScheduleStatus) {
 		now := time.Now()
@@ -656,7 +677,7 @@ func nextDailyTrigger(times []time.Time) time.Time {
 	}
 
 	first := times[0]
-	tomorrow := today.Add(24 * time.Hour)
+	tomorrow := today.AddDate(0, 0, 1)
 	return time.Date(tomorrow.Year(), tomorrow.Month(), tomorrow.Day(), first.Hour(), first.Minute(), 0, 0, tomorrow.Location())
 }
 
@@ -838,6 +859,8 @@ func scheduleIDBase(entry ScheduleEntry) string {
 	return "sch_" + hex.EncodeToString(sum[:])[:12]
 }
 
+const maxDailyTimes = 96
+
 func ParseSchedule(raw string) (*ParsedSchedule, error) {
 	raw = strings.TrimSpace(raw)
 	if strings.HasPrefix(raw, "interval:") {
@@ -861,6 +884,9 @@ func ParseSchedule(raw string) (*ParsedSchedule, error) {
 				return nil, fmt.Errorf("invalid daily time %q: %w", ts, err)
 			}
 			times = append(times, t)
+			if len(times) > maxDailyTimes {
+				return nil, fmt.Errorf("too many daily times: %d (maximum %d)", len(times), maxDailyTimes)
+			}
 		}
 		if len(times) == 0 {
 			return nil, fmt.Errorf("no daily times specified")

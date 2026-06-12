@@ -323,9 +323,6 @@ func (s *Server) GracefulShutdown(reason string) {
 			}
 		}
 
-		// 给仍在运行的 handler / detached goroutine 一个缓冲期完成对 DB 的访问
-		time.Sleep(2 * time.Second)
-
 		if s.db != nil {
 			if err := s.db.Close(); err != nil {
 				log.Warnf("[server] failed to close database: %v", err)

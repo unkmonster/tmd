@@ -1,8 +1,10 @@
 package scheduler
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -512,6 +514,50 @@ func TestReloadRecoversAfterConfigError(t *testing.T) {
 	}
 }
 
+func TestStopAfterReloadRecoverDoesNotHang(t *testing.T) {
+	// 验证 Reload 失败→恢复后，Stop 能正常完成，不会因 context.Background()
+	// 导致 goroutine 永不退出。
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "schedules.yaml")
+	if err := os.WriteFile(configPath, []byte(`schedules:
+  - type: user
+    target: alice
+    name: Alice
+    schedule: "interval:1h"
+    enabled: true
+`), 0600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	sc, err := New(configPath, func(entry ScheduleEntry) string {
+		return "task-1"
+	})
+	if err != nil {
+		t.Fatalf("new scheduler: %v", err)
+	}
+	sc.Start()
+
+	// 模拟 Reload 失败并恢复
+	if err := os.WriteFile(configPath, []byte("schedules:\n  - type: ["), 0600); err != nil {
+		t.Fatalf("write invalid config: %v", err)
+	}
+	if err := sc.Reload(); err == nil {
+		t.Fatal("expected Reload to return error")
+	}
+
+	// 验证 Stop 在 5s 内完成（不 hang）
+	stopDone := make(chan struct{})
+	go func() {
+		sc.Stop()
+		close(stopDone)
+	}()
+	select {
+	case <-stopDone:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Stop hung after Reload recovery - goroutine may have context.Background()")
+	}
+}
+
 func TestValidateEntryRejectsZeroListID(t *testing.T) {
 	err := ValidateEntry(ScheduleEntry{
 		Type:     ScheduleTypeList,
@@ -709,6 +755,40 @@ func TestParseSchedulePreservesDisplayOrderAndSortsTriggerTimes(t *testing.T) {
 	}
 	if got := daily.SortedTimes[1].Format("15:04"); got != "21:00" {
 		t.Fatalf("expected second sorted time to be 21:00, got %s", got)
+	}
+}
+
+func TestParseScheduleRejectsTooManyDailyTimes(t *testing.T) {
+	// 97 time points - one over the 96 limit
+	times := make([]string, 97)
+	for i := range times {
+		times[i] = fmt.Sprintf("%02d:%02d", i/60, i%60)
+	}
+	schedule := "daily:" + strings.Join(times, ",")
+	_, err := ParseSchedule(schedule)
+	if err == nil {
+		t.Fatal("expected error for too many daily times, got nil")
+	}
+	if !strings.Contains(err.Error(), "too many daily times") {
+		t.Fatalf("expected 'too many daily times' error, got: %v", err)
+	}
+}
+
+func TestParseScheduleAcceptsMaxDailyTimes(t *testing.T) {
+	// exactly 96 time points should succeed
+	var times []string
+	for h := 0; h < 24; h++ {
+		for m := 0; m < 60; m += 15 {
+			times = append(times, fmt.Sprintf("%02d:%02d", h, m))
+		}
+	}
+	schedule := "daily:" + strings.Join(times, ",")
+	parsed, err := ParseSchedule(schedule)
+	if err != nil {
+		t.Fatalf("expected 96 daily times to be accepted, got: %v", err)
+	}
+	if len(parsed.Times) != 96 {
+		t.Fatalf("expected 96 times, got %d", len(parsed.Times))
 	}
 }
 

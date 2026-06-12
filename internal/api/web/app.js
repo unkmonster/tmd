@@ -73,7 +73,6 @@ const store = {
     users: [],
     lists: [],
     entities: [],
-    config: null,
     sidebarOpen: false,
     isMobile: window.innerWidth < 768,
     sseConnected: false,
@@ -141,7 +140,6 @@ const store = {
     _scheduleSaving: false,
     _scheduleFormItems: [],
     _scheduleFormDirty: false,
-    _scheduleRunHistory: {},
     _schedulerRunning: false,
   },
 
@@ -368,7 +366,6 @@ const sseManager = {
 
     const debouncedSchedulesUpdate = debounce((data) => {
       const entries = data.entries || [];
-      const prevSchedules = store.state._schedules || [];
       const update = {
         _schedules: entries,
         _schedulerRunning: !!data.scheduler_running,
@@ -377,30 +374,6 @@ const sseManager = {
       if (!store.state._scheduleFormDirty && !isScheduleFormEditing()) {
         update._scheduleFormItems = entries.map(s => scheduleStatusToFormItem(s));
       }
-      // 检测 last_task_id 变化，追加执行历史
-      const history = { ...(store.state._scheduleRunHistory || {}) };
-      let changed = false;
-      for (const newEntry of entries) {
-        const entryId = newEntry.entry?.id;
-        if (!entryId || !newEntry.last_task_id) continue;
-        const prevEntry = prevSchedules.find(s => s.entry?.id === entryId);
-        const prevTaskId = prevEntry?.last_task_id;
-        if (prevTaskId && prevTaskId !== newEntry.last_task_id) {
-          const oldTask = (store.state.tasks || []).find(t => t.task_id === prevTaskId);
-          if (oldTask) {
-            if (!history[entryId]) history[entryId] = [];
-            history[entryId] = [{
-              task_id: oldTask.task_id,
-              status: oldTask.status,
-              started_at: oldTask.started_at,
-              ended_at: oldTask.ended_at,
-              error: oldTask.error,
-            }, ...(history[entryId] || [])].slice(0, 10);
-            changed = true;
-          }
-        }
-      }
-      if (changed) update._scheduleRunHistory = history;
       store.setState(update);
     }, 100);
 
@@ -416,11 +389,14 @@ const sseManager = {
     this.conn.addEventListener('notification', (e) => {
       try {
         const notif = JSON.parse(e.data);
-        const type = notif.type === 'task_completed' ? 'success' :
-                     notif.type === 'task_failed' ? 'error' :
-                     notif.type === 'task_cancelled' ? 'warning' :
-                     notif.type === 'schedule_warning' ? 'warning' : 'success';
-        toast.show(notif.message, type);
+        // notification 与 tasks debounce (100ms) 对齐，避免 toast 先出现但任务列表仍显示"运行中"
+        setTimeout(() => {
+          const type = notif.type === 'task_completed' ? 'success' :
+                       notif.type === 'task_failed' ? 'error' :
+                       notif.type === 'task_cancelled' ? 'warning' :
+                       notif.type === 'schedule_warning' ? 'warning' : 'success';
+          toast.show(notif.message, type);
+        }, 100);
       } catch (err) {
         console.warn('SSE notification parse error:', err);
       }
@@ -445,7 +421,8 @@ const sseManager = {
       this.reconnectAttempts++;
       if (this.reconnectAttempts >= 10 && this.reconnectAttempts % 5 === 0) {
         api.getHealth().catch(() => {
-          handleServerShutdown('服务器连接丢失');
+          // 忽略 — 健康检查失败可能是临时问题，继续重试
+          console.warn('[SSE] 健康检查失败，继续重试...');
         });
       }
       const delay = Math.min(this.baseReconnectDelay * Math.pow(2, this.reconnectAttempts - 1), this.maxReconnectDelay);
@@ -486,6 +463,10 @@ const sseManager = {
 
   refreshCurrentPage() {
     const page = store.state.currentPage;
+    if (page === 'overview' || page === 'tasks') {
+      this._safeRefresh(() => refreshTasks(), page);
+      return;
+    }
     if (page === 'schedules') {
       this._safeRefresh(() => loadSchedules(), 'schedules');
       return;
@@ -567,6 +548,8 @@ const drawer = {
   footer: document.getElementById('drawerFooter'),
   
   open(title, content, footer = '') {
+    if (!this.el || !this.title || !this.body || !this.footer || !this.overlay) return;
+    delete this._taskId;
     this.title.textContent = title;
     this.body.innerHTML = content;
     this.footer.innerHTML = footer;
@@ -591,7 +574,7 @@ document.getElementById('drawerOverlay').onclick = () => drawer.close();
 const pages = {
   // Overview Page
   overview() {
-    const { health, tasks, config } = store.state;
+    const { health, tasks } = store.state;
     
     const taskStats = { queued: 0, running: 0, completed: 0, failed: 0, cancelled: 0 };
     tasks.forEach(t => { if (taskStats[t.status] !== undefined) taskStats[t.status]++; });
@@ -844,6 +827,11 @@ const pages = {
 };
 
 // ============================================
+// Module-level state bag (replaces top-level let/const)
+// ============================================
+const _state = {};
+
+// ============================================
 // Helper Functions
 // ============================================
 
@@ -917,42 +905,6 @@ function getTaskTarget(task) {
   return parts.length ? parts.join(' · ') : 'Unknown';
 }
 
-function renderTaskResult(task) {
-  const result = task.result;
-  if (!result) return '';
-
-  const sections = [];
-  if (result.main) {
-    sections.push(`
-      <div class="text-sm">
-        <strong>主下载</strong>
-        <span class="text-secondary">下载: ${escapeHtml(result.main.downloaded || 0)} · 失败: ${escapeHtml(result.main.failed || 0)}</span>
-      </div>
-    `);
-  }
-  if (result.profile) {
-    sections.push(`
-      <div class="text-sm">
-        <strong>Profile</strong>
-        <span class="text-secondary">下载: ${escapeHtml(result.profile.downloaded || 0)} · 失败: ${escapeHtml(result.profile.failed || 0)} · Versionedfile: ${escapeHtml(result.profile.versioned || 0)}</span>
-      </div>
-    `);
-  }
-  if (result.message) {
-    sections.push(`<div class="text-sm text-secondary">${escapeHtml(result.message)}</div>`);
-  }
-  if (sections.length === 0) return '';
-
-  return `
-    <div class="form-group">
-      <label class="form-label">结果</label>
-      <div style="background: var(--bg-primary); padding: var(--space-3); border-radius: var(--radius-md); display: flex; flex-direction: column; gap: var(--space-2);">
-        ${sections.join('')}
-      </div>
-    </div>
-  `;
-}
-
 function getOptionalTimestamp(inputId) {
   const input = document.getElementById(inputId);
   const value = input?.value.trim() || '';
@@ -989,7 +941,7 @@ function renderTaskItem(task) {
         <div class="task-meta">
           <span class="tag ${status.tag}">${status.text}</span>
           <span>ID: ${escapeHtml(task.task_id)}</span>
-          <span>${new Date(task.created_at).toLocaleString()}</span>
+          <span>${task.created_at ? new Date(task.created_at).toLocaleString() : '-'}</span>
         </div>
       </div>
       <div class="task-progress">
@@ -1037,7 +989,7 @@ function renderTaskForm(type) {
     list: `
       <div class="form-group">
         <label class="form-label">List ID</label>
-        <input type="number" class="form-input" id="listId" placeholder="例如: 123456789">
+        <input type="text" inputmode="numeric" pattern="[0-9]*" class="form-input" id="listId" placeholder="例如: 123456789">
       </div>
       <div class="form-group">
         <label class="form-checkbox">
@@ -1179,6 +1131,181 @@ jsonfolder: `
   return forms[type] || forms.user;
 }
 
+// Shared helpers for database table rendering
+function sortIcon(sort, field) {
+  if (sort.sortBy !== field) return '<span class="sort-icon">↕</span>';
+  return sort.sortOrder === 'asc'
+    ? '<span class="sort-icon sort-active">↑</span>'
+    : '<span class="sort-icon sort-active">↓</span>';
+}
+
+function sortableHeader(sort, field, label) {
+  return `
+    <th data-sort-field="${escapeAttr(field)}" class="${sort.sortBy === field ? 'sort-active' : ''}" onclick="sortDB(this.dataset.sortField)">
+      ${label} ${sortIcon(sort, field)}
+    </th>
+  `;
+}
+
+function renderActionButtons(type, item) {
+  const idStr = String(item.id);
+  return `
+    <div class="flex gap-2">
+      <button class="btn btn-ghost btn-sm" data-db-type="${escapeAttr(type)}" data-db-id="${escapeAttr(idStr)}" onclick="editDBItem(this.dataset.dbType, this.dataset.dbId)">✏️</button>
+      <button class="btn btn-danger btn-sm" data-db-type="${escapeAttr(type)}" data-db-id="${escapeAttr(idStr)}" onclick="deleteDBItem(this.dataset.dbType, this.dataset.dbId)">🗑️</button>
+    </div>
+  `;
+}
+
+function renderDBUsersTable(type, data, sort) {
+  const rows = data.map(item => `<tr>
+    <td>${escapeHtml(item.id)}</td>
+    <td>@${escapeHtml(item.screen_name)}</td>
+    <td>${escapeHtml(item.name)}</td>
+    <td>${item.protected ? '🔒' : '🔓'}</td>
+    <td>${item.is_accessible ? '✅' : '❌'}</td>
+    <td>${escapeHtml(item.friends_count)}</td>
+    <td>${renderActionButtons(type, item)}</td>
+  </tr>`).join('');
+  return `
+    <table class="data-table">
+      <thead>
+        <tr>
+          ${sortableHeader(sort, 'id', 'ID')}
+          ${sortableHeader(sort, 'screen_name', 'Screen Name')}
+          ${sortableHeader(sort, 'name', 'Name')}
+          <th>Protected</th>
+          <th>Accessible</th>
+          ${sortableHeader(sort, 'friends_count', 'Friends')}
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+  `;
+}
+
+function renderDBListsTable(type, data, sort) {
+  const rows = data.map(item => `<tr>
+    <td>${escapeHtml(item.id)}</td>
+    <td>${escapeHtml(item.name)}</td>
+    <td>${escapeHtml(item.owner_user_id)}</td>
+    <td>${renderActionButtons(type, item)}</td>
+  </tr>`).join('');
+  return `
+    <table class="data-table">
+      <thead>
+        <tr>
+          ${sortableHeader(sort, 'id', 'ID')}
+          ${sortableHeader(sort, 'name', 'Name')}
+          ${sortableHeader(sort, 'owner_id', 'Owner ID')}
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+  `;
+}
+
+function renderDBEntitiesTable(type, data, sort) {
+  const rows = data.map(item => `<tr>
+    <td>${escapeHtml(item.id)}</td>
+    <td>${escapeHtml(item.user_id)}</td>
+    <td>${escapeHtml(item.name)}</td>
+    <td>${escapeHtml(item.latest_release_time || '-')}</td>
+    <td>${escapeHtml(item.media_count || '-')}</td>
+    <td>${renderActionButtons(type, item)}</td>
+  </tr>`).join('');
+  return `
+    <table class="data-table">
+      <thead>
+        <tr>
+          ${sortableHeader(sort, 'id', 'ID')}
+          ${sortableHeader(sort, 'user_id', 'User ID')}
+          ${sortableHeader(sort, 'name', 'Name')}
+          ${sortableHeader(sort, 'latest_release_time', 'Latest Release')}
+          ${sortableHeader(sort, 'media_count', 'Media Count')}
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+  `;
+}
+
+function renderDBListEntitiesTable(type, data, sort) {
+  const rows = data.map(item => `<tr>
+    <td>${escapeHtml(item.id)}</td>
+    <td>${escapeHtml(item.lst_id)}</td>
+    <td>${escapeHtml(item.name)}</td>
+    <td>${escapeHtml(item.parent_dir)}</td>
+    <td>${renderActionButtons(type, item)}</td>
+  </tr>`).join('');
+  return `
+    <table class="data-table">
+      <thead>
+        <tr>
+          ${sortableHeader(sort, 'id', 'ID')}
+          ${sortableHeader(sort, 'lst_id', 'List ID')}
+          ${sortableHeader(sort, 'name', 'Name')}
+          <th>Parent Dir</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+  `;
+}
+
+function renderDBPreviousNamesTable(type, data, sort) {
+  const rows = data.map(item => {
+    const currentLabel = item.current_screen_name ? `@${escapeHtml(item.current_screen_name)}` : escapeHtml(item.user_id || '');
+    return `<tr>
+      <td><a href="javascript:void(0)" onclick="filterPreviousNamesByUser('${escapeAttr(item.user_id || '')}')">${currentLabel}</a></td>
+      <td>@${escapeHtml(item.screen_name)}</td>
+      <td>${escapeHtml(item.name)}</td>
+      <td>${escapeHtml(item.record_date || '-')}</td>
+    </tr>`;
+  }).join('');
+  return `
+    <table class="data-table">
+      <thead>
+        <tr>
+          ${sortableHeader(sort, 'current_screen_name', 'Current User')}
+          ${sortableHeader(sort, 'screen_name', 'Previous @Handle')}
+          ${sortableHeader(sort, 'name', 'Previous Name')}
+          ${sortableHeader(sort, 'record_date', 'Date')}
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+  `;
+}
+
+function renderDBDefaultTable(type, data, sort) {
+  const rows = data.map(item => `<tr>
+    <td>${escapeHtml(item.id)}</td>
+    <td>${escapeHtml(item.user_id)}</td>
+    <td>${escapeHtml(item.name)}</td>
+    <td>${escapeHtml(item.parent_lst_entity_id)}</td>
+    <td>${renderActionButtons(type, item)}</td>
+  </tr>`).join('');
+  return `
+    <table class="data-table">
+      <thead>
+        <tr>
+          ${sortableHeader(sort, 'id', 'ID')}
+          ${sortableHeader(sort, 'user_id', 'User ID')}
+          ${sortableHeader(sort, 'name', 'Name')}
+          <th>Parent Entity</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+  `;
+}
+
 // Database Table Renderer with sorting and actions
 function renderDBTable(type, data, sort) {
   if (!data || data.length === 0) {
@@ -1191,130 +1318,14 @@ function renderDBTable(type, data, sort) {
     `;
   }
 
-  const sortIcon = (field) => {
-    if (sort.sortBy !== field) return '<span class="sort-icon">↕</span>';
-    return sort.sortOrder === 'asc'
-      ? '<span class="sort-icon sort-active">↑</span>'
-      : '<span class="sort-icon sort-active">↓</span>';
-  };
-
-  const sortableHeader = (field, label) => `
-    <th data-sort-field="${escapeAttr(field)}" class="${sort.sortBy === field ? 'sort-active' : ''}" onclick="sortDB(this.dataset.sortField)">
-      ${label} ${sortIcon(field)}
-    </th>
-  `;
-
-  const renderActionButtons = (type, item) => {
-    const idStr = String(item.id);
-    return `
-      <div class="flex gap-2">
-        <button class="btn btn-ghost btn-sm" data-db-type="${escapeAttr(type)}" data-db-id="${escapeAttr(idStr)}" onclick="editDBItem(this.dataset.dbType, this.dataset.dbId)">✏️</button>
-        <button class="btn btn-danger btn-sm" data-db-type="${escapeAttr(type)}" data-db-id="${escapeAttr(idStr)}" onclick="deleteDBItem(this.dataset.dbType, this.dataset.dbId)">🗑️</button>
-      </div>
-    `;
-  };
-
-  const rows = data.map(item => {
-    if (type === 'users') {
-      return `<tr>
-        <td>${escapeHtml(item.id)}</td>
-        <td>@${escapeHtml(item.screen_name)}</td>
-        <td>${escapeHtml(item.name)}</td>
-        <td>${item.protected ? '🔒' : '🔓'}</td>
-        <td>${item.is_accessible ? '✅' : '❌'}</td>
-        <td>${escapeHtml(item.friends_count)}</td>
-        <td>${renderActionButtons(type, item)}</td>
-      </tr>`;
-    } else if (type === 'lists') {
-      return `<tr>
-        <td>${escapeHtml(item.id)}</td>
-        <td>${escapeHtml(item.name)}</td>
-        <td>${escapeHtml(item.owner_user_id)}</td>
-        <td>${renderActionButtons(type, item)}</td>
-      </tr>`;
-    } else if (type === 'entities') {
-      return `<tr>
-        <td>${escapeHtml(item.id)}</td>
-        <td>${escapeHtml(item.user_id)}</td>
-        <td>${escapeHtml(item.name)}</td>
-        <td>${escapeHtml(item.latest_release_time || '-')}</td>
-        <td>${escapeHtml(item.media_count || '-')}</td>
-        <td>${renderActionButtons(type, item)}</td>
-      </tr>`;
-    } else if (type === 'listEntities') {
-      return `<tr>
-        <td>${escapeHtml(item.id)}</td>
-        <td>${escapeHtml(item.lst_id)}</td>
-        <td>${escapeHtml(item.name)}</td>
-        <td>${escapeHtml(item.parent_dir)}</td>
-        <td>${renderActionButtons(type, item)}</td>
-      </tr>`;
-    } else if (type === 'previousNames') {
-      const currentLabel = item.current_screen_name ? `@${escapeHtml(item.current_screen_name)}` : escapeHtml(item.user_id || '');
-      return `<tr>
-        <td><a href="javascript:void(0)" onclick="filterPreviousNamesByUser('${escapeAttr(item.user_id || '')}')">${currentLabel}</a></td>
-        <td>@${escapeHtml(item.screen_name)}</td>
-        <td>${escapeHtml(item.name)}</td>
-        <td>${escapeHtml(item.record_date || '-')}</td>
-      </tr>`;
-    } else {
-      return `<tr>
-        <td>${escapeHtml(item.id)}</td>
-        <td>${escapeHtml(item.user_id)}</td>
-        <td>${escapeHtml(item.name)}</td>
-        <td>${escapeHtml(item.parent_lst_entity_id)}</td>
-        <td>${renderActionButtons(type, item)}</td>
-      </tr>`;
-    }
-  }).join('');
-
-  return `
-    <table class="data-table">
-      <thead>
-        <tr>
-          ${type === 'users' ? `
-            ${sortableHeader('id', 'ID')}
-            ${sortableHeader('screen_name', 'Screen Name')}
-            ${sortableHeader('name', 'Name')}
-            <th>Protected</th>
-            <th>Accessible</th>
-            ${sortableHeader('friends_count', 'Friends')}
-            <th>Actions</th>
-          ` : type === 'lists' ? `
-            ${sortableHeader('id', 'ID')}
-            ${sortableHeader('name', 'Name')}
-            ${sortableHeader('owner_id', 'Owner ID')}
-            <th>Actions</th>
-          ` : type === 'entities' ? `
-            ${sortableHeader('id', 'ID')}
-            ${sortableHeader('user_id', 'User ID')}
-            ${sortableHeader('name', 'Name')}
-            ${sortableHeader('latest_release_time', 'Latest Release')}
-            ${sortableHeader('media_count', 'Media Count')}
-            <th>Actions</th>
-          ` : type === 'listEntities' ? `
-            ${sortableHeader('id', 'ID')}
-            ${sortableHeader('lst_id', 'List ID')}
-            ${sortableHeader('name', 'Name')}
-            <th>Parent Dir</th>
-            <th>Actions</th>
-          ` : type === 'previousNames' ? `
-            ${sortableHeader('current_screen_name', 'Current User')}
-            ${sortableHeader('screen_name', 'Previous @Handle')}
-            ${sortableHeader('name', 'Previous Name')}
-            ${sortableHeader('record_date', 'Date')}
-          ` : `
-            ${sortableHeader('id', 'ID')}
-            ${sortableHeader('user_id', 'User ID')}
-            ${sortableHeader('name', 'Name')}
-            <th>Parent Entity</th>
-            <th>Actions</th>
-          `}
-        </tr>
-      </thead>
-      <tbody>${rows}</tbody>
-    </table>
-  `;
+  switch (type) {
+    case 'users': return renderDBUsersTable(type, data, sort);
+    case 'lists': return renderDBListsTable(type, data, sort);
+    case 'entities': return renderDBEntitiesTable(type, data, sort);
+    case 'listEntities': return renderDBListEntitiesTable(type, data, sort);
+    case 'previousNames': return renderDBPreviousNamesTable(type, data, sort);
+    default: return renderDBDefaultTable(type, data, sort);
+  }
 }
 
 function renderDBMobileCards(type, data) {
@@ -1496,7 +1507,6 @@ async function refreshDBData() {
           }
         }
       });
-      toast.show('数据已刷新');
     } else {
       toast.show('获取数据失败', 'error');
     }
@@ -1523,10 +1533,14 @@ function changeDBPage(delta) {
 
 function goToDBPage(page) {
   const { dataSubPage, dbPagination } = store.state;
+  const pag = dbPagination[dataSubPage];
+  if (!pag) return;
+  if (page < 1) page = 1;
+  if (pag.totalPages && page > pag.totalPages) page = pag.totalPages;
   store.setState({
     dbPagination: {
       ...dbPagination,
-      [dataSubPage]: { ...dbPagination[dataSubPage], page }
+      [dataSubPage]: { ...pag, page }
     }
   });
   refreshDBData();
@@ -1622,7 +1636,7 @@ async function editDBItem(type, id) {
           </div>
           <div class="form-group">
             <label class="form-label">Friends Count</label>
-            <input type="number" class="form-input" id="editFriendsCount" value="${escapeAttr(item.friends_count || 0)}">
+            <input type="number" class="form-input" id="editFriendsCount" value="${escapeAttr(item.friends_count || 0)}" min="0" max="999999999">
           </div>
           <div class="form-group">
             <label class="form-checkbox">
@@ -1796,6 +1810,43 @@ async function deleteDBItem(type, id) {
         throw new Error('Unknown type: ' + type);
     }
     toast.show('删除成功');
+    // 删除操作可能使当前页越界（删除最后一页的最后一条），
+    // 先请求一次获取最新数据再刷新
+    const { dataSubPage, dbPagination } = store.state;
+    const current = dbPagination[dataSubPage];
+    const checkParams = new URLSearchParams();
+    checkParams.append('page', '1');
+    checkParams.append('pageSize', current.pageSize);
+    const dataSubPageMap = {
+      users: api.getDBUsers,
+      lists: api.getDBLists,
+      entities: api.getDBUserEntities,
+      listEntities: api.getDBListEntities,
+      userLinks: api.getDBUserLinks,
+      previousNames: api.getDBPreviousNames,
+    };
+    const fetcher = dataSubPageMap[dataSubPage];
+    if (fetcher) {
+      const resp = await fetcher(checkParams.toString());
+      const total = (resp || {}).total || 0;
+      const totalPages = Math.max(1, Math.ceil(total / (current.pageSize || 200)));
+      // 当前页超出总页数时回到最后一页
+      if (current.page > totalPages) {
+        store.setState({
+          dbPagination: {
+            ...dbPagination,
+            [dataSubPage]: { ...current, page: totalPages, totalPages }
+          }
+        });
+      } else {
+        store.setState({
+          dbPagination: {
+            ...dbPagination,
+            [dataSubPage]: { ...current, totalPages }
+          }
+        });
+      }
+    }
     refreshDBData();
   } catch (err) {
     toast.show(err.message, 'error');
@@ -1822,7 +1873,13 @@ async function handleQuickDownload() {
     if (!value) {
       return toast.show('剪切板为空，请输入用户名或链接', 'error');
     }
-    input.value = value;
+    // await 期间用户可能已手动输入，此时不应覆盖
+    const currentVal = input.value.trim();
+    if (currentVal && currentVal !== value) {
+      value = currentVal;
+    } else {
+      input.value = value;
+    }
   }
 
   let username = value;
@@ -2107,10 +2164,30 @@ async function cancelQueuedTasks() {
   }
 }
 
-function showTaskDetail(id) {
-  const task = store.state.tasks.find(t => t.task_id === id);
-  if (!task) return;
-  
+async function showTaskDetail(id) {
+  drawer._taskId = id;
+  drawer.open('任务详情', '<div class="text-sm text-secondary" style="text-align:center;padding:var(--space-8)">加载中...</div>');
+
+  let task;
+  try {
+    task = await api.getTask(id);
+  } catch (err) {
+    drawer.open('任务详情',
+      `<div class="task-detail-error">获取任务详情失败: ${escapeHtml(err.message)}</div>`,
+      `<button class="btn btn-secondary" onclick="drawer.close()">关闭</button>
+       <button class="btn btn-primary" onclick="showTaskDetail('${escapeAttr(id)}')">重试</button>`
+    );
+    return;
+  }
+
+  if (!task) {
+    drawer.open('任务详情',
+      '<div class="task-detail-error">未找到该任务</div>',
+      '<button class="btn btn-secondary" onclick="drawer.close()">关闭</button>'
+    );
+    return;
+  }
+
   const statusMap = {
     queued: '排队中',
     running: '运行中',
@@ -2118,59 +2195,193 @@ function showTaskDetail(id) {
     failed: '失败',
     cancelled: '已取消'
   };
-  
-  const pct = getTaskProgressPercent(task);
 
+  const statusColors = {
+    queued: '#8b949e',
+    running: '#58a6ff',
+    completed: '#3fb950',
+    failed: '#f85149',
+    cancelled: '#6e7681'
+  };
+
+  const bgColors = {
+    queued: 'rgba(139,148,158,0.1)',
+    running: 'rgba(88,166,255,0.1)',
+    completed: 'rgba(63,185,80,0.1)',
+    failed: 'rgba(248,81,73,0.1)',
+    cancelled: 'rgba(110,118,129,0.1)'
+  };
+
+  const statusText = statusMap[task.status] || task.status;
+  const statusColor = statusColors[task.status] || '#8b949e';
+  const bgColor = bgColors[task.status] || 'rgba(139,148,158,0.1)';
+  const pct = getTaskProgressPercent(task);
   const stageText = task.progress?.stage ? escapeHtml(getStageText(task.progress.stage)) : '';
   const currentText = task.progress?.current ? ` · ${escapeHtml(task.progress.current)}` : '';
+  const target = escapeHtml(getTaskTarget(task));
 
+  // Build target details
+  let targetDetails = '';
+  if (task.data?.screen_name) {
+    targetDetails = `<div class="task-detail-grid"><div class="task-detail-label">用户</div><div class="task-detail-value">@${escapeHtml(task.data.screen_name)}</div></div>`;
+  } else if (task.data?.list_id) {
+    targetDetails = `<div class="task-detail-grid"><div class="task-detail-label">列表</div><div class="task-detail-value">${escapeHtml(String(task.data.list_id))}</div></div>`;
+  } else {
+    const parts = [];
+    if (task.data?.users?.length) parts.push(`<div class="task-detail-label">用户</div><div class="task-detail-value">${task.data.users.map(u => '@' + escapeHtml(u)).join(', ')}</div>`);
+    if (task.data?.lists?.length) parts.push(`<div class="task-detail-label">列表</div><div class="task-detail-value">${task.data.lists.map(l => escapeHtml(String(l))).join(', ')}</div>`);
+    if (task.data?.following_names?.length) parts.push(`<div class="task-detail-label">关注</div><div class="task-detail-value">${task.data.following_names.map(f => '@' + escapeHtml(f)).join(', ')}</div>`);
+    if (parts.length) targetDetails = `<div class="task-detail-grid">${parts.join('')}</div>`;
+  }
+
+  // Build time timeline
+  const createdTime = task.created_at ? new Date(task.created_at).toLocaleString() : '-';
+  const startedTime = task.started_at ? new Date(task.started_at).toLocaleString() : null;
+  const endedTime = task.ended_at ? new Date(task.ended_at).toLocaleString() : null;
+
+  let durationText = '';
+  if (task.started_at && task.ended_at) {
+    const dur = new Date(task.ended_at) - new Date(task.started_at);
+    const mins = Math.floor(dur / 60000);
+    const secs = Math.round((dur % 60000) / 1000);
+    if (mins > 0) durationText = `${mins}分${secs}秒`;
+    else durationText = `${secs}秒`;
+  }
+
+  let timeHtml = `
+    <div class="task-detail-time-row">
+      <div class="task-detail-time-dot" style="background:var(--info)"></div>
+      <div class="task-detail-time-label">创建</div>
+      <div class="task-detail-time-value">${createdTime}</div>
+    </div>`;
+  if (startedTime) {
+    timeHtml += `
+    <div class="task-detail-time-line"></div>
+    <div class="task-detail-time-row">
+      <div class="task-detail-time-dot" style="background:var(--warning)"></div>
+      <div class="task-detail-time-label">开始</div>
+      <div class="task-detail-time-value">${startedTime}</div>
+    </div>`;
+  }
+  if (endedTime) {
+    timeHtml += `
+    <div class="task-detail-time-line"></div>
+    <div class="task-detail-time-row">
+      <div class="task-detail-time-dot" style="background:var(--success)"></div>
+      <div class="task-detail-time-label">结束</div>
+      <div class="task-detail-time-value">${endedTime}</div>
+    </div>`;
+  }
+  if (durationText) {
+    timeHtml += `
+    <div class="task-detail-time-line"></div>
+    <div class="task-detail-time-row">
+      <div class="task-detail-time-dot" style="background:var(--text-secondary)"></div>
+      <div class="task-detail-time-label">耗时</div>
+      <div class="task-detail-time-value" style="color:var(--text-primary)">${durationText}</div>
+    </div>`;
+  }
+
+  // Build result
+  let resultHtml = '';
+  const result = task.result;
+  if (result) {
+    let mainHtml = '';
+    if (result.main) {
+      const parts = [`<span class="task-detail-stat"><span class="task-detail-stat-val success">${result.main.downloaded || 0}</span><span class="task-detail-stat-lbl">已下载</span></span>`];
+      if (result.main.failed) {
+        parts.push(`<span class="task-detail-stat"><span class="task-detail-stat-val danger">${result.main.failed}</span><span class="task-detail-stat-lbl">失败</span></span>`);
+      }
+      mainHtml = `<div class="task-detail-section-title-sm">主下载</div><div class="task-detail-stats">${parts.join('')}</div>`;
+    }
+    let profileHtml = '';
+    if (result.profile) {
+      const parts = [`<span class="task-detail-stat"><span class="task-detail-stat-val success">${result.profile.downloaded || 0}</span><span class="task-detail-stat-lbl">已下载</span></span>`];
+      if (result.profile.failed) {
+        parts.push(`<span class="task-detail-stat"><span class="task-detail-stat-val danger">${result.profile.failed}</span><span class="task-detail-stat-lbl">失败</span></span>`);
+      }
+      if (result.profile.versioned) {
+        parts.push(`<span class="task-detail-stat"><span class="task-detail-stat-val info">${result.profile.versioned}</span><span class="task-detail-stat-lbl">已更新</span></span>`);
+      }
+      profileHtml = `<div class="task-detail-section-title-sm">Profile</div><div class="task-detail-stats">${parts.join('')}</div>`;
+    }
+    const msgHtml = result.message ? `<div class="task-detail-msg">${escapeHtml(result.message)}</div>` : '';
+
+    if (mainHtml || profileHtml || msgHtml) {
+      resultHtml = `
+        <div class="task-detail-section">
+          <div class="task-detail-section-title">结果</div>
+          <div class="task-detail-card">
+            ${mainHtml}${mainHtml && (profileHtml || msgHtml) ? '<div style="height:1px;background:var(--border-secondary);margin:var(--space-2) 0"></div>' : ''}
+            ${profileHtml}${profileHtml && msgHtml ? '<div style="height:1px;background:var(--border-secondary);margin:var(--space-2) 0"></div>' : ''}
+            ${msgHtml}
+          </div>
+        </div>`;
+    }
+  }
+
+  // Build content
   const content = `
-    <div class="form-group">
-      <label class="form-label">任务 ID</label>
-      <div class="font-mono text-sm" style="background: var(--bg-primary); padding: var(--space-3); border-radius: var(--radius-md);">${escapeHtml(task.task_id)}</div>
-    </div>
-    <div class="form-group">
-      <label class="form-label">类型</label>
-      <div>${escapeHtml(task.type)}</div>
-    </div>
-    <div class="form-group">
-      <label class="form-label">目标</label>
-      <div>${escapeHtml(getTaskTarget(task))}</div>
-      ${task.data?.users?.length ? `<div class="text-sm text-secondary" style="margin-top:4px;">用户: ${task.data.users.map(u => '@' + escapeHtml(u)).join(', ')}</div>` : ''}
-      ${task.data?.lists?.length ? `<div class="text-sm text-secondary" style="margin-top:4px;">列表: ${task.data.lists.map(l => escapeHtml(String(l))).join(', ')}</div>` : ''}
-      ${task.data?.following_names?.length ? `<div class="text-sm text-secondary" style="margin-top:4px;">关注: ${task.data.following_names.map(f => '@' + escapeHtml(f)).join(', ')}</div>` : ''}
-    </div>
-    <div class="form-group">
-      <label class="form-label">状态</label>
-      <div class="tag tag-${task.status}">${statusMap[task.status] || task.status}</div>
-    </div>
-    <div class="form-group">
-      <label class="form-label">进度</label>
-      <div class="progress-bar" style="margin-bottom: var(--space-2);">
-        <div class="progress-fill" style="width: ${pct}%"></div>
+    <div class="task-detail-header" style="background:${bgColor}">
+      <div class="task-detail-header-info">
+        <div class="task-detail-header-title">${target || '未知目标'}</div>
+        <div class="task-detail-header-sub">${escapeHtml(task.task_id)}</div>
       </div>
-      <div class="text-sm text-secondary">${task.progress?.completed || 0} / ${task.progress?.total || 0} (${pct}%)${stageText}${currentText}</div>
-      ${task.progress?.failed ? `<div class="text-sm" style="color: var(--danger); margin-top: 4px;">Failedtweet: ${escapeHtml(task.progress.failed)}</div>` : ''}
+      <span class="tag tag-${task.status}" style="font-size:var(--text-base)">${statusText}</span>
     </div>
-    <div class="form-group">
-      <label class="form-label">创建时间</label>
-      <div>${new Date(task.created_at).toLocaleString()}</div>
+
+    <div class="task-detail-section">
+      <div class="task-detail-section-title">概览</div>
+      <div class="task-detail-card">
+        <div class="task-detail-grid">
+          <div class="task-detail-label">类型</div>
+          <div class="task-detail-value">${escapeHtml(task.type)}</div>
+          <div class="task-detail-label">状态</div>
+          <div class="task-detail-value" style="color:${statusColor}">${statusText}</div>
+        </div>
+      </div>
     </div>
-    ${renderTaskResult(task)}
+
+    ${targetDetails ? `
+    <div class="task-detail-section">
+      <div class="task-detail-section-title">目标</div>
+      <div class="task-detail-card">${targetDetails}</div>
+    </div>` : ''}
+
+    <div class="task-detail-section">
+      <div class="task-detail-section-title">进度</div>
+      <div class="task-detail-card">
+        <div class="progress-bar" style="margin-bottom: var(--space-2);">
+          <div class="progress-fill" style="width: ${pct}%"></div>
+        </div>
+        <div class="text-sm" style="display:flex;justify-content:space-between;color:var(--text-secondary);">
+          <span>${task.progress?.completed || 0} / ${task.progress?.total || 0} (${pct}%)</span>
+          <span>${stageText}${currentText}</span>
+        </div>
+        ${task.progress?.failed ? `<div class="text-sm" style="color: var(--danger); margin-top: 6px;">失败推文: ${escapeHtml(task.progress.failed)}</div>` : ''}
+      </div>
+    </div>
+
+    <div class="task-detail-section">
+      <div class="task-detail-section-title">时间</div>
+      <div class="task-detail-card">${timeHtml}</div>
+    </div>
+
+    ${resultHtml}
+
     ${task.error ? `
-      <div class="form-group">
-        <label class="form-label" style="color: var(--danger);">错误信息</label>
-        <div style="color: var(--danger); background: var(--danger-bg); padding: var(--space-3); border-radius: var(--radius-md);">${escapeHtml(task.error)}</div>
-      </div>
-    ` : ''}
+    <div class="task-detail-section">
+      <div class="task-detail-section-title" style="color:var(--danger);border-bottom-color:rgba(248,81,73,0.3);">错误</div>
+      <div class="task-detail-error">${escapeHtml(task.error)}</div>
+    </div>` : ''}
   `;
-  
+
   const footer = task.status === 'running' || task.status === 'queued' ?
     `<button class="btn btn-danger" data-task-id="${escapeAttr(task.task_id)}" onclick="cancelTask(this.dataset.taskId); drawer.close();">取消任务</button>` :
     `<button class="btn btn-primary" data-task-id="${escapeAttr(task.task_id)}" onclick="retryTask(this.dataset.taskId); drawer.close();">重试</button>
      <button class="btn btn-danger" data-task-id="${escapeAttr(task.task_id)}" onclick="deleteTask(this.dataset.taskId); drawer.close();">删除</button>
      <button class="btn btn-secondary" onclick="drawer.close()">关闭</button>`;
-  
+
   drawer.open('任务详情', content, footer);
 }
 
@@ -2494,7 +2705,7 @@ function isConfigFormDirty() {
 }
 
 function isConfigRawDirty() {
-  return store.state.configMode === 'raw' && configCodeMirror && getEditorValue(configCodeMirror, store.state.configRaw) !== (store.state.configRaw || '');
+  return store.state.configMode === 'raw' && _state.configCodeMirror && getEditorValue(_state.configCodeMirror, store.state.configRaw) !== (store.state.configRaw || '');
 }
 
 function refreshConfigAfterReconnect() {
@@ -2525,27 +2736,7 @@ function renderScheduleViewer() {
   return `<div style="display:flex;flex-direction:column;height:100%">${schedulerBanner}${modeTabs}${renderScheduleForm(_scheduleFormItems, _scheduleSaving, _scheduleExists)}</div>`;
 }
 
-function renderScheduleForm(items, saving, exists) {
-  if (!items || items.length === 0) {
-    return `
-      <div class="card">
-        <div class="card-header">
-          <div><div class="card-title">定时下载任务</div><div class="card-subtitle">${exists ? '✅ 文件存在 · 0 条规则' : '⚠️ 配置文件不存在'}</div></div>
-          <div class="flex gap-2">
-            <button class="btn btn-ghost btn-sm" onclick="addScheduleItem()">➕ 添加规则</button>
-          </div>
-        </div>
-        <div class="card-body">
-          <div class="empty-state">
-            <div class="empty-icon">⏰</div>
-            <div class="empty-title">暂无定时任务</div>
-            <div class="empty-desc">点击「添加规则」创建定时下载任务</div>
-          </div>
-        </div>
-      </div>
-    `;
-  }
-
+function renderScheduleFormField(item, idx) {
   const typeOptions = (selected) => ['list', 'user', 'following', 'mixed'].map(t =>
     `<option value="${t}" ${t === selected ? 'selected' : ''}>${t === 'list' ? '📋 列表' : t === 'user' ? '👤 用户' : t === 'following' ? '👥 关注' : '🔀 混合'}</option>`
   ).join('');
@@ -2554,8 +2745,7 @@ function renderScheduleForm(items, saving, exists) {
     `<option value="${m}" ${m === selected ? 'selected' : ''}>${m === 'interval' ? '⏱️ 间隔执行' : '🕐 每日定时'}</option>`
   ).join('');
 
-  const renderItem = (item, idx) => {
-    return `
+  return `
     <div class="config-group">
       <div class="config-group-title">
         <span>📋 任务 #${idx + 1}${item.name ? ' · ' + escapeHtml(item.name) : ''}</span>
@@ -2643,7 +2833,28 @@ function renderScheduleForm(items, saving, exists) {
       <div id="sf_schedule_hint_${idx}" class="config-hint" aria-live="polite" style="font-size:12px;margin-top:8px;min-height:0"></div>
     </div>
   `;
-  };
+}
+
+function renderScheduleForm(items, saving, exists) {
+  if (!items || items.length === 0) {
+    return `
+      <div class="card">
+        <div class="card-header">
+          <div><div class="card-title">定时下载任务</div><div class="card-subtitle">${exists ? '✅ 文件存在 · 0 条规则' : '⚠️ 配置文件不存在'}</div></div>
+          <div class="flex gap-2">
+            <button class="btn btn-ghost btn-sm" onclick="addScheduleItem()">➕ 添加规则</button>
+          </div>
+        </div>
+        <div class="card-body">
+          <div class="empty-state">
+            <div class="empty-icon">⏰</div>
+            <div class="empty-title">暂无定时任务</div>
+            <div class="empty-desc">点击「添加规则」创建定时下载任务</div>
+          </div>
+        </div>
+      </div>
+    `;
+  }
 
   return `
     <div class="card">
@@ -2657,7 +2868,91 @@ function renderScheduleForm(items, saving, exists) {
         </div>
       </div>
       <div class="card-body">
-        ${items.map(renderItem).join('<div class="config-divider"></div>')}
+        ${items.map((item, idx) => renderScheduleFormField(item, idx)).join('<div class="config-divider"></div>')}
+      </div>
+    </div>
+  `;
+}
+
+// Shared helpers for schedule table rendering
+function typeTag(type) {
+  const map = { list: ['List', 'tag-info'], user: ['User', 'tag-success'], following: ['Following', 'tag-warning'], mixed: ['Mixed', 'tag-primary'] };
+  const [label, cls] = map[type] || [escapeHtml(type), ''];
+  return `<span class="tag ${escapeHtml(cls)}">${escapeHtml(label)}</span>`;
+}
+
+function failureTag(count) {
+  if (!count || count === 0) return '';
+  if (count >= 3) return `<span class="tag tag-danger">⚠ ${count}次失败</span>`;
+  return `<span class="tag tag-warning">${count}次失败</span>`;
+}
+
+function getLastTask(s) {
+  const taskId = s ? s.last_task_id : null;
+  if (!taskId) return null;
+  return (store.state.tasks || []).find(t => t.task_id === taskId);
+}
+
+function taskStatusTag(task) {
+  return '';
+}
+
+function fmtTime(t) {
+  return t ? new Date(t).toLocaleString() : '-';
+}
+
+function renderScheduleItem(s) {
+  const entry = normalizeScheduleEntry(s.entry);
+  const failures = s.consecutive_failures || 0;
+  let displayName = entry.name || entry.target;
+  if (entry.type === 'mixed' && !displayName) {
+    const parts = [];
+    if ((entry.users || []).length) parts.push(`${entry.users.length} 用户`);
+    if ((entry.lists || []).length) parts.push(`${entry.lists.length} 列表`);
+    if ((entry.following_names || []).length) parts.push(`${entry.following_names.length} 关注`);
+    displayName = parts.join(' · ') || '混合任务';
+  } else if (!displayName) {
+    displayName = entry.type === 'following'
+      ? '关注任务'
+      : entry.type === 'user'
+        ? '用户任务'
+        : entry.type === 'list'
+          ? '列表任务'
+          : '定时任务';
+  }
+  const metaParts = [escapeHtml(s.schedule_display), `执行 ${s.run_count} 次`];
+  if (entry.type === 'mixed') {
+    const targetParts = [];
+    if ((entry.users || []).length) targetParts.push(`${entry.users.length}用户`);
+    if ((entry.lists || []).length) targetParts.push(`${entry.lists.length}列表`);
+    if ((entry.following_names || []).length) targetParts.push(`${entry.following_names.length}关注`);
+    if (targetParts.length) metaParts.unshift(targetParts.join('+'));
+  }
+  const fTag = failureTag(failures);
+  if (fTag) metaParts.push(fTag);
+
+  const lastTask = getLastTask(s);
+  const tTag = taskStatusTag(lastTask);
+  if (tTag) metaParts.push(tTag);
+
+  const entryId = escapeAttr(entry.id);
+
+  return `
+    <div class="schedule-item${failures >= 3 ? ' has-failure' : ''}">
+      <div class="schedule-type">${typeTag(entry.type)}</div>
+      <div class="schedule-info">
+        <div class="schedule-title">${escapeHtml(displayName)}</div>
+        <div class="schedule-meta">${metaParts.join('<span style="color:var(--border-secondary)">·</span>')}</div>
+      </div>
+      <div class="schedule-status">
+        <span class="tag ${entry.enabled ? 'tag-success' : 'tag-danger'}" style="cursor:pointer" data-schedule-id="${escapeAttr(entry.id)}" data-enabled="${entry.enabled}" onclick="toggleScheduleEnabled(this.dataset.scheduleId, this.dataset.enabled === 'true')">${entry.enabled ? '启用' : '禁用'}</span>
+      </div>
+      <div class="schedule-time">
+        <div>上次 ${fmtTime(s.last_run_at)}</div>
+        <div>下次 ${fmtTime(s.next_run_at)}</div>
+      </div>
+      <div class="schedule-actions">
+        <button class="btn btn-primary btn-sm" data-schedule-id="${escapeAttr(entry.id)}" onclick="triggerSchedule(this.dataset.scheduleId)" ${!entry.enabled ? 'disabled title="规则已禁用"' : ''}>▶ 执行</button>
       </div>
     </div>
   `;
@@ -2684,113 +2979,6 @@ function renderScheduleTable(schedules, exists) {
       </div>
     `;
   }
-
-  const typeTag = (type) => {
-    const map = { list: ['List', 'tag-info'], user: ['User', 'tag-success'], following: ['Following', 'tag-warning'], mixed: ['Mixed', 'tag-primary'] };
-    const [label, cls] = map[type] || [escapeHtml(type), ''];
-    return `<span class="tag ${escapeHtml(cls)}">${escapeHtml(label)}</span>`;
-  };
-
-  const failureTag = (count) => {
-    if (!count || count === 0) return '';
-    if (count >= 3) return `<span class="tag tag-danger">⚠ ${count}次失败</span>`;
-    return `<span class="tag tag-warning">${count}次失败</span>`;
-  };
-
-  const getLastTask = (s) => {
-    const taskId = s ? s.last_task_id : null;
-    if (!taskId) return null;
-    return (store.state.tasks || []).find(t => t.task_id === taskId);
-  };
-
-  const taskStatusTag = (task) => {
-    if (!task) return '';
-    const statusMap = { completed: '成功', failed: '失败', running: '执行中', queued: '排队中', cancelled: '已取消' };
-    const clsMap = { completed: 'tag-success', failed: 'tag-danger', running: 'tag-info', queued: 'tag-warning', cancelled: 'tag-secondary' };
-    const label = statusMap[task.status] || task.status;
-    const cls = clsMap[task.status] || '';
-    let html = `<span class="tag ${cls}">${label}</span>`;
-    if (task.started_at && task.ended_at) {
-      const dur = new Date(task.ended_at) - new Date(task.started_at);
-      if (dur >= 60000) html += ` <span class="text-secondary">${Math.round(dur/60000)}分</span>`;
-      else html += ` <span class="text-secondary">${Math.round(dur/1000)}秒</span>`;
-    }
-    return html;
-  };
-
-  const renderScheduleHistory = (hist) => {
-    if (!hist || hist.length === 0) return '';
-    const rows = hist.map(r => `
-      <div style="display:flex;gap:8px;font-size:12px;line-height:1.8;color:var(--text-secondary)">
-        <span>${r.started_at ? new Date(r.started_at).toLocaleString() : '-'}</span>
-        <span class="tag ${r.status === 'completed' ? 'tag-success' : r.status === 'failed' ? 'tag-danger' : 'tag-secondary'}">${r.status}</span>
-        ${r.error ? `<span style="color:var(--danger)">${escapeHtml(r.error)}</span>` : ''}
-      </div>`).join('');
-    return `<div class="schedule-history" style="margin-top:4px;padding:6px 8px;background:var(--bg-secondary);border-radius:4px">${rows}</div>`;
-  };
-
-  const fmtTime = (t) => t ? new Date(t).toLocaleString() : '-';
-
-  const renderScheduleItem = (s) => {
-    const entry = normalizeScheduleEntry(s.entry);
-    const failures = s.consecutive_failures || 0;
-    let displayName = entry.name || entry.target;
-    if (entry.type === 'mixed' && !displayName) {
-      const parts = [];
-      if ((entry.users || []).length) parts.push(`${entry.users.length} 用户`);
-      if ((entry.lists || []).length) parts.push(`${entry.lists.length} 列表`);
-      if ((entry.following_names || []).length) parts.push(`${entry.following_names.length} 关注`);
-      displayName = parts.join(' · ') || '混合任务';
-    } else if (!displayName) {
-      displayName = entry.type === 'following'
-        ? '关注任务'
-        : entry.type === 'user'
-          ? '用户任务'
-          : entry.type === 'list'
-            ? '列表任务'
-            : '定时任务';
-    }
-    const metaParts = [escapeHtml(s.schedule_display), `执行 ${s.run_count} 次`];
-    if (entry.type === 'mixed') {
-      const targetParts = [];
-      if ((entry.users || []).length) targetParts.push(`${entry.users.length}用户`);
-      if ((entry.lists || []).length) targetParts.push(`${entry.lists.length}列表`);
-      if ((entry.following_names || []).length) targetParts.push(`${entry.following_names.length}关注`);
-      if (targetParts.length) metaParts.unshift(targetParts.join('+'));
-    }
-    const fTag = failureTag(failures);
-    if (fTag) metaParts.push(fTag);
-
-    const lastTask = getLastTask(s);
-    const tTag = taskStatusTag(lastTask);
-    if (tTag) metaParts.push(tTag);
-
-    const entryId = escapeAttr(entry.id);
-    const histKey = entry.id || '';
-    const historyHtml = renderScheduleHistory(store.state._scheduleRunHistory[histKey]);
-
-    return `
-      <div class="schedule-item${failures >= 3 ? ' has-failure' : ''}">
-        <div class="schedule-type">${typeTag(entry.type)}</div>
-        <div class="schedule-info">
-          <div class="schedule-title">${escapeHtml(displayName)}</div>
-          <div class="schedule-meta">${metaParts.join('<span style="color:var(--border-secondary)">·</span>')}</div>
-          ${historyHtml}
-        </div>
-        <div class="schedule-status">
-          <span class="tag ${entry.enabled ? 'tag-success' : 'tag-danger'}" style="cursor:pointer" data-schedule-id="${escapeAttr(entry.id)}" data-enabled="${entry.enabled}" onclick="toggleScheduleEnabled(this.dataset.scheduleId, this.dataset.enabled === 'true')">${entry.enabled ? '启用' : '禁用'}</span>
-        </div>
-        <div class="schedule-time">
-          <div>上次 ${fmtTime(s.last_run_at)}</div>
-          <div>下次 ${fmtTime(s.next_run_at)}</div>
-        </div>
-        <div class="schedule-actions">
-          <button class="btn btn-primary btn-sm" data-schedule-id="${escapeAttr(entry.id)}" onclick="triggerSchedule(this.dataset.scheduleId)" ${!entry.enabled ? 'disabled title="规则已禁用"' : ''}>▶ 执行</button>
-          ${historyHtml ? `<button class="btn btn-ghost btn-sm" onclick="toggleScheduleHistory('${entryId}')" id="schedule_hist_btn_${entryId}">📋 历史</button>` : ''}
-        </div>
-      </div>
-    `;
-  };
 
   return `
     <div class="card card-fill">
@@ -2933,7 +3121,7 @@ async function loadScheduleRaw() {
 }
 
 async function saveScheduleRaw() {
-  const content = getEditorValue(scheduleCodeMirror, store.state._scheduleRaw);
+  const content = getEditorValue(_state.scheduleCodeMirror, store.state._scheduleRaw);
   store.setState({ _scheduleRaw: content, _scheduleSaving: true });
   try {
     const validateResult = await api.validateSchedule({ raw: content });
@@ -2952,7 +3140,7 @@ async function saveScheduleRaw() {
       _scheduleExists: rawData.exists || false,
       _scheduleSaving: false,
     });
-    setEditorValue(scheduleCodeMirror, store.state._scheduleRaw || '');
+    setEditorValue(_state.scheduleCodeMirror, store.state._scheduleRaw || '');
   } catch (e) {
     toast.show('保存失败: ' + e.message, 'error');
     store.setState({ _scheduleSaving: false });
@@ -3007,7 +3195,7 @@ async function toggleScheduleEnabled(id, currentEnabled) {
 }
 
 function navigateToSystemSchedules() {
-  if (lastPage === 'system') {
+  if (_state.lastPage === 'system') {
     store.setState({ _systemTab: 'schedules' });
   } else {
     store.setState({ currentPage: 'system', _systemTab: 'schedules' });
@@ -3026,29 +3214,22 @@ function navigateToSystemSchedules() {
   }
 }
 
-function toggleScheduleHistory(entryId) {
-  const items = document.querySelectorAll('.schedule-item');
-  for (const item of items) {
-    const btn = item.querySelector(`[onclick*="toggleScheduleHistory('${entryId}')"]`);
-    if (btn) {
-      const hist = item.querySelector('.schedule-history');
-      if (hist) hist.style.display = hist.style.display === 'none' ? '' : 'none';
-      break;
-    }
-  }
-}
-
 function setScheduleTab(tab) {
-  if (tab !== 'edit' && scheduleCodeMirror) {
-    scheduleCodeMirror = destroyCodeMirror(scheduleCodeMirror);
-    _scheduleCmInitializing = false;
+  if (tab !== 'edit' && _state.scheduleCodeMirror) {
+    _state.scheduleCodeMirror = destroyCodeMirror(_state.scheduleCodeMirror);
+    _state._scheduleCmInitializing = false;
   }
   store.setState({ _scheduleTab: tab });
   if (tab === 'edit' && !store.state._scheduleRaw) loadScheduleRaw();
   if (tab === 'form' && store.state._scheduleFormItems.length === 0 && store.state._schedules.length === 0) loadSchedules();
 }
 
+_state._addScheduleItemPending = false;
+
 function addScheduleItem() {
+  if (_state._addScheduleItemPending) return;
+  // 先保存当前 DOM 中的未保存编辑内容，再添加新条目
+  const currentItems = readScheduleFormItemsFromDOM();
   const items = [{
     id: '',
     type: 'list',
@@ -3065,18 +3246,20 @@ function addScheduleItem() {
     follow_members: false,
     skip_profile: false,
     no_retry: false,
-  }, ...readScheduleFormItemsFromDOM()];
+  }, ...currentItems];
   store.setState({ _scheduleFormItems: items, _scheduleFormDirty: true });
   glowNewFirstItem('systemSchedulesPanel');
+  _state._addScheduleItemPending = true;
+  setTimeout(() => { _state._addScheduleItemPending = false; }, 0);
 }
 
 function clearAllScheduleValidationTimers() {
-  Object.keys(_scheduleValidateTimers).forEach(k => {
-    clearTimeout(_scheduleValidateTimers[k]);
-    delete _scheduleValidateTimers[k];
+  Object.keys(_state._scheduleValidateTimers).forEach(k => {
+    clearTimeout(_state._scheduleValidateTimers[k]);
+    delete _state._scheduleValidateTimers[k];
   });
-  Object.keys(_scheduleValidateRequests).forEach(k => {
-    delete _scheduleValidateRequests[k];
+  Object.keys(_state._scheduleValidateRequests).forEach(k => {
+    delete _state._scheduleValidateRequests[k];
   });
 }
 
@@ -3112,9 +3295,9 @@ function readScheduleFormItemsFromDOM() {
 }
 
 function clearScheduleValidationState(index) {
-  clearTimeout(_scheduleValidateTimers[index]);
-  delete _scheduleValidateTimers[index];
-  delete _scheduleValidateRequests[index];
+  clearTimeout(_state._scheduleValidateTimers[index]);
+  delete _state._scheduleValidateTimers[index];
+  delete _state._scheduleValidateRequests[index];
   setScheduleValidationAriaState(index, false);
   const clearHint = () => {
     const hint = document.getElementById(`sf_schedule_hint_${index}`);
@@ -3170,13 +3353,13 @@ function updateScheduleFormItem(index, field, value) {
   store.setState({ _scheduleFormItems: items, _scheduleFormDirty: true });
 }
 
-const _scheduleValidateTimers = {};
-const _scheduleValidateRequests = {};
-let _scheduleValidateRequestSeq = 0;
+_state._scheduleValidateTimers = {};
+_state._scheduleValidateRequests = {};
+_state._scheduleValidateRequestSeq = 0;
 
 function scheduleFieldChanged(idx) {
-  clearTimeout(_scheduleValidateTimers[idx]);
-  _scheduleValidateTimers[idx] = setTimeout(() => validateScheduleField(idx), 600);
+  clearTimeout(_state._scheduleValidateTimers[idx]);
+  _state._scheduleValidateTimers[idx] = setTimeout(() => validateScheduleField(idx), 600);
 }
 
 async function validateScheduleField(idx) {
@@ -3206,11 +3389,11 @@ async function validateScheduleField(idx) {
   }
 
   // schedule 为空时也发送请求，让后端验证 target 等其他字段
-  const requestSeq = ++_scheduleValidateRequestSeq;
-  _scheduleValidateRequests[idx] = requestSeq;
+  const requestSeq = ++_state._scheduleValidateRequestSeq;
+  _state._scheduleValidateRequests[idx] = requestSeq;
   try {
     const result = await api.validateSchedule({ entries: [entry] });
-    if (_scheduleValidateRequests[idx] !== requestSeq) return;
+    if (_state._scheduleValidateRequests[idx] !== requestSeq) return;
     if (result.valid) {
       hint.innerHTML = '';
       setScheduleValidationAriaState(idx, false);
@@ -3220,7 +3403,7 @@ async function validateScheduleField(idx) {
       setScheduleValidationAriaState(idx, true);
     }
   } catch (e) {
-    if (_scheduleValidateRequests[idx] !== requestSeq) return;
+    if (_state._scheduleValidateRequests[idx] !== requestSeq) return;
     hint.innerHTML = '';
     setScheduleValidationAriaState(idx, false);
   }
@@ -3276,9 +3459,9 @@ async function saveScheduleForm() {
     id: item.id || '',
     type: item.type,
     target: item.type === 'mixed' ? '' : item.target.trim(),
-    users: item.type === 'mixed' ? (item.users || []) : undefined,
-    lists: item.type === 'mixed' ? (item.lists || []) : undefined,
-    following_names: item.type === 'mixed' ? (item.following_names || []) : undefined,
+    users: item.type === 'mixed' ? (item.users || []) : [],
+    lists: item.type === 'mixed' ? (item.lists || []) : [],
+    following_names: item.type === 'mixed' ? (item.following_names || []) : [],
     name: item.name.trim(),
     schedule: `${item.scheduleMode}:${item.scheduleValue.trim()}`,
     enabled: item.enabled,
@@ -3312,27 +3495,29 @@ async function saveScheduleForm() {
   }
 }
 
-let scheduleCodeMirror = null;
-let _scheduleCmInitializing = false;
+_state.scheduleCodeMirror = null;
+_state._scheduleCmInitializing = false;
 
 async function initScheduleCodeMirror() {
-  if (_scheduleCmInitializing || scheduleCodeMirror) return;
-  _scheduleCmInitializing = true;
+  if (_state._scheduleCmInitializing || _state.scheduleCodeMirror) return;
+  _state._scheduleCmInitializing = true;
   await waitForCodeMirror(3000);
   if (document.getElementById('scheduleEditorContainer')) {
-    scheduleCodeMirror = initCodeMirror('scheduleEditorContainer', store.state._scheduleRaw, 'yaml');
+    _state.scheduleCodeMirror = initCodeMirror('scheduleEditorContainer', store.state._scheduleRaw, 'yaml');
   }
-  _scheduleCmInitializing = false;
+  _state._scheduleCmInitializing = false;
 }
 
 function syncScheduleTabView() {
   if (store.state._schedules.length === 0 && !store.state.sseConnected) loadSchedules();
   if (store.state._scheduleTab === 'edit' && !store.state._scheduleRaw) loadScheduleRaw();
-  if (store.state._scheduleTab === 'edit' && !scheduleCodeMirror) requestAnimationFrame(() => requestAnimationFrame(initScheduleCodeMirror));
+  if (store.state._scheduleTab === 'edit' && !_state.scheduleCodeMirror) requestAnimationFrame(() => requestAnimationFrame(initScheduleCodeMirror));
 }
 
 function renderServerClosedState() {
-  document.getElementById('contentContainer').innerHTML = `
+  const el = document.getElementById('contentContainer');
+  if (!el) return;
+  el.innerHTML = `
     <div class="empty-state" style="padding: 80px 20px;">
       <div style="font-size: 48px; margin-bottom: 20px;">👋</div>
       <div class="empty-title">服务器已关闭</div>
@@ -3352,8 +3537,8 @@ async function saveConfigForm() {
     if (el.type === 'password' && el.value.trim() === '') { fields[el.name] = '__KEEP_OLD__'; continue; }
     if (el.type === 'number') {
       const val = parseInt(el.value, 10);
-      const min = parseInt(el.min, 10) || 1;
-      const max = parseInt(el.max, 10) || (el.name.includes('routine') ? 100 : 250);
+      const min = el.min !== '' ? parseInt(el.min, 10) : 1;
+      const max = el.max !== '' ? parseInt(el.max, 10) : (el.name.includes('routine') ? 100 : 250);
       if (isNaN(val) || val < min || val > max) {
         toast.show(`${el.name} 必须在 ${min}-${max} 之间`, 'error');
         return;
@@ -3378,7 +3563,7 @@ async function saveConfigForm() {
 }
 
 async function saveConfig() {
-  const content = getEditorValue(configCodeMirror, store.state.configRaw);
+  const content = getEditorValue(_state.configCodeMirror, store.state.configRaw);
   if (!content.trim()) return toast.show('配置不能为空', 'error');
   store.setState({ configRaw: content, configSaving: true });
   try {
@@ -3415,7 +3600,7 @@ function isCookiesFormDirty() {
 }
 
 function isCookiesRawDirty() {
-  return store.state.cookiesMode === 'raw' && cookiesCodeMirror && getEditorValue(cookiesCodeMirror, store.state.cookiesRaw) !== (store.state.cookiesRaw || '');
+  return store.state.cookiesMode === 'raw' && _state.cookiesCodeMirror && getEditorValue(_state.cookiesCodeMirror, store.state.cookiesRaw) !== (store.state.cookiesRaw || '');
 }
 
 function refreshCookiesAfterReconnect() {
@@ -3460,7 +3645,7 @@ async function saveCookiesForm() {
 }
 
 async function saveCookies() {
-  const content = getEditorValue(cookiesCodeMirror, store.state.cookiesRaw);
+  const content = getEditorValue(_state.cookiesCodeMirror, store.state.cookiesRaw);
   if (!content.trim()) return toast.show('内容不能为空', 'error');
 
   store.setState({ cookiesRaw: content, cookiesSaving: true });
@@ -3475,8 +3660,8 @@ async function saveCookies() {
 }
 
 function setCookiesMode(mode) {
-  if (mode !== 'raw' && cookiesCodeMirror) {
-    cookiesCodeMirror = destroyCodeMirror(cookiesCodeMirror);
+  if (mode !== 'raw' && _state.cookiesCodeMirror) {
+    _state.cookiesCodeMirror = destroyCodeMirror(_state.cookiesCodeMirror);
   }
   store.setState({ cookiesMode: mode });
   if (mode === 'raw' && !store.state.cookiesRaw) loadCookiesRaw();
@@ -3513,18 +3698,18 @@ function handleServerShutdown(message) {
   cleanupSystemTimers();
   api.abortAll();
   sseManager.disconnect();
-  configCodeMirror = destroyCodeMirror(configCodeMirror);
-  _configCmInitializing = false;
-  cookiesCodeMirror = destroyCodeMirror(cookiesCodeMirror);
-  _cookiesCmInitializing = false;
-  scheduleCodeMirror = destroyCodeMirror(scheduleCodeMirror);
-  _scheduleCmInitializing = false;
+  _state.configCodeMirror = destroyCodeMirror(_state.configCodeMirror);
+  _state._configCmInitializing = false;
+  _state.cookiesCodeMirror = destroyCodeMirror(_state.cookiesCodeMirror);
+  _state._cookiesCmInitializing = false;
+  _state.scheduleCodeMirror = destroyCodeMirror(_state.scheduleCodeMirror);
+  _state._scheduleCmInitializing = false;
   renderServerClosedState();
 }
 
 function setConfigMode(mode) {
-  if (mode !== 'raw' && configCodeMirror) {
-    configCodeMirror = destroyCodeMirror(configCodeMirror);
+  if (mode !== 'raw' && _state.configCodeMirror) {
+    _state.configCodeMirror = destroyCodeMirror(_state.configCodeMirror);
   }
   store.setState({ configMode: mode });
   if (mode === 'raw' && !store.state.configRaw) loadConfigRaw();
@@ -3554,11 +3739,11 @@ function setLogLevel(level) {
   restartLogStreamIfNeeded();
 }
 
-let _logSearchTimer = null;
+_state._logSearchTimer = null;
 function onLogSearchInput(value) {
   store.setState({ logSearch: value, logPagination: { ...store.state.logPagination, page: 1 } });
-  clearTimeout(_logSearchTimer);
-  _logSearchTimer = setTimeout(() => {
+  clearTimeout(_state._logSearchTimer);
+  _state._logSearchTimer = setTimeout(() => {
     loadLogs();
     restartLogStreamIfNeeded();
   }, 300);
@@ -3575,23 +3760,23 @@ function goToLogPage(page) {
   if (page >= 1 && page <= p.totalPages) { store.setState({ logPagination: { ...p, page } }); loadLogs(); }
 }
 
-let logAutoRefreshTimer = null;
-let logStreamConn = null;
-let configCodeMirror = null;
-let cookiesCodeMirror = null;
-let _configCmInitializing = false;
-let _cookiesCmInitializing = false;
+_state.logAutoRefreshTimer = null;
+_state.logStreamConn = null;
+_state.configCodeMirror = null;
+_state.cookiesCodeMirror = null;
+_state._configCmInitializing = false;
+_state._cookiesCmInitializing = false;
 
-let _cmWaitCancelled = false;
+_state._cmWaitCancelled = false;
 
 function waitForCodeMirror(maxWait) {
-  _cmWaitCancelled = false;
+  _state._cmWaitCancelled = false;
   if (typeof CodeMirror !== 'undefined') return Promise.resolve(true);
   return new Promise(resolve => {
     const start = Date.now();
     const check = () => {
-      if (_cmWaitCancelled || typeof CodeMirror !== 'undefined' || Date.now() - start > maxWait) {
-        resolve(!_cmWaitCancelled && typeof CodeMirror !== 'undefined');
+      if (_state._cmWaitCancelled || typeof CodeMirror !== 'undefined' || Date.now() - start > maxWait) {
+        resolve(!_state._cmWaitCancelled && typeof CodeMirror !== 'undefined');
       } else {
         setTimeout(check, 100);
       }
@@ -3654,23 +3839,23 @@ function setEditorValue(editor, value) {
 }
 
 async function initConfigCodeMirror() {
-  if (_configCmInitializing || configCodeMirror) return;
-  _configCmInitializing = true;
+  if (_state._configCmInitializing || _state.configCodeMirror) return;
+  _state._configCmInitializing = true;
   await waitForCodeMirror(3000);
   if (document.getElementById('configEditorContainer')) {
-    configCodeMirror = initCodeMirror('configEditorContainer', store.state.configRaw, 'yaml');
+    _state.configCodeMirror = initCodeMirror('configEditorContainer', store.state.configRaw, 'yaml');
   }
-  _configCmInitializing = false;
+  _state._configCmInitializing = false;
 }
 
 async function initCookiesCodeMirror() {
-  if (_cookiesCmInitializing || cookiesCodeMirror) return;
-  _cookiesCmInitializing = true;
+  if (_state._cookiesCmInitializing || _state.cookiesCodeMirror) return;
+  _state._cookiesCmInitializing = true;
   await waitForCodeMirror(3000);
   if (document.getElementById('cookiesEditorContainer')) {
-    cookiesCodeMirror = initCodeMirror('cookiesEditorContainer', store.state.cookiesRaw, 'yaml');
+    _state.cookiesCodeMirror = initCodeMirror('cookiesEditorContainer', store.state.cookiesRaw, 'yaml');
   }
-  _cookiesCmInitializing = false;
+  _state._cookiesCmInitializing = false;
 }
 
 function toggleLogAutoRefresh() {
@@ -3678,18 +3863,18 @@ function toggleLogAutoRefresh() {
   store.setState({ logAutoRefresh: ns });
   if (ns) {
     store.setState({ _logAutoScrollPaused: false, _logNewArrived: false });
-    _logScrollListenerAttached = false;
+    _state._logScrollListenerAttached = false;
     startLogStream();
   }
   else stopLogStream();
 }
 
 function cleanupSystemTimers() {
-  _cmWaitCancelled = true;
-  _logsPageLoaded = false;
-  if (logAutoRefreshTimer) {
-    clearTimeout(logAutoRefreshTimer);
-    logAutoRefreshTimer = null;
+  _state._cmWaitCancelled = true;
+  _state._logsPageLoaded = false;
+  if (_state.logAutoRefreshTimer) {
+    clearTimeout(_state.logAutoRefreshTimer);
+    _state.logAutoRefreshTimer = null;
   }
   clearAllScheduleValidationTimers();
   stopLogStream();
@@ -3704,20 +3889,20 @@ function buildLogStreamURL() {
   return `/api/v1/logs/stream${qs ? '?' + qs : ''}`;
 }
 
-let _logStreamConnecting = false;
-let _pendingLogStreamConn = null;
-let _logsPageLoaded = false;
+_state._logStreamConnecting = false;
+_state._pendingLogStreamConn = null;
+_state._logsPageLoaded = false;
 
 function startLogStream() {
-  if (logStreamConn || _logStreamConnecting || store.state.currentPage !== 'logs') return;
-  _logScrollListenerAttached = false;
-  _logStreamConnecting = true;
+  if (_state.logStreamConn || _state._logStreamConnecting || store.state.currentPage !== 'logs') return;
+  _state._logScrollListenerAttached = false;
+  _state._logStreamConnecting = true;
   const conn = new EventSource(buildLogStreamURL());
-  _pendingLogStreamConn = conn;
+  _state._pendingLogStreamConn = conn;
   conn.onopen = () => {
-    _pendingLogStreamConn = null;
-    logStreamConn = conn;
-    _logStreamConnecting = false;
+    _state._pendingLogStreamConn = null;
+    _state.logStreamConn = conn;
+    _state._logStreamConnecting = false;
     // 挂载日志容器的滚动监听
     attachLogScrollListener();
   };
@@ -3725,8 +3910,7 @@ function startLogStream() {
     const line = e.data || '';
     if (!line) return;
     const logs = [line, ...store.state.logs].slice(0, 1000);
-    const total = Math.min(store.state.logPagination.total + 1, 1000);
-    store.setState({ logs, logPagination: { ...store.state.logPagination, total: Math.max(total, logs.length), totalPages: Math.max(1, Math.ceil(Math.max(total, logs.length) / store.state.logPagination.pageSize)) } });
+    store.setState({ logs });
     setTimeout(() => {
       const el = document.getElementById('logContainer');
       if (!el) return;
@@ -3738,44 +3922,52 @@ function startLogStream() {
     }, 0);
   };
   conn.onerror = () => {
-    _pendingLogStreamConn = null;
-    _logStreamConnecting = false;
-    if (conn === logStreamConn) {
-      logStreamConn.close();
-      logStreamConn = null;
+    _state._pendingLogStreamConn = null;
+    _state._logStreamConnecting = false;
+    if (conn === _state.logStreamConn) {
+      _state.logStreamConn.close();
+      _state.logStreamConn = null;
     } else {
       conn.close();
     }
     if (store.state.logAutoRefresh && store.state.currentPage === 'logs') {
-      logAutoRefreshTimer = setTimeout(() => { logAutoRefreshTimer = null; startLogStream(); }, 2000);
+      _state.logAutoRefreshTimer = setTimeout(() => { _state.logAutoRefreshTimer = null; startLogStream(); }, 2000);
     }
   };
 }
 
 function stopLogStream() {
-  _logStreamConnecting = false;
-  _logScrollListenerAttached = false;
-  if (_pendingLogStreamConn) {
-    _pendingLogStreamConn.close();
-    _pendingLogStreamConn = null;
+  _state._logStreamConnecting = false;
+  if (_state._pendingLogStreamConn) {
+    _state._pendingLogStreamConn.close();
+    _state._pendingLogStreamConn = null;
   }
-  if (logAutoRefreshTimer) {
-    clearTimeout(logAutoRefreshTimer);
-    logAutoRefreshTimer = null;
+  if (_state.logAutoRefreshTimer) {
+    clearTimeout(_state.logAutoRefreshTimer);
+    _state.logAutoRefreshTimer = null;
   }
-  if (logStreamConn) {
-    logStreamConn.close();
-    logStreamConn = null;
+  if (_state.logStreamConn) {
+    _state.logStreamConn.close();
+    _state.logStreamConn = null;
   }
 }
 
-let _logScrollListenerAttached = false;
+_state._logScrollHandler = null;
+
+function detachLogScrollListener() {
+  const el = document.getElementById('logContainer');
+  if (_state._logScrollHandler) {
+    el?.removeEventListener('scroll', _state._logScrollHandler);
+    _state._logScrollHandler = null;
+  }
+}
 
 function attachLogScrollListener() {
-  if (_logScrollListenerAttached) return;
+  // 先移除旧的监听器，防止多次调用累积
+  detachLogScrollListener();
   const el = document.getElementById('logContainer');
   if (!el) return;
-  el.addEventListener('scroll', () => {
+  _state._logScrollHandler = () => {
     if (el.scrollTop > 50) {
       if (!store.state._logAutoScrollPaused) {
         store.setState({ _logAutoScrollPaused: true });
@@ -3785,8 +3977,8 @@ function attachLogScrollListener() {
         store.setState({ _logAutoScrollPaused: false, _logNewArrived: false });
       }
     }
-  });
-  _logScrollListenerAttached = true;
+  };
+  el.addEventListener('scroll', _state._logScrollHandler);
 }
 
 function scrollLogToTop() {
@@ -3797,7 +3989,7 @@ function scrollLogToTop() {
 
 function restartLogStreamIfNeeded() {
   if (!store.state.logAutoRefresh) return;
-  _logScrollListenerAttached = false;
+  _state._logScrollListenerAttached = false;
   store.setState({ _logAutoScrollPaused: false, _logNewArrived: false });
   stopLogStream();
   startLogStream();
@@ -3810,7 +4002,7 @@ function syncConfigTabView() {
   if (store.state.configMode === 'raw' && !store.state.configRaw) {
     loadConfigRaw();
   }
-  if (store.state.configMode === 'raw' && !configCodeMirror) {
+  if (store.state.configMode === 'raw' && !_state.configCodeMirror) {
     requestAnimationFrame(() => requestAnimationFrame(initConfigCodeMirror));
   }
 }
@@ -3822,14 +4014,14 @@ function syncCookiesTabView() {
   if (store.state.cookiesMode === 'raw' && !store.state.cookiesRaw) {
     loadCookiesRaw();
   }
-  if (store.state.cookiesMode === 'raw' && !cookiesCodeMirror) {
+  if (store.state.cookiesMode === 'raw' && !_state.cookiesCodeMirror) {
     requestAnimationFrame(() => requestAnimationFrame(initCookiesCodeMirror));
   }
 }
 
 function syncLogsPageView() {
-  if (!_logsPageLoaded) {
-    _logsPageLoaded = true;
+  if (!_state._logsPageLoaded) {
+    _state._logsPageLoaded = true;
     loadLogs();
   }
   if (store.state.logAutoRefresh) startLogStream();
@@ -3843,11 +4035,15 @@ function syncSystemTabView() {
   if (store.state._systemTab === 'schedules') syncScheduleTabView();
 }
 
-function rerenderSystemPanel(panelId, renderFn, resetEditor = null, initEditor = null) {
+function rerenderSystemPanel(panelId, renderFn, resetEditor = null, initEditor = null, saveFn = null, restoreFn = null) {
+  const saved = saveFn ? saveFn() : null;
   if (resetEditor) resetEditor();
   const panel = document.getElementById(panelId);
   if (panel) panel.innerHTML = renderFn();
-  if (initEditor) requestAnimationFrame(() => requestAnimationFrame(initEditor));
+  if (initEditor) requestAnimationFrame(() => requestAnimationFrame(() => {
+    initEditor();
+    if (restoreFn && saved !== null) restoreFn(saved);
+  }));
 }
 
 function setSystemTab(tab) {
@@ -3921,14 +4117,15 @@ function updateURL(page, dataSubPage = null) {
 }
 
 function navigateTo(page) {
-  if ((lastPage === 'system' || lastPage === 'logs') && page !== lastPage) {
+  drawer.close();
+  if ((_state.lastPage === 'system' || _state.lastPage === 'logs') && page !== _state.lastPage) {
     cleanupSystemTimers();
-    configCodeMirror = destroyCodeMirror(configCodeMirror);
-    _configCmInitializing = false;
-    cookiesCodeMirror = destroyCodeMirror(cookiesCodeMirror);
-    _cookiesCmInitializing = false;
-    scheduleCodeMirror = destroyCodeMirror(scheduleCodeMirror);
-    _scheduleCmInitializing = false;
+    _state.configCodeMirror = destroyCodeMirror(_state.configCodeMirror);
+    _state._configCmInitializing = false;
+    _state.cookiesCodeMirror = destroyCodeMirror(_state.cookiesCodeMirror);
+    _state._cookiesCmInitializing = false;
+    _state.scheduleCodeMirror = destroyCodeMirror(_state.scheduleCodeMirror);
+    _state._scheduleCmInitializing = false;
   }
   store.setState({ currentPage: page });
   
@@ -3961,14 +4158,14 @@ function navigateTo(page) {
 // Handle browser back/forward buttons
 window.onpopstate = (event) => {
   const { page, dataSubPage } = parseRoute();
-  if ((lastPage === 'system' || lastPage === 'logs') && page !== lastPage) {
+  if ((_state.lastPage === 'system' || _state.lastPage === 'logs') && page !== _state.lastPage) {
     cleanupSystemTimers();
-    configCodeMirror = destroyCodeMirror(configCodeMirror);
-    _configCmInitializing = false;
-    cookiesCodeMirror = destroyCodeMirror(cookiesCodeMirror);
-    _cookiesCmInitializing = false;
-    scheduleCodeMirror = destroyCodeMirror(scheduleCodeMirror);
-    _scheduleCmInitializing = false;
+    _state.configCodeMirror = destroyCodeMirror(_state.configCodeMirror);
+    _state._configCmInitializing = false;
+    _state.cookiesCodeMirror = destroyCodeMirror(_state.cookiesCodeMirror);
+    _state._cookiesCmInitializing = false;
+    _state.scheduleCodeMirror = destroyCodeMirror(_state.scheduleCodeMirror);
+    _state._scheduleCmInitializing = false;
   }
   
   if (page === 'data' && dataSubPage !== store.state.dataSubPage) {
@@ -4131,10 +4328,9 @@ async function init() {
   });
 
   try {
-    const [health, tasks, config] = await Promise.all([
+    const [health, tasks] = await Promise.all([
       api.getHealth(),
-      api.getTasks(),
-      api.getConfig()
+      api.getTasks()
     ]);
 
     store.setState({
@@ -4142,8 +4338,12 @@ async function init() {
       dataSubPage: dataSubPage,
       health,
       tasks: store.state.tasks.length > 0 ? store.state.tasks : (tasks.tasks || []),
-      config
     });
+
+    // 单独加载配置，失败不阻塞初始化
+    try {
+      await api.getConfig();
+    } catch (_) {}
 
     await refreshDBData();
 
@@ -4197,171 +4397,199 @@ window.addEventListener('resize', () => {
 });
 
 // Subscribe to state changes
-let lastPage = store.state.currentPage;
-let lastTasksJson = JSON.stringify(store.state.tasks);
-let lastSystemTab = store.state._systemTab;
-let lastLogPaginationJson = JSON.stringify(store.state.logPagination);
-let lastConfigRaw = store.state.configRaw;
-let lastConfigSaving = store.state.configSaving;
-let lastConfigFieldsJson = JSON.stringify(store.state.configFields);
-let lastConfigFieldsLoading = store.state.configFieldsLoading;
-let lastConfigMode = store.state.configMode;
-let lastCookiesRaw = store.state.cookiesRaw;
-let lastCookiesSaving = store.state.cookiesSaving;
-let lastCookieItemsJson = JSON.stringify(store.state.cookieItems);
-let lastCookiesMode = store.state.cookiesMode;
-let lastLogsLength = store.state.logs.length;
-let lastLogLevel = store.state.logLevel;
-let lastLogNewArrived = store.state._logNewArrived;
-let lastDataSubPage = store.state.dataSubPage;
-let lastDbDataJson = JSON.stringify(store.state.dbData);
-let lastDbPaginationJson = JSON.stringify(store.state.dbPagination);
-let lastDbSortJson = JSON.stringify(store.state.dbSort);
-let lastSchedulesJson = JSON.stringify(store.state._schedules);
-let lastScheduleRaw = store.state._scheduleRaw;
-let lastScheduleExists = store.state._scheduleExists;
-let lastScheduleSaving = store.state._scheduleSaving;
-let lastScheduleTab = store.state._scheduleTab;
-let lastScheduleFormItemsJson = JSON.stringify(store.state._scheduleFormItems);
-let lastSchedulerRunning = store.state._schedulerRunning;
-store.subscribe((state) => {
-  if (state.currentPage !== lastPage) {
-    lastPage = state.currentPage;
+_state.lastPage = store.state.currentPage;
+_state.lastTasksJson = JSON.stringify(store.state.tasks);
+_state.lastSystemTab = store.state._systemTab;
+_state.lastLogPaginationJson = JSON.stringify(store.state.logPagination);
+_state.lastConfigRaw = store.state.configRaw;
+_state.lastConfigSaving = store.state.configSaving;
+_state.lastConfigFieldsJson = JSON.stringify(store.state.configFields);
+_state.lastConfigFieldsLoading = store.state.configFieldsLoading;
+_state.lastConfigMode = store.state.configMode;
+_state.lastCookiesRaw = store.state.cookiesRaw;
+_state.lastCookiesSaving = store.state.cookiesSaving;
+_state.lastCookieItemsJson = JSON.stringify(store.state.cookieItems);
+_state.lastCookiesMode = store.state.cookiesMode;
+_state.lastLogsLength = store.state.logs.length;
+_state.lastLogLevel = store.state.logLevel;
+_state.lastLogNewArrived = store.state._logNewArrived;
+_state.lastDataSubPage = store.state.dataSubPage;
+_state.lastDbDataJson = JSON.stringify(store.state.dbData);
+_state.lastDbPaginationJson = JSON.stringify(store.state.dbPagination);
+_state.lastDbSortJson = JSON.stringify(store.state.dbSort);
+_state.lastSchedulesJson = JSON.stringify(store.state._schedules);
+_state.lastScheduleRaw = store.state._scheduleRaw;
+_state.lastScheduleExists = store.state._scheduleExists;
+_state.lastScheduleSaving = store.state._scheduleSaving;
+_state.lastScheduleTab = store.state._scheduleTab;
+_state.lastScheduleFormItemsJson = JSON.stringify(store.state._scheduleFormItems);
+_state.lastSchedulerRunning = store.state._schedulerRunning;
+
+// ============================================
+// Page-specific state sync functions
+// ============================================
+
+function syncDataPage(state) {
+  const dataSubPageChanged = state.dataSubPage !== _state.lastDataSubPage;
+  const dbDataChanged = JSON.stringify(state.dbData) !== _state.lastDbDataJson;
+  const dbPaginationChanged = JSON.stringify(state.dbPagination) !== _state.lastDbPaginationJson;
+  const dbSortChanged = JSON.stringify(state.dbSort) !== _state.lastDbSortJson;
+
+  if (dataSubPageChanged || dbDataChanged || dbPaginationChanged || dbSortChanged) {
+    _state.lastDataSubPage = state.dataSubPage;
+    _state.lastDbDataJson = JSON.stringify(state.dbData);
+    _state.lastDbPaginationJson = JSON.stringify(state.dbPagination);
+    _state.lastDbSortJson = JSON.stringify(state.dbSort);
     render();
-  } else {
-    const tasksJson = JSON.stringify(state.tasks);
-    const tasksChanged = tasksJson !== lastTasksJson;
-
-    if (tasksChanged) {
-      lastTasksJson = tasksJson;
-      if (state.currentPage === 'tasks') { updateTaskListUI(state.tasks); }
-      if (state.currentPage === 'overview') { updateOverviewTasksUI(state.tasks); }
-    }
-
-    if (state.currentPage === 'data') {
-      const dataSubPageChanged = state.dataSubPage !== lastDataSubPage;
-      const dbDataChanged = JSON.stringify(state.dbData) !== lastDbDataJson;
-      const dbPaginationChanged = JSON.stringify(state.dbPagination) !== lastDbPaginationJson;
-      const dbSortChanged = JSON.stringify(state.dbSort) !== lastDbSortJson;
-
-      if (dataSubPageChanged || dbDataChanged || dbPaginationChanged || dbSortChanged) {
-        lastDataSubPage = state.dataSubPage;
-        lastDbDataJson = JSON.stringify(state.dbData);
-        lastDbPaginationJson = JSON.stringify(state.dbPagination);
-        lastDbSortJson = JSON.stringify(state.dbSort);
-        render();
-      }
-    }
-
-    if (state.currentPage === 'schedules') {
-      const schedulesChanged = JSON.stringify(state._schedules) !== lastSchedulesJson;
-      const scheduleExistsChanged = state._scheduleExists !== lastScheduleExists;
-      const schedulerRunningChanged = state._schedulerRunning !== lastSchedulerRunning;
-
-      if (schedulesChanged || scheduleExistsChanged || schedulerRunningChanged) {
-        lastSchedulesJson = JSON.stringify(state._schedules);
-        lastScheduleExists = state._scheduleExists;
-        lastSchedulerRunning = state._schedulerRunning;
-        render();
-      }
-    }
-
-    if (state.currentPage === 'system') {
-      const tabChanged = state._systemTab !== lastSystemTab;
-      const configRawChanged = state.configRaw !== lastConfigRaw;
-      const configSavingChanged = state.configSaving !== lastConfigSaving;
-      const configFieldsChanged = JSON.stringify(state.configFields) !== lastConfigFieldsJson;
-      const configFieldsLoadingChanged = state.configFieldsLoading !== lastConfigFieldsLoading;
-      const configModeChanged = state.configMode !== lastConfigMode;
-      const cookiesChanged = JSON.stringify(state.cookieItems) !== lastCookieItemsJson;
-      const cookiesModeChanged = state.cookiesMode !== lastCookiesMode;
-      const cookiesRawChanged = state.cookiesRaw !== lastCookiesRaw;
-      const cookiesSavingChanged = state.cookiesSaving !== lastCookiesSaving;
-      const schedulesChanged = JSON.stringify(state._schedules) !== lastSchedulesJson;
-      const scheduleRawChanged = state._scheduleRaw !== lastScheduleRaw;
-      const scheduleExistsChanged = state._scheduleExists !== lastScheduleExists;
-      const scheduleSavingChanged = state._scheduleSaving !== lastScheduleSaving;
-      const scheduleTabChanged = state._scheduleTab !== lastScheduleTab;
-      const scheduleFormItemsChanged = JSON.stringify(state._scheduleFormItems) !== lastScheduleFormItemsJson;
-
-      if (tabChanged) {
-        lastSystemTab = state._systemTab;
-        document.querySelectorAll('.system-tabs .tab').forEach(t => {
-          t.classList.toggle('active', t.dataset.tab === state._systemTab);
-        });
-        document.getElementById('systemConfigPanel').style.display = state._systemTab === 'config' ? '' : 'none';
-        document.getElementById('systemCookiesPanel').style.display = state._systemTab === 'cookies' ? '' : 'none';
-        document.getElementById('systemSchedulesPanel').style.display = state._systemTab === 'schedules' ? '' : 'none';
-      }
-
-      if (configRawChanged || configSavingChanged || configFieldsChanged || configFieldsLoadingChanged || configModeChanged) {
-        lastConfigRaw = state.configRaw;
-        lastConfigSaving = state.configSaving;
-        lastConfigFieldsJson = JSON.stringify(state.configFields);
-        lastConfigFieldsLoading = state.configFieldsLoading;
-        lastConfigMode = state.configMode;
-        rerenderSystemPanel(
-          'systemConfigPanel',
-          renderConfigEditor,
-          () => { configCodeMirror = destroyCodeMirror(configCodeMirror); _configCmInitializing = false; },
-          state.configMode === 'raw' ? initConfigCodeMirror : null
-        );
-      }
-
-      if (cookiesChanged || cookiesModeChanged || cookiesRawChanged || cookiesSavingChanged) {
-        lastCookieItemsJson = JSON.stringify(state.cookieItems);
-        lastCookiesMode = state.cookiesMode;
-        lastCookiesRaw = state.cookiesRaw;
-        lastCookiesSaving = state.cookiesSaving;
-        rerenderSystemPanel(
-          'systemCookiesPanel',
-          renderCookiesEditor,
-          () => { cookiesCodeMirror = destroyCodeMirror(cookiesCodeMirror); _cookiesCmInitializing = false; },
-          state.cookiesMode === 'raw' ? initCookiesCodeMirror : null
-        );
-      }
-
-      const schedulePanelSchedulesChanged = state._scheduleTab !== 'form' && (schedulesChanged || tasksChanged);
-      if (schedulesChanged && !schedulePanelSchedulesChanged) {
-        lastSchedulesJson = JSON.stringify(state._schedules);
-      }
-      if (schedulePanelSchedulesChanged || scheduleRawChanged || scheduleExistsChanged || scheduleSavingChanged || scheduleTabChanged || scheduleFormItemsChanged) {
-        lastSchedulesJson = JSON.stringify(state._schedules);
-        lastTasksJson = JSON.stringify(state.tasks);
-        lastScheduleRaw = state._scheduleRaw;
-        lastScheduleExists = state._scheduleExists;
-        lastScheduleSaving = state._scheduleSaving;
-        lastScheduleTab = state._scheduleTab;
-        lastScheduleFormItemsJson = JSON.stringify(state._scheduleFormItems);
-        rerenderSystemPanel(
-          'systemSchedulesPanel',
-          renderScheduleViewer,
-          () => { scheduleCodeMirror = destroyCodeMirror(scheduleCodeMirror); _scheduleCmInitializing = false; },
-          state._scheduleTab === 'edit' ? initScheduleCodeMirror : null
-        );
-      }
-    }
-
-    if (state.currentPage === 'logs') {
-      const logPagChanged = JSON.stringify(state.logPagination) !== lastLogPaginationJson;
-      const logsChanged = state.logs.length !== lastLogsLength;
-      const logLevelChanged = state.logLevel !== lastLogLevel;
-      const logNewArrivedChanged = state._logNewArrived !== lastLogNewArrived;
-
-      if (logNewArrivedChanged) {
-        lastLogNewArrived = state._logNewArrived;
-        const btn = document.getElementById('logScrollToTopBtn');
-        if (btn) btn.style.display = state._logNewArrived ? 'flex' : 'none';
-      }
-
-      if (logsChanged || logLevelChanged || logPagChanged) {
-        lastLogPaginationJson = JSON.stringify(state.logPagination);
-        lastLogsLength = state.logs.length;
-        lastLogLevel = state.logLevel;
-        render();
-      }
-    }
   }
+}
+
+function syncSystemPage(state, tasksChanged) {
+  const tabChanged = state._systemTab !== _state.lastSystemTab;
+  const configRawChanged = state.configRaw !== _state.lastConfigRaw;
+  const configSavingChanged = state.configSaving !== _state.lastConfigSaving;
+  const configFieldsChanged = JSON.stringify(state.configFields) !== _state.lastConfigFieldsJson;
+  const configFieldsLoadingChanged = state.configFieldsLoading !== _state.lastConfigFieldsLoading;
+  const configModeChanged = state.configMode !== _state.lastConfigMode;
+  const cookiesChanged = JSON.stringify(state.cookieItems) !== _state.lastCookieItemsJson;
+  const cookiesModeChanged = state.cookiesMode !== _state.lastCookiesMode;
+  const cookiesRawChanged = state.cookiesRaw !== _state.lastCookiesRaw;
+  const cookiesSavingChanged = state.cookiesSaving !== _state.lastCookiesSaving;
+  const schedulesChanged = JSON.stringify(state._schedules) !== _state.lastSchedulesJson;
+  const scheduleRawChanged = state._scheduleRaw !== _state.lastScheduleRaw;
+  const scheduleExistsChanged = state._scheduleExists !== _state.lastScheduleExists;
+  const scheduleSavingChanged = state._scheduleSaving !== _state.lastScheduleSaving;
+  const scheduleTabChanged = state._scheduleTab !== _state.lastScheduleTab;
+  const scheduleFormItemsChanged = JSON.stringify(state._scheduleFormItems) !== _state.lastScheduleFormItemsJson;
+
+  if (tabChanged) {
+    _state.lastSystemTab = state._systemTab;
+    document.querySelectorAll('.system-tabs .tab').forEach(t => {
+      t.classList.toggle('active', t.dataset.tab === state._systemTab);
+    });
+    document.getElementById('systemConfigPanel').style.display = state._systemTab === 'config' ? '' : 'none';
+    document.getElementById('systemCookiesPanel').style.display = state._systemTab === 'cookies' ? '' : 'none';
+    document.getElementById('systemSchedulesPanel').style.display = state._systemTab === 'schedules' ? '' : 'none';
+  }
+
+  const configPanelShouldRebuild = state.configMode === 'raw'
+    ? (configRawChanged || configModeChanged || configSavingChanged)
+    : (configRawChanged || configFieldsChanged || configFieldsLoadingChanged || configSavingChanged || configModeChanged);
+  if (configPanelShouldRebuild) {
+    _state.lastConfigRaw = state.configRaw;
+    _state.lastConfigSaving = state.configSaving;
+    _state.lastConfigFieldsJson = JSON.stringify(state.configFields);
+    _state.lastConfigFieldsLoading = state.configFieldsLoading;
+    _state.lastConfigMode = state.configMode;
+    rerenderSystemPanel(
+      'systemConfigPanel',
+      renderConfigEditor,
+      () => { _state.configCodeMirror = destroyCodeMirror(_state.configCodeMirror); _state._configCmInitializing = false; },
+      state.configMode === 'raw' ? initConfigCodeMirror : null,
+      () => state.configMode === 'raw' ? getEditorValue(_state.configCodeMirror, null) : null,
+      (val) => { if (val !== null && _state.configCodeMirror) setEditorValue(_state.configCodeMirror, val); }
+    );
+  }
+
+  if (cookiesChanged || cookiesModeChanged || cookiesRawChanged || cookiesSavingChanged) {
+    _state.lastCookieItemsJson = JSON.stringify(state.cookieItems);
+    _state.lastCookiesMode = state.cookiesMode;
+    _state.lastCookiesRaw = state.cookiesRaw;
+    _state.lastCookiesSaving = state.cookiesSaving;
+    rerenderSystemPanel(
+      'systemCookiesPanel',
+      renderCookiesEditor,
+      () => { _state.cookiesCodeMirror = destroyCodeMirror(_state.cookiesCodeMirror); _state._cookiesCmInitializing = false; },
+      state.cookiesMode === 'raw' ? initCookiesCodeMirror : null,
+      () => state.cookiesMode === 'raw' ? getEditorValue(_state.cookiesCodeMirror, null) : null,
+      (val) => { if (val !== null && _state.cookiesCodeMirror) setEditorValue(_state.cookiesCodeMirror, val); }
+    );
+  }
+
+  const schedulePanelSchedulesChanged = state._scheduleTab !== 'form' && schedulesChanged;
+  if (schedulesChanged && !schedulePanelSchedulesChanged) {
+    _state.lastSchedulesJson = JSON.stringify(state._schedules);
+  }
+  if (schedulePanelSchedulesChanged || scheduleRawChanged || scheduleExistsChanged || scheduleSavingChanged || scheduleTabChanged || scheduleFormItemsChanged) {
+    _state.lastSchedulesJson = JSON.stringify(state._schedules);
+    _state.lastTasksJson = JSON.stringify(state.tasks);
+    _state.lastScheduleRaw = state._scheduleRaw;
+    _state.lastScheduleExists = state._scheduleExists;
+    _state.lastScheduleSaving = state._scheduleSaving;
+    _state.lastScheduleTab = state._scheduleTab;
+    _state.lastScheduleFormItemsJson = JSON.stringify(state._scheduleFormItems);
+    rerenderSystemPanel(
+      'systemSchedulesPanel',
+      renderScheduleViewer,
+      () => { _state.scheduleCodeMirror = destroyCodeMirror(_state.scheduleCodeMirror); _state._scheduleCmInitializing = false; },
+      state._scheduleTab === 'edit' ? initScheduleCodeMirror : null,
+      () => state._scheduleTab === 'edit' ? getEditorValue(_state.scheduleCodeMirror, null) : null,
+      (val) => { if (val !== null && _state.scheduleCodeMirror) setEditorValue(_state.scheduleCodeMirror, val); }
+    );
+  }
+}
+
+function syncSchedulesPage(state) {
+  const schedulesChanged = JSON.stringify(state._schedules) !== _state.lastSchedulesJson;
+  const scheduleExistsChanged = state._scheduleExists !== _state.lastScheduleExists;
+  const schedulerRunningChanged = state._schedulerRunning !== _state.lastSchedulerRunning;
+
+  if (schedulesChanged || scheduleExistsChanged || schedulerRunningChanged) {
+    _state.lastSchedulesJson = JSON.stringify(state._schedules);
+    _state.lastScheduleExists = state._scheduleExists;
+    _state.lastSchedulerRunning = state._schedulerRunning;
+    render();
+  }
+}
+
+function syncLogsPage(state) {
+  const logPagChanged = JSON.stringify(state.logPagination) !== _state.lastLogPaginationJson;
+  const logsChanged = state.logs.length !== _state.lastLogsLength;
+  const logLevelChanged = state.logLevel !== _state.lastLogLevel;
+  const logNewArrivedChanged = state._logNewArrived !== _state.lastLogNewArrived;
+
+  if (logNewArrivedChanged) {
+    _state.lastLogNewArrived = state._logNewArrived;
+    const btn = document.getElementById('logScrollToTopBtn');
+    if (btn) btn.style.display = state._logNewArrived ? 'flex' : 'none';
+  }
+
+  if (logsChanged || logLevelChanged || logPagChanged) {
+    _state.lastLogPaginationJson = JSON.stringify(state.logPagination);
+    _state.lastLogsLength = state.logs.length;
+    _state.lastLogLevel = state.logLevel;
+    render();
+  }
+}
+
+function syncOverviewPage(state) {
+  const tasksJson = JSON.stringify(state.tasks);
+  if (tasksJson !== _state.lastTasksJson) {
+    _state.lastTasksJson = tasksJson;
+    updateOverviewTasksUI(state.tasks);
+  }
+}
+
+store.subscribe((state) => {
+  if (state.currentPage !== _state.lastPage) {
+    _state.lastPage = state.currentPage;
+    render();
+    return;
+  }
+
+  const tasksJson = JSON.stringify(state.tasks);
+  const tasksChanged = tasksJson !== _state.lastTasksJson;
+
+  if (tasksChanged) {
+    _state.lastTasksJson = tasksJson;
+    if (state.currentPage === 'tasks') { updateTaskListUI(state.tasks); }
+  }
+
+  if (state.currentPage === 'data') syncDataPage(state);
+  else if (state.currentPage === 'system') syncSystemPage(state, tasksChanged);
+  else if (state.currentPage === 'schedules') syncSchedulesPage(state);
+  else if (state.currentPage === 'logs') syncLogsPage(state);
+  else if (state.currentPage === 'overview') syncOverviewPage(state);
 });
 
 function getTaskStats(tasks) {

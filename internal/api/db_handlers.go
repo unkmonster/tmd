@@ -2,7 +2,6 @@ package api
 
 import (
 	"database/sql"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -10,8 +9,6 @@ import (
 	"time"
 
 	"github.com/unkmonster/tmd/internal/database"
-
-	log "github.com/sirupsen/logrus"
 )
 
 // ============ 排序字段白名单 ============
@@ -102,22 +99,13 @@ func (s *Server) handleDBUsers(w http.ResponseWriter, r *http.Request) {
 		args = append(args, protected == "true")
 	}
 
-	whereClause := ""
-	if len(whereConditions) > 0 {
-		whereClause = strings.Join(whereConditions, " AND ")
-	}
+	whereClause := strings.Join(whereConditions, " AND ")
 
-	// 获取总数
-	total, err := database.Count(s.db, "users", &database.QueryOptions{
-		Where: whereClause,
-		Args:  args,
-	})
-	if err != nil {
-		s.writeError(w, http.StatusInternalServerError, err.Error())
+	total, ok := s.countWithError(w, "users", whereClause, args)
+	if !ok {
 		return
 	}
 
-	// 查询数据
 	orderBy := pagination.BuildOrderBy(userSortFields)
 	users, err := database.QueryUsers(s.db, whereClause, args, orderBy, pagination.PageSize, pagination.Offset)
 	if err != nil {
@@ -127,53 +115,29 @@ func (s *Server) handleDBUsers(w http.ResponseWriter, r *http.Request) {
 
 	items := make([]DBUserItem, len(users))
 	for i, u := range users {
-		items[i] = DBUserItem{
-			ID:           strconv.FormatUint(u.Id, 10),
-			ScreenName:   u.ScreenName,
-			Name:         u.Name,
-			IsProtected:  u.IsProtected,
-			FriendsCount: u.FriendsCount,
-			IsAccessible: u.IsAccessible,
-		}
+		items[i] = dbUserToItem(&u)
 	}
 
-	response := pagination.ToResponse(items, total)
-	s.writeJSON(w, http.StatusOK, NewSuccessResponse(response))
+	s.writeJSON(w, http.StatusOK, NewSuccessResponse(pagination.ToResponse(items, total)))
 }
 
 func (s *Server) handleDBUserDetail(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.ParseUint(r.PathValue("id"), 10, 64)
-	if err != nil {
-		s.writeError(w, http.StatusBadRequest, "Invalid user ID")
+	id, ok := s.resolvePathID(w, r, "id", "user")
+	if !ok {
 		return
 	}
 
 	user, err := database.GetUserById(s.db, id)
-	if err != nil {
-		s.writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	if user == nil {
-		s.writeError(w, http.StatusNotFound, "User not found")
+	if !requireResource(user, err, "User", func(c int, m string) { s.writeError(w, c, m) }) {
 		return
 	}
 
-	item := DBUserItem{
-		ID:           strconv.FormatUint(user.Id, 10),
-		ScreenName:   user.ScreenName,
-		Name:         user.Name,
-		IsProtected:  user.IsProtected,
-		FriendsCount: user.FriendsCount,
-		IsAccessible: user.IsAccessible,
-	}
-
-	s.writeJSON(w, http.StatusOK, NewSuccessResponse(item))
+	s.writeResourceJSON(w, dbUserToItem(user))
 }
 
 func (s *Server) handleDBUserUpdate(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.ParseUint(r.PathValue("id"), 10, 64)
-	if err != nil {
-		s.writeError(w, http.StatusBadRequest, "Invalid user ID")
+	id, ok := s.resolvePathID(w, r, "id", "user")
+	if !ok {
 		return
 	}
 
@@ -185,18 +149,12 @@ func (s *Server) handleDBUserUpdate(w http.ResponseWriter, r *http.Request) {
 		IsAccessible *bool   `json:"is_accessible,omitempty"`
 	}
 
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		s.writeError(w, http.StatusBadRequest, "Invalid request body")
+	if !s.decodeBody(w, r, &req) {
 		return
 	}
 
 	user, err := database.GetUserById(s.db, id)
-	if err != nil {
-		s.writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	if user == nil {
-		s.writeError(w, http.StatusNotFound, "User not found")
+	if !requireResource(user, err, "User", func(c int, m string) { s.writeError(w, c, m) }) {
 		return
 	}
 
@@ -221,46 +179,21 @@ func (s *Server) handleDBUserUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	item := DBUserItem{
-		ID:           strconv.FormatUint(user.Id, 10),
-		ScreenName:   user.ScreenName,
-		Name:         user.Name,
-		IsProtected:  user.IsProtected,
-		FriendsCount: user.FriendsCount,
-		IsAccessible: user.IsAccessible,
-	}
-
-	s.writeJSON(w, http.StatusOK, NewSuccessResponse(item))
+	s.writeResourceJSON(w, dbUserToItem(user))
 }
 
 func (s *Server) handleDBUserDelete(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.ParseUint(r.PathValue("id"), 10, 64)
-	if err != nil {
-		s.writeError(w, http.StatusBadRequest, "Invalid user ID")
+	id, ok := s.resolvePathID(w, r, "id", "user")
+	if !ok {
 		return
 	}
 
 	user, err := database.GetUserById(s.db, id)
-	if err != nil {
-		s.writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	if user == nil {
-		s.writeError(w, http.StatusNotFound, "User not found")
+	if !requireResource(user, err, "User", func(c int, m string) { s.writeError(w, c, m) }) {
 		return
 	}
 
-	// 统计级联删除的记录数
-	var linkCount, entityCount, nameCount int
-	if err := s.db.Get(&linkCount, "SELECT COUNT(*) FROM user_links WHERE user_id = ?", id); err != nil {
-		log.Warnf("failed to count user_links for user %d: %v", id, err)
-	}
-	if err := s.db.Get(&entityCount, "SELECT COUNT(*) FROM user_entities WHERE user_id = ?", id); err != nil {
-		log.Warnf("failed to count user_entities for user %d: %v", id, err)
-	}
-	if err := s.db.Get(&nameCount, "SELECT COUNT(*) FROM user_previous_names WHERE user_id = ?", id); err != nil {
-		log.Warnf("failed to count user_previous_names for user %d: %v", id, err)
-	}
+	cascade := s.countUserCascade(id)
 
 	if err := database.DelUser(s.db, id); err != nil {
 		s.writeError(w, http.StatusInternalServerError, err.Error())
@@ -269,9 +202,9 @@ func (s *Server) handleDBUserDelete(w http.ResponseWriter, r *http.Request) {
 
 	s.writeJSON(w, http.StatusOK, NewSuccessResponse(map[string]interface{}{
 		"message":                "User deleted successfully",
-		"cascade_links":          linkCount,
-		"cascade_entities":       entityCount,
-		"cascade_previous_names": nameCount,
+		"cascade_links":          cascade.linkCount,
+		"cascade_entities":       cascade.entityCount,
+		"cascade_previous_names": cascade.nameCount,
 	}))
 }
 
@@ -299,17 +232,10 @@ func (s *Server) handleDBLists(w http.ResponseWriter, r *http.Request) {
 		args = append(args, ownerUID)
 	}
 
-	whereClause := ""
-	if len(whereConditions) > 0 {
-		whereClause = strings.Join(whereConditions, " AND ")
-	}
+	whereClause := strings.Join(whereConditions, " AND ")
 
-	total, err := database.Count(s.db, "lsts", &database.QueryOptions{
-		Where: whereClause,
-		Args:  args,
-	})
-	if err != nil {
-		s.writeError(w, http.StatusInternalServerError, err.Error())
+	total, ok := s.countWithError(w, "lsts", whereClause, args)
+	if !ok {
 		return
 	}
 
@@ -322,47 +248,29 @@ func (s *Server) handleDBLists(w http.ResponseWriter, r *http.Request) {
 
 	items := make([]DBListItem, len(lists))
 	for i, l := range lists {
-		items[i] = DBListItem{
-			ID:      strconv.FormatUint(l.Id, 10),
-			Name:    l.Name,
-			OwnerID: strconv.FormatUint(l.OwnerUserId, 10),
-		}
+		items[i] = dbListToItem(&l)
 	}
 
-	response := pagination.ToResponse(items, total)
-	s.writeJSON(w, http.StatusOK, NewSuccessResponse(response))
+	s.writeJSON(w, http.StatusOK, NewSuccessResponse(pagination.ToResponse(items, total)))
 }
 
 func (s *Server) handleDBListDetail(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.ParseUint(r.PathValue("id"), 10, 64)
-	if err != nil {
-		s.writeError(w, http.StatusBadRequest, "Invalid list ID")
+	id, ok := s.resolvePathID(w, r, "id", "list")
+	if !ok {
 		return
 	}
 
 	lst, err := database.GetLst(s.db, id)
-	if err != nil {
-		s.writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	if lst == nil {
-		s.writeError(w, http.StatusNotFound, "List not found")
+	if !requireResource(lst, err, "List", func(c int, m string) { s.writeError(w, c, m) }) {
 		return
 	}
 
-	item := DBListItem{
-		ID:      strconv.FormatUint(lst.Id, 10),
-		Name:    lst.Name,
-		OwnerID: strconv.FormatUint(lst.OwnerUserId, 10),
-	}
-
-	s.writeJSON(w, http.StatusOK, NewSuccessResponse(item))
+	s.writeResourceJSON(w, dbListToItem(lst))
 }
 
 func (s *Server) handleDBListUpdate(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.ParseUint(r.PathValue("id"), 10, 64)
-	if err != nil {
-		s.writeError(w, http.StatusBadRequest, "Invalid list ID")
+	id, ok := s.resolvePathID(w, r, "id", "list")
+	if !ok {
 		return
 	}
 
@@ -371,18 +279,12 @@ func (s *Server) handleDBListUpdate(w http.ResponseWriter, r *http.Request) {
 		OwnerID *string `json:"owner_user_id,omitempty"`
 	}
 
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		s.writeError(w, http.StatusBadRequest, "Invalid request body")
+	if !s.decodeBody(w, r, &req) {
 		return
 	}
 
 	lst, err := database.GetLst(s.db, id)
-	if err != nil {
-		s.writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	if lst == nil {
-		s.writeError(w, http.StatusNotFound, "List not found")
+	if !requireResource(lst, err, "List", func(c int, m string) { s.writeError(w, c, m) }) {
 		return
 	}
 
@@ -403,29 +305,17 @@ func (s *Server) handleDBListUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	item := DBListItem{
-		ID:      strconv.FormatUint(lst.Id, 10),
-		Name:    lst.Name,
-		OwnerID: strconv.FormatUint(lst.OwnerUserId, 10),
-	}
-
-	s.writeJSON(w, http.StatusOK, NewSuccessResponse(item))
+	s.writeResourceJSON(w, dbListToItem(lst))
 }
 
 func (s *Server) handleDBListDelete(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.ParseUint(r.PathValue("id"), 10, 64)
-	if err != nil {
-		s.writeError(w, http.StatusBadRequest, "Invalid list ID")
+	id, ok := s.resolvePathID(w, r, "id", "list")
+	if !ok {
 		return
 	}
 
 	lst, err := database.GetLst(s.db, id)
-	if err != nil {
-		s.writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	if lst == nil {
-		s.writeError(w, http.StatusNotFound, "List not found")
+	if !requireResource(lst, err, "List", func(c int, m string) { s.writeError(w, c, m) }) {
 		return
 	}
 
@@ -434,9 +324,7 @@ func (s *Server) handleDBListDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.writeJSON(w, http.StatusOK, NewSuccessResponse(map[string]string{
-		"message": "List deleted successfully",
-	}))
+	s.writeResourceDeleted(w, "List")
 }
 
 // ============ User Entities 管理 ============
@@ -461,17 +349,10 @@ func (s *Server) handleDBUserEntities(w http.ResponseWriter, r *http.Request) {
 		args = append(args, userID)
 	}
 
-	whereClause := ""
-	if len(whereConditions) > 0 {
-		whereClause = strings.Join(whereConditions, " AND ")
-	}
+	whereClause := strings.Join(whereConditions, " AND ")
 
-	total, err := database.Count(s.db, "user_entities", &database.QueryOptions{
-		Where: whereClause,
-		Args:  args,
-	})
-	if err != nil {
-		s.writeError(w, http.StatusInternalServerError, err.Error())
+	total, ok := s.countWithError(w, "user_entities", whereClause, args)
+	if !ok {
 		return
 	}
 
@@ -484,57 +365,29 @@ func (s *Server) handleDBUserEntities(w http.ResponseWriter, r *http.Request) {
 
 	items := make([]DBEntityItem, len(entities))
 	for i, e := range entities {
-		items[i] = DBEntityItem{
-			ID:         strconv.FormatInt(int64(nullInt32(e.Id)), 10),
-			UserID:     strconv.FormatUint(e.UserId, 10),
-			Name:       e.Name,
-			ParentDir:  e.ParentDir,
-			MediaCount: nullInt32(e.MediaCount),
-		}
-		if e.LatestReleaseTime.Valid {
-			items[i].LatestReleaseTime = e.LatestReleaseTime.Time.Format("2006-01-02 15:04:05")
-		}
+		items[i] = dbEntityToItem(&e)
 	}
 
-	response := pagination.ToResponse(items, total)
-	s.writeJSON(w, http.StatusOK, NewSuccessResponse(response))
+	s.writeJSON(w, http.StatusOK, NewSuccessResponse(pagination.ToResponse(items, total)))
 }
 
 func (s *Server) handleDBUserEntityDetail(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.ParseUint(r.PathValue("id"), 10, 64)
-	if err != nil {
-		s.writeError(w, http.StatusBadRequest, "Invalid entity ID")
+	id, ok := s.resolvePathID(w, r, "id", "entity")
+	if !ok {
 		return
 	}
 
 	entity, err := database.GetUserEntity(s.db, int(id))
-	if err != nil {
-		s.writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	if entity == nil {
-		s.writeError(w, http.StatusNotFound, "Entity not found")
+	if !requireResource(entity, err, "Entity", func(c int, m string) { s.writeError(w, c, m) }) {
 		return
 	}
 
-	item := DBEntityItem{
-		ID:         strconv.FormatInt(int64(nullInt32(entity.Id)), 10),
-		UserID:     strconv.FormatUint(entity.UserId, 10),
-		Name:       entity.Name,
-		ParentDir:  entity.ParentDir,
-		MediaCount: nullInt32(entity.MediaCount),
-	}
-	if entity.LatestReleaseTime.Valid {
-		item.LatestReleaseTime = entity.LatestReleaseTime.Time.Format("2006-01-02 15:04:05")
-	}
-
-	s.writeJSON(w, http.StatusOK, NewSuccessResponse(item))
+	s.writeResourceJSON(w, dbEntityToItem(entity))
 }
 
 func (s *Server) handleDBUserEntityUpdate(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.ParseUint(r.PathValue("id"), 10, 64)
-	if err != nil {
-		s.writeError(w, http.StatusBadRequest, "Invalid entity ID")
+	id, ok := s.resolvePathID(w, r, "id", "entity")
+	if !ok {
 		return
 	}
 
@@ -545,8 +398,7 @@ func (s *Server) handleDBUserEntityUpdate(w http.ResponseWriter, r *http.Request
 		LatestReleaseTime *string `json:"latest_release_time,omitempty"`
 	}
 
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		s.writeError(w, http.StatusBadRequest, "Invalid request body")
+	if !s.decodeBody(w, r, &req) {
 		return
 	}
 
@@ -556,12 +408,7 @@ func (s *Server) handleDBUserEntityUpdate(w http.ResponseWriter, r *http.Request
 	}
 
 	entity, err := database.GetUserEntity(s.db, int(id))
-	if err != nil {
-		s.writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	if entity == nil {
-		s.writeError(w, http.StatusNotFound, "Entity not found")
+	if !requireResource(entity, err, "Entity", func(c int, m string) { s.writeError(w, c, m) }) {
 		return
 	}
 
@@ -588,8 +435,6 @@ func (s *Server) handleDBUserEntityUpdate(w http.ResponseWriter, r *http.Request
 				return
 			}
 		}
-		// 不再重读 entity：UpdateUserEntityFields 只写 name+media_count，
-		// 不碰 latest_release_time，重读会覆盖 Name/MediaCount 的在内存修改。
 	}
 
 	if err := database.UpdateUserEntityFields(s.db, int(id), entity.Name, entity.MediaCount); err != nil {
@@ -597,34 +442,17 @@ func (s *Server) handleDBUserEntityUpdate(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	item := DBEntityItem{
-		ID:         strconv.FormatInt(int64(nullInt32(entity.Id)), 10),
-		UserID:     strconv.FormatUint(entity.UserId, 10),
-		Name:       entity.Name,
-		ParentDir:  entity.ParentDir,
-		MediaCount: nullInt32(entity.MediaCount),
-	}
-	if entity.LatestReleaseTime.Valid {
-		item.LatestReleaseTime = entity.LatestReleaseTime.Time.Format("2006-01-02 15:04:05")
-	}
-
-	s.writeJSON(w, http.StatusOK, NewSuccessResponse(item))
+	s.writeResourceJSON(w, dbEntityToItem(entity))
 }
 
 func (s *Server) handleDBUserEntityDelete(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.ParseUint(r.PathValue("id"), 10, 64)
-	if err != nil {
-		s.writeError(w, http.StatusBadRequest, "Invalid entity ID")
+	id, ok := s.resolvePathID(w, r, "id", "entity")
+	if !ok {
 		return
 	}
 
 	entity, err := database.GetUserEntity(s.db, int(id))
-	if err != nil {
-		s.writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	if entity == nil {
-		s.writeError(w, http.StatusNotFound, "Entity not found")
+	if !requireResource(entity, err, "Entity", func(c int, m string) { s.writeError(w, c, m) }) {
 		return
 	}
 
@@ -633,9 +461,7 @@ func (s *Server) handleDBUserEntityDelete(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	s.writeJSON(w, http.StatusOK, NewSuccessResponse(map[string]string{
-		"message": "Entity deleted successfully",
-	}))
+	s.writeResourceDeleted(w, "Entity")
 }
 
 // batchLoadNames 批量加载指定表的 id→name 映射，返回 map[int64]string。
@@ -685,17 +511,10 @@ func (s *Server) handleDBListEntities(w http.ResponseWriter, r *http.Request) {
 		args = append(args, listID)
 	}
 
-	whereClause := ""
-	if len(whereConditions) > 0 {
-		whereClause = strings.Join(whereConditions, " AND ")
-	}
+	whereClause := strings.Join(whereConditions, " AND ")
 
-	total, err := database.Count(s.db, "lst_entities", &database.QueryOptions{
-		Where: whereClause,
-		Args:  args,
-	})
-	if err != nil {
-		s.writeError(w, http.StatusInternalServerError, err.Error())
+	total, ok := s.countWithError(w, "lst_entities", whereClause, args)
+	if !ok {
 		return
 	}
 
@@ -713,53 +532,34 @@ func (s *Server) handleDBListEntities(w http.ResponseWriter, r *http.Request) {
 	}
 	lstNames := s.batchLoadNames("lsts", "id", "name", ids)
 	for i, e := range entities {
-		items[i] = DBListEntityItem{
-			ID:        strconv.FormatInt(int64(nullInt32(e.Id)), 10),
-			LstID:     strconv.FormatInt(e.LstId, 10),
-			Name:      e.Name,
-			ParentDir: e.ParentDir,
-			ListName:  lstNames[e.LstId],
-		}
+		items[i] = dbLstEntityToItem(&e, lstNames[e.LstId])
 	}
 
-	response := pagination.ToResponse(items, total)
-	s.writeJSON(w, http.StatusOK, NewSuccessResponse(response))
+	s.writeJSON(w, http.StatusOK, NewSuccessResponse(pagination.ToResponse(items, total)))
 }
 
 func (s *Server) handleDBListEntityDetail(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.ParseUint(r.PathValue("id"), 10, 64)
-	if err != nil {
-		s.writeError(w, http.StatusBadRequest, "Invalid list entity ID")
+	id, ok := s.resolvePathID(w, r, "id", "list entity")
+	if !ok {
 		return
 	}
 
 	entity, err := database.GetLstEntity(s.db, int(id))
-	if err != nil {
-		s.writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	if entity == nil {
-		s.writeError(w, http.StatusNotFound, "List entity not found")
+	if !requireResource(entity, err, "List entity", func(c int, m string) { s.writeError(w, c, m) }) {
 		return
 	}
 
-	item := DBListEntityItem{
-		ID:        strconv.FormatInt(int64(nullInt32(entity.Id)), 10),
-		LstID:     strconv.FormatInt(entity.LstId, 10),
-		Name:      entity.Name,
-		ParentDir: entity.ParentDir,
-	}
+	lstName := ""
 	if lst, err := database.GetLst(s.db, uint64(entity.LstId)); err == nil && lst != nil {
-		item.ListName = lst.Name
+		lstName = lst.Name
 	}
 
-	s.writeJSON(w, http.StatusOK, NewSuccessResponse(item))
+	s.writeResourceJSON(w, dbLstEntityToItem(entity, lstName))
 }
 
 func (s *Server) handleDBListEntityUpdate(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.ParseUint(r.PathValue("id"), 10, 64)
-	if err != nil {
-		s.writeError(w, http.StatusBadRequest, "Invalid list entity ID")
+	id, ok := s.resolvePathID(w, r, "id", "list entity")
+	if !ok {
 		return
 	}
 
@@ -768,8 +568,7 @@ func (s *Server) handleDBListEntityUpdate(w http.ResponseWriter, r *http.Request
 		ParentDir *string `json:"parent_dir"`
 	}
 
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		s.writeError(w, http.StatusBadRequest, "Invalid request body")
+	if !s.decodeBody(w, r, &req) {
 		return
 	}
 
@@ -779,12 +578,7 @@ func (s *Server) handleDBListEntityUpdate(w http.ResponseWriter, r *http.Request
 	}
 
 	entity, err := database.GetLstEntity(s.db, int(id))
-	if err != nil {
-		s.writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	if entity == nil {
-		s.writeError(w, http.StatusNotFound, "List entity not found")
+	if !requireResource(entity, err, "List entity", func(c int, m string) { s.writeError(w, c, m) }) {
 		return
 	}
 
@@ -797,33 +591,22 @@ func (s *Server) handleDBListEntityUpdate(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	item := DBListEntityItem{
-		ID:        strconv.FormatInt(int64(nullInt32(entity.Id)), 10),
-		LstID:     strconv.FormatInt(entity.LstId, 10),
-		Name:      entity.Name,
-		ParentDir: entity.ParentDir,
-	}
+	lstName := ""
 	if lst, err := database.GetLst(s.db, uint64(entity.LstId)); err == nil && lst != nil {
-		item.ListName = lst.Name
+		lstName = lst.Name
 	}
 
-	s.writeJSON(w, http.StatusOK, NewSuccessResponse(item))
+	s.writeResourceJSON(w, dbLstEntityToItem(entity, lstName))
 }
 
 func (s *Server) handleDBListEntityDelete(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.ParseUint(r.PathValue("id"), 10, 64)
-	if err != nil {
-		s.writeError(w, http.StatusBadRequest, "Invalid list entity ID")
+	id, ok := s.resolvePathID(w, r, "id", "list entity")
+	if !ok {
 		return
 	}
 
 	entity, err := database.GetLstEntity(s.db, int(id))
-	if err != nil {
-		s.writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	if entity == nil {
-		s.writeError(w, http.StatusNotFound, "List entity not found")
+	if !requireResource(entity, err, "List entity", func(c int, m string) { s.writeError(w, c, m) }) {
 		return
 	}
 
@@ -832,9 +615,7 @@ func (s *Server) handleDBListEntityDelete(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	s.writeJSON(w, http.StatusOK, NewSuccessResponse(map[string]string{
-		"message": "List entity deleted successfully",
-	}))
+	s.writeResourceDeleted(w, "List entity")
 }
 
 // ============ User Links 管理（新增） ============
@@ -871,17 +652,10 @@ func (s *Server) handleDBUserLinks(w http.ResponseWriter, r *http.Request) {
 		args = append(args, searchArgs...)
 	}
 
-	whereClause := ""
-	if len(whereConditions) > 0 {
-		whereClause = strings.Join(whereConditions, " AND ")
-	}
+	whereClause := strings.Join(whereConditions, " AND ")
 
-	total, err := database.Count(s.db, "user_links", &database.QueryOptions{
-		Where: whereClause,
-		Args:  args,
-	})
-	if err != nil {
-		s.writeError(w, http.StatusInternalServerError, err.Error())
+	total, ok := s.countWithError(w, "user_links", whereClause, args)
+	if !ok {
 		return
 	}
 
@@ -899,53 +673,34 @@ func (s *Server) handleDBUserLinks(w http.ResponseWriter, r *http.Request) {
 	}
 	entNames := s.batchLoadNames("lst_entities", "id", "name", ids)
 	for i, l := range links {
-		items[i] = DBUserLinkItem{
-			ID:                strconv.Itoa(int(l.Id)),
-			UserID:            strconv.FormatUint(l.UserId, 10),
-			Name:              l.Name,
-			ParentLstEntityID: strconv.Itoa(int(l.ParentLstEntityId)),
-			ParentLstEntityName: entNames[int64(l.ParentLstEntityId)],
-		}
+		items[i] = dbUserLinkToItem(&l, entNames[int64(l.ParentLstEntityId)])
 	}
 
-	response := pagination.ToResponse(items, total)
-	s.writeJSON(w, http.StatusOK, NewSuccessResponse(response))
+	s.writeJSON(w, http.StatusOK, NewSuccessResponse(pagination.ToResponse(items, total)))
 }
 
 func (s *Server) handleDBUserLinkDetail(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.ParseUint(r.PathValue("id"), 10, 64)
-	if err != nil {
-		s.writeError(w, http.StatusBadRequest, "Invalid user link ID")
+	id, ok := s.resolvePathID(w, r, "id", "user link")
+	if !ok {
 		return
 	}
 
 	link, err := database.GetUserLinkById(s.db, int32(id))
-	if err != nil {
-		s.writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	if link == nil {
-		s.writeError(w, http.StatusNotFound, "User link not found")
+	if !requireResource(link, err, "User link", func(c int, m string) { s.writeError(w, c, m) }) {
 		return
 	}
 
-	item := DBUserLinkItem{
-		ID:                strconv.Itoa(int(link.Id)),
-		UserID:            strconv.FormatUint(link.UserId, 10),
-		Name:              link.Name,
-		ParentLstEntityID: strconv.Itoa(int(link.ParentLstEntityId)),
-	}
+	lstEntName := ""
 	if lstEnt, err := database.GetLstEntity(s.db, int(link.ParentLstEntityId)); err == nil && lstEnt != nil {
-		item.ParentLstEntityName = lstEnt.Name
+		lstEntName = lstEnt.Name
 	}
 
-	s.writeJSON(w, http.StatusOK, NewSuccessResponse(item))
+	s.writeResourceJSON(w, dbUserLinkToItem(link, lstEntName))
 }
 
 func (s *Server) handleDBUserLinkUpdate(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.ParseUint(r.PathValue("id"), 10, 64)
-	if err != nil {
-		s.writeError(w, http.StatusBadRequest, "Invalid user link ID")
+	id, ok := s.resolvePathID(w, r, "id", "user link")
+	if !ok {
 		return
 	}
 
@@ -953,18 +708,12 @@ func (s *Server) handleDBUserLinkUpdate(w http.ResponseWriter, r *http.Request) 
 		Name *string `json:"name"`
 	}
 
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		s.writeError(w, http.StatusBadRequest, "Invalid request body")
+	if !s.decodeBody(w, r, &req) {
 		return
 	}
 
 	link, err := database.GetUserLinkById(s.db, int32(id))
-	if err != nil {
-		s.writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	if link == nil {
-		s.writeError(w, http.StatusNotFound, "User link not found")
+	if !requireResource(link, err, "User link", func(c int, m string) { s.writeError(w, c, m) }) {
 		return
 	}
 
@@ -977,33 +726,22 @@ func (s *Server) handleDBUserLinkUpdate(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	item := DBUserLinkItem{
-		ID:                strconv.Itoa(int(link.Id)),
-		UserID:            strconv.FormatUint(link.UserId, 10),
-		Name:              link.Name,
-		ParentLstEntityID: strconv.Itoa(int(link.ParentLstEntityId)),
-	}
+	lstEntName := ""
 	if lstEnt, err := database.GetLstEntity(s.db, int(link.ParentLstEntityId)); err == nil && lstEnt != nil {
-		item.ParentLstEntityName = lstEnt.Name
+		lstEntName = lstEnt.Name
 	}
 
-	s.writeJSON(w, http.StatusOK, NewSuccessResponse(item))
+	s.writeResourceJSON(w, dbUserLinkToItem(link, lstEntName))
 }
 
 func (s *Server) handleDBUserLinkDelete(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.ParseUint(r.PathValue("id"), 10, 64)
-	if err != nil {
-		s.writeError(w, http.StatusBadRequest, "Invalid user link ID")
+	id, ok := s.resolvePathID(w, r, "id", "user link")
+	if !ok {
 		return
 	}
 
 	link, err := database.GetUserLinkById(s.db, int32(id))
-	if err != nil {
-		s.writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	if link == nil {
-		s.writeError(w, http.StatusNotFound, "User link not found")
+	if !requireResource(link, err, "User link", func(c int, m string) { s.writeError(w, c, m) }) {
 		return
 	}
 
@@ -1012,31 +750,25 @@ func (s *Server) handleDBUserLinkDelete(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	s.writeJSON(w, http.StatusOK, NewSuccessResponse(map[string]string{
-		"message": "User link deleted successfully",
-	}))
+	s.writeResourceDeleted(w, "User link")
 }
 
 // ============ User Previous Names 查询（新增） ============
 
 func (s *Server) handleDBUserPreviousNames(w http.ResponseWriter, r *http.Request) {
-	uid, err := strconv.ParseUint(r.PathValue("id"), 10, 64)
-	if err != nil {
-		s.writeError(w, http.StatusBadRequest, "Invalid user ID")
+	id, ok := s.resolvePathID(w, r, "id", "user")
+	if !ok {
 		return
 	}
 
 	pagination := NewPagination(r)
 
 	whereClause := "pn.user_id = ?"
-	args := []interface{}{uid}
+	args := []interface{}{id}
 
-	total, err := database.Count(s.db, "user_previous_names pn LEFT JOIN users u ON pn.user_id = u.id", &database.QueryOptions{
-		Where: whereClause,
-		Args:  args,
-	})
-	if err != nil {
-		s.writeError(w, http.StatusInternalServerError, err.Error())
+	tableExpr := "user_previous_names pn LEFT JOIN users u ON pn.user_id = u.id"
+	total, ok2 := s.countWithError(w, tableExpr, whereClause, args)
+	if !ok2 {
 		return
 	}
 
@@ -1049,28 +781,18 @@ func (s *Server) handleDBUserPreviousNames(w http.ResponseWriter, r *http.Reques
 
 	items := make([]DBUserPreviousNameItem, len(names))
 	for i, n := range names {
-		items[i] = DBUserPreviousNameItem{
-			ID:                strconv.Itoa(int(n.Id)),
-			UserID:            strconv.FormatUint(n.UserId, 10),
-			ScreenName:        n.ScreenName,
-			Name:              n.Name,
-			RecordDate:        n.RecordDate.Format("2006-01-02"),
-			CurrentScreenName: n.CurrentScreenName,
-			CurrentName:       n.CurrentName,
-		}
+		items[i] = dbPrevNameToItem(&n)
 	}
 
-	response := pagination.ToResponse(items, total)
-	s.writeJSON(w, http.StatusOK, NewSuccessResponse(response))
+	s.writeJSON(w, http.StatusOK, NewSuccessResponse(pagination.ToResponse(items, total)))
 }
 
 // ============ 子资源快捷端点 ============
 
 // handleDBUserEntitiesByUserID 获取指定用户的所有实体
 func (s *Server) handleDBUserEntitiesByUserID(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.ParseUint(r.PathValue("id"), 10, 64)
-	if err != nil {
-		s.writeError(w, http.StatusBadRequest, "Invalid user ID")
+	id, ok := s.resolvePathID(w, r, "id", "user")
+	if !ok {
 		return
 	}
 
@@ -1078,12 +800,8 @@ func (s *Server) handleDBUserEntitiesByUserID(w http.ResponseWriter, r *http.Req
 	whereClause := "user_id = ?"
 	args := []interface{}{id}
 
-	total, err := database.Count(s.db, "user_entities", &database.QueryOptions{
-		Where: whereClause,
-		Args:  args,
-	})
-	if err != nil {
-		s.writeError(w, http.StatusInternalServerError, err.Error())
+	total, ok2 := s.countWithError(w, "user_entities", whereClause, args)
+	if !ok2 {
 		return
 	}
 
@@ -1096,22 +814,16 @@ func (s *Server) handleDBUserEntitiesByUserID(w http.ResponseWriter, r *http.Req
 
 	items := make([]DBEntityItem, len(entities))
 	for i, e := range entities {
-		items[i] = DBEntityItem{
-			ID:        strconv.FormatInt(int64(nullInt32(e.Id)), 10),
-			UserID:    strconv.FormatUint(e.UserId, 10),
-			Name:      e.Name,
-			ParentDir: e.ParentDir,
-		}
+		items[i] = dbEntityToItem(&e)
 	}
-	resp := pagination.ToResponse(items, total)
-	s.writeJSON(w, http.StatusOK, NewSuccessResponse(resp))
+
+	s.writeJSON(w, http.StatusOK, NewSuccessResponse(pagination.ToResponse(items, total)))
 }
 
 // handleDBUserLinksByUserID 获取指定用户的所有链接
 func (s *Server) handleDBUserLinksByUserID(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.ParseUint(r.PathValue("id"), 10, 64)
-	if err != nil {
-		s.writeError(w, http.StatusBadRequest, "Invalid user ID")
+	id, ok := s.resolvePathID(w, r, "id", "user")
+	if !ok {
 		return
 	}
 
@@ -1119,12 +831,8 @@ func (s *Server) handleDBUserLinksByUserID(w http.ResponseWriter, r *http.Reques
 	whereClause := "user_id = ?"
 	args := []interface{}{id}
 
-	total, err := database.Count(s.db, "user_links", &database.QueryOptions{
-		Where: whereClause,
-		Args:  args,
-	})
-	if err != nil {
-		s.writeError(w, http.StatusInternalServerError, err.Error())
+	total, ok2 := s.countWithError(w, "user_links", whereClause, args)
+	if !ok2 {
 		return
 	}
 
@@ -1142,23 +850,16 @@ func (s *Server) handleDBUserLinksByUserID(w http.ResponseWriter, r *http.Reques
 	}
 	entNames := s.batchLoadNames("lst_entities", "id", "name", ids)
 	for i, l := range links {
-		items[i] = DBUserLinkItem{
-			ID:                strconv.Itoa(int(l.Id)),
-			UserID:            strconv.FormatUint(l.UserId, 10),
-			Name:              l.Name,
-			ParentLstEntityID: strconv.Itoa(int(l.ParentLstEntityId)),
-			ParentLstEntityName: entNames[int64(l.ParentLstEntityId)],
-		}
+		items[i] = dbUserLinkToItem(&l, entNames[int64(l.ParentLstEntityId)])
 	}
-	resp := pagination.ToResponse(items, total)
-	s.writeJSON(w, http.StatusOK, NewSuccessResponse(resp))
+
+	s.writeJSON(w, http.StatusOK, NewSuccessResponse(pagination.ToResponse(items, total)))
 }
 
 // handleDBLstEntitiesByListID 获取指定列表的所有实体
 func (s *Server) handleDBLstEntitiesByListID(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.ParseUint(r.PathValue("id"), 10, 64)
-	if err != nil {
-		s.writeError(w, http.StatusBadRequest, "Invalid list ID")
+	id, ok := s.resolvePathID(w, r, "id", "list")
+	if !ok {
 		return
 	}
 
@@ -1166,12 +867,8 @@ func (s *Server) handleDBLstEntitiesByListID(w http.ResponseWriter, r *http.Requ
 	whereClause := "lst_id = ?"
 	args := []interface{}{id}
 
-	total, err := database.Count(s.db, "lst_entities", &database.QueryOptions{
-		Where: whereClause,
-		Args:  args,
-	})
-	if err != nil {
-		s.writeError(w, http.StatusInternalServerError, err.Error())
+	total, ok2 := s.countWithError(w, "lst_entities", whereClause, args)
+	if !ok2 {
 		return
 	}
 
@@ -1189,16 +886,10 @@ func (s *Server) handleDBLstEntitiesByListID(w http.ResponseWriter, r *http.Requ
 	}
 	lstNames := s.batchLoadNames("lsts", "id", "name", ids)
 	for i, e := range entities {
-		items[i] = DBListEntityItem{
-			ID:        strconv.FormatInt(int64(nullInt32(e.Id)), 10),
-			LstID:     strconv.FormatUint(uint64(e.LstId), 10),
-			Name:      e.Name,
-			ParentDir: e.ParentDir,
-			ListName:  lstNames[e.LstId],
-		}
+		items[i] = dbLstEntityToItem(&e, lstNames[e.LstId])
 	}
-	resp := pagination.ToResponse(items, total)
-	s.writeJSON(w, http.StatusOK, NewSuccessResponse(resp))
+
+	s.writeJSON(w, http.StatusOK, NewSuccessResponse(pagination.ToResponse(items, total)))
 }
 
 // handleDBStats 返回各表记录数
@@ -1264,12 +955,9 @@ func (s *Server) handleDBPreviousNames(w http.ResponseWriter, r *http.Request) {
 		whereClause = baseWhere
 	}
 
-	total, err := database.Count(s.db, "user_previous_names pn LEFT JOIN users u ON pn.user_id = u.id", &database.QueryOptions{
-		Where: whereClause,
-		Args:  args,
-	})
-	if err != nil {
-		s.writeError(w, http.StatusInternalServerError, err.Error())
+	tableExpr := "user_previous_names pn LEFT JOIN users u ON pn.user_id = u.id"
+	total, ok := s.countWithError(w, tableExpr, whereClause, args)
+	if !ok {
 		return
 	}
 
@@ -1282,19 +970,10 @@ func (s *Server) handleDBPreviousNames(w http.ResponseWriter, r *http.Request) {
 
 	items := make([]DBUserPreviousNameItem, len(names))
 	for i, n := range names {
-		items[i] = DBUserPreviousNameItem{
-			ID:                strconv.Itoa(int(n.Id)),
-			UserID:            strconv.FormatUint(n.UserId, 10),
-			ScreenName:        n.ScreenName,
-			Name:              n.Name,
-			RecordDate:        n.RecordDate.Format("2006-01-02"),
-			CurrentScreenName: n.CurrentScreenName,
-			CurrentName:       n.CurrentName,
-		}
+		items[i] = dbPrevNameToItem(&n)
 	}
 
-	response := pagination.ToResponse(items, total)
-	s.writeJSON(w, http.StatusOK, NewSuccessResponse(response))
+	s.writeJSON(w, http.StatusOK, NewSuccessResponse(pagination.ToResponse(items, total)))
 }
 
 // ============ 辅助函数 ============

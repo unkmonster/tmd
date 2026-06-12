@@ -7,6 +7,94 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ***
 
+## [v3.4.21] - 2026-06-12
+
+### Changed
+
+#### 调度器：panic 恢复 + 停止不挂起 + 每日时间上限 + DST 安全
+- `internal/scheduler/scheduler.go`:
+  - `triggerEntry()`: 新增 panic recovery，捕获 downloadFunc panic 时更新状态（LastError/ConsecutiveFailures）后重新 panic，通过 `released` 标记防止重复释放
+  - `execute()`: 新增 panic recovery，捕获 downloadFunc panic 时记录错误日志并更新状态
+  - `stopLocked()`: 移除 `sc.cancel = nil / sc.ctx = nil` 重置，将 goroutine+5s 超时等待改为直接 `sc.wg.Wait()`，解决 Reload 失败恢复后 Stop 因 `context.Background()` 永不退出的 hang 问题
+  - `nextDailyTrigger()`: 将 `today.Add(24 * time.Hour)` 替换为 `today.AddDate(0, 0, 1)`，夏令时（DST）切换日安全
+  - `ParseSchedule()`: 新增 `maxDailyTimes = 96` 常量，超过 96 个时间点时报错"too many daily times"
+
+#### API 重构：抽取通用资源处理器
+- `internal/api/resource_handler.go` **新文件** - 创建通用工具层：
+  - `resolvePathID()` - 路径参数统一解析为 uint64，失败自动写 400
+  - `decodeBody()` - JSON 请求体统一解析，失败自动写 400
+  - `requireResource[T any]()` - 泛型资源存在性检查（错误→500、nil→404）
+  - `writeResourceJSON()` / `writeResourceDeleted()` - 标准化成功响应写入
+  - `countWithError()` - 安全 COUNT 查询（失败自动写 500）
+  - 实体转换函数：`dbUserToItem`、`dbListToItem`、`dbEntityToItem`、`dbLstEntityToItem`、`dbUserLinkToItem`、`dbPrevNameToItem`
+  - `countUserCascade()` - 级联删除记录统计
+- `internal/api/db_handlers.go` **大量简化**（-591 行）：
+  - 所有 handler 的内联 ID 解析、JSON 解码、nil/err 检查、Item 构建、COUNT 查询、响应写入统一替换为上述工具函数
+  - 所有删除 handler 的级联统计替换为 `countUserCascade`
+
+#### 关闭流程：移除无根据的 2 秒延迟
+- `internal/api/server.go`:
+  - `GracefulShutdown()`: 移除 `time.Sleep(2 * time.Second)` 注释行（该延迟原是给正在运行的 handler 完成 DB 访问的缓冲，但实际并无 detached goroutine 依赖此延迟）
+
+#### 下载服务：Dumper 写入模式改为直接覆盖 + 并发安全修复
+- `internal/service/download_service.go`:
+  - `saveDumper()` / `saveJsonDumper()`: 从 load-merge-save 改为直接覆盖写入，确保 Remove 操作被持久化（修复 BUG：重试成功后已移除的推文被 load-merge 加回来）
+  - 新增 `replaceDumper()` / `replaceJsonDumper()`: 直接写入不做 load-merge，用于 RetryAllFailed 需要持久化 Remove 的场景
+  - `RetryAllFailed()`: 改用 replaceDumper/replaceJsonDumper，且失败推文的 Load 操作置于 dumperMu 锁保护下，避免与 saveDumper 的并发写入产生竞态（修复 BUG 62）
+  - `JsonFileDownload()` / `JsonFolderDownload()`: jsonDumper.Load() 置于 dumperMu 锁保护下（修复 Issue A）
+  - `ClearErrors()`: os.Remove 操作置于 dumperMu 锁保护下，避免与 saveDumper 并发写入冲突（修复 Issue B）
+
+### Added
+
+#### 测试覆盖：调度器停止挂起、每日时间上限
+- `internal/scheduler/scheduler_test.go`:
+  - `TestStopAfterReloadRecoverDoesNotHang` - 验证 Reload 失败→恢复后 Stop 能在 5 秒内正常完成
+  - `TestParseScheduleRejectsTooManyDailyTimes` - 验证 97 个时间点被拒绝
+  - `TestParseScheduleAcceptsMaxDailyTimes` - 验证 96 个时间点被接受
+
+#### 测试覆盖：Dumper 并发安全 + BUG 回归
+- `internal/service/download_service_test.go`（+312 行）:
+  - `TestDownloadServiceImpl_SaveDumper_RemoveAfterRetry` - BUG 61 回归：replaceDumper 能持久化 Remove（推文 10 不在文件中）
+  - `TestDownloadServiceImpl_SaveDumper_RemoveViaSaveDumper` - BUG 61 回归：saveDumper 直接覆盖不再 load-merge
+  - `TestDownloadServiceImpl_SaveDumper_FileRace` - BUG 62 回归：Load 在锁内不再被 saveDumper 并发写入破坏
+  - `TestDownloadServiceImpl_JsonLoadWithoutLock` - Issue A 回归：jsonDumper.Load() 在锁内不再被 replaceJsonDumper 破坏
+  - `TestDownloadServiceImpl_ClearErrorsRace` - Issue B 回归：ClearErrors 在锁内不再与 saveDumper 并发冲突
+  - 并发测试适配：`TestSaveDumperConcurrentWritesPreserveData` 更新断言（直接覆盖模式下只保证至少 1 条，不保证两条都保留）
+
+#### 前端：任务详情面板 UI
+- `internal/api/web/styles.css`（+169 行）:
+  - 新增 `.task-detail-header` / `.task-detail-header-info` / `.task-detail-header-title` / `.task-detail-header-sub` - 任务详情头部
+  - 新增 `.task-detail-section` / `.task-detail-section-title` - 详情分区标题
+  - 新增 `.task-detail-grid` / `.task-detail-label` / `.task-detail-value` - 详情键值网格
+  - 新增 `.task-detail-card` - 详情卡片容器
+  - 新增 `.task-detail-time-row` / `.task-detail-time-dot` / `.task-detail-time-label` / `.task-detail-time-value` / `.task-detail-time-line` - 时间线组件
+  - 新增 `.task-detail-error` - 错误信息区块
+  - 新增 `.task-detail-stats` / `.task-detail-stat` / `.task-detail-stat-val` / `.task-detail-stat-lbl` - 统计徽标
+  - 新增 `.task-detail-msg` - 消息区域
+  - 修复 `--accent` → `--accent-primary` CSS 变量名
+  - 移除未使用的 `.config-label` 样式
+- `internal/api/web/index.html`:
+  - 移除 `id="sidebarFooter"`，布局微调
+- `internal/api/web/app.js`（全局重写为 SPA，+1562 行/-1213 行）:
+  - 任务详情面板完整实现
+
+### Fixed
+
+- **BUG 61**: 下载重试(download_service)中 `saveDumper`/`saveJsonDumper` 使用 load-merge 模式，导致已成功重试并 Remove 的推文重新出现在错误文件中
+  - 修复：改为直接覆盖写入，不再加载旧数据合并
+- **BUG 62**: `RetryAllFailed` 的 dumper Load 与 `saveDumper` 并发写入产生竞态，导致读取到部分写入的损坏 JSON
+  - 修复：Load 操作置于 dumperMu 锁保护下
+- **Issue A**: `JsonFileDownload`/`JsonFolderDownload` 中 jsonDumper.Load() 无锁，与 `replaceJsonDumper` 的锁内写入竞态
+  - 修复：Load 操作置于 dumperMu 锁保护下
+- **Issue B**: `ClearErrors` 中 os.Remove 无锁，与 `saveDumper` 锁内写入竞态（saveDumper 可能在 Remove 后重新创建文件）
+  - 修复：os.Remove 操作置于 dumperMu 锁保护下
+- **调度器停止挂起**: Reload 失败后 `stopLocked` 对 `sc.cancel/sc.ctx` 置 nil，导致 `sc.wg.Wait()` 永不返回
+  - 修复：移除 cancel/ctx 的 nil 重置；超时等待改为直接 `sc.wg.Wait()`
+- **夏令时计算**: `nextDailyTrigger` 使用 `Add(24*time.Hour)` 在 DST 切换日偏差 1 小时
+  - 修复：替换为 `AddDate(0, 0, 1)`，按日历天计算
+- **CSS 变量**: 多处使用错误的 `--accent` 变量名，应为 `--accent-primary`
+  - 修复：统一替换
+
 ## [v3.4.20] - 2026-06-04
 
 ### Changed

@@ -598,9 +598,11 @@ func (s *downloadServiceImpl) JsonFileDownload(ctx context.Context, taskID strin
 	_, fileWriter, dwn := s.initDownloader()
 
 	jsonDumper := downloading.NewJsonDumper()
+	s.dumperMu.Lock()
 	if err := jsonDumper.Load(pathHelper.JSONErrorsPath); err != nil {
 		log.Warnf("Failed to load JSON dumper: %v", err)
 	}
+	s.dumperMu.Unlock()
 	defer s.saveJsonDumper(jsonDumper, pathHelper.JSONErrorsPath)
 
 	retryProgress := s.newRetryProgressCallback(taskID, reporter)
@@ -651,9 +653,11 @@ func (s *downloadServiceImpl) JsonFolderDownload(ctx context.Context, taskID str
 	_, fileWriter, dwn := s.initDownloader()
 
 	jsonDumper := downloading.NewJsonDumper()
+	s.dumperMu.Lock()
 	if err := jsonDumper.Load(pathHelper.JSONErrorsPath); err != nil {
 		log.Warnf("Failed to load JSON dumper: %v", err)
 	}
+	s.dumperMu.Unlock()
 	defer s.saveJsonDumper(jsonDumper, pathHelper.JSONErrorsPath)
 
 	retryProgress := s.newRetryProgressCallback(taskID, reporter)
@@ -777,22 +781,49 @@ func (s *downloadServiceImpl) BatchDownload(ctx context.Context, taskID string, 
 	return nil
 }
 
-// saveDumper 保存 Dumper 到文件
+// saveDumper 保存 Dumper 到文件（直接覆写，不做 load-merge，确保 Remove 操作被持久化）。
+// 调用方应在锁外完成所有 Push/Remove 操作后，再将 dumper 传入此处一次性写入。
 func (s *downloadServiceImpl) saveDumper(dumper *downloading.TweetDumper, path string) {
 	s.dumperMu.Lock()
 	defer s.dumperMu.Unlock()
 
-	merged := downloading.NewDumper()
-	if err := merged.Load(path); err != nil {
-		log.Warnf("Failed to load dumper for merge: %v", err)
-	}
-	merged.Merge(dumper)
-
-	if merged.Count() > 0 {
-		if err := merged.Dump(path); err != nil {
+	if dumper.Count() > 0 {
+		if err := dumper.Dump(path); err != nil {
 			log.Warnf("Failed to save dumper: %v", err)
 		} else {
-			log.Infof("%d tweets have been dumped", merged.Count())
+			log.Infof("%d tweets have been dumped", dumper.Count())
+		}
+		return
+	}
+	_ = os.Remove(path)
+}
+
+// replaceDumper 直接写入 dumper 到文件，不做 load-merge（用于 RetryAllFailed 等需要持久化 Remove 的场景）。
+func (s *downloadServiceImpl) replaceDumper(dumper *downloading.TweetDumper, path string) {
+	s.dumperMu.Lock()
+	defer s.dumperMu.Unlock()
+
+	if dumper.Count() > 0 {
+		if err := dumper.Dump(path); err != nil {
+			log.Warnf("Failed to replace dumper: %v", err)
+		} else {
+			log.Infof("%d tweets have been dumped", dumper.Count())
+		}
+		return
+	}
+	_ = os.Remove(path)
+}
+
+// replaceJsonDumper 直接写入 JsonTweetDumper，不做 load-merge。
+func (s *downloadServiceImpl) replaceJsonDumper(dumper *downloading.JsonTweetDumper, path string) {
+	s.dumperMu.Lock()
+	defer s.dumperMu.Unlock()
+
+	if dumper.Count() > 0 {
+		if err := dumper.Dump(path); err != nil {
+			log.Warnf("Failed to replace JSON dumper: %v", err)
+		} else {
+			log.Infof("%d JSON tweets have been dumped", dumper.Count())
 		}
 		return
 	}
@@ -811,22 +842,26 @@ func (s *downloadServiceImpl) RetryAllFailed(ctx context.Context, taskID string,
 
 	// 重试常规下载错误
 	regDumper := downloading.NewDumper()
+	s.dumperMu.Lock()
 	_ = regDumper.Load(pathHelper.ErrorsPath)
+	s.dumperMu.Unlock()
 	if regDumper.Count() > 0 {
 		if _, err := downloading.RetryFailedTweets(ctx, regDumper, s.deps.DB, s.deps.Client, dwn, fileWriter, runtimeOptions, nil); err != nil {
 			return fmt.Errorf("retry regular failed tweets: %w", err)
 		}
-		s.saveDumper(regDumper, pathHelper.ErrorsPath)
+		s.replaceDumper(regDumper, pathHelper.ErrorsPath)
 	}
 
 	// 重试 JSON 导入错误
 	jsonDumper := downloading.NewJsonDumper()
+	s.dumperMu.Lock()
 	_ = jsonDumper.Load(pathHelper.JSONErrorsPath)
+	s.dumperMu.Unlock()
 	if jsonDumper.Count() > 0 {
 		if _, err := downloading.RetryFailedJsonTweets(ctx, jsonDumper, s.deps.Client, dwn, fileWriter, runtimeOptions, nil); err != nil {
 			return fmt.Errorf("retry JSON failed tweets: %w", err)
 		}
-		s.saveJsonDumper(jsonDumper, pathHelper.JSONErrorsPath)
+		s.replaceJsonDumper(jsonDumper, pathHelper.JSONErrorsPath)
 	}
 
 	reporter.OnComplete(taskID, Result{Message: "completed"})
@@ -840,8 +875,10 @@ func (s *downloadServiceImpl) ClearErrors() error {
 		return fmt.Errorf("failed to create store path: %w", err)
 	}
 
+	s.dumperMu.Lock()
 	_ = os.Remove(pathHelper.ErrorsPath)
 	_ = os.Remove(pathHelper.JSONErrorsPath)
+	s.dumperMu.Unlock()
 	return nil
 }
 
@@ -866,22 +903,16 @@ func (s *downloadServiceImpl) collectJsonFailedTweets(dumper *downloading.JsonTw
 	}
 }
 
-// saveJsonDumper 保存 JsonTweetDumper 到文件（Load-then-Merge 模式，与 saveDumper 一致）
+// saveJsonDumper 保存 JsonTweetDumper 到文件（直接覆写，不做 load-merge）。
 func (s *downloadServiceImpl) saveJsonDumper(dumper *downloading.JsonTweetDumper, path string) {
 	s.dumperMu.Lock()
 	defer s.dumperMu.Unlock()
 
-	merged := downloading.NewJsonDumper()
-	if err := merged.Load(path); err != nil {
-		log.Warnf("Failed to load JSON dumper for merge: %v", err)
-	}
-	merged.Merge(dumper)
-
-	if merged.Count() > 0 {
-		if err := merged.Dump(path); err != nil {
+	if dumper.Count() > 0 {
+		if err := dumper.Dump(path); err != nil {
 			log.Warnf("Failed to save JSON dumper: %v", err)
 		} else {
-			log.Infof("%d JSON tweets have been dumped", merged.Count())
+			log.Infof("%d JSON tweets have been dumped", dumper.Count())
 		}
 		return
 	}

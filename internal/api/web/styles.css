@@ -968,6 +968,175 @@ ul, ol {
   justify-content: flex-end;
 }
 
+/* Task Detail */
+.task-detail-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border-radius: var(--radius-md);
+  margin-bottom: var(--space-4);
+}
+
+.task-detail-header-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.task-detail-header-title {
+  font-size: var(--text-lg);
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
+  margin-bottom: 2px;
+}
+
+.task-detail-header-sub {
+  font-size: var(--text-sm);
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+}
+
+.task-detail-section {
+  margin-bottom: var(--space-4);
+}
+
+.task-detail-section-title {
+  font-size: var(--text-sm);
+  font-weight: var(--font-semibold);
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: var(--space-2);
+  padding-bottom: var(--space-1);
+  border-bottom: 1px solid var(--border-secondary);
+}
+
+.task-detail-grid {
+  display: grid;
+  grid-template-columns: 80px 1fr;
+  gap: var(--space-1) var(--space-2);
+  font-size: var(--text-sm);
+}
+
+.task-detail-label {
+  color: var(--text-tertiary);
+  padding: var(--space-1) 0;
+}
+
+.task-detail-value {
+  color: var(--text-primary);
+  padding: var(--space-1) 0;
+  word-break: break-all;
+}
+
+.task-detail-value-mono {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+.task-detail-card {
+  background: var(--bg-primary);
+  border: 1px solid var(--border-secondary);
+  border-radius: var(--radius-md);
+  padding: var(--space-3);
+}
+
+.task-detail-time-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) 0;
+  font-size: var(--text-sm);
+}
+
+.task-detail-time-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.task-detail-time-label {
+  color: var(--text-tertiary);
+  min-width: 60px;
+}
+
+.task-detail-time-value {
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+.task-detail-time-line {
+  width: 1px;
+  height: 8px;
+  background: var(--border-secondary);
+  margin-left: 3.5px;
+}
+
+.task-detail-error {
+  background: var(--danger-bg);
+  border: 1px solid rgba(248, 81, 73, 0.3);
+  border-radius: var(--radius-md);
+  padding: var(--space-3);
+  color: var(--danger);
+  font-size: var(--text-sm);
+  font-family: var(--font-mono);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.task-detail-section-title-sm {
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+  margin-bottom: var(--space-2);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.task-detail-stats {
+  display: flex;
+  gap: var(--space-3);
+}
+
+.task-detail-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 56px;
+  padding: var(--space-1) var(--space-2);
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-md);
+}
+
+.task-detail-stat-val {
+  font-size: var(--text-lg);
+  font-weight: var(--font-semibold);
+  font-family: var(--font-mono);
+  line-height: 1.3;
+}
+
+.task-detail-stat-val.success { color: var(--success); }
+.task-detail-stat-val.danger { color: var(--danger); }
+.task-detail-stat-val.info { color: var(--info); }
+
+.task-detail-stat-lbl {
+  font-size: 10px;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.task-detail-msg {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-md);
+  padding: var(--space-2) var(--space-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
 /* Mobile Navigation */
 .mobile-nav {
   display: none;
@@ -1630,7 +1799,7 @@ ul, ol {
   gap: 4px;
   padding: 6px 16px;
   font-size: 12px;
-  background: var(--accent);
+  background: var(--accent-primary);
   color: #fff;
   border: none;
   border-radius: 20px;
@@ -1784,14 +1953,6 @@ ul, ol {
 
 .config-field {
   margin-bottom: var(--space-4);
-}
-
-.config-label {
-  display: block;
-  margin-bottom: var(--space-1);
-  font-size: var(--text-sm);
-  font-weight: var(--font-medium);
-  color: var(--text-secondary);
 }
 
 .config-input {
