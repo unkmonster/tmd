@@ -19,6 +19,7 @@ type TaskManager struct {
 	closeOnce     sync.Once
 	eventBus      *EventBus
 	idGenerator   func() string
+	lastCreatedAt time.Time // 上一条任务的创建时间，用于保证单调递增
 }
 
 // NewTaskManager 创建任务管理器
@@ -45,6 +46,12 @@ func (tm *TaskManager) publishTasks() {
 func (tm *TaskManager) CreateTask(taskType TaskType, data interface{}) *Task {
 	tm.mu.Lock()
 
+	now := time.Now()
+	if !now.After(tm.lastCreatedAt) {
+		now = tm.lastCreatedAt.Add(1)
+	}
+	tm.lastCreatedAt = now
+
 	ctx, cancel := context.WithCancel(context.Background())
 	task := &Task{
 		ID:        tm.nextTaskIDLocked(),
@@ -52,7 +59,7 @@ func (tm *TaskManager) CreateTask(taskType TaskType, data interface{}) *Task {
 		Status:    TaskStatusQueued,
 		Data:      cloneTaskData(data),
 		Progress:  &TaskProgress{},
-		CreatedAt: time.Now(),
+		CreatedAt: now,
 		Ctx:       ctx,
 		Cancel:    cancel,
 	}
