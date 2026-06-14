@@ -42,23 +42,10 @@ type Config struct {
 	ProxyURL           string `yaml:"proxy_url"`
 }
 
-type envFieldBinding struct {
-	envName   string
-	fieldName string
-}
-
-var envFieldBindings = []envFieldBinding{
-	{envName: "TMD_ROOT_PATH", fieldName: "root_path"},
-	{envName: "TMD_AUTH_TOKEN", fieldName: "auth_token"},
-	{envName: "TMD_CT0", fieldName: "ct0"},
-	{envName: "TMD_PROXY_URL", fieldName: "proxy_url"},
-	{envName: "TMD_MAX_DOWNLOAD_ROUTINE", fieldName: "max_download_routine"},
-	{envName: "TMD_MAX_FILE_NAME_LEN", fieldName: "max_file_name_len"},
-}
-
 // FieldDef 字段定义，包含 getter/setter 实现双向绑定
 type FieldDef struct {
 	Name    string                      // 字段名（用于日志和状态显示）
+	EnvName string                      // 环境变量名（用于支持环境变量覆盖配置）
 	Prompt  string                      // 提示文本
 	Default string                      // 默认值（新配置或零值时使用）
 	Getter  func(*Config) string        // 获取当前值
@@ -76,6 +63,7 @@ func GetFieldDefs() []FieldDef {
 	return []FieldDef{
 		{
 			Name:    "root_path",
+			EnvName: "TMD_ROOT_PATH",
 			Prompt:  "enter storage dir",
 			Default: "",
 			Getter:  func(c *Config) string { return c.RootPath },
@@ -90,6 +78,7 @@ func GetFieldDefs() []FieldDef {
 		},
 		{
 			Name:    "auth_token",
+			EnvName: "TMD_AUTH_TOKEN",
 			Prompt:  "enter auth_token",
 			Default: "",
 			Getter:  func(c *Config) string { return c.Cookie.AuthToken },
@@ -97,6 +86,7 @@ func GetFieldDefs() []FieldDef {
 		},
 		{
 			Name:    "ct0",
+			EnvName: "TMD_CT0",
 			Prompt:  "enter ct0",
 			Default: "",
 			Getter:  func(c *Config) string { return c.Cookie.Ct0 },
@@ -104,6 +94,7 @@ func GetFieldDefs() []FieldDef {
 		},
 		{
 			Name:    "max_download_routine",
+			EnvName: "TMD_MAX_DOWNLOAD_ROUTINE",
 			Prompt:  "enter max download routine",
 			Default: strconv.Itoa(DefaultMaxDownloadRoutine()),
 			Getter: func(c *Config) string {
@@ -123,6 +114,7 @@ func GetFieldDefs() []FieldDef {
 		},
 		{
 			Name:    "max_file_name_len",
+			EnvName: "TMD_MAX_FILE_NAME_LEN",
 			Prompt:  fmt.Sprintf("enter max file name length (%d-%d)", MinFileNameLen, MaxFileNameLen),
 			Default: strconv.Itoa(utils.DefaultMaxFileNameLen),
 			Getter: func(c *Config) string {
@@ -142,6 +134,7 @@ func GetFieldDefs() []FieldDef {
 		},
 		{
 			Name:    "proxy_url",
+			EnvName: "TMD_PROXY_URL",
 			Prompt:  "enter proxy url (e.g., http://127.0.0.1:7897, leave empty for system proxy)",
 			Default: "",
 			Getter:  func(c *Config) string { return c.ProxyURL },
@@ -197,8 +190,8 @@ func normalizeRootPath(raw string) (string, error) {
 }
 
 func HasEnvOverrides() bool {
-	for _, binding := range envFieldBindings {
-		if strings.TrimSpace(os.Getenv(binding.envName)) != "" {
+	for _, field := range GetFieldDefs() {
+		if strings.TrimSpace(os.Getenv(field.EnvName)) != "" {
 			return true
 		}
 	}
@@ -210,26 +203,15 @@ func ApplyEnv(conf *Config) (bool, error) {
 		return false, fmt.Errorf("config is nil")
 	}
 
-	fieldDefs := GetFieldDefs()
-	fieldsByName := make(map[string]FieldDef, len(fieldDefs))
-	for _, field := range fieldDefs {
-		fieldsByName[field.Name] = field
-	}
-
 	next := *conf
 	applied := false
-	for _, binding := range envFieldBindings {
-		rawValue := strings.TrimSpace(os.Getenv(binding.envName))
+	for _, field := range GetFieldDefs() {
+		rawValue := strings.TrimSpace(os.Getenv(field.EnvName))
 		if rawValue == "" {
 			continue
 		}
-
-		field, ok := fieldsByName[binding.fieldName]
-		if !ok {
-			return false, fmt.Errorf("config field %q for %s is not registered", binding.fieldName, binding.envName)
-		}
 		if err := field.Setter(&next, rawValue); err != nil {
-			return false, fmt.Errorf("invalid %s: %w", binding.envName, err)
+			return false, fmt.Errorf("invalid %s: %w", field.EnvName, err)
 		}
 		applied = true
 	}

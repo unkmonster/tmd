@@ -13,8 +13,8 @@ import (
 
 func clearConfigEnv(t *testing.T) {
 	t.Helper()
-	for _, binding := range envFieldBindings {
-		t.Setenv(binding.envName, "")
+	for _, field := range GetFieldDefs() {
+		t.Setenv(field.EnvName, "")
 	}
 }
 
