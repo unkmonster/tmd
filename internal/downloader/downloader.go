@@ -3,9 +3,11 @@ package downloader
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"os"
 	"time"
 
+	"github.com/go-resty/resty/v2"
 	log "github.com/sirupsen/logrus"
 	"github.com/unkmonster/tmd/internal/utils"
 )
@@ -31,10 +33,12 @@ func waitRetryDelay(ctx context.Context, delay time.Duration) error {
 	}
 }
 
-// DefaultDownloader 默认下载器实现
+// DefaultDownloader 默认下载器实现，使用独立的 HTTP 客户端下载媒体文件，
+// 不携带 Twitter API 鉴权凭据，以避免敏感信息泄漏到 CDN 服务器。
 type DefaultDownloader struct {
-	fileWriter FileWriter
-	logger     log.FieldLogger
+	fileWriter    FileWriter
+	logger        log.FieldLogger
+	downloadClient *resty.Client // 专用于媒体文件下载的客户端，无 API 鉴权
 }
 
 func newHTTPStatusError(statusCode int, url string) error {
@@ -51,9 +55,28 @@ func isNonRetriableStatusError(err error) bool {
 // NewDownloader 创建下载器
 func NewDownloader(fileWriter FileWriter) *DefaultDownloader {
 	return &DefaultDownloader{
-		fileWriter: fileWriter,
-		logger:     log.StandardLogger(),
+		fileWriter:     fileWriter,
+		logger:         log.StandardLogger(),
+		downloadClient: newDownloadClient(),
 	}
+}
+
+// newDownloadClient 创建专用于媒体文件下载的 HTTP 客户端。
+// 与 Twitter API 客户端不同，该客户端：
+//   - 不携带任何鉴权凭据（无 Authorization、Cookie、X-Csrf-Token）
+//   - 使用对大文件下载友好的超时配置
+//   - 无重试逻辑（由 downloadStream 自行控制）
+//   - 无 Twitter API 错误检查钩子
+func newDownloadClient() *resty.Client {
+	c := resty.New()
+	c.SetTransport(&http.Transport{
+		MaxIdleConnsPerHost:   100,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ResponseHeaderTimeout: 30 * time.Second,
+		Proxy:                 http.ProxyFromEnvironment,
+	})
+	return c
 }
 
 // Download 下载单个文件
@@ -89,7 +112,7 @@ func (d *DefaultDownloader) Download(req DownloadRequest) (*DownloadResult, erro
 
 // getContentLength 通过 HEAD 请求获取文件大小
 func (d *DefaultDownloader) getContentLength(req DownloadRequest) (int64, error) {
-	headReq := req.Client.R().
+	headReq := d.downloadClient.R().
 		SetContext(req.Context).
 		SetDoNotParseResponse(true)
 
@@ -124,7 +147,7 @@ func (d *DefaultDownloader) getContentLength(req DownloadRequest) (int64, error)
 func (d *DefaultDownloader) downloadBuffer(req DownloadRequest) (*DownloadResult, error) {
 	result := &DownloadResult{}
 
-	r := req.Client.R().SetContext(req.Context)
+	r := d.downloadClient.R().SetContext(req.Context)
 	for k, v := range req.Options.QueryParams {
 		r = r.SetQueryParam(k, v)
 	}
@@ -231,7 +254,7 @@ func (d *DefaultDownloader) downloadStream(req DownloadRequest, contentLength in
 func (d *DefaultDownloader) doDownloadStream(req DownloadRequest, contentLength int64) (*DownloadResult, error) {
 	result := &DownloadResult{}
 
-	r := req.Client.R().
+	r := d.downloadClient.R().
 		SetContext(req.Context).
 		SetDoNotParseResponse(true) // 关键：不自动解析响应体
 

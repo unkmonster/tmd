@@ -27,12 +27,16 @@ var apiCounts sync.Map
 func SetClientAuth(client *resty.Client, authToken string, ct0 string) {
 	client.SetAuthToken(bearer)
 	client.SetCookie(&http.Cookie{
-		Name:  "auth_token",
-		Value: authToken,
+		Name:   "auth_token",
+		Value:  authToken,
+		Domain: ".x.com",
+		Path:   "/",
 	})
 	client.SetCookie(&http.Cookie{
-		Name:  "ct0",
-		Value: ct0,
+		Name:   "ct0",
+		Value:  ct0,
+		Domain: ".x.com",
+		Path:   "/",
 	})
 	client.SetHeader("X-Csrf-Token", ct0)
 }
@@ -428,7 +432,7 @@ func extractScreenNameFromHome(home []byte) string {
 }
 
 func GetSelfScreenName(ctx context.Context, client *resty.Client) (string, error) {
-	// 移除 Authorization 头，否则 401
+	// 首页请求不需要 Bearer token（否则 401），但 auth_token/ct0 Cookie 仍需要
 	client = client.Clone()
 	client.SetAuthToken("")
 

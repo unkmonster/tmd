@@ -228,6 +228,7 @@ func (s *Server) Start(port int) error {
 		Handler:      handler,
 		ReadTimeout:  30 * time.Second,
 		WriteTimeout: 30 * time.Second,
+		IdleTimeout:  60 * time.Second,
 	}
 
 	if sched := s.getScheduler(); sched != nil {
