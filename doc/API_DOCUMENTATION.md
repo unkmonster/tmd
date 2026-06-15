@@ -1238,7 +1238,7 @@ curl http://localhost:25556/api/v1/errors
 **请求：**
 
 ```http
-POST /api/v1/retry/failed
+POST /api/v1/errors/retry
 ```
 
 **响应：**
@@ -1259,7 +1259,7 @@ POST /api/v1/retry/failed
 **示例：**
 
 ```bash
-curl -X POST http://localhost:25556/api/v1/retry/failed
+curl -X POST http://localhost:25556/api/v1/errors/retry
 ```
 
 #### 清除失败推文记录
@@ -3611,7 +3611,7 @@ TASK_ID=$(curl -s -X POST http://localhost:25556/api/v1/lists/123456789/download
 | `/api/v1/logs/export`                     | GET  | 导出完整日志文件 |
 | `/api/v1/server/shutdown`                 | POST | 优雅关闭服务器        |
 | `/api/v1/errors`                          | GET  | 失败推文摘要 |
-| `/api/v1/retry/failed`                    | POST | 重试所有历史失败推文 |
+| `/api/v1/errors/retry`                    | POST | 重试所有历史失败推文 |
 | `/api/v1/errors`                          | DELETE | 清除所有失败推文记录 |
 
 ### 调度器 API

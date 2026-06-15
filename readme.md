@@ -496,7 +496,7 @@ tmd -server -port 8080
 | **PATCH** | `/api/v1/schedules/{id}/enabled` | 启用/禁用定时任务 | ❌ |
 | **POST** | `/api/v1/schedules/{id}/trigger` | 手动触发定时任务 | ❌ |
 | **GET** | `/api/v1/errors` | 失败推文摘要（含常规+JSON来源） | ❌ |
-| **POST** | `/api/v1/retry/failed` | 重试所有历史失败推文 | ❌ |
+| **POST** | `/api/v1/errors/retry` | 重试所有历史失败推文 | ❌ |
 | **DELETE** | `/api/v1/errors` | 清除所有失败推文记录 | ❌ |
 | **GET** | `/api/v1/queue/status` | 下载队列状态（待处理/活跃/分离） | ❌ |
 | **GET** | `/` | Web 管理界面 - 仪表盘 | ❌ |
@@ -654,7 +654,7 @@ curl -X POST http://localhost:25556/api/v1/batch/mark \
   -d '{"users": ["elonmusk", "twitter"]}'
 
 # 7. 重试所有失败推文
-curl -X POST http://localhost:25556/api/v1/retry/failed
+curl -X POST http://localhost:25556/api/v1/errors/retry
 
 # 8. 查看失败推文摘要
 curl http://localhost:25556/api/v1/errors

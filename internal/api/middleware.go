@@ -58,3 +58,13 @@ func loggingMiddleware(next http.Handler) http.Handler {
 		log.Infof("[%s] %s %s %d (%v)", r.Method, r.URL.Path, r.RemoteAddr, rr.statusCode, time.Since(start))
 	})
 }
+
+// securityHeadersMiddleware 安全响应头中间件
+func securityHeadersMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("X-Frame-Options", "SAMEORIGIN")
+		w.Header().Set("Referrer-Policy", "same-origin")
+		next.ServeHTTP(w, r)
+	})
+}

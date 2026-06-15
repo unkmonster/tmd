@@ -121,7 +121,7 @@ func (s *Server) buildHandler() http.Handler {
 	mux.HandleFunc("POST /api/v1/tasks/{task_id}/retry", s.handleRetryTask)
 	mux.HandleFunc("DELETE /api/v1/tasks/{task_id}", s.handleDeleteTask)
 	mux.HandleFunc("GET /api/v1/errors", s.handleErrors)
-	mux.HandleFunc("POST /api/v1/retry/failed", s.handleRetryAllFailed)
+	mux.HandleFunc("POST /api/v1/errors/retry", s.handleRetryAllFailed)
 	mux.HandleFunc("DELETE /api/v1/errors", s.handleClearErrors)
 
 	mux.HandleFunc("GET /{$}", s.handleWeb)
@@ -202,7 +202,7 @@ func (s *Server) buildHandler() http.Handler {
 	handler = cors.New(cors.Options{
 		AllowedOrigins: []string{"*"},
 		AllowedMethods: []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
-		AllowedHeaders: []string{"Content-Type", "Authorization"},
+		AllowedHeaders: []string{"Content-Type"},
 	}).Handler(handler)
 
 	// API 版本头中间件：在所有响应中添加 API-Version 头，为未来版本迁移预留
@@ -213,6 +213,7 @@ func (s *Server) buildHandler() http.Handler {
 	})
 
 	handler = loggingMiddleware(handler)
+	handler = securityHeadersMiddleware(handler)
 	return handler
 }
 
@@ -224,11 +225,10 @@ func (s *Server) Start(port int) error {
 	log.Infof("Visit %s to get started", color.FgLightBlue.Render(fmt.Sprintf("http://localhost%s/", addr)))
 
 	s.httpServer = &http.Server{
-		Addr:         addr,
-		Handler:      handler,
-		ReadTimeout:  30 * time.Second,
-		WriteTimeout: 30 * time.Second,
-		IdleTimeout:  60 * time.Second,
+		Addr:        addr,
+		Handler:     handler,
+		ReadTimeout: 30 * time.Second,
+		IdleTimeout: 60 * time.Second,
 	}
 
 	if sched := s.getScheduler(); sched != nil {

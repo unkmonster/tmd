@@ -76,6 +76,7 @@ const store = {
     sidebarOpen: false,
     isMobile: window.innerWidth < 768,
     sseConnected: false,
+    queueStatus: null,
     dataSubPage: 'users',
     taskFilter: 'all',
     taskSearch: '',
@@ -603,6 +604,13 @@ const pages = {
           <div class="stat-content">
             <div class="stat-value" data-overview-stat="completed">${taskStats.completed}</div>
             <div class="stat-label">已完成任务</div>
+          </div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon" style="color: var(--warning);">⚡</div>
+          <div class="stat-content">
+            <div class="stat-value" data-overview-stat="queue-depth">${store.state.queueStatus ? store.state.queueStatus.queue_depth : '-'}</div>
+            <div class="stat-label">队列深度 <span style="font-size:11px;color:var(--text-tertiary);" data-overview-stat="queue-detail">${store.state.queueStatus ? `活跃:${store.state.queueStatus.active_jobs} 排队:${store.state.queueStatus.pending_jobs} 孤儿:${store.state.queueStatus.detached_jobs}` : '-'}</span></div>
           </div>
         </div>
       </div>
@@ -3906,7 +3914,7 @@ function startLogStream() {
     // 挂载日志容器的滚动监听
     attachLogScrollListener();
   };
-  conn.onmessage = (e) => {
+  conn.addEventListener('log', (e) => {
     const line = e.data || '';
     if (!line) return;
     const logs = [line, ...store.state.logs].slice(0, 1000);
@@ -3920,7 +3928,7 @@ function startLogStream() {
         el.scrollTop = 0;
       }
     }, 0);
-  };
+  });
   conn.onerror = () => {
     _state._pendingLogStreamConn = null;
     _state._logStreamConnecting = false;
@@ -4340,11 +4348,6 @@ async function init() {
       tasks: store.state.tasks.length > 0 ? store.state.tasks : (tasks.tasks || []),
     });
 
-    // 单独加载配置，失败不阻塞初始化
-    try {
-      await api.getConfig();
-    } catch (_) {}
-
     await refreshDBData();
 
   } catch (err) {
@@ -4356,6 +4359,7 @@ async function init() {
   }
 
   render();
+  fetchQueueStatus();
 }
 
 // Event Listeners
@@ -4583,6 +4587,7 @@ function syncOverviewPage(state) {
     _state.lastTasksJson = tasksJson;
     updateOverviewTasksUI(state.tasks);
   }
+  fetchQueueStatus();
 }
 
 store.subscribe((state) => {
@@ -4621,6 +4626,31 @@ function updateOverviewStatsUI(tasks) {
 
   const completedStat = document.querySelector('[data-overview-stat="completed"]');
   if (completedStat) completedStat.textContent = taskStats.completed;
+
+  updateQueueStatusUI();
+}
+
+function updateQueueStatusUI() {
+  const qs = store.state.queueStatus;
+  if (!qs) return;
+  const depthEl = document.querySelector('[data-overview-stat="queue-depth"]');
+  if (depthEl) depthEl.textContent = qs.queue_depth;
+  const detailEl = document.querySelector('[data-overview-stat="queue-detail"]');
+  if (detailEl) detailEl.textContent = `活跃:${qs.active_jobs} 排队:${qs.pending_jobs} 孤儿:${qs.detached_jobs}`;
+}
+
+let _lastQueueFetch = 0;
+async function fetchQueueStatus() {
+  const now = Date.now();
+  if (now - _lastQueueFetch < 3000) return;
+  _lastQueueFetch = now;
+  try {
+    const data = await api.getQueueStatus();
+    store.state.queueStatus = data;
+    updateQueueStatusUI();
+  } catch (e) {
+    // 静默失败，下次 sync 重试
+  }
 }
 
 // Update overview page recent tasks without full re-render

@@ -20,6 +20,10 @@ func (s *Server) handleLogStream(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Accel-Buffering", "no")
 
 	levelStr := r.URL.Query().Get("level")
+	if levelStr != "" && !isValidLogLevel(levelStr) {
+		s.writeError(w, http.StatusBadRequest, "Invalid log level: "+levelStr)
+		return
+	}
 	search := r.URL.Query().Get("q")
 	ctx := r.Context()
 	ch, unsubscribe := s.logHub.Subscribe()
@@ -61,6 +65,9 @@ func (s *Server) handleLogStream(w http.ResponseWriter, r *http.Request) {
 }
 
 func writeSSEData(w http.ResponseWriter, line string) error {
+	if _, err := fmt.Fprint(w, "event: log\n"); err != nil {
+		return err
+	}
 	for _, part := range strings.Split(line, "\n") {
 		if _, err := fmt.Fprintf(w, "data: %s\n", strings.TrimSuffix(part, "\r")); err != nil {
 			return err

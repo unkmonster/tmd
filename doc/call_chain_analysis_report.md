@@ -84,7 +84,7 @@
 | `/api/v1/server/shutdown` | POST | `handleServerShutdown` | 关闭服务器 |
 | `/api/v1/sse/tasks` | GET | `handleSSETasks` | 任务实时推送(SSE) |
 | `/api/v1/errors` | GET | `handleErrors` | 失败推文摘要 |
-| `/api/v1/retry/failed` | POST | `handleRetryAllFailed` | 重试所有失败推文 |
+| `/api/v1/errors/retry` | POST | `handleRetryAllFailed` | 重试所有失败推文 |
 | `/api/v1/errors` | DELETE | `handleClearErrors` | 清除失败推文记录 |
 
 ### 1.8 静态资源端点 (handlers.go)

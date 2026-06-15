@@ -2771,7 +2771,7 @@ func TestHandleRetryAllFailed(t *testing.T) {
 	server, db := setupTestServer(t)
 	defer db.Close()
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/retry/failed", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/errors/retry", nil)
 	rr := serveAPI(server, req)
 
 	assert.Equal(t, http.StatusAccepted, rr.Code)

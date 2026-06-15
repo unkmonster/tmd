@@ -1076,7 +1076,7 @@ func (s *Server) buildTaskRunFunc(task *Task) (func(ctx context.Context, taskID 
 
 func (s *Server) handleRetryAllFailed(w http.ResponseWriter, r *http.Request) {
 	// 作为任务创建并入队，与批量下载模式一致
-	task := s.taskManager.CreateTask(TaskTypeUserDownload, &UserDownloadTaskData{ScreenName: "_retry_all"})
+	task := s.taskManager.CreateTask(TaskTypeRetryAllFailed, nil)
 	taskID := task.ID
 
 	s.enqueueTask(task, func(ctx context.Context, taskID string, reporter service.ProgressReporter) error {

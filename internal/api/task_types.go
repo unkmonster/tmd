@@ -53,6 +53,7 @@ const (
 	TaskTypeJsonFolderDownload TaskType = "json_folder_download"
 	TaskTypeBatchDownload      TaskType = "batch_download"
 	TaskTypeListProfile        TaskType = "list_profile"
+	TaskTypeRetryAllFailed     TaskType = "retry_all_failed"
 )
 
 // Task 任务
@@ -119,6 +120,8 @@ func taskTypeName(t TaskType) string {
 		return "Batch Download"
 	case TaskTypeListProfile:
 		return "List Profile"
+	case TaskTypeRetryAllFailed:
+		return "Retry All Failed"
 	default:
 		return string(t)
 	}

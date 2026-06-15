@@ -184,8 +184,16 @@ func logLevelPrefix(level string) string {
 	case "error":
 		return "ERRO"
 	default:
-		return strings.ToUpper(level)
+		return ""
 	}
+}
+
+func isValidLogLevel(level string) bool {
+	switch level {
+	case "debug", "info", "warn", "warning", "error", "all":
+		return true
+	}
+	return false
 }
 
 
