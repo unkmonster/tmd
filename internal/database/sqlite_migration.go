@@ -37,6 +37,14 @@ func migrateExistingDatabase(path string) error {
 		return fmt.Errorf("failed to back up database %q before migration: %w", path, err)
 	}
 
+	// 迁移过程中清理备份；成功后保留作为最终安全网
+	removeBackup := true
+	defer func() {
+		if removeBackup {
+			removeSQLiteFiles(backupPath)
+		}
+	}()
+
 	sourceDB, err = openSQLiteFile(backupPath, false)
 	if err != nil {
 		return fmt.Errorf("database %q requires migration but backup %q cannot be opened with %s: %w", path, backupPath, DriverName, err)
@@ -80,6 +88,8 @@ func migrateExistingDatabase(path string) error {
 	if err := replaceSQLiteFiles(path, tempPath); err != nil {
 		return fmt.Errorf("failed to replace database %q with migrated copy %q: %w", path, tempPath, err)
 	}
+
+	removeBackup = false
 	return nil
 }
 

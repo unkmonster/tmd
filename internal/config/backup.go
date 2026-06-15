@@ -1,4 +1,4 @@
-package api
+package config
 
 import (
 	"fmt"
@@ -7,6 +7,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	log "github.com/sirupsen/logrus"
 )
 
 const (
@@ -14,7 +16,11 @@ const (
 	maxConfigBackupCount = 10
 )
 
-func createBackup(filePath string) (string, error) {
+// CreateBackup 在源文件同级的 backups/ 子目录下创建带纳秒时间戳的备份。
+// 返回相对于源文件目录的备份路径（如 "backups/conf.yaml.backup.123456789"）。
+// 文件不存在时返回 ("", nil)，不视为错误。
+// 创建后自动修剪旧备份，保留最近 maxConfigBackupCount 份。
+func CreateBackup(filePath string) (string, error) {
 	data, err := os.ReadFile(filePath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -34,16 +40,17 @@ func createBackup(filePath string) (string, error) {
 		return "", err
 	}
 
-	if err := pruneConfigBackups(backupDir); err != nil {
-		return filepath.Join(backupDirName, backupName), err
-	}
+	pruneConfigBackups(backupDir)
 	return filepath.Join(backupDirName, backupName), nil
 }
 
-func pruneConfigBackups(backupDir string) error {
+// pruneConfigBackups 修剪 backups/ 目录中的旧备份，仅保留最近 maxConfigBackupCount 份。
+// 文件名中的纳秒时间戳天然有序，按名排序即可。
+func pruneConfigBackups(backupDir string) {
 	entries, err := os.ReadDir(backupDir)
 	if err != nil {
-		return err
+		log.Warnf("Failed to list backup directory %q: %v", backupDir, err)
+		return
 	}
 
 	backups := make([]os.DirEntry, 0)
@@ -54,25 +61,16 @@ func pruneConfigBackups(backupDir string) error {
 		backups = append(backups, entry)
 	}
 	if len(backups) <= maxConfigBackupCount {
-		return nil
+		return
 	}
 
 	sort.Slice(backups, func(i, j int) bool {
-		left, leftErr := backups[i].Info()
-		right, rightErr := backups[j].Info()
-		if leftErr != nil || rightErr != nil {
-			return backups[i].Name() < backups[j].Name()
-		}
-		if left.ModTime().Equal(right.ModTime()) {
-			return backups[i].Name() < backups[j].Name()
-		}
-		return left.ModTime().Before(right.ModTime())
+		return backups[i].Name() < backups[j].Name()
 	})
 
 	for _, entry := range backups[:len(backups)-maxConfigBackupCount] {
 		if err := os.Remove(filepath.Join(backupDir, entry.Name())); err != nil && !os.IsNotExist(err) {
-			return err
+			log.Warnf("Failed to remove stale backup %q: %v", entry.Name(), err)
 		}
 	}
-	return nil
 }

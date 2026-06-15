@@ -1,4 +1,4 @@
-package api
+package config
 
 import (
 	"os"
@@ -17,9 +17,9 @@ func TestCreateBackupWritesToSharedBackupDir(t *testing.T) {
 	require.NoError(t, os.WriteFile(confPath, []byte("root_path: old"), 0600))
 	require.NoError(t, os.WriteFile(cookiesPath, []byte("- auth_token: old"), 0600))
 
-	confBackup, err := createBackup(confPath)
+	confBackup, err := CreateBackup(confPath)
 	require.NoError(t, err)
-	cookiesBackup, err := createBackup(cookiesPath)
+	cookiesBackup, err := CreateBackup(cookiesPath)
 	require.NoError(t, err)
 
 	assert.True(t, strings.HasPrefix(confBackup, backupDirName+string(filepath.Separator)))
@@ -35,12 +35,12 @@ func TestCreateBackupKeepsLatestTenInSharedBackupDir(t *testing.T) {
 
 	for i := 0; i < maxConfigBackupCount+3; i++ {
 		require.NoError(t, os.WriteFile(confPath, []byte{byte(i)}, 0600))
-		_, err := createBackup(confPath)
+		_, err := CreateBackup(confPath)
 		require.NoError(t, err)
 	}
 	for i := 0; i < 2; i++ {
 		require.NoError(t, os.WriteFile(cookiesPath, []byte{byte(i)}, 0600))
-		_, err := createBackup(cookiesPath)
+		_, err := CreateBackup(cookiesPath)
 		require.NoError(t, err)
 	}
 
@@ -58,7 +58,7 @@ func TestCreateBackupKeepsLatestTenInSharedBackupDir(t *testing.T) {
 }
 
 func TestCreateBackupMissingSourceIsNoop(t *testing.T) {
-	backupName, err := createBackup(filepath.Join(t.TempDir(), "missing.yaml"))
+	backupName, err := CreateBackup(filepath.Join(t.TempDir(), "missing.yaml"))
 
 	require.NoError(t, err)
 	assert.Empty(t, backupName)

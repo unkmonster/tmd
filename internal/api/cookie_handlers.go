@@ -67,7 +67,7 @@ func (s *Server) handleUpdateCookiesRaw(w http.ResponseWriter, r *http.Request) 
 
 	cookiesPath := filepath.Join(s.appRootPath, "additional_cookies.yaml")
 
-	backupName, err := createBackup(cookiesPath)
+	backupName, err := config.CreateBackup(cookiesPath)
 	if err != nil {
 		log.Warnf("Failed to create cookies backup: %v", err)
 	}
@@ -162,7 +162,7 @@ func (s *Server) handleSaveCookies(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	backupName, err := createBackup(cookiesPath)
+	backupName, err := config.CreateBackup(cookiesPath)
 	if err != nil {
 		log.Warnf("Failed to create cookies backup: %v", err)
 	}

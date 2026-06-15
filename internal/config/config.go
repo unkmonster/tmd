@@ -11,7 +11,6 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
-	"time"
 
 	log "github.com/sirupsen/logrus"
 	"github.com/unkmonster/tmd/internal/utils"
@@ -353,7 +352,7 @@ func PromptConfig(saveto string) (*Config, error) {
 		}
 	}
 
-	if err := backupConf(saveto); err != nil {
+	if _, err := CreateBackup(saveto); err != nil {
 		log.Warnf("Failed to backup config: %v", err)
 	}
 
@@ -402,16 +401,6 @@ func loadStartupConfig(path string, prompt bool, stderr io.Writer, promptFn func
 
 	result.Config = conf
 	return result, nil
-}
-
-// backupConf 备份现有配置文件（与 API 模式一致）
-func backupConf(confPath string) error {
-	data, err := os.ReadFile(confPath)
-	if err != nil {
-		return nil
-	}
-	backupPath := confPath + ".backup." + strconv.FormatInt(time.Now().Unix(), 10)
-	return os.WriteFile(backupPath, data, 0600)
 }
 
 func ReadAdditionalCookies(path string) ([]*Cookie, error) {

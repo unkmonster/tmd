@@ -80,7 +80,7 @@ func (s *Server) handleUpdateConfigRaw(w http.ResponseWriter, r *http.Request) {
 
 	confPath := filepath.Join(s.appRootPath, "conf.yaml")
 
-	backupName, err := createBackup(confPath)
+	backupName, err := config.CreateBackup(confPath)
 	if err != nil {
 		log.Warnf("Failed to create config backup: %v", err)
 	}
@@ -243,7 +243,7 @@ func (s *Server) handleSaveConfigFields(w http.ResponseWriter, r *http.Request) 
 
 	confPath := filepath.Join(s.appRootPath, "conf.yaml")
 
-	backupName, err := createBackup(confPath)
+	backupName, err := config.CreateBackup(confPath)
 	if err != nil {
 		log.Warnf("Failed to create config backup: %v", err)
 	}
