@@ -4473,7 +4473,7 @@ function syncSystemPage(state, tasksChanged) {
   }
 
   const configPanelShouldRebuild = state.configMode === 'raw'
-    ? (configRawChanged || configModeChanged || configSavingChanged)
+    ? (configModeChanged || configSavingChanged)
     : (configRawChanged || configFieldsChanged || configFieldsLoadingChanged || configSavingChanged || configModeChanged);
   if (configPanelShouldRebuild) {
     _state.lastConfigRaw = state.configRaw;
@@ -4489,9 +4489,15 @@ function syncSystemPage(state, tasksChanged) {
       () => state.configMode === 'raw' ? getEditorValue(_state.configCodeMirror, null) : null,
       (val) => { if (val !== null && _state.configCodeMirror) setEditorValue(_state.configCodeMirror, val); }
     );
+  } else if (configRawChanged && state.configMode === 'raw' && _state.configCodeMirror) {
+    _state.lastConfigRaw = state.configRaw;
+    setEditorValue(_state.configCodeMirror, state.configRaw);
   }
 
-  if (cookiesChanged || cookiesModeChanged || cookiesRawChanged || cookiesSavingChanged) {
+  const cookiesPanelShouldRebuild = state.cookiesMode === 'raw'
+    ? (cookiesModeChanged || cookiesSavingChanged)
+    : (cookiesChanged || cookiesModeChanged || cookiesRawChanged || cookiesSavingChanged);
+  if (cookiesPanelShouldRebuild) {
     _state.lastCookieItemsJson = JSON.stringify(state.cookieItems);
     _state.lastCookiesMode = state.cookiesMode;
     _state.lastCookiesRaw = state.cookiesRaw;
@@ -4504,13 +4510,19 @@ function syncSystemPage(state, tasksChanged) {
       () => state.cookiesMode === 'raw' ? getEditorValue(_state.cookiesCodeMirror, null) : null,
       (val) => { if (val !== null && _state.cookiesCodeMirror) setEditorValue(_state.cookiesCodeMirror, val); }
     );
+  } else if (cookiesRawChanged && state.cookiesMode === 'raw' && _state.cookiesCodeMirror) {
+    _state.lastCookiesRaw = state.cookiesRaw;
+    setEditorValue(_state.cookiesCodeMirror, state.cookiesRaw);
   }
 
   const schedulePanelSchedulesChanged = state._scheduleTab !== 'form' && schedulesChanged;
   if (schedulesChanged && !schedulePanelSchedulesChanged) {
     _state.lastSchedulesJson = JSON.stringify(state._schedules);
   }
-  if (schedulePanelSchedulesChanged || scheduleRawChanged || scheduleExistsChanged || scheduleSavingChanged || scheduleTabChanged || scheduleFormItemsChanged) {
+  const schedulePanelShouldRebuild = state._scheduleTab === 'edit'
+    ? (scheduleTabChanged || scheduleSavingChanged || scheduleExistsChanged || schedulePanelSchedulesChanged || scheduleFormItemsChanged)
+    : (schedulePanelSchedulesChanged || scheduleRawChanged || scheduleExistsChanged || scheduleSavingChanged || scheduleTabChanged || scheduleFormItemsChanged);
+  if (schedulePanelShouldRebuild) {
     _state.lastSchedulesJson = JSON.stringify(state._schedules);
     _state.lastTasksJson = JSON.stringify(state.tasks);
     _state.lastScheduleRaw = state._scheduleRaw;
@@ -4526,6 +4538,9 @@ function syncSystemPage(state, tasksChanged) {
       () => state._scheduleTab === 'edit' ? getEditorValue(_state.scheduleCodeMirror, null) : null,
       (val) => { if (val !== null && _state.scheduleCodeMirror) setEditorValue(_state.scheduleCodeMirror, val); }
     );
+  } else if (scheduleRawChanged && state._scheduleTab === 'edit' && _state.scheduleCodeMirror) {
+    _state.lastScheduleRaw = state._scheduleRaw;
+    setEditorValue(_state.scheduleCodeMirror, state._scheduleRaw);
   }
 }
 
