@@ -76,7 +76,6 @@ const store = {
     sidebarOpen: false,
     isMobile: window.innerWidth < 768,
     sseConnected: false,
-    queueStatus: null,
     dataSubPage: 'users',
     taskFilter: 'all',
     taskSearch: '',
@@ -604,13 +603,6 @@ const pages = {
           <div class="stat-content">
             <div class="stat-value" data-overview-stat="completed">${taskStats.completed}</div>
             <div class="stat-label">已完成任务</div>
-          </div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-icon" style="color: var(--warning);">⚡</div>
-          <div class="stat-content">
-            <div class="stat-value" data-overview-stat="queue-depth">${store.state.queueStatus ? store.state.queueStatus.queue_depth : '-'}</div>
-            <div class="stat-label">队列深度 <span style="font-size:11px;color:var(--text-tertiary);" data-overview-stat="queue-detail">${store.state.queueStatus ? `活跃:${store.state.queueStatus.active_jobs} 排队:${store.state.queueStatus.pending_jobs} 孤儿:${store.state.queueStatus.detached_jobs}` : '-'}</span></div>
           </div>
         </div>
       </div>
@@ -2220,7 +2212,7 @@ async function showTaskDetail(id) {
     cancelled: 'rgba(110,118,129,0.1)'
   };
 
-  const statusText = statusMap[task.status] || task.status;
+  const statusText = statusMap[task.status] || escapeHtml(task.status);
   const statusColor = statusColors[task.status] || '#8b949e';
   const bgColor = bgColors[task.status] || 'rgba(139,148,158,0.1)';
   const pct = getTaskProgressPercent(task);
@@ -3900,6 +3892,7 @@ function buildLogStreamURL() {
 _state._logStreamConnecting = false;
 _state._pendingLogStreamConn = null;
 _state._logsPageLoaded = false;
+_state._logReconnectAttempts = 0;
 
 function startLogStream() {
   if (_state.logStreamConn || _state._logStreamConnecting || store.state.currentPage !== 'logs') return;
@@ -3911,6 +3904,7 @@ function startLogStream() {
     _state._pendingLogStreamConn = null;
     _state.logStreamConn = conn;
     _state._logStreamConnecting = false;
+    _state._logReconnectAttempts = 0;
     // 挂载日志容器的滚动监听
     attachLogScrollListener();
   };
@@ -3939,7 +3933,14 @@ function startLogStream() {
       conn.close();
     }
     if (store.state.logAutoRefresh && store.state.currentPage === 'logs') {
-      _state.logAutoRefreshTimer = setTimeout(() => { _state.logAutoRefreshTimer = null; startLogStream(); }, 2000);
+      _state._logReconnectAttempts++;
+      if (_state._logReconnectAttempts > 30) {
+        store.setState({ logAutoRefresh: false });
+        toast.show('日志流重连失败次数过多，已停止自动重连，请手动刷新', 'warning');
+        return;
+      }
+      const delay = Math.min(2000 * Math.pow(2, _state._logReconnectAttempts - 1), 30000);
+      _state.logAutoRefreshTimer = setTimeout(() => { _state.logAutoRefreshTimer = null; startLogStream(); }, delay);
     }
   };
 }
@@ -4359,7 +4360,6 @@ async function init() {
   }
 
   render();
-  fetchQueueStatus();
 }
 
 // Event Listeners
@@ -4587,7 +4587,6 @@ function syncOverviewPage(state) {
     _state.lastTasksJson = tasksJson;
     updateOverviewTasksUI(state.tasks);
   }
-  fetchQueueStatus();
 }
 
 store.subscribe((state) => {
@@ -4626,31 +4625,6 @@ function updateOverviewStatsUI(tasks) {
 
   const completedStat = document.querySelector('[data-overview-stat="completed"]');
   if (completedStat) completedStat.textContent = taskStats.completed;
-
-  updateQueueStatusUI();
-}
-
-function updateQueueStatusUI() {
-  const qs = store.state.queueStatus;
-  if (!qs) return;
-  const depthEl = document.querySelector('[data-overview-stat="queue-depth"]');
-  if (depthEl) depthEl.textContent = qs.queue_depth;
-  const detailEl = document.querySelector('[data-overview-stat="queue-detail"]');
-  if (detailEl) detailEl.textContent = `活跃:${qs.active_jobs} 排队:${qs.pending_jobs} 孤儿:${qs.detached_jobs}`;
-}
-
-let _lastQueueFetch = 0;
-async function fetchQueueStatus() {
-  const now = Date.now();
-  if (now - _lastQueueFetch < 3000) return;
-  _lastQueueFetch = now;
-  try {
-    const data = await api.getQueueStatus();
-    store.state.queueStatus = data;
-    updateQueueStatusUI();
-  } catch (e) {
-    // 静默失败，下次 sync 重试
-  }
 }
 
 // Update overview page recent tasks without full re-render
