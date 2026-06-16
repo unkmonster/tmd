@@ -351,6 +351,10 @@ func (sc *Scheduler) triggerEntry(index int, entry ScheduleEntry) (taskID string
 
 	var released bool
 	defer func() {
+		// 安全网：确保 Triggering 被释放
+		if !released {
+			sc.releaseTriggeringLocked(index, gen)
+		}
 		if r := recover(); r != nil {
 			if !released {
 				now := time.Now()
@@ -360,6 +364,7 @@ func (sc *Scheduler) triggerEntry(index int, entry ScheduleEntry) (taskID string
 					status.LastError = fmt.Sprintf("panic: %v", r)
 					status.ConsecutiveFailures++
 				})
+				released = true
 			}
 			panic(r)
 		}
@@ -367,31 +372,31 @@ func (sc *Scheduler) triggerEntry(index int, entry ScheduleEntry) (taskID string
 
 	taskID = sc.downloadFunc(entry)
 	if taskID == "" {
-		if !sc.releaseAndUpdateStatus(index, entry, gen, func(status *ScheduleStatus) {
+		released = sc.releaseAndUpdateStatus(index, entry, gen, func(status *ScheduleStatus) {
 			now := time.Now()
 			status.LastRunAt = &now
 			status.RunCount++
 			status.LastError = "download function returned empty task_id"
 			status.ConsecutiveFailures++
-		}) {
+		})
+		if !released {
 			log.Warnf("[scheduler] triggerEntry[%d]: status update rejected for empty-task_id failure on entry %q", index, entry.Name)
 		}
-		released = true
 		log.Warnf("[scheduler] Manual trigger failed [%s]: target=%s name=%q (empty task_id)", entry.Type, entry.Target, entry.Name)
 		return "", fmt.Errorf("download function returned empty task_id")
 	}
 
-	if !sc.releaseAndUpdateStatus(index, entry, gen, func(status *ScheduleStatus) {
+	released = sc.releaseAndUpdateStatus(index, entry, gen, func(status *ScheduleStatus) {
 		now := time.Now()
 		status.LastRunAt = &now
 		status.LastTaskID = taskID
 		status.LastError = ""
 		status.RunCount++
 		status.ConsecutiveFailures = 0
-	}) {
+	})
+	if !released {
 		log.Warnf("[scheduler] triggerEntry[%d]: status update rejected for successful trigger on entry %q (task_id=%s)", index, entry.Name, taskID)
 	}
-	released = true
 
 	log.Infof("[scheduler] Manual trigger [%s]: target=%s name=%q task_id=%s", entry.Type, entry.Target, entry.Name, taskID)
 	return taskID, nil
@@ -518,7 +523,13 @@ func (sc *Scheduler) execute(idx int, entry ScheduleEntry, gen int64) {
 	}
 
 	var taskID string
+	var released bool
 	defer func() {
+		// 确保 Triggering 被释放：无论 panic、generation 变更还是其他原因，
+		// releaseAndUpdateStatus 都可能跳过清理。这里作为安全网兜底。
+		if !released {
+			sc.releaseTriggeringLocked(idx, acquiredGen)
+		}
 		if r := recover(); r != nil {
 			log.Errorf("[scheduler] execute[%d]: panic in downloadFunc for entry %q: %v", idx, entry.Name, r)
 			now := time.Now()
@@ -528,12 +539,13 @@ func (sc *Scheduler) execute(idx int, entry ScheduleEntry, gen int64) {
 				status.LastError = fmt.Sprintf("panic: %v", r)
 				status.ConsecutiveFailures++
 			})
+			released = true
 		}
 	}()
 
 	taskID = sc.downloadFunc(entry)
 
-	if !sc.releaseAndUpdateStatus(idx, entry, acquiredGen, func(status *ScheduleStatus) {
+	released = sc.releaseAndUpdateStatus(idx, entry, acquiredGen, func(status *ScheduleStatus) {
 		now := time.Now()
 		status.LastRunAt = &now
 		status.RunCount++
@@ -545,7 +557,8 @@ func (sc *Scheduler) execute(idx int, entry ScheduleEntry, gen int64) {
 			status.LastError = "download function returned empty task_id"
 			status.ConsecutiveFailures++
 		}
-	}) {
+	})
+	if !released {
 		log.Warnf("[scheduler] execute[%d]: status update rejected for entry %q (reloaded?), task_id=%s", idx, entry.Name, taskID)
 	}
 
@@ -617,6 +630,17 @@ func (sc *Scheduler) releaseAndUpdateStatus(idx int, entry ScheduleEntry, gen in
 
 	notifyStatusChange(callback, statuses)
 	return true
+}
+
+// releaseTriggeringLocked 无条件清除 Triggering 标志，作为 releaseAndUpdateStatus
+// 因 generation/ID 校验失败而跳过清理时的安全网。
+// 仅在当前 generation 与获取时一致时执行，避免误清 reload 后新 goroutine 设置的标志。
+func (sc *Scheduler) releaseTriggeringLocked(idx int, acquiredGen int64) {
+	sc.mu.Lock()
+	if sc.generation == acquiredGen && idx >= 0 && idx < len(sc.statuses) {
+		sc.statuses[idx].Triggering = false
+	}
+	sc.mu.Unlock()
 }
 
 func (sc *Scheduler) applyConfig(entries []ScheduleEntry, parsed []*ParsedSchedule, statuses []ScheduleStatus) {
