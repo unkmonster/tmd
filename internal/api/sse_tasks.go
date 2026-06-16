@@ -112,10 +112,14 @@ func (s *Server) writeSSENamedEvent(w http.ResponseWriter, flusher http.Flusher,
 }
 
 func (s *Server) writeSSEEvent(w http.ResponseWriter, flusher http.Flusher, evt SSEEvent) error {
-	jsonData, err := json.Marshal(evt.Data)
-	if err != nil {
-		log.Warnf("[SSE] Failed to marshal event %s: %v", evt.Event, err)
-		return err
+	jsonData := evt.Raw
+	if jsonData == nil {
+		var err error
+		jsonData, err = json.Marshal(evt.Data)
+		if err != nil {
+			log.Warnf("[SSE] Failed to marshal event %s: %v", evt.Event, err)
+			return err
+		}
 	}
 	return writeSSEFrame(w, flusher, func() error {
 		if evt.ID > 0 {

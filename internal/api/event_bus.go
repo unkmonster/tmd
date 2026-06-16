@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/json"
 	"sync"
 
 	log "github.com/sirupsen/logrus"
@@ -15,7 +16,8 @@ var replayableSSEEvents = []string{"notification", "server_shutdown"}
 type SSEEvent struct {
 	ID    uint64
 	Event string
-	Data  interface{}
+	Data  interface{} // 保留原始数据用于 replay
+	Raw   []byte      // 预序列化的 JSON 字节缓存，避免对 N 个订阅者重复序列化
 }
 
 type eventSubscriber struct {
@@ -216,9 +218,16 @@ func (b *EventBus) copyReplayAfterLocked(lastEventID uint64) []SSEEvent {
 }
 
 func (b *EventBus) Publish(event string, data interface{}) {
+	// 预序列化：一份 JSON 字节切片供所有订阅者共享，避免 N 个订阅者重复 json.Marshal
+	raw, err := json.Marshal(data)
+	if err != nil {
+		log.Warnf("[SSE] Failed to marshal event %s: %v", event, err)
+		return
+	}
+
 	b.mu.Lock()
 	b.nextEventID++
-	evt := SSEEvent{ID: b.nextEventID, Event: event, Data: data}
+	evt := SSEEvent{ID: b.nextEventID, Event: event, Data: data, Raw: raw}
 	if isReplayableSSEEvent(event) {
 		if len(b.replayHistory) == eventBusReplayLimit {
 			copy(b.replayHistory, b.replayHistory[1:])
