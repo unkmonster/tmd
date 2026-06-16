@@ -7,6 +7,80 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ***
 
+## [v3.4.22] - 2026-06-17
+
+### Added
+
+#### SSE 性能优化：预序列化 JSON 事件缓存
+- `internal/api/event_bus.go`:
+  - `SSEEvent` 新增 `Raw []byte` 字段，在 `Publish` 时预序列化一次，所有订阅者共享同一份 JSON 字节切片
+  - 修复「N 个订阅者 → N 次 `json.Marshal`」的重复序列化问题
+- `internal/api/sse_tasks.go`:
+  - `writeSSEEvent()` 优先使用 `evt.Raw`，无缓存时回退到 `json.Marshal`
+
+#### DB 字段校验：Name 和 ScreenName 防空/防超长
+- `internal/api/db_handlers.go`:
+  - 新增 `validateFieldName()` — 拒绝空串和超过 250 字符的 Name
+  - 新增 `validateScreenName()` — 复用 `utils.IsValidScreenName`，校验 1-15 字符格式
+  - 应用于 5 个 PATCH 端点：`/db/users/{id}`、`/db/lists/{id}`、`/db/entities/{id}`、`/db/list-entities/{id}`、`/db/user-links/{id}`
+- `internal/api/db_handlers_test.go` — 新增 `TestHandleDBUserUpdate_RejectsEmptyStrings`
+
+### Changed
+
+#### 配置指针解耦
+- `internal/api/server.go`:
+  - `NewServerWithConsoleLogHub()` 中 `service.Dependencies.Config` 改为持有 `*config.Config` 的值拷贝，不再与 `Server.config` 共享指针
+  - 消除配置热更新在运行时组件间"部分生效"的不一致问题
+
+#### MaxDownloadRoutine 上限保护
+- `internal/config/config.go`:
+  - 新增常量 `MaxDownloadRoutine = 100`
+  - `GetFieldDefs()` setter 拒绝 n&lt;1 或 n&gt;100 的输入
+  - `NormalizeLoadedConf()` 将负数归零、超大值截断到上限
+
+#### 表单 API 防御性校验
+- `internal/api/config_handlers.go`:
+  - 新增 `isMaskedValue()` 函数，检测 `maskSensitive` 输出的占位文本（`"abc•••xyz"` 或 `"***"`）
+  - `handleSaveConfigFields()` 中拒绝掩码值写入配置
+- `internal/api/cookie_handlers.go`:
+  - `resolveCookieSaveValue()` 新增掩码值检测
+
+#### 调度器 Triggering 标志释放安全网
+- `internal/scheduler/scheduler.go`:
+  - `execute()` 和 `triggerEntry()` 的 defer 重构，panic 路径与正常路径互斥
+  - 新增 `releaseTriggeringLocked()` 方法，仅在同 `generation` 时强制释放 Triggering
+  - 防止 `releaseAndUpdateStatus` 因 generation/ID 校验失败跳过清理
+
+#### 代码审计修复
+- `internal/api/download_handlers.go` — `cleanupUploadDirAfterTask` 的 defer 改为命名返回值，panic 时 `log.Errorf` + 返回错误
+- `internal/twitter/client.go` — `apiCounts.LoadOrStore` 和 `Range` 中类型断言加 `ok` 检查
+- `internal/twitter/client.go` — Twitter API client 新增 `SetTimeout(15s)`
+- `internal/downloader/downloader.go` — 媒体下载 client 新增 `SetTimeout(5m)`
+- `internal/twitter/tweet.go` — `parseUserResults` 错误改为 `log.Debugf` 记录而非静默丢弃
+
+### Fixed
+
+- **配置指针共享**（Bug 8）：`Server.config` 与 `service.Dependencies.Config` 共享同一指针，配置热更新后部分组件生效、部分不生效。修复：`Dependencies.Config` 持有值拷贝，隔离热更新影响
+- **表单 API Cookie 更新**（Bug 10）：`maskSensitive` 输出的掩码值可被误写入配置，导致认证失败。修复：后端增加 `isMaskedValue` 检测
+- **MaxDownloadRoutine 无上限**（Bug #6）：可设为 `math.MaxInt` 导致 OOM。修复：Setter 拒绝 &gt;100 的值，`NormalizeLoadedConf` 截断到上限
+- **MediaCount NULL 混淆**（Bug #7）：`MediaCount()` 直接返回 `.Int32` 不检查 `.Valid`，NULL 被当作 0。修复：`.Valid` 检查 + `MediaCountValid()`；调用方据此区分未知
+- **Dumper count-- 下溢**（Bug #11）：`count--` 无下溢保护。修复：前加 `> 0` 检查
+- **parseTwitterDate 回退为 time.Now()**（Bug #12）：空/无效日期返回 `time.Now()`，文件 mtime 被设为当前时间。修复：返回固定零值 `2000-01-01`
+- **调度器 Triggering 永久锁定**（Bug 2）：generation 变更后 `releaseAndUpdateStatus` 返回 false，Triggering 永不释放。修复：新增 `releaseTriggeringLocked` 安全网
+- **BatchDownloadTweet context 泄漏**：`context.WithCancelCause` 的 cancel 只在 `ENOSPC` 路径被调用。修复：`defer cancel(nil)`
+- **DownloadFromLoongTweetFolder 无并发限制**：每个 `folderPath` 直接 `go func()`。修复：复用信号量模式
+- **detachJob 关闭时资源泄漏**：关闭路径跳过 `delete(q.detached)` 和 `releaseTargets`。修复：关闭路径也执行清理
+- **信号量获取阻塞不可取消**：`sem <- struct{}{}` 在主循环中阻塞。修复：用 `select` 同时监听 `ctx.Done()`
+- **SSE 事件队列内存泄漏**：`s.queue = s.queue[1:]` 底层数组永不收缩。修复：完全消费后 `s.queue = nil`
+- **logSubscriber 队列内存泄漏**：同上模式。修复：同上
+
+### Stats
+
+- **40 个文件变更**
+- **+459 行 / -186 行**
+
+***
+
 ## [v3.4.21] - 2026-06-12
 
 ### Changed
