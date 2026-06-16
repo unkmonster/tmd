@@ -1077,7 +1077,7 @@ func TestHandleDBUserUpdate_PartialFields(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rr.Code)
 }
 
-func TestHandleDBUserUpdate_AllowsExplicitEmptyStrings(t *testing.T) {
+func TestHandleDBUserUpdate_RejectsEmptyStrings(t *testing.T) {
 	server, db := createTestServer(t)
 	defer db.Close()
 
@@ -1091,26 +1091,44 @@ func TestHandleDBUserUpdate_AllowsExplicitEmptyStrings(t *testing.T) {
 	}
 	database.CreateUser(db, user)
 
-	updateData := map[string]string{
-		"screen_name": "",
-		"name":        "",
-	}
-	body, _ := json.Marshal(updateData)
+	t.Run("rejects empty screen_name", func(t *testing.T) {
+		updateData := map[string]string{
+			"screen_name": "",
+		}
+		body, _ := json.Marshal(updateData)
+		req := httptest.NewRequest(http.MethodPut, "/api/v1/db/users/1", bytes.NewReader(body))
+		req.SetPathValue("id", "1")
+		req.Header.Set("Content-Type", "application/json")
+		rr := httptest.NewRecorder()
+		server.handleDBUserUpdate(rr, req)
+		assert.Equal(t, http.StatusBadRequest, rr.Code)
+	})
 
-	req := httptest.NewRequest(http.MethodPut, "/api/v1/db/users/1", bytes.NewReader(body))
-	req.SetPathValue("id", "1")
-	req.Header.Set("Content-Type", "application/json")
-	rr := httptest.NewRecorder()
+	t.Run("rejects empty name", func(t *testing.T) {
+		updateData := map[string]string{
+			"name": "",
+		}
+		body, _ := json.Marshal(updateData)
+		req := httptest.NewRequest(http.MethodPut, "/api/v1/db/users/1", bytes.NewReader(body))
+		req.SetPathValue("id", "1")
+		req.Header.Set("Content-Type", "application/json")
+		rr := httptest.NewRecorder()
+		server.handleDBUserUpdate(rr, req)
+		assert.Equal(t, http.StatusBadRequest, rr.Code)
+	})
 
-	server.handleDBUserUpdate(rr, req)
-
-	assert.Equal(t, http.StatusOK, rr.Code)
-
-	updated, err := database.GetUserById(db, 1)
-	assert.NoError(t, err)
-	assert.NotNil(t, updated)
-	assert.Equal(t, "", updated.ScreenName)
-	assert.Equal(t, "", updated.Name)
+	t.Run("rejects invalid screen_name format", func(t *testing.T) {
+		updateData := map[string]string{
+			"screen_name": "invalid name with spaces!",
+		}
+		body, _ := json.Marshal(updateData)
+		req := httptest.NewRequest(http.MethodPut, "/api/v1/db/users/1", bytes.NewReader(body))
+		req.SetPathValue("id", "1")
+		req.Header.Set("Content-Type", "application/json")
+		rr := httptest.NewRecorder()
+		server.handleDBUserUpdate(rr, req)
+		assert.Equal(t, http.StatusBadRequest, rr.Code)
+	})
 }
 
 func TestHandleDBListUpdate_PartialFields(t *testing.T) {

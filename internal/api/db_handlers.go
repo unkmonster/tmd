@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/unkmonster/tmd/internal/database"
+	"github.com/unkmonster/tmd/internal/utils"
 )
 
 // ============ 排序字段白名单 ============
@@ -159,9 +160,17 @@ func (s *Server) handleDBUserUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.ScreenName != nil {
+		if err := validateScreenName(*req.ScreenName); err != nil {
+			s.writeError(w, http.StatusBadRequest, "Invalid screen_name: "+err.Error())
+			return
+		}
 		user.ScreenName = *req.ScreenName
 	}
 	if req.Name != nil {
+		if err := validateFieldName(*req.Name); err != nil {
+			s.writeError(w, http.StatusBadRequest, "Invalid name: "+err.Error())
+			return
+		}
 		user.Name = *req.Name
 	}
 	if req.FriendsCount != nil {
@@ -289,6 +298,10 @@ func (s *Server) handleDBListUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.Name != nil {
+		if err := validateFieldName(*req.Name); err != nil {
+			s.writeError(w, http.StatusBadRequest, "Invalid name: "+err.Error())
+			return
+		}
 		lst.Name = *req.Name
 	}
 	if req.OwnerID != nil {
@@ -413,6 +426,10 @@ func (s *Server) handleDBUserEntityUpdate(w http.ResponseWriter, r *http.Request
 	}
 
 	if req.Name != nil {
+		if err := validateFieldName(*req.Name); err != nil {
+			s.writeError(w, http.StatusBadRequest, "Invalid name: "+err.Error())
+			return
+		}
 		entity.Name = *req.Name
 	}
 	if req.MediaCount != nil {
@@ -582,11 +599,15 @@ func (s *Server) handleDBListEntityUpdate(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	if req.Name != nil {
-		entity.Name = *req.Name
-	}
+		if req.Name != nil {
+			if err := validateFieldName(*req.Name); err != nil {
+				s.writeError(w, http.StatusBadRequest, "Invalid name: "+err.Error())
+				return
+			}
+			entity.Name = *req.Name
+		}
 
-	if err := database.UpdateLstEntity(s.db, entity); err != nil {
+		if err := database.UpdateLstEntity(s.db, entity); err != nil {
 		s.writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -718,6 +739,10 @@ func (s *Server) handleDBUserLinkUpdate(w http.ResponseWriter, r *http.Request) 
 	}
 
 	if req.Name != nil {
+		if err := validateFieldName(*req.Name); err != nil {
+			s.writeError(w, http.StatusBadRequest, "Invalid name: "+err.Error())
+			return
+		}
 		link.Name = *req.Name
 	}
 
@@ -983,4 +1008,24 @@ func nullInt32(n sql.NullInt32) int32 {
 		return n.Int32
 	}
 	return 0
+}
+
+// validateFieldName 校验数据库字段 Name 的值，拒绝空串和超长值。
+func validateFieldName(name string) error {
+	trimmed := strings.TrimSpace(name)
+	if trimmed == "" {
+		return fmt.Errorf("must not be empty")
+	}
+	if len(trimmed) > 250 {
+		return fmt.Errorf("must not exceed 250 characters")
+	}
+	return nil
+}
+
+// validateScreenName 校验 Twitter screen name 格式（复用 utils.IsValidScreenName）。
+func validateScreenName(name string) error {
+	if !utils.IsValidScreenName(name) {
+		return fmt.Errorf("must be 1-15 characters (letters, digits, underscores)")
+	}
+	return nil
 }
