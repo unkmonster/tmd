@@ -451,6 +451,7 @@ func BatchDownloadTweet(ctx context.Context, client *resty.Client, skipLoongTwee
 	maxDownloadRoutine := opts.normalizedMaxDownloadRoutine()
 
 	ctx, cancel := context.WithCancelCause(ctx)
+	defer cancel(nil)
 
 	var errChan = make(chan PackagedTweet, len(pts))
 	var tweetChan = make(chan PackagedTweet, len(pts))
