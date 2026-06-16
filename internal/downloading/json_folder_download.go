@@ -271,7 +271,12 @@ func DownloadFromLoongTweetFolder(ctx context.Context, client *resty.Client, use
 
 	for _, folderPath := range folderPaths {
 		wg.Add(1)
-		sem <- struct{}{}
+		select {
+		case sem <- struct{}{}:
+		case <-ctx.Done():
+			wg.Done()
+			continue
+		}
 		go func(fp string) {
 			defer wg.Done()
 			defer func() { <-sem }()

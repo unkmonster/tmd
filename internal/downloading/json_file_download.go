@@ -121,7 +121,12 @@ func DownloadThirdPartyTweets(
 
 	for _, filePath := range filePaths {
 		wg.Add(1)
-		sem <- struct{}{}
+		select {
+		case sem <- struct{}{}:
+		case <-ctx.Done():
+			wg.Done()
+			continue
+		}
 		go func(fp string) {
 			defer wg.Done()
 			defer func() { <-sem }()
