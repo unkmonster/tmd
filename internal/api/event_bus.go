@@ -116,11 +116,15 @@ func (s *eventSubscriber) nextEvent() (SSEEvent, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if len(s.queue) > 0 {
-		evt := s.queue[0]
-		s.queue = s.queue[1:]
-		return evt, true
-	}
+		if len(s.queue) > 0 {
+			evt := s.queue[0]
+			s.queue[0] = SSEEvent{}
+			s.queue = s.queue[1:]
+			if len(s.queue) == 0 {
+				s.queue = nil
+			}
+			return evt, true
+		}
 
 	for _, eventName := range coalescedSSEEvents {
 		if evt, ok := s.latest[eventName]; ok {
