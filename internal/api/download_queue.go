@@ -243,7 +243,9 @@ func (q *DownloadQueue) detachJob(job *downloadJob, done <-chan error) {
 		err := <-done
 		q.mu.Lock()
 		if q.closed {
+			delete(q.detached, job.taskID)
 			q.mu.Unlock()
+			q.releaseTargets(job.taskID)
 			return
 		}
 		q.mu.Unlock()
