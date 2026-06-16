@@ -36,8 +36,8 @@ func waitRetryDelay(ctx context.Context, delay time.Duration) error {
 // DefaultDownloader 默认下载器实现，使用独立的 HTTP 客户端下载媒体文件，
 // 不携带 Twitter API 鉴权凭据，以避免敏感信息泄漏到 CDN 服务器。
 type DefaultDownloader struct {
-	fileWriter    FileWriter
-	logger        log.FieldLogger
+	fileWriter     FileWriter
+	logger         log.FieldLogger
 	downloadClient *resty.Client // 专用于媒体文件下载的客户端，无 API 鉴权
 }
 
@@ -76,6 +76,7 @@ func newDownloadClient() *resty.Client {
 		ResponseHeaderTimeout: 30 * time.Second,
 		Proxy:                 http.ProxyFromEnvironment,
 	})
+	c.SetTimeout(5 * time.Minute)
 	return c
 }
 

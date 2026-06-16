@@ -525,11 +525,6 @@ func (sc *Scheduler) execute(idx int, entry ScheduleEntry, gen int64) {
 	var taskID string
 	var released bool
 	defer func() {
-		// 确保 Triggering 被释放：无论 panic、generation 变更还是其他原因，
-		// releaseAndUpdateStatus 都可能跳过清理。这里作为安全网兜底。
-		if !released {
-			sc.releaseTriggeringLocked(idx, acquiredGen)
-		}
 		if r := recover(); r != nil {
 			log.Errorf("[scheduler] execute[%d]: panic in downloadFunc for entry %q: %v", idx, entry.Name, r)
 			now := time.Now()
@@ -540,6 +535,12 @@ func (sc *Scheduler) execute(idx int, entry ScheduleEntry, gen int64) {
 				status.ConsecutiveFailures++
 			})
 			released = true
+			return
+		}
+		// 正常返回路径的安全网：releaseAndUpdateStatus 可能因 generation 变更
+		// 返回 false 而跳过清理，这里兜底释放 Triggering。
+		if !released {
+			sc.releaseTriggeringLocked(idx, acquiredGen)
 		}
 	}()
 

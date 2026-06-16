@@ -516,13 +516,17 @@ func parseMultipartNoRetry(r *http.Request) bool {
 }
 
 func cleanupUploadDirAfterTask(uploadDir string, task func(ctx context.Context, taskID string, reporter service.ProgressReporter) error) func(ctx context.Context, taskID string, reporter service.ProgressReporter) error {
-	return func(ctx context.Context, taskID string, reporter service.ProgressReporter) error {
+	return func(ctx context.Context, taskID string, reporter service.ProgressReporter) (err error) {
 		if uploadDir == "" {
 			return task(ctx, taskID, reporter)
 		}
 
 		defer func() {
 			_ = os.RemoveAll(uploadDir)
+			if r := recover(); r != nil {
+				log.Errorf("[upload] task panicked: %v", r)
+				err = fmt.Errorf("task panicked: %v", r)
+			}
 		}()
 
 		return task(ctx, taskID, reporter)

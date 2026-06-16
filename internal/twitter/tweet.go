@@ -5,6 +5,7 @@ import (
 	"html"
 	"time"
 
+	log "github.com/sirupsen/logrus"
 	"github.com/tidwall/gjson"
 )
 
@@ -44,7 +45,10 @@ func parseTweetResults(tweet_results *gjson.Result) (*Tweet, error) {
 		tweet.Text = html.UnescapeString(legacy.Get("full_text").String())
 	}
 
-	tweet.Creator, _, _ = parseUserResults(&user_results)
+	tweet.Creator, _, err = parseUserResults(&user_results)
+	if err != nil {
+		log.Debugf("failed to parse creator for tweet %d: %v", tweet.Id, err)
+	}
 	tweet.CreatedAt, err = time.Parse(time.RubyDate, legacy.Get("created_at").String())
 	if err != nil {
 		return nil, fmt.Errorf("invalid time format %v", err)

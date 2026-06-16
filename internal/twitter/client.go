@@ -131,6 +131,7 @@ func LoginWithOptions(ctx context.Context, authToken string, ct0 string, opts Lo
 		ResponseHeaderTimeout: 5 * time.Second,
 		Proxy:                 http.ProxyFromEnvironment,
 	})
+	client.SetTimeout(15 * time.Second)
 
 	screenName, err := GetSelfScreenName(ctx, client)
 	if err != nil {
@@ -409,14 +410,18 @@ func EnableRequestCounting(client *resty.Client) {
 		}
 
 		v, _ := apiCounts.LoadOrStore(url.Path, &atomic.Int32{})
-		v.(*atomic.Int32).Add(1)
+		if counter, ok := v.(*atomic.Int32); ok {
+			counter.Add(1)
+		}
 		return nil
 	})
 }
 
 func ReportRequestCount() {
 	apiCounts.Range(func(key, value any) bool {
-		log.Debugf("* %s request count: %d", key, value.(*atomic.Int32).Load())
+		if counter, ok := value.(*atomic.Int32); ok {
+			log.Debugf("* %s request count: %d", key, counter.Load())
+		}
 		return true
 	})
 }
