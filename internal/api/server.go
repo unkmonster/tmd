@@ -67,11 +67,16 @@ func NewServerWithConsoleLogHub(client *resty.Client, additionalClients []*resty
 		eventBus:          eventBus,
 	}
 
+	// 配置副本：使 service.Dependencies 持有独立的 Config 副本，
+	// 避免与 Server.config 共享同一指针。这样 handleUpdateConfigRaw
+	// 的 *s.config = *testConf 只影响 Server 显示用配置，不影响运行时依赖，
+	// 确保所有运行时组件行为一致（均需重启后生效）。
+	configCopy := *config
 	downloadService, err := service.NewDownloadService(&service.Dependencies{
 		Client:            client,
 		AdditionalClients: additionalClients,
 		DB:                db,
-		Config:            config,
+		Config:            &configCopy,
 	})
 	if err != nil {
 		log.Fatalf("failed to create download service: %v", err)

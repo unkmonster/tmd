@@ -234,6 +234,13 @@ func (s *Server) handleSaveConfigFields(w http.ResponseWriter, r *http.Request) 
 			}
 		}
 
+		// 拒绝掩码值：防止前端误发送 maskSensitive 输出的占位文本（如 "abc•••xyz"）
+		if isMaskedValue(userVal) {
+			s.writeError(w, http.StatusBadRequest,
+				fmt.Sprintf("Field %q contains a masked placeholder value. Leave it empty to keep the current value, or enter the actual value.", fd.Name))
+			return
+		}
+
 		if err := fd.Setter(newConf, userVal); err != nil {
 			s.writeError(w, http.StatusBadRequest,
 				fmt.Sprintf("Invalid field %s: %s", fd.Name, err.Error()))
@@ -279,4 +286,13 @@ func maskSensitive(s string) string {
 		return "***"
 	}
 	return string(runes[:3]) + "•••" + string(runes[len(runes)-3:])
+}
+
+// maskedValueMarker 是 maskSensitive 输出的掩码标记字符（U+2022 BULLET）。
+const maskedValueMarker = "•••"
+
+// isMaskedValue 检查字符串是否为 maskSensitive 产生的掩码值
+//（如 "abc•••xyz" 或 "***"），用于阻止用户误将占位文本当作真实值提交。
+func isMaskedValue(s string) bool {
+	return s == "***" || strings.Contains(s, maskedValueMarker)
 }

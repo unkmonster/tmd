@@ -142,8 +142,12 @@ func BatchUserDownload(ctx context.Context, client *resty.Client, db *sqlx.DB, u
 				}
 
 				if user.MediaCount != 0 && user.IsVisiable() {
-					missingTweets += max(0, user.MediaCount-int(pathEntity.MediaCount()))
-					depthByEntity[pathEntity] = calcUserDepth(int(pathEntity.MediaCount()), user.MediaCount)
+					exist := 0
+					if pathEntity.MediaCountValid() {
+						exist = int(pathEntity.MediaCount())
+					}
+					missingTweets += max(0, user.MediaCount-exist)
+					depthByEntity[pathEntity] = calcUserDepth(exist, user.MediaCount)
 					userEntityHeap.Push(pathEntity)
 				}
 

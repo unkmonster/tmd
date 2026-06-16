@@ -18,8 +18,9 @@ import (
 )
 
 const (
-	MinFileNameLen = 50
-	MaxFileNameLen = 250
+	MinFileNameLen       = 50
+	MaxFileNameLen       = 250
+	MaxDownloadRoutine    = 100 // 最大下载并发数，与 DefaultMaxDownloadRoutine 的隐含上限一致
 )
 
 // DefaultMaxDownloadRoutine 返回默认的最大下载并发数
@@ -106,6 +107,12 @@ func GetFieldDefs() []FieldDef {
 				n, err := parseIntWithDefault(v, DefaultMaxDownloadRoutine())
 				if err != nil {
 					return fmt.Errorf("invalid number: %w", err)
+				}
+				if n < 1 {
+					return fmt.Errorf("must be at least 1")
+				}
+				if n > MaxDownloadRoutine {
+					return fmt.Errorf("must not exceed %d", MaxDownloadRoutine)
 				}
 				c.MaxDownloadRoutine = n
 				return nil
@@ -319,6 +326,14 @@ func NormalizeLoadedConf(conf *Config) error {
 		return fmt.Errorf("invalid proxy_url: %w", err)
 	}
 	conf.ProxyURL = proxyURL
+
+	// 规范化 MaxDownloadRoutine：0 表示"使用默认值"；负数归零；超大值截断到上限
+	if conf.MaxDownloadRoutine < 0 {
+		conf.MaxDownloadRoutine = 0
+	} else if conf.MaxDownloadRoutine > MaxDownloadRoutine {
+		conf.MaxDownloadRoutine = MaxDownloadRoutine
+	}
+
 	return nil
 }
 

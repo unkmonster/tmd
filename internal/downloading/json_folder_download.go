@@ -152,9 +152,13 @@ func parseUint64(s string) uint64 {
 	return v
 }
 
+// fallbackTime 是 parseTwitterDate 在日期缺失或解析失败时返回的固定零值时间。
+// Twitter 于 2006 年上线，此值早于任何真实推文，调用方可据此判断日期不可用。
+var fallbackTime = time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)
+
 func parseTwitterDate(dateStr string) time.Time {
 	if dateStr == "" {
-		return time.Now()
+		return fallbackTime
 	}
 
 	layouts := []string{
@@ -172,7 +176,7 @@ func parseTwitterDate(dateStr string) time.Time {
 		}
 	}
 
-	return time.Now()
+	return fallbackTime
 }
 
 // LoongTweetResult loongtweet 下载结果

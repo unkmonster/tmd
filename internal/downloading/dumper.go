@@ -157,7 +157,9 @@ func (td *TweetDumper) Remove(eid int, tweetID uint64) bool {
 		delete(td.data, eid)
 		delete(td.set, eid)
 	}
-	td.count--
+	if td.count > 0 {
+		td.count--
+	}
 	return true
 }
 
@@ -337,6 +339,8 @@ func (d *JsonTweetDumper) Remove(sourcePath string, tweetID uint64) bool {
 		delete(d.data, sourcePath)
 		delete(d.set, sourcePath)
 	}
-	d.count--
+	if d.count > 0 {
+		d.count--
+	}
 	return true
 }

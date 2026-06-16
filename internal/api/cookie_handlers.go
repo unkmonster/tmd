@@ -182,6 +182,10 @@ func (s *Server) handleSaveCookies(w http.ResponseWriter, r *http.Request) {
 
 func resolveCookieSaveValue(value string, existingCookies []*config.Cookie, sourceIndex int, get func(*config.Cookie) string) (string, error) {
 	if value != "__KEEP_OLD__" {
+		// 拒绝掩码值：防止前端误发送 maskSensitive 输出的占位文本
+		if isMaskedValue(value) {
+			return "", fmt.Errorf("contains a masked placeholder value (use the actual value or leave empty to keep current)")
+		}
 		return value, nil
 	}
 	if sourceIndex < 0 || sourceIndex >= len(existingCookies) || existingCookies[sourceIndex] == nil {

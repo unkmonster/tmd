@@ -144,7 +144,16 @@ func (ue *UserEntity) Recorded() bool {
 }
 
 func (ue *UserEntity) MediaCount() int32 {
+	if !ue.record.MediaCount.Valid {
+		return 0
+	}
 	return ue.record.MediaCount.Int32
+}
+
+// MediaCountValid 返回数据库中的 media_count 是否有值（非 NULL）。
+// 当新创建的 entity 尚未同步时返回 false，调用方可据此避免使用 0 做错误推断。
+func (ue *UserEntity) MediaCountValid() bool {
+	return ue.record.MediaCount.Valid
 }
 
 // NewUserEntityFromRecord 从已有的数据库记录创建用户实体（用于恢复等场景）
