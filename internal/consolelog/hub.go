@@ -143,6 +143,9 @@ func (s *logSubscriber) nextLine() (string, bool) {
 
 	line := s.queue[0]
 	s.queue = s.queue[1:]
+	if len(s.queue) == 0 {
+		s.queue = nil
+	}
 	return line, true
 }
 
