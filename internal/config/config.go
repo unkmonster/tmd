@@ -19,8 +19,8 @@ import (
 
 const (
 	MinFileNameLen       = 50
-	MaxFileNameLen       = 250
-	MaxDownloadRoutine    = 100 // 最大下载并发数，与 DefaultMaxDownloadRoutine 的隐含上限一致
+	MaxFileNameLen       = 245
+	MaxDownloadRoutine    = 100
 )
 
 // DefaultMaxDownloadRoutine 返回默认的最大下载并发数
@@ -328,13 +328,26 @@ func NormalizeLoadedConf(conf *Config) error {
 	conf.ProxyURL = proxyURL
 
 	// 规范化 MaxDownloadRoutine：0 表示"使用默认值"；负数归零；超大值截断到上限
-	if conf.MaxDownloadRoutine < 0 {
-		conf.MaxDownloadRoutine = 0
-	} else if conf.MaxDownloadRoutine > MaxDownloadRoutine {
-		conf.MaxDownloadRoutine = MaxDownloadRoutine
-	}
+	conf.MaxDownloadRoutine = normalizeInt(conf.MaxDownloadRoutine, 0, 0, MaxDownloadRoutine)
+
+	// 规范化 MaxFileNameLen：0 表示"使用默认值"；负数归零；低于下限或高于上限时截断
+	conf.MaxFileNameLen = normalizeInt(conf.MaxFileNameLen, 0, MinFileNameLen, MaxFileNameLen)
 
 	return nil
+}
+
+// normalizeInt 规范化整数字段：负数归零；正值超出 [lo, hi] 时截断；0 保留（表示"使用默认值"）。
+func normalizeInt(val, zeroReplacement, lo, hi int) int {
+	if val < 0 {
+		return zeroReplacement
+	}
+	if val > 0 && val < lo {
+		return lo
+	}
+	if val > hi {
+		return hi
+	}
+	return val
 }
 
 func Validate(conf *Config) error {
