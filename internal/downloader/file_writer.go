@@ -72,15 +72,15 @@ func (fw *DefaultFileWriter) Write(req WriteRequest) (WriteResult, error) {
 	}
 
 	// 2. 创建版本备份（如果需要）
-	if req.Options.CreateVersion && fw.versionManager != nil {
-		if _, err := os.Stat(req.Path); err == nil {
-			_, err := fw.versionManager.CreateVersion(req.Path)
-			if err != nil {
-				return result, err
+		if req.Options.CreateVersion && fw.versionManager != nil {
+			if _, err := os.Stat(req.Path); err == nil {
+				_, err = fw.versionManager.CreateVersion(req.Path)
+				if err != nil {
+					return result, err
+				}
+				result.Versioned = true
 			}
-			result.Versioned = true
 		}
-	}
 
 	// 3. 原子写入
 	written, err := fw.atomicWriteFromReader(req.Path, bytes.NewReader(req.Data))
@@ -124,15 +124,15 @@ func (fw *DefaultFileWriter) writeStream(path string, reader io.Reader, size int
 	}
 
 	// 创建版本备份（如果需要）
-	if options.CreateVersion && fw.versionManager != nil {
-		if _, err := os.Stat(path); err == nil {
-			_, err := fw.versionManager.CreateVersion(path)
-			if err != nil {
-				return result, err
+		if options.CreateVersion && fw.versionManager != nil {
+			if _, err := os.Stat(path); err == nil {
+				_, err = fw.versionManager.CreateVersion(path)
+				if err != nil {
+					return result, err
+				}
+				result.Versioned = true
 			}
-			result.Versioned = true
 		}
-	}
 
 	// 原子流式写入
 	written, err := fw.atomicWriteFromReader(path, reader)
