@@ -251,7 +251,7 @@ func downloadTweetMedia(cfg *workerConfig, dir string, tweet *twitter.Tweet, ski
 	} else {
 		creatorTitle = "unknown"
 	}
-	tweetNaming := naming.NewTweetNaming(tweet.Text, tweet.Id, creatorTitle)
+		tweetNaming := naming.NewTweetNaming(tweet.Text, tweet.Id, creatorTitle, cfg.maxFileNameLen)
 
 	if !skipLoongTweet {
 		saveTweetJson(cfg, dir, tweet, tweetNaming)
@@ -411,10 +411,10 @@ func tweetDownloader(config *workerConfig, errch chan<- PackagedTweet, twech <-c
 					if tie, ok := pt.(TweetInEntity); ok && tie.Entity != nil {
 						parentDir := tie.Entity.ParentDir()
 						if parentDir != "" {
-							userNaming := naming.NewUserNaming(tweet.Creator.Name, tweet.Creator.ScreenName)
-							userDirName := userNaming.SanitizedTitle()
-							userDir := filepath.Join(parentDir, userDirName)
-							tweetNaming := naming.NewTweetNaming(tweet.Text, tweet.Id, tweet.Creator.Title())
+								userNaming := naming.NewUserNaming(tweet.Creator.Name, tweet.Creator.ScreenName, config.maxFileNameLen)
+								userDirName := userNaming.SanitizedTitle()
+								userDir := filepath.Join(parentDir, userDirName)
+								tweetNaming := naming.NewTweetNaming(tweet.Text, tweet.Id, tweet.Creator.Title(), config.maxFileNameLen)
 							saveTweetJson(config, userDir, tweet, tweetNaming)
 							saveLoongTweet(config, userDir, tweet, tweetNaming)
 						}
@@ -463,17 +463,18 @@ func BatchDownloadTweet(ctx context.Context, client *resty.Client, skipLoongTwee
 	}
 	close(tweetChan)
 
-	config := workerConfig{
-		ctx:            ctx,
-		cancel:         cancel,
-		wg:             &wg,
-		skipLoongTweet: skipLoongTweet,
-		downloader:     dwn,
-		fileWriter:     fileWriter,
-		client:         client,
-		onTweetDone:    onTweetDone,
-		pathResolver:   utils.NewUniquePathResolver(),
-	}
+		config := workerConfig{
+			ctx:            ctx,
+			cancel:         cancel,
+			wg:             &wg,
+			skipLoongTweet: skipLoongTweet,
+			downloader:     dwn,
+			fileWriter:     fileWriter,
+			client:         client,
+			onTweetDone:    onTweetDone,
+			pathResolver:   utils.NewUniquePathResolver(),
+			maxFileNameLen: opts.normalizedMaxFileNameLen(),
+		}
 	for i := 0; i < numRoutine; i++ {
 		wg.Add(1)
 		go tweetDownloader(&config, errChan, tweetChan)

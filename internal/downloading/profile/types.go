@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/unkmonster/tmd/internal/config"
+	"github.com/unkmonster/tmd/internal/utils"
 )
 
 // ProfileInfo 用户资料信息
@@ -91,6 +92,8 @@ type Config struct {
 	FileDownloadTimeout time.Duration
 	// Profile 批量下载的最大并发数
 	MaxDownloadRoutine int
+	// 文件名最大长度（含扩展名保留空间）
+	MaxFileNameLen int
 }
 
 // DefaultConfig 返回默认配置
@@ -101,5 +104,6 @@ func DefaultConfig() *Config {
 		AvatarQuality:       "400x400",
 		FileDownloadTimeout: 40 * time.Second,
 		MaxDownloadRoutine:  config.DefaultMaxDownloadRoutine(),
+		MaxFileNameLen:       utils.DefaultMaxFileNameLen,
 	}
 }

@@ -299,7 +299,7 @@ func DownloadFromLoongTweetFolder(ctx context.Context, client *resty.Client, use
 				userDir := usersDir
 				if tw.Creator != nil {
 					// 构建用户目录：usersDir/{ sanitizedUserName }/
-					userNaming := naming.NewUserNaming(tw.Creator.Name, tw.Creator.ScreenName)
+						userNaming := naming.NewUserNaming(tw.Creator.Name, tw.Creator.ScreenName, opts.normalizedMaxFileNameLen())
 					userDir = filepath.Join(usersDir, userNaming.SanitizedTitle())
 					if err := os.MkdirAll(userDir, 0755); err != nil {
 						log.Warnf("failed to create user dir %s: %v", userDir, err)

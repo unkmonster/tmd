@@ -19,7 +19,6 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/unkmonster/tmd/internal/database"
 	"github.com/unkmonster/tmd/internal/downloader"
-	"github.com/unkmonster/tmd/internal/naming"
 	"github.com/unkmonster/tmd/internal/twitter"
 	"github.com/unkmonster/tmd/internal/utils"
 )
@@ -191,7 +190,7 @@ func (pd *ProfileDownloader) Download(ctx context.Context, req DownloadRequest) 
 	if userTitle == "" {
 		userTitle = fmt.Sprintf("%s(%s)", profile.Name, req.ScreenName)
 	}
-	userTitle = utils.WinFileNameWithMaxLen(userTitle, naming.MaxFileNameLen)
+	userTitle = utils.WinFileNameWithMaxLen(userTitle, pd.config.MaxFileNameLen)
 
 	var userDir string
 	var err error

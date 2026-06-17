@@ -44,6 +44,7 @@ type userInListEntity struct {
 
 type RuntimeOptions struct {
 	MaxDownloadRoutine int
+	MaxFileNameLen     int
 }
 
 func (o RuntimeOptions) normalizedMaxDownloadRoutine() int {
@@ -51,6 +52,13 @@ func (o RuntimeOptions) normalizedMaxDownloadRoutine() int {
 		return o.MaxDownloadRoutine
 	}
 	return config.DefaultMaxDownloadRoutine()
+}
+
+func (o RuntimeOptions) normalizedMaxFileNameLen() int {
+	if o.MaxFileNameLen > 0 {
+		return o.MaxFileNameLen
+	}
+	return utils.DefaultMaxFileNameLen
 }
 
 type batchSyncState struct {
@@ -98,6 +106,7 @@ type workerConfig struct {
 	client         *resty.Client
 	onTweetDone    func(pt PackagedTweet, failed bool)
 	pathResolver   *utils.UniquePathResolver
+	maxFileNameLen int
 }
 
 const userTweetRateLimit = 1500

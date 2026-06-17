@@ -101,7 +101,7 @@ func TestSyncListAndGetMembers(t *testing.T) {
 	}
 
 	// Test syncing list and getting members
-	entities, users, err := syncListAndGetMembers(ctx, nil, db, mockList, tempDir)
+	entities, users, err := syncListAndGetMembers(ctx, nil, db, mockList, tempDir, 158)
 	if err != nil {
 		t.Fatalf("syncListAndGetMembers() error = %v", err)
 	}
@@ -142,7 +142,7 @@ func TestSyncListAndGetMembers_EmptyMembers(t *testing.T) {
 		members: []*twitter.User{},
 	}
 
-	_, users, err := syncListAndGetMembers(ctx, nil, db, mockList, tempDir)
+	_, users, err := syncListAndGetMembers(ctx, nil, db, mockList, tempDir, 158)
 	if err != nil {
 		t.Fatalf("syncListAndGetMembers() error = %v", err)
 	}
@@ -165,7 +165,7 @@ func TestSyncListAndGetMembers_GetMembersError(t *testing.T) {
 		err:  context.DeadlineExceeded,
 	}
 
-	_, _, err := syncListAndGetMembers(ctx, nil, db, mockList, tempDir)
+	_, _, err := syncListAndGetMembers(ctx, nil, db, mockList, tempDir, 158)
 	if err == nil {
 		t.Error("syncListAndGetMembers() should return error when GetMembers fails")
 	}
@@ -196,7 +196,7 @@ func TestSyncListAndGetMembers_WithTwitterList(t *testing.T) {
 		}
 	}()
 
-	_, _, err := syncListAndGetMembers(ctx, nil, db, list, tempDir)
+	_, _, err := syncListAndGetMembers(ctx, nil, db, list, tempDir, 158)
 	// We expect an error since we don't have a real client
 	// but the important thing is it doesn't panic
 	t.Logf("Expected error without real client: %v", err)
@@ -233,7 +233,7 @@ func TestSyncListAndGetMembers_DirectoryCreation(t *testing.T) {
 		members: members,
 	}
 
-	_, _, err := syncListAndGetMembers(ctx, nil, db, mockList, tempDir)
+	_, _, err := syncListAndGetMembers(ctx, nil, db, mockList, tempDir, 158)
 	if err != nil {
 		t.Fatalf("syncListAndGetMembers() error = %v", err)
 	}
@@ -288,7 +288,7 @@ func TestSyncListAndGetMembers_CancelledContext(t *testing.T) {
 		members: members,
 	}
 
-	_, _, err := syncListAndGetMembers(ctx, nil, db, mockList, tempDir)
+	_, _, err := syncListAndGetMembers(ctx, nil, db, mockList, tempDir, 158)
 	// The function may or may not check context cancellation
 	// depending on implementation
 	t.Logf("Result with cancelled context: %v", err)

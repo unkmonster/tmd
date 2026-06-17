@@ -85,7 +85,7 @@ func TestSyncUserAndEntity(t *testing.T) {
 	}
 
 	// Test syncing user and entity
-	entity, err := syncUserAndEntity(db, user, tempDir)
+	entity, err := syncUserAndEntity(db, user, tempDir, 158)
 	if err != nil {
 		t.Fatalf("syncUserAndEntity() error = %v", err)
 	}
@@ -143,7 +143,7 @@ func TestSyncUserAndEntity_UpdateExisting(t *testing.T) {
 	}
 
 	// First sync
-	entity1, err := syncUserAndEntity(db, user, tempDir)
+	entity1, err := syncUserAndEntity(db, user, tempDir, 158)
 	if err != nil {
 		t.Fatalf("First syncUserAndEntity() error = %v", err)
 	}
@@ -152,7 +152,7 @@ func TestSyncUserAndEntity_UpdateExisting(t *testing.T) {
 
 	// Update user and sync again
 	user.Name = "Updated User"
-	entity2, err := syncUserAndEntity(db, user, tempDir)
+	entity2, err := syncUserAndEntity(db, user, tempDir, 158)
 	if err != nil {
 		t.Fatalf("Second syncUserAndEntity() error = %v", err)
 	}
@@ -183,7 +183,7 @@ func TestSyncUserAndEntity_UserWithSpecialChars(t *testing.T) {
 		FriendsCount: 100,
 	}
 
-	entity, err := syncUserAndEntity(db, user, tempDir)
+	entity, err := syncUserAndEntity(db, user, tempDir, 158)
 	if err != nil {
 		t.Fatalf("syncUserAndEntity() error = %v", err)
 	}

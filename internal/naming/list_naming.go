@@ -13,9 +13,9 @@ type ListNaming struct {
 	sanitized string
 }
 
-func NewListNamingFromBase(lst ListNamer) *ListNaming {
+func NewListNamingFromBase(lst ListNamer, maxLen int) *ListNaming {
 	return &ListNaming{
-		sanitized: utils.WinFileNameWithMaxLen(lst.Title(), MaxFileNameLen),
+		sanitized: utils.WinFileNameWithMaxLen(lst.Title(), maxLen),
 	}
 }
 

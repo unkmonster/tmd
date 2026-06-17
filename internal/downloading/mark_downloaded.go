@@ -20,7 +20,7 @@ type MarkedUserInfo struct {
 	Error      string `json:"error,omitempty"`
 }
 
-func MarkUsersAsDownloaded(ctx context.Context, client *resty.Client, db *sqlx.DB, lists []twitter.ListBase, users []*twitter.User, dir string, markTimeStr string) ([]MarkedUserInfo, error) {
+func MarkUsersAsDownloaded(ctx context.Context, client *resty.Client, db *sqlx.DB, lists []twitter.ListBase, users []*twitter.User, dir string, markTimeStr string, maxLen int) ([]MarkedUserInfo, error) {
 	var timestamp *time.Time
 	if markTimeStr == "" {
 		now := time.Now()
@@ -74,7 +74,7 @@ func MarkUsersAsDownloaded(ctx context.Context, client *resty.Client, db *sqlx.D
 				continue
 			}
 
-			info := markSingleUserWithInfo(db, user, dir, timestamp)
+			info := markSingleUserWithInfo(db, user, dir, timestamp, maxLen)
 			results = append(results, info)
 			if info.Success {
 				successCount++
@@ -93,7 +93,7 @@ func MarkUsersAsDownloaded(ctx context.Context, client *resty.Client, db *sqlx.D
 			continue
 		}
 
-		info := markSingleUserWithInfo(db, user, dir, timestamp)
+		info := markSingleUserWithInfo(db, user, dir, timestamp, maxLen)
 		results = append(results, info)
 		if info.Success {
 			successCount++
@@ -106,7 +106,7 @@ func MarkUsersAsDownloaded(ctx context.Context, client *resty.Client, db *sqlx.D
 	return results, nil
 }
 
-func markSingleUserWithInfo(db *sqlx.DB, user *twitter.User, dir string, timestamp *time.Time) (info MarkedUserInfo) {
+func markSingleUserWithInfo(db *sqlx.DB, user *twitter.User, dir string, timestamp *time.Time, maxLen int) (info MarkedUserInfo) {
 	if user == nil {
 		info.Success = false
 		info.Error = "user is nil"
@@ -127,7 +127,7 @@ func markSingleUserWithInfo(db *sqlx.DB, user *twitter.User, dir string, timesta
 		}
 	}()
 
-	entity, err := syncUserAndEntity(db, user, dir)
+	entity, err := syncUserAndEntity(db, user, dir, maxLen)
 	if err != nil {
 		info.Error = fmt.Sprintf("failed to sync user and entity: %v", err)
 		log.Warnln("✗", user.Title(), "-", "failed to mark user:", err)

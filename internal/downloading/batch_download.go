@@ -117,7 +117,7 @@ func BatchUserDownload(ctx context.Context, client *resty.Client, db *sqlx.DB, u
 
 			pathEntity, loaded := syncState.loadUser(user.Id)
 			if !loaded {
-				pathEntity, err = syncUserAndEntity(db, user, dir)
+				pathEntity, err = syncUserAndEntity(db, user, dir, opts.normalizedMaxFileNameLen())
 				if err != nil {
 					log.Warnln("✗", user.Title(), "-", "failed to update user or entity", err)
 					continue

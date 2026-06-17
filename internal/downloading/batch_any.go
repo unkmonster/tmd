@@ -37,7 +37,7 @@ func BatchDownloadAny(ctx context.Context, client *resty.Client, db *sqlx.DB, li
 		wg.Add(1)
 		go func(lst twitter.ListBase) {
 			defer wg.Done()
-			res, members, e := syncListAndGetMembers(ctx, client, db, lst, dir)
+			res, members, e := syncListAndGetMembers(ctx, client, db, lst, dir, opts.normalizedMaxFileNameLen())
 			if e != nil {
 				cancel(e)
 				return

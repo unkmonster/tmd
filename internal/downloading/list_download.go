@@ -28,14 +28,14 @@ func syncList(db *sqlx.DB, list *twitter.List) error {
 	return database.UpdateLst(db, &database.Lst{Id: list.Id, Name: list.Name, OwnerUserId: ownerUserId})
 }
 
-func syncListAndGetMembers(ctx context.Context, client *resty.Client, db *sqlx.DB, lst twitter.ListBase, dir string) (entities []userInListEntity, members []*twitter.User, err error) {
+func syncListAndGetMembers(ctx context.Context, client *resty.Client, db *sqlx.DB, lst twitter.ListBase, dir string, maxLen int) (entities []userInListEntity, members []*twitter.User, err error) {
 	if v, ok := lst.(*twitter.List); ok {
 		if err = syncList(db, v); err != nil {
 			return nil, nil, err
 		}
 	}
 
-	expectedTitle := naming.NewListNamingFromBase(lst).SanitizedTitle()
+	expectedTitle := naming.NewListNamingFromBase(lst, maxLen).SanitizedTitle()
 	ent, err := entity.NewListEntity(db, lst.GetId(), dir)
 	if err != nil {
 		return nil, nil, err

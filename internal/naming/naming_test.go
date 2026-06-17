@@ -8,6 +8,8 @@ import (
 	"github.com/unkmonster/tmd/internal/utils"
 )
 
+const testMaxFileNameLen = 158
+
 // ============================================================================
 // TweetNaming 测试
 // ============================================================================
@@ -81,7 +83,7 @@ func TestTweetNaming_LogFormat(t *testing.T) {
 			text:     strings.Repeat("a", 200),
 			tweetID:  505,
 			creator:  "user",
-			expected: "[user] " + strings.Repeat("a", MaxFileNameLen-len("_505")-ExtReserveLen) + "_505",
+			expected: "[user] " + strings.Repeat("a", testMaxFileNameLen-len("_505")-ExtReserveLen) + "_505",
 		},
 		{
 			name:     "max tweetID",
@@ -129,7 +131,7 @@ func TestTweetNaming_LogFormat(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			tn := NewTweetNaming(tt.text, tt.tweetID, tt.creator)
+			tn := NewTweetNaming(tt.text, tt.tweetID, tt.creator, testMaxFileNameLen)
 			if got := tn.LogFormat(); got != tt.expected {
 				t.Errorf("LogFormat() = %q, want %q", got, tt.expected)
 			}
@@ -205,7 +207,7 @@ func TestTweetNaming_FileName(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			tn := NewTweetNaming(tt.text, tt.tweetID, "creator")
+			tn := NewTweetNaming(tt.text, tt.tweetID, "creator", testMaxFileNameLen)
 			if got := tn.FileName(tt.ext); got != tt.expected {
 				t.Errorf("FileName() = %q, want %q", got, tt.expected)
 			}
@@ -268,7 +270,7 @@ func TestTweetNaming_FilePath(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			tn := NewTweetNaming(tt.text, tt.tweetID, "creator")
+			tn := NewTweetNaming(tt.text, tt.tweetID, "creator", testMaxFileNameLen)
 			got, err := tn.FilePath(tt.dir, tt.ext)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("FilePath() error = %v, wantErr %v", err, tt.wantErr)
@@ -286,7 +288,7 @@ func TestTweetNaming_FilePath(t *testing.T) {
 
 func TestTweetNaming_FilePathWithResolver(t *testing.T) {
 	tempDir := t.TempDir()
-	tn := NewTweetNaming("test", 123, "creator")
+	tn := NewTweetNaming("test", 123, "creator", testMaxFileNameLen)
 	resolver := utils.NewUniquePathResolver()
 
 	first, err := tn.FilePathWithResolver(tempDir, ".jpg", resolver)
@@ -338,14 +340,9 @@ func TestTweetNaming_baseName_Truncation(t *testing.T) {
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// 临时修改 MaxFileNameLen
-			oldMaxLen := MaxFileNameLen
-			MaxFileNameLen = tt.maxLen
-			defer func() { MaxFileNameLen = oldMaxLen }()
-
-			tn := NewTweetNaming(tt.text, tt.tweetID, "creator")
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				tn := NewTweetNaming(tt.text, tt.tweetID, "creator", tt.maxLen)
 			got := tn.FileName(".ext")
 			if !strings.Contains(got, tt.wantContains) {
 				t.Errorf("FileName() = %q, should contain %q", got, tt.wantContains)
@@ -438,7 +435,7 @@ func TestUserNaming_SanitizedTitle(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			un := NewUserNaming(tt.userName, tt.screenName)
+			un := NewUserNaming(tt.userName, tt.screenName, testMaxFileNameLen)
 			if got := un.SanitizedTitle(); got != tt.expected {
 				t.Errorf("SanitizedTitle() = %q, want %q", got, tt.expected)
 			}
@@ -447,20 +444,18 @@ func TestUserNaming_SanitizedTitle(t *testing.T) {
 }
 
 func TestUserNaming_Truncation(t *testing.T) {
-	// 测试长名称截断
-	oldMaxLen := MaxFileNameLen
-	MaxFileNameLen = 30
-	defer func() { MaxFileNameLen = oldMaxLen }()
+		// 测试长名称截断
+		const maxLen = 30
 
-	longName := strings.Repeat("a", 50)
-	longScreen := strings.Repeat("b", 50)
-	un := NewUserNaming(longName, longScreen)
+		longName := strings.Repeat("a", 50)
+		longScreen := strings.Repeat("b", 50)
+		un := NewUserNaming(longName, longScreen, maxLen)
 
-	got := un.SanitizedTitle()
-	if len(got) > MaxFileNameLen {
-		t.Errorf("SanitizedTitle() length = %d, exceeds maxLen %d", len(got), MaxFileNameLen)
+		got := un.SanitizedTitle()
+		if len(got) > maxLen {
+			t.Errorf("SanitizedTitle() length = %d, exceeds maxLen %d", len(got), maxLen)
+		}
 	}
-}
 
 // ============================================================================
 // ListNaming 测试
@@ -533,7 +528,7 @@ func TestListNaming_SanitizedTitle(t *testing.T) {
 		{
 			name:     "very long title",
 			listBase: &mockListBase{id: 10, title: strings.Repeat("a", 200)},
-			expected: strings.Repeat("a", MaxFileNameLen),
+			expected: strings.Repeat("a", testMaxFileNameLen),
 		},
 		{
 			name:     "negative id",
@@ -547,9 +542,9 @@ func TestListNaming_SanitizedTitle(t *testing.T) {
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			ln := NewListNamingFromBase(tt.listBase)
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				ln := NewListNamingFromBase(tt.listBase, testMaxFileNameLen)
 			if got := ln.SanitizedTitle(); got != tt.expected {
 				t.Errorf("SanitizedTitle() = %q, want %q", got, tt.expected)
 			}
@@ -558,41 +553,23 @@ func TestListNaming_SanitizedTitle(t *testing.T) {
 }
 
 func TestListNaming_Truncation(t *testing.T) {
-	oldMaxLen := MaxFileNameLen
-	MaxFileNameLen = 20
-	defer func() { MaxFileNameLen = oldMaxLen }()
+	const maxLen = 20
 
 	longTitle := strings.Repeat("x", 100)
-	ln := NewListNamingFromBase(&mockListBase{id: 1, title: longTitle})
+	ln := NewListNamingFromBase(&mockListBase{id: 1, title: longTitle}, maxLen)
 
 	got := ln.SanitizedTitle()
-	if len(got) > MaxFileNameLen {
-		t.Errorf("SanitizedTitle() length = %d, exceeds maxLen %d", len(got), MaxFileNameLen)
+	if len(got) > maxLen {
+		t.Errorf("SanitizedTitle() length = %d, exceeds maxLen %d", len(got), maxLen)
 	}
-	if got != strings.Repeat("x", MaxFileNameLen) {
-		t.Errorf("SanitizedTitle() = %q, want %q", got, strings.Repeat("x", MaxFileNameLen))
+	if got != strings.Repeat("x", maxLen) {
+		t.Errorf("SanitizedTitle() = %q, want %q", got, strings.Repeat("x", maxLen))
 	}
 }
 
 // ============================================================================
 // 边界条件测试
 // ============================================================================
-
-func TestMaxFileNameLenModification(t *testing.T) {
-	// 测试修改 MaxFileNameLen 后的行为
-	originalLen := MaxFileNameLen
-	defer func() { MaxFileNameLen = originalLen }()
-
-	// 设置一个较小的限制
-	MaxFileNameLen = 30
-
-	tn := NewTweetNaming("this is a very long text that should be truncated", 12345, "creator")
-	fileName := tn.FileName(".jpg")
-
-	if len(fileName) > MaxFileNameLen {
-		t.Errorf("FileName length %d exceeds MaxFileNameLen %d", len(fileName), MaxFileNameLen)
-	}
-}
 
 func TestExtReserveLen(t *testing.T) {
 	// 验证 ExtReserveLen 常量
@@ -601,20 +578,12 @@ func TestExtReserveLen(t *testing.T) {
 	}
 }
 
-func TestDefaultMaxFileNameLen(t *testing.T) {
-	// 验证默认值
-	fromUtils := 158 // utils.DefaultMaxFileNameLen
-	if MaxFileNameLen != fromUtils {
-		t.Logf("Note: MaxFileNameLen = %d (from utils)", MaxFileNameLen)
-	}
-}
-
 // ============================================================================
 // 并发安全测试
 // ============================================================================
 
 func TestTweetNaming_Concurrent(t *testing.T) {
-	tn := NewTweetNaming("test tweet", 12345, "testuser")
+	tn := NewTweetNaming("test tweet", 12345, "testuser", testMaxFileNameLen)
 
 	// 并发调用各种方法
 	done := make(chan bool, 3)
@@ -646,7 +615,7 @@ func TestTweetNaming_Concurrent(t *testing.T) {
 }
 
 func TestUserNaming_Concurrent(t *testing.T) {
-	un := NewUserNaming("User", "screen")
+		un := NewUserNaming("User", "screen", testMaxFileNameLen)
 
 	done := make(chan bool, 2)
 
@@ -670,7 +639,7 @@ func TestUserNaming_Concurrent(t *testing.T) {
 }
 
 func TestListNaming_Concurrent(t *testing.T) {
-	ln := NewListNamingFromBase(&mockListBase{id: 1, title: "Test List"})
+	ln := NewListNamingFromBase(&mockListBase{id: 1, title: "Test List"}, testMaxFileNameLen)
 
 	done := make(chan bool, 2)
 
@@ -703,6 +672,7 @@ func TestNamingIntegration(t *testing.T) {
 		"Check out this photo! 📸 #photography",
 		1355100264760393735,
 		"PhotoMaster(@photom)",
+		testMaxFileNameLen,
 	)
 
 	// 验证 LogFormat
@@ -732,10 +702,10 @@ func TestNamingIntegration(t *testing.T) {
 
 func TestUserAndTweetNamingIntegration(t *testing.T) {
 	// 模拟创建用户和推文命名的场景
-	user := NewUserNaming("张三", "zhangsan123")
+	user := NewUserNaming("张三", "zhangsan123", testMaxFileNameLen)
 	userTitle := user.SanitizedTitle()
 
-	tweet := NewTweetNaming("Hello World!", 9876543210, userTitle)
+	tweet := NewTweetNaming("Hello World!", 9876543210, userTitle, testMaxFileNameLen)
 
 	logFormat := tweet.LogFormat()
 	expectedCreator := "张三(zhangsan123)"
@@ -749,7 +719,7 @@ func TestUserAndTweetNamingIntegration(t *testing.T) {
 // ============================================================================
 
 func BenchmarkTweetNaming_LogFormat(b *testing.B) {
-	tn := NewTweetNaming("Test tweet content here", 123456789, "testuser")
+	tn := NewTweetNaming("Test tweet content here", 123456789, "testuser", testMaxFileNameLen)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_ = tn.LogFormat()
@@ -757,7 +727,7 @@ func BenchmarkTweetNaming_LogFormat(b *testing.B) {
 }
 
 func BenchmarkTweetNaming_FileName(b *testing.B) {
-	tn := NewTweetNaming("Test tweet content here", 123456789, "testuser")
+	tn := NewTweetNaming("Test tweet content here", 123456789, "testuser", testMaxFileNameLen)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_ = tn.FileName(".jpg")
@@ -765,7 +735,7 @@ func BenchmarkTweetNaming_FileName(b *testing.B) {
 }
 
 func BenchmarkTweetNaming_FilePath(b *testing.B) {
-	tn := NewTweetNaming("Test tweet content here", 123456789, "testuser")
+	tn := NewTweetNaming("Test tweet content here", 123456789, "testuser", testMaxFileNameLen)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_, _ = tn.FilePath("downloads", ".jpg")
@@ -773,7 +743,7 @@ func BenchmarkTweetNaming_FilePath(b *testing.B) {
 }
 
 func BenchmarkUserNaming_SanitizedTitle(b *testing.B) {
-	un := NewUserNaming("User Name", "screen_name")
+		un := NewUserNaming("User Name", "screen_name", testMaxFileNameLen)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_ = un.SanitizedTitle()
@@ -781,7 +751,7 @@ func BenchmarkUserNaming_SanitizedTitle(b *testing.B) {
 }
 
 func BenchmarkListNaming_SanitizedTitle(b *testing.B) {
-	ln := NewListNamingFromBase(&mockListBase{id: 1, title: "My Test List"})
+	ln := NewListNamingFromBase(&mockListBase{id: 1, title: "My Test List"}, testMaxFileNameLen)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_ = ln.SanitizedTitle()
@@ -790,12 +760,12 @@ func BenchmarkListNaming_SanitizedTitle(b *testing.B) {
 
 func BenchmarkNewTweetNaming(b *testing.B) {
 	for i := 0; i < b.N; i++ {
-		_ = NewTweetNaming("Test content", 123456789, "user")
+		_ = NewTweetNaming("Test content", 123456789, "user", testMaxFileNameLen)
 	}
 }
 
 func BenchmarkNewUserNaming(b *testing.B) {
 	for i := 0; i < b.N; i++ {
-		_ = NewUserNaming("Name", "screen")
+		_ = NewUserNaming("Name", "screen", testMaxFileNameLen)
 	}
 }

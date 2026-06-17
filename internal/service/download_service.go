@@ -13,11 +13,12 @@ import (
 
 	"github.com/unkmonster/tmd/internal/config"
 	"github.com/unkmonster/tmd/internal/database"
-	"github.com/unkmonster/tmd/internal/downloader"
-	"github.com/unkmonster/tmd/internal/downloading"
-	"github.com/unkmonster/tmd/internal/downloading/profile"
-	"github.com/unkmonster/tmd/internal/path"
-	"github.com/unkmonster/tmd/internal/twitter"
+		"github.com/unkmonster/tmd/internal/downloader"
+		"github.com/unkmonster/tmd/internal/downloading"
+		"github.com/unkmonster/tmd/internal/downloading/profile"
+		"github.com/unkmonster/tmd/internal/path"
+		"github.com/unkmonster/tmd/internal/twitter"
+		"github.com/unkmonster/tmd/internal/utils"
 )
 
 type downloadServiceImpl struct {
@@ -32,15 +33,24 @@ func (s *downloadServiceImpl) maxDownloadRoutine() int {
 	return config.DefaultMaxDownloadRoutine()
 }
 
+func (s *downloadServiceImpl) maxFileNameLen() int {
+	if s.deps != nil && s.deps.Config != nil && s.deps.Config.MaxFileNameLen > 0 {
+		return s.deps.Config.MaxFileNameLen
+	}
+	return utils.DefaultMaxFileNameLen
+}
+
 func (s *downloadServiceImpl) runtimeOptions() downloading.RuntimeOptions {
 	return downloading.RuntimeOptions{
 		MaxDownloadRoutine: s.maxDownloadRoutine(),
+		MaxFileNameLen:     s.maxFileNameLen(),
 	}
 }
 
 func (s *downloadServiceImpl) profileDownloaderConfig() *profile.Config {
 	cfg := profile.DefaultConfig()
 	cfg.MaxDownloadRoutine = s.maxDownloadRoutine()
+	cfg.MaxFileNameLen = s.maxFileNameLen()
 	return cfg
 }
 
@@ -572,7 +582,7 @@ func (s *downloadServiceImpl) MarkDownloaded(ctx context.Context, taskID string,
 	if err != nil {
 		return err
 	}
-	results, err := downloading.MarkUsersAsDownloaded(ctx, s.deps.Client, s.deps.DB, lists, users, pathHelper.Users, markTimeStr)
+	results, err := downloading.MarkUsersAsDownloaded(ctx, s.deps.Client, s.deps.DB, lists, users, pathHelper.Users, markTimeStr, s.maxFileNameLen())
 
 	if err != nil {
 		return err

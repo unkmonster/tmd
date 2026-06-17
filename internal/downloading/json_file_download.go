@@ -159,7 +159,7 @@ func DownloadThirdPartyTweets(
 				tweet := convertToTwitterTweet(entries[i])
 
 				// 构建用户目录：usersDir/{ sanitizedUserName }/
-				userNaming := naming.NewUserNaming(entries[i].Name, entries[i].ScreenName)
+				userNaming := naming.NewUserNaming(entries[i].Name, entries[i].ScreenName, opts.normalizedMaxFileNameLen())
 				userDir := filepath.Join(usersDir, userNaming.SanitizedTitle())
 				if err := os.MkdirAll(userDir, 0755); err != nil {
 					log.Warnf("failed to create user dir for tweet %s: %v", entries[i].ID, err)

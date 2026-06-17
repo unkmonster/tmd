@@ -24,11 +24,11 @@ import (
 	"github.com/unkmonster/tmd/internal/config"
 	"github.com/unkmonster/tmd/internal/consolelog"
 	"github.com/unkmonster/tmd/internal/database"
-	"github.com/unkmonster/tmd/internal/downloading"
-	"github.com/unkmonster/tmd/internal/naming"
-	"github.com/unkmonster/tmd/internal/path"
-	"github.com/unkmonster/tmd/internal/service"
-	"github.com/unkmonster/tmd/internal/twitter"
+		"github.com/unkmonster/tmd/internal/downloading"
+		"github.com/unkmonster/tmd/internal/path"
+		"github.com/unkmonster/tmd/internal/service"
+		"github.com/unkmonster/tmd/internal/twitter"
+		"github.com/unkmonster/tmd/internal/utils"
 )
 
 func initLogger(dbg bool, logFile io.Writer, logHub *consolelog.Hub) {
@@ -131,11 +131,12 @@ func main() {
 	if maxDownloadRoutine <= 0 {
 		maxDownloadRoutine = config.DefaultMaxDownloadRoutine()
 	}
-	log.Infoln("max download routine set to:", maxDownloadRoutine)
-	if conf.MaxFileNameLen > 0 {
-		naming.MaxFileNameLen = conf.MaxFileNameLen
-	}
-	log.Infoln("max file name length set to:", naming.MaxFileNameLen)
+		log.Infoln("max download routine set to:", maxDownloadRoutine)
+		maxFileNameLen := conf.MaxFileNameLen
+		if maxFileNameLen <= 0 {
+			maxFileNameLen = utils.DefaultMaxFileNameLen
+		}
+		log.Infoln("max file name length set to:", maxFileNameLen)
 
 	if conf.ProxyURL != "" {
 		os.Setenv("HTTP_PROXY", conf.ProxyURL)

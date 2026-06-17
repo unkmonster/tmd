@@ -8,10 +8,10 @@ type UserNaming struct {
 	sanitized string
 }
 
-func NewUserNaming(name, screenName string) *UserNaming {
+func NewUserNaming(name, screenName string, maxLen int) *UserNaming {
 	title := name + "(" + screenName + ")"
 	return &UserNaming{
-		sanitized: utils.WinFileNameWithMaxLen(title, MaxFileNameLen),
+		sanitized: utils.WinFileNameWithMaxLen(title, maxLen),
 	}
 }
 

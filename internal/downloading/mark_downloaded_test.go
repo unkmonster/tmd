@@ -27,7 +27,7 @@ func TestMarkSingleUserWithInfo(t *testing.T) {
 	timestamp := time.Date(2024, 1, 15, 10, 30, 0, 0, time.Local)
 
 	// Test marking user with timestamp
-	info := markSingleUserWithInfo(db, user, tempDir, &timestamp)
+	info := markSingleUserWithInfo(db, user, tempDir, &timestamp, 158)
 
 	if !info.Success {
 		t.Errorf("Success = false, want true. Error: %s", info.Error)
@@ -61,7 +61,7 @@ func TestMarkSingleUserWithInfo_NilTimestamp(t *testing.T) {
 	}
 
 	// Test marking user with nil timestamp (full download)
-	info := markSingleUserWithInfo(db, user, tempDir, nil)
+	info := markSingleUserWithInfo(db, user, tempDir, nil, 158)
 
 	if !info.Success {
 		t.Errorf("Success = false, want true. Error: %s", info.Error)
@@ -80,7 +80,7 @@ func TestMarkSingleUserWithInfo_NilUser(t *testing.T) {
 	timestamp := time.Date(2024, 1, 15, 10, 30, 0, 0, time.Local)
 
 	// Test with nil user
-	info := markSingleUserWithInfo(db, nil, tempDir, &timestamp)
+	info := markSingleUserWithInfo(db, nil, tempDir, &timestamp, 158)
 
 	if info.Success {
 		t.Error("Success should be false for nil user")
@@ -114,7 +114,7 @@ func TestMarkUsersAsDownloaded(t *testing.T) {
 	}
 
 	// Test marking users with specific timestamp
-	results, err := MarkUsersAsDownloaded(ctx, nil, db, []twitter.ListBase{mockList}, additionalUsers, tempDir, "2024-01-15T10:30:00")
+	results, err := MarkUsersAsDownloaded(ctx, nil, db, []twitter.ListBase{mockList}, additionalUsers, tempDir, "2024-01-15T10:30:00", 158)
 	if err != nil {
 		t.Errorf("MarkUsersAsDownloaded() error = %v", err)
 	}
@@ -151,7 +151,7 @@ func TestMarkUsersAsDownloaded_EmptyTimestamp(t *testing.T) {
 	}
 
 	// Test with empty timestamp (should use current time)
-	results, err := MarkUsersAsDownloaded(ctx, nil, db, nil, []*twitter.User{user}, tempDir, "")
+	results, err := MarkUsersAsDownloaded(ctx, nil, db, nil, []*twitter.User{user}, tempDir, "", 158)
 	if err != nil {
 		t.Errorf("MarkUsersAsDownloaded() error = %v", err)
 	}
@@ -179,7 +179,7 @@ func TestMarkUsersAsDownloaded_NullTimestamp(t *testing.T) {
 	}
 
 	// Test with "null" timestamp (should clear latest release time)
-	results, err := MarkUsersAsDownloaded(ctx, nil, db, nil, []*twitter.User{user}, tempDir, "null")
+	results, err := MarkUsersAsDownloaded(ctx, nil, db, nil, []*twitter.User{user}, tempDir, "null", 158)
 	if err != nil {
 		t.Errorf("MarkUsersAsDownloaded() error = %v", err)
 	}
@@ -207,7 +207,7 @@ func TestMarkUsersAsDownloaded_InvalidTimestamp(t *testing.T) {
 	}
 
 	// Test with invalid timestamp format
-	_, err := MarkUsersAsDownloaded(ctx, nil, db, nil, []*twitter.User{user}, tempDir, "invalid-timestamp")
+	_, err := MarkUsersAsDownloaded(ctx, nil, db, nil, []*twitter.User{user}, tempDir, "invalid-timestamp", 158)
 	if err == nil {
 		t.Error("MarkUsersAsDownloaded() should return error for invalid timestamp")
 	}
@@ -227,7 +227,7 @@ func TestMarkUsersAsDownloaded_CancelledContext(t *testing.T) {
 		members: []*twitter.User{},
 	}
 
-	_, err := MarkUsersAsDownloaded(ctx, nil, db, []twitter.ListBase{mockList}, nil, tempDir, "")
+	_, err := MarkUsersAsDownloaded(ctx, nil, db, []twitter.ListBase{mockList}, nil, tempDir, "", 158)
 	if err == nil {
 		t.Error("MarkUsersAsDownloaded() with cancelled context should return error")
 	}
@@ -250,7 +250,7 @@ func TestMarkUsersAsDownloaded_NilUsers(t *testing.T) {
 		},
 	}
 
-	results, err := MarkUsersAsDownloaded(ctx, nil, db, []twitter.ListBase{mockList}, nil, tempDir, "")
+	results, err := MarkUsersAsDownloaded(ctx, nil, db, []twitter.ListBase{mockList}, nil, tempDir, "", 158)
 	if err != nil {
 		t.Errorf("MarkUsersAsDownloaded() error = %v", err)
 	}
@@ -282,7 +282,7 @@ func TestMarkUsersAsDownloaded_ListError(t *testing.T) {
 		err:  context.DeadlineExceeded,
 	}
 
-	results, err := MarkUsersAsDownloaded(ctx, nil, db, []twitter.ListBase{mockList}, nil, tempDir, "")
+	results, err := MarkUsersAsDownloaded(ctx, nil, db, []twitter.ListBase{mockList}, nil, tempDir, "", 158)
 	// Generic errors should not cause function to fail, just skip the list
 	if err != nil {
 		t.Errorf("MarkUsersAsDownloaded() should not return error for generic list error: %v", err)
@@ -308,7 +308,7 @@ func TestMarkUsersAsDownloaded_ListNotAccessible(t *testing.T) {
 	}
 
 	// This should return an error because the list is not accessible
-	_, err := MarkUsersAsDownloaded(ctx, nil, db, []twitter.ListBase{mockList}, nil, tempDir, "")
+	_, err := MarkUsersAsDownloaded(ctx, nil, db, []twitter.ListBase{mockList}, nil, tempDir, "", 158)
 	if err == nil {
 		t.Error("MarkUsersAsDownloaded() should return error for inaccessible list")
 	}
@@ -334,7 +334,7 @@ func TestMarkSingleUserWithInfo_PanicRecovery(t *testing.T) {
 	timestamp := time.Date(2024, 1, 15, 10, 30, 0, 0, time.Local)
 
 	// This should not panic
-	info := markSingleUserWithInfo(db, user, tempDir, &timestamp)
+	info := markSingleUserWithInfo(db, user, tempDir, &timestamp, 158)
 
 	// The result depends on whether the sync succeeded
 	t.Logf("Result: Success=%v, Error=%s", info.Success, info.Error)
@@ -373,7 +373,7 @@ func TestMarkUsersAsDownloaded_EmptyListsAndUsers(t *testing.T) {
 	ctx := context.Background()
 
 	// Test with empty lists and empty users
-	results, err := MarkUsersAsDownloaded(ctx, nil, db, []twitter.ListBase{}, []*twitter.User{}, tempDir, "")
+	results, err := MarkUsersAsDownloaded(ctx, nil, db, []twitter.ListBase{}, []*twitter.User{}, tempDir, "", 158)
 	if err != nil {
 		t.Errorf("MarkUsersAsDownloaded() error = %v", err)
 	}
@@ -397,7 +397,7 @@ func TestMarkUsersAsDownloaded_NilLists(t *testing.T) {
 	}
 
 	// Test with nil lists (should not panic)
-	results, err := MarkUsersAsDownloaded(ctx, nil, db, nil, []*twitter.User{user}, tempDir, "")
+	results, err := MarkUsersAsDownloaded(ctx, nil, db, nil, []*twitter.User{user}, tempDir, "", 158)
 	if err != nil {
 		t.Errorf("MarkUsersAsDownloaded() error = %v", err)
 	}
@@ -428,7 +428,7 @@ func TestMarkUsersAsDownloaded_NilListInSlice(t *testing.T) {
 	}
 
 	// Test with nil list in slice (should skip nil list)
-	results, err := MarkUsersAsDownloaded(ctx, nil, db, []twitter.ListBase{nil, mockList}, nil, tempDir, "")
+	results, err := MarkUsersAsDownloaded(ctx, nil, db, []twitter.ListBase{nil, mockList}, nil, tempDir, "", 158)
 	if err != nil {
 		t.Errorf("MarkUsersAsDownloaded() error = %v", err)
 	}
@@ -463,7 +463,7 @@ func TestMarkUsersAsDownloaded_MultipleLists(t *testing.T) {
 		},
 	}
 
-	results, err := MarkUsersAsDownloaded(ctx, nil, db, []twitter.ListBase{mockList1, mockList2}, nil, tempDir, "2024-01-15T10:30:00")
+	results, err := MarkUsersAsDownloaded(ctx, nil, db, []twitter.ListBase{mockList1, mockList2}, nil, tempDir, "2024-01-15T10:30:00", 158)
 	if err != nil {
 		t.Errorf("MarkUsersAsDownloaded() error = %v", err)
 	}
@@ -496,13 +496,13 @@ func TestMarkSingleUserWithInfo_DuplicateUsers(t *testing.T) {
 	}
 
 	// First mark
-	info1 := markSingleUserWithInfo(db, user, tempDir, &timestamp)
+	info1 := markSingleUserWithInfo(db, user, tempDir, &timestamp, 158)
 	if !info1.Success {
 		t.Errorf("First mark failed: %s", info1.Error)
 	}
 
 	// Second mark (should succeed, updating the same user)
-	info2 := markSingleUserWithInfo(db, user, tempDir, &timestamp)
+	info2 := markSingleUserWithInfo(db, user, tempDir, &timestamp, 158)
 	if !info2.Success {
 		t.Errorf("Second mark failed: %s", info2.Error)
 	}
@@ -527,7 +527,7 @@ func TestMarkUsersAsDownloaded_CaseInsensitiveNull(t *testing.T) {
 	}
 
 	// Test with uppercase "NULL"
-	results, err := MarkUsersAsDownloaded(ctx, nil, db, nil, []*twitter.User{user}, tempDir, "NULL")
+	results, err := MarkUsersAsDownloaded(ctx, nil, db, nil, []*twitter.User{user}, tempDir, "NULL", 158)
 	if err != nil {
 		t.Errorf("MarkUsersAsDownloaded() error = %v", err)
 	}
@@ -541,7 +541,7 @@ func TestMarkUsersAsDownloaded_CaseInsensitiveNull(t *testing.T) {
 	}
 
 	// Test with mixed case "Null"
-	results2, err := MarkUsersAsDownloaded(ctx, nil, db, nil, []*twitter.User{user}, tempDir, "Null")
+	results2, err := MarkUsersAsDownloaded(ctx, nil, db, nil, []*twitter.User{user}, tempDir, "Null", 158)
 	if err != nil {
 		t.Errorf("MarkUsersAsDownloaded() error = %v", err)
 	}
