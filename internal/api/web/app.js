@@ -68,6 +68,19 @@ function restoreSearchValue(inputId, stateKey, subKey = null) {
 // ============================================
 // State Management
 // ============================================
+function deepMerge(target, source) {
+  const result = { ...target };
+  for (const key of Object.keys(source)) {
+    if (source[key] && typeof source[key] === 'object' && !Array.isArray(source[key]) &&
+        target[key] && typeof target[key] === 'object' && !Array.isArray(target[key])) {
+      result[key] = deepMerge(target[key], source[key]);
+    } else {
+      result[key] = source[key];
+    }
+  }
+  return result;
+}
+
 const store = {
   state: {
     currentPage: 'overview',
@@ -157,7 +170,7 @@ const store = {
   },
 
   setState(newState) {
-    this.state = { ...this.state, ...newState };
+    this.state = deepMerge(this.state, newState);
     this.listeners.forEach(fn => fn(this.state));
   }
 };
@@ -527,6 +540,13 @@ const toast = {
   show(message, type = 'success', title = '') {
     if (!this.container) return;
     const existingToasts = this.container.querySelectorAll('.toast');
+    
+    // Dedup: skip if same message already visible
+    for (const existing of existingToasts) {
+      const msgEl = existing.querySelector('.toast-message');
+      if (msgEl && msgEl.textContent === message) return;
+    }
+    
     if (existingToasts.length >= this.maxToasts) {
       // 移除最旧的消息（第一个）
       existingToasts[0].remove();
@@ -1349,16 +1369,6 @@ function renderDBTable(type, data, sort) {
 
 function renderDBMobileCards(type, data) {
   if (!data || data.length === 0) return '';
-
-  const renderActionButtons = (type, item) => {
-    const idStr = String(item.id);
-    return `
-      <div class="flex gap-2">
-        <button class="btn btn-ghost btn-sm" data-db-type="${escapeAttr(type)}" data-db-id="${escapeAttr(idStr)}" onclick="editDBItem(this.dataset.dbType, this.dataset.dbId)">✏️</button>
-        <button class="btn btn-danger btn-sm" data-db-type="${escapeAttr(type)}" data-db-id="${escapeAttr(idStr)}" onclick="deleteDBItem(this.dataset.dbType, this.dataset.dbId)">🗑️</button>
-      </div>
-    `;
-  };
 
   const cards = data.map(item => {
     if (type === 'users') {
@@ -2671,7 +2681,7 @@ function renderLogViewer() {
           ${logs.length === 0 ? `<div class="empty-state"><div class="empty-icon">📋</div><div class="empty-title">暂无日志</div><div class="empty-desc">选择日志级别或调整筛选条件</div></div>` : logs.map(renderLine).join('')}
         </div>
         <button class="log-scroll-to-top-btn" id="logScrollToTopBtn"
-          onclick="scrollLogToTop()"
+          onclick="scrollLogToTop()" aria-label="滚动到日志顶部"
           style="display:${store.state._logNewArrived ? 'flex' : 'none'}">
           📌 新日志已到达
         </button>
@@ -3235,13 +3245,7 @@ function navigateToSystemSchedules() {
   } else {
     store.setState({ currentPage: 'system', _systemTab: 'schedules' });
     updateURL('system');
-    document.querySelectorAll('.nav-item').forEach(el => {
-      el.classList.toggle('active', el.dataset.page === 'system');
-    });
-    document.querySelectorAll('.mobile-nav-item').forEach(el => {
-      el.classList.toggle('active', el.dataset.page === 'system');
-    });
-    document.getElementById('pageTitle').textContent = '系统';
+    updateNavigationUI('system');
     if (store.state.isMobile) {
       document.getElementById('sidebar').classList.remove('open');
       document.getElementById('sidebarOverlay').classList.remove('open');
@@ -4146,59 +4150,34 @@ function setSystemTab(tab) {
 // Navigation & Routing
 // ============================================
 
+// Shared route mappings (single source of truth)
+const ROUTE_TO_PAGE = { '/': 'overview', '/tasks': 'tasks', '/data': 'data', '/schedules': 'schedules', '/system': 'system', '/logs': 'logs' };
+const PAGE_TO_ROUTE = { overview: '/', tasks: '/tasks', data: '/data', schedules: '/schedules', system: '/system', logs: '/logs' };
+const HASH_TO_SUB = { 'users': 'users', 'lists': 'lists', 'entities': 'entities', 'list-entities': 'listEntities', 'user-links': 'userLinks', 'previous-names': 'previousNames' };
+const SUB_TO_HASH = { 'users': '', 'lists': '#lists', 'entities': '#entities', 'listEntities': '#list-entities', 'userLinks': '#user-links', 'previousNames': '#previous-names' };
+const PAGE_TITLES = { overview: '概览', tasks: '任务中心', data: '数据管理', schedules: '定时任务', system: '应用配置', logs: '系统日志' };
+
+function updateNavigationUI(page) {
+  document.querySelectorAll('.nav-item').forEach(el => el.classList.toggle('active', el.dataset.page === page));
+  document.querySelectorAll('.mobile-nav-item').forEach(el => el.classList.toggle('active', el.dataset.page === page));
+  document.getElementById('pageTitle').textContent = PAGE_TITLES[page] || '概览';
+}
+
 // Parse URL to determine current page
 function parseRoute() {
   const path = window.location.pathname;
   const hash = window.location.hash.slice(1); // Remove #
   
-  // Map paths to pages
-  const pathMap = {
-    '/': 'overview',
-    '/tasks': 'tasks',
-    '/data': 'data',
-    '/schedules': 'schedules',
-    '/system': 'system',
-    '/logs': 'logs'
-  };
-  
-  // Map hash to data sub-pages
-  const hashMap = {
-    'users': 'users',
-    'lists': 'lists',
-    'entities': 'entities',
-    'list-entities': 'listEntities',
-    'user-links': 'userLinks',
-    'previous-names': 'previousNames'
-  };
-  
-  const page = pathMap[path] || 'overview';
-  const dataSubPage = hashMap[hash] || 'users';
+  const page = ROUTE_TO_PAGE[path] || 'overview';
+  const dataSubPage = HASH_TO_SUB[hash] || 'users';
   
   return { page, dataSubPage };
 }
 
 // Update URL based on current page
 function updateURL(page, dataSubPage = null) {
-  const pathMap = {
-    'overview': '/',
-    'tasks': '/tasks',
-    'data': '/data',
-    'schedules': '/schedules',
-    'system': '/system',
-    'logs': '/logs'
-  };
-  
-  const hashMap = {
-    'users': '',
-    'lists': '#lists',
-    'entities': '#entities',
-    'listEntities': '#list-entities',
-    'userLinks': '#user-links',
-    'previousNames': '#previous-names'
-  };
-  
-  const path = pathMap[page] || '/';
-  const hash = (page === 'data' && dataSubPage) ? hashMap[dataSubPage] : '';
+  const path = PAGE_TO_ROUTE[page] || '/';
+  const hash = (page === 'data' && dataSubPage) ? SUB_TO_HASH[dataSubPage] : '';
   
   // Use history API to update URL without reloading
   const newUrl = path + hash;
@@ -4218,19 +4197,8 @@ function navigateTo(page) {
   // Update URL
   updateURL(page, store.state.dataSubPage);
   
-  // Update sidebar
-  document.querySelectorAll('.nav-item').forEach(el => {
-    el.classList.toggle('active', el.dataset.page === page);
-  });
-  
-  // Update mobile nav
-  document.querySelectorAll('.mobile-nav-item').forEach(el => {
-    el.classList.toggle('active', el.dataset.page === page);
-  });
-  
-  // Update title
-  const titles = { overview: '概览', tasks: '任务中心', data: '数据管理', schedules: '定时任务', system: '应用配置', logs: '系统日志' };
-  document.getElementById('pageTitle').textContent = titles[page];
+  // Update sidebar, mobile nav, and title
+  updateNavigationUI(page);
   
   // Close sidebar on mobile
   if (store.state.isMobile) {
@@ -4258,17 +4226,8 @@ window.onpopstate = (event) => {
     store.setState({ currentPage: page });
   }
   
-  // Update sidebar active state
-  document.querySelectorAll('.nav-item').forEach(el => {
-    el.classList.toggle('active', el.dataset.page === page);
-  });
-  document.querySelectorAll('.mobile-nav-item').forEach(el => {
-    el.classList.toggle('active', el.dataset.page === page);
-  });
-  
-  // Update title
-  const titles = { overview: '概览', tasks: '任务中心', data: '数据管理', schedules: '定时任务', system: '应用配置', logs: '系统日志' };
-  document.getElementById('pageTitle').textContent = titles[page];
+  // Update sidebar, mobile nav, and title
+  updateNavigationUI(page);
 };
 
 function setDataSubPage(subPage) {
@@ -4351,16 +4310,7 @@ function filterTasks() {
 
 async function init() {
   const { page, dataSubPage } = parseRoute();
-
-  document.querySelectorAll('.nav-item').forEach(el => {
-    el.classList.toggle('active', el.dataset.page === page);
-  });
-  document.querySelectorAll('.mobile-nav-item').forEach(el => {
-    el.classList.toggle('active', el.dataset.page === page);
-  });
-
-  const titles = { overview: '概览', tasks: '任务中心', data: '数据管理', schedules: '定时任务', system: '应用配置', logs: '系统日志' };
-  document.getElementById('pageTitle').textContent = titles[page] || '概览';
+  updateNavigationUI(page);
 
   document.getElementById('contentContainer').innerHTML = `
     <div class="empty-state">
