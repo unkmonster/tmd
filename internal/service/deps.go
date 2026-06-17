@@ -16,7 +16,7 @@ type Dependencies struct {
 	AdditionalClients []*resty.Client
 	DB                *sqlx.DB
 	Config            *config.Config
-	ListSyncManager   *downloading.ListSyncManager
+	ListSyncManager   *downloading.ListSyncManager // 可选，为 nil 时跳过 list 成员同步清理
 }
 
 // Validate 验证依赖项是否完整
