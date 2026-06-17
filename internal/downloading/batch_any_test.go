@@ -2,6 +2,7 @@ package downloading
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/unkmonster/tmd/internal/twitter"
@@ -62,15 +63,16 @@ func TestBatchDownloadAny_WithUsersOnly(t *testing.T) {
 		},
 	}
 
-	// This will fail because we don't have real dependencies
-	// but it tests the function signature and basic flow
-	defer func() {
-		if r := recover(); r != nil {
-			t.Logf("BatchDownloadAny panicked as expected: %v", r)
-		}
-	}()
+	// Without real dependencies (client, downloader), BatchDownloadAny will
+	// successfully pass the list-sync phase (no lists) and then fail at
+	// BatchUserDownload which requires a real Twitter client.
+	_, _, _, err := BatchDownloadAny(ctx, nil, db, []twitter.ListBase{}, users, tempDir, tempDir, false, nil, nil, nil, RuntimeOptions{}, nil, nil)
 
-	_, _, _, _ = BatchDownloadAny(ctx, nil, db, []twitter.ListBase{}, users, tempDir, tempDir, false, nil, nil, nil, RuntimeOptions{}, nil, nil)
+	// Should fail at BatchUserDownload due to missing dependencies,
+	// not panic. The exact error depends on how far it gets.
+	if err == nil {
+		t.Error("BatchDownloadAny() should return an error when dependencies are missing")
+	}
 }
 
 func TestBatchDownloadAny_WithListsOnly(t *testing.T) {
@@ -87,13 +89,24 @@ func TestBatchDownloadAny_WithListsOnly(t *testing.T) {
 		err:     nil,
 	}
 
-	defer func() {
-		if r := recover(); r != nil {
-			t.Logf("BatchDownloadAny panicked as expected: %v", r)
-		}
-	}()
+	// List with empty members: sync succeeds but BatchUserDownload
+	// still runs with empty users (which is a no-op).
+	// With no users at all (lists have empty members, no direct users),
+	// BatchUserDownload returns early with nil.
+	failed, members, summary, err := BatchDownloadAny(ctx, nil, db, []twitter.ListBase{mockList}, []*twitter.User{}, tempDir, tempDir, false, nil, nil, nil, RuntimeOptions{}, nil, nil)
 
-	_, _, _, _ = BatchDownloadAny(ctx, nil, db, []twitter.ListBase{mockList}, []*twitter.User{}, tempDir, tempDir, false, nil, nil, nil, RuntimeOptions{}, nil, nil)
+	if err != nil {
+		t.Errorf("BatchDownloadAny() with empty-member list should succeed: %v", err)
+	}
+	if len(failed) != 0 {
+		t.Errorf("expected no failed tweets, got %d", len(failed))
+	}
+	if len(members) != 0 {
+		t.Errorf("expected no list members, got %d", len(members))
+	}
+	if summary.TotalEntities != 0 {
+		t.Errorf("expected summary.TotalEntities = 0, got %d", summary.TotalEntities)
+	}
 }
 
 func TestBatchDownloadAny_WithBoth(t *testing.T) {
@@ -116,13 +129,14 @@ func TestBatchDownloadAny_WithBoth(t *testing.T) {
 		{Id: 2, Name: "Direct User", ScreenName: "directuser", MediaCount: 10},
 	}
 
-	defer func() {
-		if r := recover(); r != nil {
-			t.Logf("BatchDownloadAny panicked as expected: %v", r)
-		}
-	}()
+	// List sync succeeds (list has 1 member), then BatchUserDownload
+	// is called with 2 users (1 from list + 1 direct) but fails
+	// due to missing Twitter client and downloader dependencies.
+	_, _, _, err := BatchDownloadAny(ctx, nil, db, []twitter.ListBase{mockList}, users, tempDir, tempDir, false, nil, nil, nil, RuntimeOptions{}, nil, nil)
 
-	_, _, _, _ = BatchDownloadAny(ctx, nil, db, []twitter.ListBase{mockList}, users, tempDir, tempDir, false, nil, nil, nil, RuntimeOptions{}, nil, nil)
+	if err == nil {
+		t.Error("BatchDownloadAny() should return an error when download dependencies are missing")
+	}
 }
 
 func TestBatchDownloadAny_CancelledContext(t *testing.T) {
@@ -141,13 +155,14 @@ func TestBatchDownloadAny_CancelledContext(t *testing.T) {
 		err:     nil,
 	}
 
-	defer func() {
-		if r := recover(); r != nil {
-			t.Logf("BatchDownloadAny panicked as expected: %v", r)
-		}
-	}()
+	_, _, _, err := BatchDownloadAny(ctx, nil, db, []twitter.ListBase{mockList}, []*twitter.User{}, tempDir, tempDir, false, nil, nil, nil, RuntimeOptions{}, nil, nil)
 
-	_, _, _, _ = BatchDownloadAny(ctx, nil, db, []twitter.ListBase{mockList}, []*twitter.User{}, tempDir, tempDir, false, nil, nil, nil, RuntimeOptions{}, nil, nil)
+	// With a cancelled context, the list's GetMembers should check context
+	// and return an error. BatchDownloadAny should propagate it.
+	if err == nil {
+		t.Log("BatchDownloadAny should ideally return context.Canceled for cancelled context")
+		// The function may not check context in all paths; this is informational.
+	}
 }
 
 func TestBatchDownloadAny_ListError(t *testing.T) {
@@ -164,15 +179,13 @@ func TestBatchDownloadAny_ListError(t *testing.T) {
 		err:     context.DeadlineExceeded,
 	}
 
-	defer func() {
-		if r := recover(); r != nil {
-			t.Logf("BatchDownloadAny panicked as expected: %v", r)
-		}
-	}()
-
 	_, _, _, err := BatchDownloadAny(ctx, nil, db, []twitter.ListBase{mockList}, []*twitter.User{}, tempDir, tempDir, false, nil, nil, nil, RuntimeOptions{}, nil, nil)
+
 	if err == nil {
-		t.Log("BatchDownloadAny should return error when list fails")
+		t.Error("BatchDownloadAny should return error when list fails")
+	}
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Errorf("BatchDownloadAny() error = %v, want DeadlineExceeded", err)
 	}
 }
 
@@ -202,13 +215,19 @@ func TestBatchDownloadAny_MultipleLists(t *testing.T) {
 		},
 	}
 
-	defer func() {
-		if r := recover(); r != nil {
-			t.Logf("BatchDownloadAny panicked as expected: %v", r)
-		}
-	}()
+	// Both lists sync successfully, then BatchUserDownload fails
+	// due to missing dependencies.
+	_, listMembers, _, err := BatchDownloadAny(ctx, nil, db, lists, []*twitter.User{}, tempDir, tempDir, false, nil, nil, nil, RuntimeOptions{}, nil, nil)
 
-	_, _, _, _ = BatchDownloadAny(ctx, nil, db, lists, []*twitter.User{}, tempDir, tempDir, false, nil, nil, nil, RuntimeOptions{}, nil, nil)
+	if err == nil {
+		t.Error("BatchDownloadAny() should return an error when download dependencies are missing")
+	}
+
+	// Even though the function eventually fails, list members should
+	// have been collected from both lists.
+	if len(listMembers) == 0 {
+		t.Log("BatchDownloadAny collected 0 list members (may fail before collecting)")
+	}
 }
 
 func TestBatchDownloadAny_DifferentDirs(t *testing.T) {
@@ -226,13 +245,13 @@ func TestBatchDownloadAny_DifferentDirs(t *testing.T) {
 		err:     nil,
 	}
 
-	defer func() {
-		if r := recover(); r != nil {
-			t.Logf("BatchDownloadAny panicked as expected: %v", r)
-		}
-	}()
+	// Using different root and users directories.
+	// List has empty members, so BatchUserDownload is a no-op.
+	_, _, _, err := BatchDownloadAny(ctx, nil, db, []twitter.ListBase{mockList}, []*twitter.User{}, dir1, dir2, false, nil, nil, nil, RuntimeOptions{}, nil, nil)
 
-	_, _, _, _ = BatchDownloadAny(ctx, nil, db, []twitter.ListBase{mockList}, []*twitter.User{}, dir1, dir2, false, nil, nil, nil, RuntimeOptions{}, nil, nil)
+	if err != nil {
+		t.Errorf("BatchDownloadAny() with different dirs and empty members should succeed: %v", err)
+	}
 }
 
 func TestBatchDownloadAny_AutoFollow(t *testing.T) {
@@ -258,14 +277,27 @@ func TestBatchDownloadAny_AutoFollow(t *testing.T) {
 		err: nil,
 	}
 
-	defer func() {
-		if r := recover(); r != nil {
-			t.Logf("BatchDownloadAny panicked as expected: %v", r)
-		}
-	}()
+	// autoFollow = true with nil client triggers twitter.FollowUser(nil, user)
+	// which panics, but BatchUserDownload has an internal panic handler that
+	// recovers and cancels the context. Since the user is protected+unfollowed,
+	// IsVisiable() returns false, so the user is skipped and the function
+	// returns successfully without error.
+	failed, members, summary, err := BatchDownloadAny(ctx, nil, db, []twitter.ListBase{mockList}, []*twitter.User{}, tempDir, tempDir, true, nil, nil, nil, RuntimeOptions{}, nil, nil)
 
-	// Test with autoFollow = true
-	_, _, _, _ = BatchDownloadAny(ctx, nil, db, []twitter.ListBase{mockList}, []*twitter.User{}, tempDir, tempDir, true, nil, nil, nil, RuntimeOptions{}, nil, nil)
+	if err != nil {
+		t.Errorf("BatchDownloadAny() with autoFollow should handle panic internally: %v", err)
+	}
+	if len(failed) != 0 {
+		t.Errorf("expected no failed tweets, got %d", len(failed))
+	}
+	// listMembers includes all members returned by the list,
+	// regardless of whether they're downloadable.
+	if len(members) != 1 {
+		t.Errorf("expected 1 list member (the protected user), got %d", len(members))
+	}
+	if summary.TotalEntities != 0 {
+		t.Errorf("expected summary.TotalEntities = 0 (user not visible), got %d", summary.TotalEntities)
+	}
 }
 
 func TestBatchDownloadAny_AdditionalClients(t *testing.T) {
@@ -282,14 +314,13 @@ func TestBatchDownloadAny_AdditionalClients(t *testing.T) {
 		err:     nil,
 	}
 
-	defer func() {
-		if r := recover(); r != nil {
-			t.Logf("BatchDownloadAny panicked as expected: %v", r)
-		}
-	}()
+	// additional clients (nil) is passed through. With empty members,
+	// BatchUserDownload is a no-op and returns nil.
+	_, _, _, err := BatchDownloadAny(ctx, nil, db, []twitter.ListBase{mockList}, []*twitter.User{}, tempDir, tempDir, false, nil, nil, nil, RuntimeOptions{}, nil, nil)
 
-	// Test with additional clients (nil for now)
-	_, _, _, _ = BatchDownloadAny(ctx, nil, db, []twitter.ListBase{mockList}, []*twitter.User{}, tempDir, tempDir, false, nil, nil, nil, RuntimeOptions{}, nil, nil)
+	if err != nil {
+		t.Errorf("BatchDownloadAny() with nil additional clients and empty members should succeed: %v", err)
+	}
 }
 
 func TestBatchDownloadAny_EmptyListMembers(t *testing.T) {
@@ -306,13 +337,22 @@ func TestBatchDownloadAny_EmptyListMembers(t *testing.T) {
 		err:     nil,
 	}
 
-	defer func() {
-		if r := recover(); r != nil {
-			t.Logf("BatchDownloadAny panicked as expected: %v", r)
-		}
-	}()
+	// List returns no members; no direct users provided.
+	// BatchUserDownload is a no-op with empty users.
+	failed, members, summary, err := BatchDownloadAny(ctx, nil, db, []twitter.ListBase{mockList}, []*twitter.User{}, tempDir, tempDir, false, nil, nil, nil, RuntimeOptions{}, nil, nil)
 
-	_, _, _, _ = BatchDownloadAny(ctx, nil, db, []twitter.ListBase{mockList}, []*twitter.User{}, tempDir, tempDir, false, nil, nil, nil, RuntimeOptions{}, nil, nil)
+	if err != nil {
+		t.Errorf("BatchDownloadAny() with empty list members should succeed: %v", err)
+	}
+	if len(failed) != 0 {
+		t.Errorf("expected no failed tweets, got %d", len(failed))
+	}
+	if len(members) != 0 {
+		t.Errorf("expected no list members, got %d", len(members))
+	}
+	if summary.TotalEntities != 0 {
+		t.Errorf("expected summary.TotalEntities = 0, got %d", summary.TotalEntities)
+	}
 }
 
 func TestBatchDownloadAny_ConcurrentLists(t *testing.T) {
@@ -335,11 +375,13 @@ func TestBatchDownloadAny_ConcurrentLists(t *testing.T) {
 		}
 	}
 
-	defer func() {
-		if r := recover(); r != nil {
-			t.Logf("BatchDownloadAny panicked as expected: %v", r)
-		}
-	}()
+	// All 5 lists sync concurrently. Members collected from all lists,
+	// then BatchUserDownload fails due to missing download deps.
+	_, listMembers, _, err := BatchDownloadAny(ctx, nil, db, lists, []*twitter.User{}, tempDir, tempDir, false, nil, nil, nil, RuntimeOptions{}, nil, nil)
 
-	_, _, _, _ = BatchDownloadAny(ctx, nil, db, lists, []*twitter.User{}, tempDir, tempDir, false, nil, nil, nil, RuntimeOptions{}, nil, nil)
+	if err == nil {
+		t.Error("BatchDownloadAny() with concurrent lists should return an error when download dependencies are missing")
+	}
+	// Members may or may not have been collected before the error.
+	_ = listMembers
 }

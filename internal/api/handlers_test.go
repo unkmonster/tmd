@@ -19,6 +19,14 @@ func serveStatic(server *Server, req *http.Request) *httptest.ResponseRecorder {
 	return rr
 }
 
+// embeddedFileExists 检查 embed FS 中是否存在给定路径的文件。
+// 用于跳过依赖特定 embed 文件的测试，避免在 embed 文件缺失时产生误报。
+func embeddedFileExists(server *Server, path string) bool {
+	req := httptest.NewRequest(http.MethodGet, path, nil)
+	rr := serveStatic(server, req)
+	return rr.Code == http.StatusOK
+}
+
 func TestHandleWeb_Success(t *testing.T) {
 	server := &Server{}
 
@@ -36,108 +44,152 @@ func TestHandleWeb_Success(t *testing.T) {
 }
 
 func TestHandleWeb_Error(t *testing.T) {
-	// 这个测试需要模拟文件读取错误
-	// 由于使用了 embed，无法直接测试错误情况
-	// 但我们可以验证正常情况下的行为
+	t.Skip("handleWeb 使用 //go:embed 固定读取 index.html，无法在测试中模拟文件读取错误")
+}
+
+func TestHandleWeb_DifferentRoutes(t *testing.T) {
+	server := &Server{}
+
+	routes := []string{
+		"/",
+		"/tasks",
+		"/data",
+		"/system",
+	}
+
+	for _, route := range routes {
+		t.Run(route, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, route, nil)
+			rr := httptest.NewRecorder()
+
+			server.handleWeb(rr, req)
+
+			// 所有路由都返回 index.html 的内容，只是前端路由
+			assert.Equal(t, http.StatusOK, rr.Code)
+			assert.Equal(t, "text/html; charset=utf-8", rr.Header().Get("Content-Type"))
+		})
+	}
+}
+
+func TestHandleWeb_CacheHeaders(t *testing.T) {
+	server := &Server{}
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rr := httptest.NewRecorder()
+
+	server.handleWeb(rr, req)
+
+	assert.Equal(t, "public, max-age=3600", rr.Header().Get("Cache-Control"))
+	assert.Equal(t, contentETag(rr.Body.Bytes()), rr.Header().Get("ETag"))
+}
+
+func TestHandleWeb_IfNoneMatch(t *testing.T) {
+	server := &Server{}
+
+	firstReq := httptest.NewRequest(http.MethodGet, "/", nil)
+	firstRR := httptest.NewRecorder()
+	server.handleWeb(firstRR, firstReq)
+	requireETag := firstRR.Header().Get("ETag")
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("If-None-Match", requireETag)
+	rr := httptest.NewRecorder()
+
+	server.handleWeb(rr, req)
+
+	assert.Equal(t, http.StatusNotModified, rr.Code)
+	assert.Equal(t, requireETag, rr.Header().Get("ETag"))
+	assert.Equal(t, 0, rr.Body.Len())
+}
+
+func TestHandleWeb_ResponseBody(t *testing.T) {
+	server := &Server{}
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rr := httptest.NewRecorder()
+
+	server.handleWeb(rr, req)
+
+	// 验证响应体不为空且包含 HTML
+	body := rr.Body.String()
+	assert.Greater(t, len(body), 0)
+	assert.Contains(t, rr.Header().Get("Content-Type"), "text/html")
+}
+
+func TestHandleWeb_NonGETMethods(t *testing.T) {
+	server := &Server{}
+
+	methods := []string{
+		http.MethodPost,
+		http.MethodPut,
+		http.MethodDelete,
+		http.MethodPatch,
+	}
+
+	for _, method := range methods {
+		t.Run(method, func(t *testing.T) {
+			req := httptest.NewRequest(method, "/", nil)
+			rr := httptest.NewRecorder()
+
+			server.handleWeb(rr, req)
+
+			// 当前 handleWeb 不检查 HTTP 方法，非 GET 请求也返回正常页面
+			// 如果将来添加了方法检查，这里需要修改
+			assert.Equal(t, http.StatusOK, rr.Code)
+		})
+	}
 }
 
 func TestHandleStatic_CSS(t *testing.T) {
 	server := &Server{}
 
+	if !embeddedFileExists(server, "/static/style.css") {
+		t.Skip("embedded style.css not available")
+	}
+
 	req := httptest.NewRequest(http.MethodGet, "/static/style.css", nil)
 	rr := serveStatic(server, req)
 
-	// 由于实际文件可能不存在，可能返回 404
-	// 这里主要测试不会 panic
-	contentType := rr.Header().Get("Content-Type")
-	if rr.Code == http.StatusOK {
-		assert.Equal(t, "text/css; charset=utf-8", contentType)
-	}
+	assert.Equal(t, http.StatusOK, rr.Code)
+	assert.Equal(t, "text/css; charset=utf-8", rr.Header().Get("Content-Type"))
 }
 
 func TestHandleStatic_JS(t *testing.T) {
 	server := &Server{}
 
+	if !embeddedFileExists(server, "/static/app.js") {
+		t.Skip("embedded app.js not available")
+	}
+
 	req := httptest.NewRequest(http.MethodGet, "/static/app.js", nil)
 	rr := serveStatic(server, req)
 
-	contentType := rr.Header().Get("Content-Type")
-	if rr.Code == http.StatusOK {
-		assert.Equal(t, "application/javascript; charset=utf-8", contentType)
-	}
+	assert.Equal(t, http.StatusOK, rr.Code)
+	assert.Equal(t, "application/javascript; charset=utf-8", rr.Header().Get("Content-Type"))
 }
 
 func TestHandleStatic_PNG(t *testing.T) {
-	server := &Server{}
-
-	req := httptest.NewRequest(http.MethodGet, "/static/image.png", nil)
-	rr := serveStatic(server, req)
-
-	contentType := rr.Header().Get("Content-Type")
-	if rr.Code == http.StatusOK {
-		assert.Equal(t, "image/png", contentType)
-	}
+	t.Skip("embedded image.png not available in test build")
 }
 
 func TestHandleStatic_JPG(t *testing.T) {
-	server := &Server{}
-
-	req := httptest.NewRequest(http.MethodGet, "/static/image.jpg", nil)
-	rr := serveStatic(server, req)
-
-	contentType := rr.Header().Get("Content-Type")
-	if rr.Code == http.StatusOK {
-		assert.Equal(t, "image/jpeg", contentType)
-	}
+	t.Skip("embedded image.jpg not available in test build")
 }
 
 func TestHandleStatic_SVG(t *testing.T) {
-	server := &Server{}
-
-	req := httptest.NewRequest(http.MethodGet, "/static/icon.svg", nil)
-	rr := serveStatic(server, req)
-
-	contentType := rr.Header().Get("Content-Type")
-	if rr.Code == http.StatusOK {
-		assert.Equal(t, "image/svg+xml", contentType)
-	}
+	t.Skip("embedded icon.svg not available in test build")
 }
 
 func TestHandleStatic_JSON(t *testing.T) {
-	server := &Server{}
-
-	req := httptest.NewRequest(http.MethodGet, "/static/data.json", nil)
-	rr := serveStatic(server, req)
-
-	contentType := rr.Header().Get("Content-Type")
-	if rr.Code == http.StatusOK {
-		assert.Equal(t, "application/json", contentType)
-	}
+	t.Skip("embedded data.json not available in test build")
 }
 
 func TestHandleStatic_HTML(t *testing.T) {
-	server := &Server{}
-
-	req := httptest.NewRequest(http.MethodGet, "/static/page.html", nil)
-	rr := serveStatic(server, req)
-
-	contentType := rr.Header().Get("Content-Type")
-	if rr.Code == http.StatusOK {
-		assert.Equal(t, "text/html; charset=utf-8", contentType)
-	}
+	t.Skip("embedded page.html not available in test build")
 }
 
 func TestHandleStatic_UnknownExtension(t *testing.T) {
-	server := &Server{}
-
-	req := httptest.NewRequest(http.MethodGet, "/static/file.unknown", nil)
-	rr := serveStatic(server, req)
-
-	// 未知扩展名应该使用默认的 content type
-	contentType := rr.Header().Get("Content-Type")
-	if rr.Code == http.StatusOK {
-		assert.Equal(t, "application/octet-stream", contentType)
-	}
+	t.Skip("no embedded file with unknown extension available in test build")
 }
 
 func TestHandleStatic_PathTraversal(t *testing.T) {
@@ -185,14 +237,35 @@ func TestHandleStatic_NotFound(t *testing.T) {
 func TestHandleStatic_CacheHeaders(t *testing.T) {
 	server := &Server{}
 
+	if !embeddedFileExists(server, "/static/style.css") {
+		t.Skip("embedded style.css not available")
+	}
+
 	req := httptest.NewRequest(http.MethodGet, "/static/style.css", nil)
 	rr := serveStatic(server, req)
 
-	// 验证缓存头
-	if rr.Code == http.StatusOK {
-		assert.Equal(t, "public, max-age=86400", rr.Header().Get("Cache-Control"))
-		assert.Equal(t, contentETag(rr.Body.Bytes()), rr.Header().Get("ETag"))
+	assert.Equal(t, "public, max-age=86400", rr.Header().Get("Cache-Control"))
+	assert.Equal(t, contentETag(rr.Body.Bytes()), rr.Header().Get("ETag"))
+}
+
+func TestHandleStatic_IfNoneMatch(t *testing.T) {
+	server := &Server{}
+
+	if !embeddedFileExists(server, "/static/style.css") {
+		t.Skip("embedded style.css not available")
 	}
+
+	firstReq := httptest.NewRequest(http.MethodGet, "/static/style.css", nil)
+	firstRR := serveStatic(server, firstReq)
+	requireETag := firstRR.Header().Get("ETag")
+
+	req := httptest.NewRequest(http.MethodGet, "/static/style.css", nil)
+	req.Header.Set("If-None-Match", requireETag)
+	rr := serveStatic(server, req)
+
+	assert.Equal(t, http.StatusNotModified, rr.Code)
+	assert.Equal(t, requireETag, rr.Header().Get("ETag"))
+	assert.Equal(t, 0, rr.Body.Len())
 }
 
 func TestHandleStatic_EmptyPath(t *testing.T) {
@@ -209,117 +282,42 @@ func TestHandleStatic_RootPath(t *testing.T) {
 	server := &Server{}
 
 	req := httptest.NewRequest(http.MethodGet, "/static", nil)
-	serveStatic(server, req)
-
-	// 没有尾部斜杠的路径应该被处理
-	// 实际行为取决于实现
-}
-
-func TestHandleWeb_DifferentRoutes(t *testing.T) {
-	server := &Server{}
-
-	routes := []string{
-		"/",
-		"/tasks",
-		"/data",
-		"/system",
-	}
-
-	for _, route := range routes {
-		t.Run(route, func(t *testing.T) {
-			req := httptest.NewRequest(http.MethodGet, route, nil)
-			rr := httptest.NewRecorder()
-
-			server.handleWeb(rr, req)
-
-			// 所有路由都应该返回相同的 HTML
-			assert.Equal(t, http.StatusOK, rr.Code)
-			assert.Equal(t, "text/html; charset=utf-8", rr.Header().Get("Content-Type"))
-		})
-	}
-}
-
-func TestHandleWeb_CacheHeaders(t *testing.T) {
-	server := &Server{}
-
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	rr := httptest.NewRecorder()
-
-	server.handleWeb(rr, req)
-
-	assert.Equal(t, "public, max-age=3600", rr.Header().Get("Cache-Control"))
-	assert.Equal(t, contentETag(rr.Body.Bytes()), rr.Header().Get("ETag"))
-}
-
-func TestHandleWeb_IfNoneMatch(t *testing.T) {
-	server := &Server{}
-
-	firstReq := httptest.NewRequest(http.MethodGet, "/", nil)
-	firstRR := httptest.NewRecorder()
-	server.handleWeb(firstRR, firstReq)
-	requireETag := firstRR.Header().Get("ETag")
-
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	req.Header.Set("If-None-Match", requireETag)
-	rr := httptest.NewRecorder()
-
-	server.handleWeb(rr, req)
-
-	assert.Equal(t, http.StatusNotModified, rr.Code)
-	assert.Equal(t, requireETag, rr.Header().Get("ETag"))
-	assert.Equal(t, 0, rr.Body.Len())
-}
-
-func TestHandleStatic_IfNoneMatch(t *testing.T) {
-	server := &Server{}
-
-	firstReq := httptest.NewRequest(http.MethodGet, "/static/app.js", nil)
-	firstRR := serveStatic(server, firstReq)
-	if firstRR.Code != http.StatusOK {
-		t.Skip("embedded app.js not found")
-	}
-	requireETag := firstRR.Header().Get("ETag")
-
-	req := httptest.NewRequest(http.MethodGet, "/static/app.js", nil)
-	req.Header.Set("If-None-Match", requireETag)
 	rr := serveStatic(server, req)
 
-	assert.Equal(t, http.StatusNotModified, rr.Code)
-	assert.Equal(t, requireETag, rr.Header().Get("ETag"))
-	assert.Equal(t, 0, rr.Body.Len())
+	// 不带尾部斜杠的 /static 路由不会匹配到 handleStatic（路径参数为空）
+	// path.Clean 对空字符串的处理可能导致不同结果，至少不应 panic
+	t.Logf("handleStatic with /static returned status %d", rr.Code)
 }
 
 func TestHandleStatic_PathCleaning(t *testing.T) {
 	server := &Server{}
 
 	tests := []struct {
-		name     string
-		path     string
-		expected string // 清理后的路径
+		name string
+		path string
 	}{
 		{
-			name:     "普通路径",
-			path:     "/static/style.css",
-			expected: "style.css",
+			name: "普通路径",
+			path: "/static/style.css",
 		},
 		{
-			name:     "带双点的路径",
-			path:     "/static/../style.css",
-			expected: "style.css", // .. 被移除
+			name: "带双点的路径",
+			path: "/static/../style.css",
 		},
 		{
-			name:     "带斜杠的路径",
-			path:     "/static//style.css",
-			expected: "/style.css",
+			name: "带斜杠的路径",
+			path: "/static//style.css",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			req := httptest.NewRequest(http.MethodGet, tt.path, nil)
-			serveStatic(server, req)
+			rr := serveStatic(server, req)
 
-			// 主要验证不会 panic
+			// 验证不会 panic，且始终返回有效 HTTP 状态码
+			assert.NotEqual(t, http.StatusInternalServerError, rr.Code,
+				"handleStatic should never return 500 for path: %s", tt.path)
 		})
 	}
 }
@@ -328,8 +326,8 @@ func TestHandleStatic_MultipleDotsInFilename(t *testing.T) {
 	server := &Server{}
 
 	tests := []struct {
-		filename string
-		expected string
+		filename    string
+		contentType string
 	}{
 		{"file.min.css", "text/css; charset=utf-8"},
 		{"file.bundle.js", "application/javascript; charset=utf-8"},
@@ -342,7 +340,11 @@ func TestHandleStatic_MultipleDotsInFilename(t *testing.T) {
 			rr := serveStatic(server, req)
 
 			if rr.Code == http.StatusOK {
-				assert.Equal(t, tt.expected, rr.Header().Get("Content-Type"))
+				assert.Equal(t, tt.contentType, rr.Header().Get("Content-Type"))
+			} else {
+				// 文件不存在时只需确认不 panic 且无 500
+				assert.NotEqual(t, http.StatusInternalServerError, rr.Code,
+					"handleStatic should never return 500 for: %s", tt.filename)
 			}
 		})
 	}
@@ -362,33 +364,11 @@ func TestHandleStatic_CaseSensitivity(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.path, func(t *testing.T) {
 			req := httptest.NewRequest(http.MethodGet, tt.path, nil)
-			serveStatic(server, req)
+			rr := serveStatic(server, req)
 
-			// 验证不会 panic
-		})
-	}
-}
-
-func TestHandleWeb_MethodNotAllowed(t *testing.T) {
-	server := &Server{}
-
-	methods := []string{
-		http.MethodPost,
-		http.MethodPut,
-		http.MethodDelete,
-		http.MethodPatch,
-	}
-
-	for _, method := range methods {
-		t.Run(method, func(t *testing.T) {
-			req := httptest.NewRequest(method, "/", nil)
-			rr := httptest.NewRecorder()
-
-			server.handleWeb(rr, req)
-
-			// 当前实现没有检查方法，所以应该返回 200
-			// 如果将来添加了方法检查，这里可能需要修改
-			assert.Equal(t, http.StatusOK, rr.Code)
+			// 验证不会 panic，返回有效状态码
+			assert.NotEqual(t, http.StatusInternalServerError, rr.Code,
+				"handleStatic should never return 500 for case-variant path: %s", tt.path)
 		})
 	}
 }
@@ -400,9 +380,11 @@ func TestHandleStatic_LongPath(t *testing.T) {
 	longPath := "/static/" + strings.Repeat("a/", 100) + "file.css"
 
 	req := httptest.NewRequest(http.MethodGet, longPath, nil)
-	serveStatic(server, req)
+	rr := serveStatic(server, req)
 
-	// 验证不会 panic
+	// 验证不会 panic，返回有效状态码
+	assert.NotEqual(t, http.StatusInternalServerError, rr.Code,
+		"handleStatic should never return 500 for long path")
 }
 
 func TestHandleStatic_SpecialCharacters(t *testing.T) {
@@ -429,25 +411,13 @@ func TestHandleStatic_SpecialCharacters(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			req := httptest.NewRequest(http.MethodGet, tt.path, nil)
-			serveStatic(server, req)
+			rr := serveStatic(server, req)
 
-			// 验证不会 panic
+			// 验证不会 panic，返回有效状态码
+			assert.NotEqual(t, http.StatusInternalServerError, rr.Code,
+				"handleStatic should never return 500 for: %s", tt.path)
 		})
 	}
-}
-
-func TestHandleWeb_ResponseBody(t *testing.T) {
-	server := &Server{}
-
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	rr := httptest.NewRecorder()
-
-	server.handleWeb(rr, req)
-
-	// 验证响应体不为空且包含 HTML
-	body := rr.Body.String()
-	assert.Greater(t, len(body), 0)
-	assert.Contains(t, rr.Header().Get("Content-Type"), "text/html")
 }
 
 func TestHandleStatic_Methods(t *testing.T) {
@@ -462,9 +432,11 @@ func TestHandleStatic_Methods(t *testing.T) {
 	for _, method := range methods {
 		t.Run(method, func(t *testing.T) {
 			req := httptest.NewRequest(method, "/static/style.css", nil)
-			serveStatic(server, req)
+			rr := serveStatic(server, req)
 
-			// 验证不会 panic
+			// 验证不会 panic，返回有效状态码
+			assert.NotEqual(t, http.StatusInternalServerError, rr.Code,
+				"handleStatic should never return 500 for method: %s", method)
 		})
 	}
 }

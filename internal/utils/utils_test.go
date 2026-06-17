@@ -2,7 +2,10 @@ package utils
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -632,80 +635,81 @@ func TestCheckRespStatus(t *testing.T) {
 	tests := []struct {
 		name       string
 		statusCode int
-		body       string
 		wantErr    bool
 		errCode    int
 	}{
 		{
 			name:       "成功响应 200",
 			statusCode: 200,
-			body:       "OK",
 			wantErr:    false,
 		},
 		{
 			name:       "成功响应 201",
 			statusCode: 201,
-			body:       "Created",
+			wantErr:    false,
+		},
+		{
+			name:       "成功响应 399",
+			statusCode: 399,
 			wantErr:    false,
 		},
 		{
 			name:       "客户端错误 400",
 			statusCode: 400,
-			body:       "Bad Request",
 			wantErr:    true,
 			errCode:    400,
 		},
 		{
 			name:       "未授权 401",
 			statusCode: 401,
-			body:       "Unauthorized",
 			wantErr:    true,
 			errCode:    401,
 		},
 		{
 			name:       "禁止访问 403",
 			statusCode: 403,
-			body:       "Forbidden",
 			wantErr:    true,
 			errCode:    403,
 		},
 		{
 			name:       "未找到 404",
 			statusCode: 404,
-			body:       "Not Found",
 			wantErr:    true,
 			errCode:    404,
 		},
 		{
 			name:       "服务器错误 500",
 			statusCode: 500,
-			body:       "Internal Server Error",
 			wantErr:    true,
 			errCode:    500,
-		},
-		{
-			name:       "边界值 399",
-			statusCode: 399,
-			body:       "OK",
-			wantErr:    false,
-		},
-		{
-			name:       "边界值 400",
-			statusCode: 400,
-			body:       "Error",
-			wantErr:    true,
-			errCode:    400,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_ = &resty.Response{}
-			// 使用反射或直接构造Response比较困难，这里我们测试错误类型
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(tt.statusCode)
+				_, _ = w.Write([]byte(http.StatusText(tt.statusCode)))
+			}))
+			defer server.Close()
+
+			client := resty.New()
+			resp, err := client.R().Get(server.URL)
+			if err != nil {
+				t.Fatalf("request failed: %v", err)
+			}
+
+			got := CheckRespStatus(resp)
 			if tt.wantErr {
-				err := &HttpStatusError{Code: tt.errCode, Msg: tt.body}
-				assert.Equal(t, tt.errCode, err.Code)
-				assert.Contains(t, err.Error(), fmt.Sprintf("%d", tt.errCode))
+				var statusErr *HttpStatusError
+				if !errors.As(got, &statusErr) {
+					t.Fatalf("expected HttpStatusError, got %T: %v", got, got)
+				}
+				if statusErr.Code != tt.errCode {
+					t.Errorf("expected status code %d, got %d", tt.errCode, statusErr.Code)
+				}
+			} else if got != nil {
+				t.Errorf("expected nil error, got %v", got)
 			}
 		})
 	}

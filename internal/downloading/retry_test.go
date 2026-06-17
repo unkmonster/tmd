@@ -81,17 +81,15 @@ func TestRetryFailedTweets_EmptyDumper(t *testing.T) {
 	ctx := context.Background()
 	dumper := NewDumper()
 
-	// Test with empty dumper - should return nil immediately
-	// We can't fully test this without a database and other dependencies,
-	// but we can verify it doesn't panic
-	defer func() {
-		if r := recover(); r != nil {
-			t.Errorf("RetryFailedTweets panicked with empty dumper: %v", r)
-		}
-	}()
+	// Empty dumper should return nil immediately and never touch dependencies
+	summary, err := RetryFailedTweets(ctx, dumper, nil, nil, nil, nil, RuntimeOptions{}, nil)
 
-	// Empty dumper should return immediately and never touch dependencies.
-	_, _ = RetryFailedTweets(ctx, dumper, nil, nil, nil, nil, RuntimeOptions{}, nil)
+	if err != nil {
+		t.Errorf("RetryFailedTweets() with empty dumper should not error: %v", err)
+	}
+	if summary.TotalEntities != 0 || summary.RemainingEntities != 0 {
+		t.Errorf("RetryFailedTweets() summary = %+v, want zero summary", summary)
+	}
 }
 
 func TestRetryFailedTweets_EmptyDumperWithProgress(t *testing.T) {
@@ -115,6 +113,9 @@ func TestRetryFailedTweets_EmptyDumperWithProgress(t *testing.T) {
 }
 
 func TestRetryFailedTweets_WithTweets(t *testing.T) {
+	db := setupTestDB(t)
+	defer db.Close()
+
 	dumper := NewDumper()
 
 	// Add some tweets with URLs to retry
@@ -122,17 +123,56 @@ func TestRetryFailedTweets_WithTweets(t *testing.T) {
 		{Id: 1, Urls: []string{"http://example.com/1.jpg"}, CreatedAt: time.Now()},
 		{Id: 2, Urls: []string{"http://example.com/2.jpg"}, CreatedAt: time.Now()},
 	}
-
 	dumper.Push(1, tweets...)
 
-	// Verify dumper has tweets
 	if dumper.Count() != 2 {
 		t.Fatalf("dumper.Count() = %d, want 2", dumper.Count())
 	}
 
-	// We can't fully test the retry logic without proper dependencies,
-	// but we verified the setup is correct
-	t.Log("Dumper setup correctly with tweets")
+	// With a real DB but nil client/downloader, RetryFailedTweets should:
+	// 1. Succeed at dumper.GetTotal(db) — real DB
+	// 2. Build the toretry list from the database records
+	// 3. Fail at BatchDownloadTweet — nil client causes panic
+	ctx := context.Background()
+	_, err := RetryFailedTweets(ctx, dumper, db, nil, nil, nil, RuntimeOptions{}, nil)
+
+	// The function either errors at GetTotal (if DB records don't match dumper state)
+	// or panics at BatchDownloadTweet. Either way, it processed past the empty check.
+	if err != nil {
+		t.Logf("RetryFailedTweets() returned error (expected due to nil downloader): %v", err)
+	} else {
+		t.Log("RetryFailedTweets() returned nil - may have succeeded partially")
+	}
+}
+
+func TestRetryFailedTweets_WithTweetsAndProgress(t *testing.T) {
+	db := setupTestDB(t)
+	defer db.Close()
+
+	dumper := NewDumper()
+
+	// Add tweets with URLs
+	tweets := []*twitter.Tweet{
+		{Id: 10, Urls: []string{"http://example.com/10.jpg"}, CreatedAt: time.Now()},
+	}
+	dumper.Push(2, tweets...)
+
+	if dumper.Count() != 1 {
+		t.Fatalf("dumper.Count() = %d, want 1", dumper.Count())
+	}
+
+	progressCalled := false
+	ctx := context.Background()
+	_, err := RetryFailedTweets(ctx, dumper, db, nil, nil, nil, RuntimeOptions{},
+		func(progress RetryProgress) {
+			progressCalled = true
+		})
+
+	if err != nil {
+		t.Logf("RetryFailedTweets() with progress returned error: %v", err)
+	}
+	// progress may or may not be called depending on how far execution gets
+	_ = progressCalled
 }
 
 func TestCountTotalUrls_LargeNumber(t *testing.T) {

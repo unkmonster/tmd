@@ -812,6 +812,64 @@ func TestRunLoopExitsOnInvalidIndex(t *testing.T) {
 	sc.runLoop(1)
 }
 
+func TestNextDailyTrigger_EmptyTimes(t *testing.T) {
+	got := nextDailyTrigger([]time.Time{})
+	if !got.IsZero() {
+		t.Errorf("expected zero time, got %v", got)
+	}
+}
+
+func TestNextDailyTrigger_ReturnsTodayIfTimeHasNotPassed(t *testing.T) {
+	trigger := time.Now().Add(5 * time.Minute)
+	times := []time.Time{trigger}
+
+	got := nextDailyTrigger(times)
+
+	if got.IsZero() {
+		t.Fatal("expected non-zero time")
+	}
+	if !got.After(time.Now()) && !got.Equal(trigger) {
+		t.Errorf("expected time after now, got %v", got)
+	}
+	if got.Hour() != trigger.Hour() || got.Minute() != trigger.Minute() {
+		t.Errorf("expected %02d:%02d, got %02d:%02d", trigger.Hour(), trigger.Minute(), got.Hour(), got.Minute())
+	}
+}
+
+func TestNextDailyTrigger_ReturnsTomorrowWhenAllTimesPassed(t *testing.T) {
+	past := time.Now().Add(-1 * time.Hour)
+	times := []time.Time{past}
+
+	got := nextDailyTrigger(times)
+
+	if got.IsZero() {
+		t.Fatal("expected non-zero time")
+	}
+	if !got.After(time.Now()) {
+		t.Errorf("expected future time, got %v (now=%v)", got, time.Now())
+	}
+	if got.Hour() != past.Hour() || got.Minute() != past.Minute() {
+		t.Errorf("expected hour:minute %02d:%02d, got %02d:%02d", past.Hour(), past.Minute(), got.Hour(), got.Minute())
+	}
+}
+
+func TestNextDailyTrigger_SelectsNextTimeWhenMultiple(t *testing.T) {
+	now := time.Now()
+	in5Min := now.Add(5 * time.Minute)
+	in30Min := now.Add(30 * time.Minute)
+
+	times := []time.Time{in30Min, in5Min}
+	got := nextDailyTrigger(times)
+
+	if got.IsZero() {
+		t.Fatal("expected non-zero time")
+	}
+	// should pick the nearest future time (in5Min)
+	if got.Hour() != in5Min.Hour() || got.Minute() != in5Min.Minute() {
+		t.Errorf("expected %02d:%02d (nearest), got %02d:%02d", in5Min.Hour(), in5Min.Minute(), got.Hour(), got.Minute())
+	}
+}
+
 func waitFor(t *testing.T, timeout time.Duration, condition func() bool) {
 	t.Helper()
 	deadline := time.Now().Add(timeout)

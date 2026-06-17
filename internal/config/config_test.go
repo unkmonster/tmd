@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/unkmonster/tmd/internal/utils"
 )
 
@@ -309,4 +310,88 @@ func TestValidateRejectsMissingRootPath(t *testing.T) {
 func TestValidateRejectsNilConfig(t *testing.T) {
 	err := Validate(nil)
 	assert.EqualError(t, err, "config is nil")
+}
+
+// ==================== normalizeInt 测试 ====================
+
+func TestNormalizeInt_ReturnsZeroForNegatives(t *testing.T) {
+	assert.Equal(t, 0, normalizeInt(-1, 0, 5, 100))
+	assert.Equal(t, 0, normalizeInt(-100, 0, 5, 100))
+	assert.Equal(t, 42, normalizeInt(-1, 42, 5, 100))
+}
+
+func TestNormalizeInt_ClampsAboveHi(t *testing.T) {
+	assert.Equal(t, 100, normalizeInt(200, 0, 5, 100))
+	assert.Equal(t, 50, normalizeInt(50, 0, 5, 50))
+}
+
+func TestNormalizeInt_ClampsBelowLo(t *testing.T) {
+	assert.Equal(t, 5, normalizeInt(1, 0, 5, 100))
+	assert.Equal(t, 5, normalizeInt(3, 0, 5, 100))
+}
+
+func TestNormalizeInt_PreservesZero(t *testing.T) {
+	assert.Equal(t, 0, normalizeInt(0, 0, 5, 100))
+}
+
+func TestNormalizeInt_PreservesValidRange(t *testing.T) {
+	assert.Equal(t, 10, normalizeInt(10, 0, 5, 100))
+	assert.Equal(t, 5, normalizeInt(5, 0, 5, 100))
+	assert.Equal(t, 100, normalizeInt(100, 0, 5, 100))
+}
+
+// ==================== AdditionalCookies 测试 ====================
+
+func TestReadAdditionalCookies_FileNotExist(t *testing.T) {
+	cookies, err := ReadAdditionalCookies(filepath.Join(t.TempDir(), "nonexistent.yaml"))
+	assert.NoError(t, err)
+	assert.Nil(t, cookies)
+}
+
+func TestReadWriteAdditionalCookies_RoundTrip(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "additional_cookies.yaml")
+
+	input := []*Cookie{
+		{AuthToken: "token1", Ct0: "ct01"},
+		{AuthToken: "token2", Ct0: "ct02"},
+	}
+	err := WriteAdditionalCookies(path, input)
+	assert.NoError(t, err)
+
+	output, err := ReadAdditionalCookies(path)
+	assert.NoError(t, err)
+	require.Len(t, output, 2)
+	assert.Equal(t, "token1", output[0].AuthToken)
+	assert.Equal(t, "ct01", output[0].Ct0)
+	assert.Equal(t, "token2", output[1].AuthToken)
+	assert.Equal(t, "ct02", output[1].Ct0)
+}
+
+func TestReadAdditionalCookies_InvalidYAML(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "bad.yaml")
+	require.NoError(t, os.WriteFile(path, []byte("{bad yaml: ["), 0600))
+
+	_, err := ReadAdditionalCookies(path)
+	assert.Error(t, err)
+}
+
+func TestReadAdditionalCookies_WritesNonEmptyFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "additional_cookies.yaml")
+	err := WriteAdditionalCookies(path, []*Cookie{})
+	assert.NoError(t, err)
+
+	data, err := os.ReadFile(path)
+	assert.NoError(t, err)
+	assert.Greater(t, len(data), 0)
+}
+
+func TestWriteAdditionalCookies_CreatesNestedDir(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "sub", "dir", "cookies.yaml")
+
+	err := WriteAdditionalCookies(path, []*Cookie{{AuthToken: "a", Ct0: "b"}})
+	assert.NoError(t, err)
+
+	_, err = os.Stat(path)
+	assert.NoError(t, err)
 }
