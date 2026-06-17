@@ -158,16 +158,17 @@ const store = {
 
   setState(newState) {
     this.state = { ...this.state, ...newState };
-    // Update sidebar version when health changes
-    if (newState.health && newState.health.version) {
-      const versionEl = document.getElementById('appVersion');
-      if (versionEl) {
-        versionEl.textContent = newState.health.version;
-      }
-    }
     this.listeners.forEach(fn => fn(this.state));
   }
 };
+
+// Update sidebar version when health changes (moved out of setState to keep it pure)
+store.subscribe((state) => {
+  if (state.health && state.health.version) {
+    const versionEl = document.getElementById('appVersion');
+    if (versionEl) versionEl.textContent = state.health.version;
+  }
+});
 
 // ============================================
 // API Client
@@ -185,13 +186,18 @@ const api = {
   _getAbortSignal() {
     const controller = new AbortController();
     this._abortControllers.add(controller);
-    return controller.signal;
+    return { signal: controller.signal, controller };
   },
   
+  _cleanupAbortController(controller) {
+    this._abortControllers.delete(controller);
+  },
+
   async request(method, path, body = null, extra = {}) {
+    const { signal, controller } = this._getAbortSignal();
     const options = {
       method,
-      signal: this._getAbortSignal()
+      signal
     };
     if (extra.isFormData) {
       if (body !== null && body !== undefined) options.body = body;
@@ -204,9 +210,14 @@ const api = {
     try {
       res = await fetch(this.base + path, options);
     } catch (e) {
+      this._cleanupAbortController(controller);
       throw new Error('网络请求失败，请检查服务器是否运行: ' + e.message);
     }
-    const data = await res.json().catch(() => ({ success: false, error: `Invalid response (HTTP ${res.status})` }));
+    const data = await res.json().catch(() => {
+      this._cleanupAbortController(controller);
+      return ({ success: false, error: `Invalid response (HTTP ${res.status})` });
+    });
+    this._cleanupAbortController(controller);
     if (!res.ok || !data.success) throw new Error(data.error || `HTTP ${res.status}`);
     return data.data;
   },
@@ -2412,7 +2423,7 @@ function escapeHtml(str) {
 }
 
 function escapeAttr(str) {
-  return String(str).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  return String(str).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/`/g, '&#96;');
 }
 
 function stripAnsi(str) { return str.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, ''); }
@@ -3723,12 +3734,7 @@ function handleServerShutdown(message) {
   cleanupSystemTimers();
   api.abortAll();
   sseManager.disconnect();
-  _state.configCodeMirror = destroyCodeMirror(_state.configCodeMirror);
-  _state._configCmInitializing = false;
-  _state.cookiesCodeMirror = destroyCodeMirror(_state.cookiesCodeMirror);
-  _state._cookiesCmInitializing = false;
-  _state.scheduleCodeMirror = destroyCodeMirror(_state.scheduleCodeMirror);
-  _state._scheduleCmInitializing = false;
+  destroyAllEditors();
   renderServerClosedState();
 }
 
@@ -3945,6 +3951,15 @@ function cleanupSystemTimers() {
   }
   clearAllScheduleValidationTimers();
   stopLogStream();
+}
+
+function destroyAllEditors() {
+  _state.configCodeMirror = destroyCodeMirror(_state.configCodeMirror);
+  _state._configCmInitializing = false;
+  _state.cookiesCodeMirror = destroyCodeMirror(_state.cookiesCodeMirror);
+  _state._cookiesCmInitializing = false;
+  _state.scheduleCodeMirror = destroyCodeMirror(_state.scheduleCodeMirror);
+  _state._scheduleCmInitializing = false;
 }
 
 function buildLogStreamURL() {
@@ -4196,12 +4211,7 @@ function navigateTo(page) {
   drawer.close();
   if ((_state.lastPage === 'system' || _state.lastPage === 'logs') && page !== _state.lastPage) {
     cleanupSystemTimers();
-    _state.configCodeMirror = destroyCodeMirror(_state.configCodeMirror);
-    _state._configCmInitializing = false;
-    _state.cookiesCodeMirror = destroyCodeMirror(_state.cookiesCodeMirror);
-    _state._cookiesCmInitializing = false;
-    _state.scheduleCodeMirror = destroyCodeMirror(_state.scheduleCodeMirror);
-    _state._scheduleCmInitializing = false;
+    destroyAllEditors();
   }
   store.setState({ currentPage: page });
   
@@ -4236,12 +4246,7 @@ window.onpopstate = (event) => {
   const { page, dataSubPage } = parseRoute();
   if ((_state.lastPage === 'system' || _state.lastPage === 'logs') && page !== _state.lastPage) {
     cleanupSystemTimers();
-    _state.configCodeMirror = destroyCodeMirror(_state.configCodeMirror);
-    _state._configCmInitializing = false;
-    _state.cookiesCodeMirror = destroyCodeMirror(_state.cookiesCodeMirror);
-    _state._cookiesCmInitializing = false;
-    _state.scheduleCodeMirror = destroyCodeMirror(_state.scheduleCodeMirror);
-    _state._scheduleCmInitializing = false;
+    destroyAllEditors();
   }
   
   if (page === 'data' && dataSubPage !== store.state.dataSubPage) {
@@ -4399,6 +4404,7 @@ document.getElementById('menuToggle').onclick = () => {
   const ov = document.getElementById('sidebarOverlay');
   sb.classList.toggle('open');
   ov.classList.toggle('open', sb.classList.contains('open'));
+  document.getElementById('menuToggle').setAttribute('aria-expanded', sb.classList.contains('open'));
 };
 
 document.getElementById('sidebarOverlay').onclick = () => {

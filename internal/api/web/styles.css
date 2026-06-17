@@ -169,7 +169,7 @@ ul, ol {
   border-right: 1px solid var(--border-primary);
   display: flex;
   flex-direction: column;
-  z-index: 100;
+  z-index: 101;
   transition: transform var(--duration-normal) var(--ease-out);
 }
 
@@ -219,7 +219,7 @@ ul, ol {
   color: var(--text-secondary);
   font-size: var(--text-base);
   font-weight: var(--font-medium);
-  transition: all var(--duration-fast);
+  transition: background var(--duration-fast), color var(--duration-fast);
   cursor: pointer;
 }
 
@@ -395,9 +395,13 @@ ul, ol {
   border-radius: var(--radius-md);
   font-size: var(--text-base);
   font-weight: var(--font-medium);
-  transition: all var(--duration-fast);
+  transition: background var(--duration-fast), color var(--duration-fast), border-color var(--duration-fast), box-shadow var(--duration-fast), transform .1s;
   cursor: pointer;
   white-space: nowrap;
+}
+
+.btn:active {
+  transform: scale(0.97);
 }
 
 .btn:disabled {
@@ -453,6 +457,22 @@ ul, ol {
   font-size: var(--text-sm);
 }
 
+/* Focus-visible accessibility: keyboard focus indicators */
+.btn:focus-visible,
+.nav-item:focus-visible,
+.mobile-nav-item:focus-visible,
+.tab:focus-visible,
+.page-btn:focus-visible,
+.mode-tab:focus-visible,
+.toast-close:focus-visible,
+.sse-indicator:focus-visible,
+.menu-toggle:focus-visible,
+.drawer .btn-ghost.btn-icon:focus-visible,
+.log-scroll-to-top-btn:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
+}
+
 .btn-icon {
   width: 36px;
   height: 36px;
@@ -483,7 +503,7 @@ ul, ol {
   padding: 10px 12px;
   color: var(--text-primary);
   font-size: var(--text-base);
-  transition: all var(--duration-fast);
+  transition: border-color var(--duration-fast), box-shadow var(--duration-fast);
 }
 
 .form-input:focus,
@@ -521,7 +541,7 @@ ul, ol {
   background: var(--bg-primary);
   cursor: pointer;
   position: relative;
-  transition: all var(--duration-fast);
+  transition: background var(--duration-fast), border-color var(--duration-fast);
 }
 
 .form-checkbox input[type="checkbox"]:checked {
@@ -600,8 +620,8 @@ ul, ol {
 }
 
 .tag-primary {
-  background: rgba(47,129,247,0.1);
-  color: #2f81f7;
+  background: var(--info-bg);
+  color: var(--accent-primary);
 }
 
 /* Progress Bar */
@@ -755,7 +775,7 @@ ul, ol {
   border-radius: var(--radius-md);
   font-size: var(--text-sm);
   color: var(--text-secondary);
-  transition: all var(--duration-fast);
+  transition: background var(--duration-fast), color var(--duration-fast);
 }
 
 .page-btn:hover:not(:disabled) {
@@ -897,7 +917,7 @@ ul, ol {
   z-index: 99;
   opacity: 0;
   visibility: hidden;
-  transition: all var(--duration-normal);
+  transition: opacity var(--duration-normal), visibility var(--duration-normal);
 }
 
 .sidebar-overlay.open {
@@ -913,7 +933,7 @@ ul, ol {
   z-index: 200;
   opacity: 0;
   visibility: hidden;
-  transition: all var(--duration-normal);
+  transition: opacity var(--duration-normal), visibility var(--duration-normal);
 }
 
 .drawer-overlay.open {
@@ -1121,7 +1141,7 @@ ul, ol {
 .task-detail-stat-val.info { color: var(--info); }
 
 .task-detail-stat-lbl {
-  font-size: 10px;
+  font-size: var(--text-xs);
   color: var(--text-tertiary);
   text-transform: uppercase;
   letter-spacing: 0.3px;
@@ -1241,7 +1261,7 @@ ul, ol {
   border-bottom: 2px solid transparent;
   margin-bottom: -1px;
   cursor: pointer;
-  transition: all var(--duration-fast);
+  transition: color var(--duration-fast), border-bottom-color var(--duration-fast);
 }
 
 .tab:hover {
@@ -1426,14 +1446,6 @@ ul, ol {
   min-height: 0;
 }
 
-.config-label {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 13px;
-  cursor: pointer;
-}
-
 /* Task list scroll area */
 .task-list,
 .empty-state {
@@ -1537,6 +1549,10 @@ ul, ol {
   
   .stats-grid {
     grid-template-columns: repeat(2, 1fr);
+  }
+
+  .drawer {
+    width: 360px;
   }
 }
 
@@ -1653,6 +1669,32 @@ ul, ol {
   .schedule-type {
     width: auto;
   }
+
+  /* System page mobile responsive */
+  .system-tab-bar {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .system-tabs {
+    flex-wrap: nowrap;
+    min-width: min-content;
+  }
+
+  .config-editor,
+  .CodeMirror {
+    max-height: 300px;
+    min-height: 200px;
+  }
+
+  .log-container {
+    max-height: 50vh;
+    font-size: 11px;
+  }
+
+  .log-level-filters {
+    flex-wrap: wrap;
+  }
 }
 
 @media (min-width: 768px) {
@@ -1717,7 +1759,7 @@ ul, ol {
 .config-editor {
   min-height: 300px;
   max-height: 500px;
-  font-family: "Cascadia Code", "Fira Code", "JetBrains Mono", Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: 13px;
   line-height: 1.6;
   color: var(--text-primary);
@@ -1766,7 +1808,7 @@ ul, ol {
   overflow-y: auto;
   font-size: 12px;
   line-height: 1.7;
-  background: #0d1117;
+  background: var(--bg-primary);
   border-radius: var(--radius-md);
 }
 
@@ -1779,7 +1821,7 @@ ul, ol {
 }
 
 .log-timestamp {
-  color: #58a6ff;
+  color: var(--info);
   font-weight: 500;
 }
 
@@ -1906,7 +1948,7 @@ ul, ol {
   cursor: pointer;
   border: 1px solid transparent;
   border-radius: var(--radius-md);
-  transition: all var(--duration-fast);
+  transition: color var(--duration-fast), border-color var(--duration-fast);
 }
 
 .mode-tab:hover {
@@ -1980,4 +2022,11 @@ ul, ol {
   margin-bottom: var(--space-1);
   font-size: var(--text-xs);
   color: var(--text-tertiary);
+}
+
+/* Light mode overrides (mirrors inline critical CSS for resilience) */
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg-elevated: #f0f2f5;
+  }
 }
