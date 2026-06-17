@@ -7,6 +7,7 @@ import (
 	"github.com/go-resty/resty/v2"
 	"github.com/jmoiron/sqlx"
 	"github.com/unkmonster/tmd/internal/config"
+	"github.com/unkmonster/tmd/internal/downloading"
 )
 
 // Dependencies Service 依赖
@@ -15,6 +16,7 @@ type Dependencies struct {
 	AdditionalClients []*resty.Client
 	DB                *sqlx.DB
 	Config            *config.Config
+	ListSyncManager   *downloading.ListSyncManager
 }
 
 // Validate 验证依赖项是否完整

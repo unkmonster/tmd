@@ -17,21 +17,10 @@ type ListSyncManager struct {
 	mu        sync.Mutex
 }
 
-var (
-	globalListSyncManager     *ListSyncManager
-	globalListSyncManagerOnce sync.Once
-)
-
-func InitListSyncManager(db *sqlx.DB) {
-	globalListSyncManagerOnce.Do(func() {
-		globalListSyncManager = &ListSyncManager{
-			txManager: tx.NewManager(db),
-		}
-	})
-}
-
-func GetListSyncManager() *ListSyncManager {
-	return globalListSyncManager
+func NewListSyncManager(db *sqlx.DB) *ListSyncManager {
+	return &ListSyncManager{
+		txManager: tx.NewManager(db),
+	}
 }
 
 func (lsm *ListSyncManager) SyncListMembers(ctx context.Context, lstEntityId int, lstName string, currentMemberIDs []uint64) error {

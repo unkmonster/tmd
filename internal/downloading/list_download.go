@@ -28,7 +28,7 @@ func syncList(db *sqlx.DB, list *twitter.List) error {
 	return database.UpdateLst(db, &database.Lst{Id: list.Id, Name: list.Name, OwnerUserId: ownerUserId})
 }
 
-func syncListAndGetMembers(ctx context.Context, client *resty.Client, db *sqlx.DB, lst twitter.ListBase, dir string, maxLen int) (entities []userInListEntity, members []*twitter.User, err error) {
+func syncListAndGetMembers(ctx context.Context, client *resty.Client, db *sqlx.DB, lst twitter.ListBase, dir string, maxLen int, lsm *ListSyncManager) (entities []userInListEntity, members []*twitter.User, err error) {
 	if v, ok := lst.(*twitter.List); ok {
 		if err = syncList(db, v); err != nil {
 			return nil, nil, err
@@ -63,9 +63,8 @@ func syncListAndGetMembers(ctx context.Context, client *resty.Client, db *sqlx.D
 	if err := database.MarkListMembersAccessibleByIDs(db, memberIDs); err != nil {
 		log.Warnln("failed to mark list members accessible for", lst.Title(), ":", err)
 	}
-	syncManager := GetListSyncManager()
-	if syncManager != nil {
-		if err = syncManager.SyncListMembers(ctx, eid, lst.Title(), memberIDs); err != nil {
+	if lsm != nil {
+		if err = lsm.SyncListMembers(ctx, eid, lst.Title(), memberIDs); err != nil {
 			log.Warnln("failed to sync list members for", lst.Title(), ":", err)
 		}
 	}

@@ -18,6 +18,7 @@ import (
 
 	"github.com/unkmonster/tmd/internal/config"
 	"github.com/unkmonster/tmd/internal/consolelog"
+	"github.com/unkmonster/tmd/internal/downloading"
 	"github.com/unkmonster/tmd/internal/scheduler"
 	"github.com/unkmonster/tmd/internal/service"
 )
@@ -77,6 +78,7 @@ func NewServerWithConsoleLogHub(client *resty.Client, additionalClients []*resty
 		AdditionalClients: additionalClients,
 		DB:                db,
 		Config:            &configCopy,
+		ListSyncManager:   downloading.NewListSyncManager(db),
 	})
 	if err != nil {
 		log.Fatalf("failed to create download service: %v", err)

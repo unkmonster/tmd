@@ -24,11 +24,11 @@ import (
 	"github.com/unkmonster/tmd/internal/config"
 	"github.com/unkmonster/tmd/internal/consolelog"
 	"github.com/unkmonster/tmd/internal/database"
-		"github.com/unkmonster/tmd/internal/downloading"
-		"github.com/unkmonster/tmd/internal/path"
-		"github.com/unkmonster/tmd/internal/service"
-		"github.com/unkmonster/tmd/internal/twitter"
-		"github.com/unkmonster/tmd/internal/utils"
+	"github.com/unkmonster/tmd/internal/downloading"
+	"github.com/unkmonster/tmd/internal/path"
+	"github.com/unkmonster/tmd/internal/service"
+	"github.com/unkmonster/tmd/internal/twitter"
+	"github.com/unkmonster/tmd/internal/utils"
 )
 
 func initLogger(dbg bool, logFile io.Writer, logHub *consolelog.Hub) {
@@ -131,12 +131,12 @@ func main() {
 	if maxDownloadRoutine <= 0 {
 		maxDownloadRoutine = config.DefaultMaxDownloadRoutine()
 	}
-		log.Infoln("max download routine set to:", maxDownloadRoutine)
-		maxFileNameLen := conf.MaxFileNameLen
-		if maxFileNameLen <= 0 {
-			maxFileNameLen = utils.DefaultMaxFileNameLen
-		}
-		log.Infoln("max file name length set to:", maxFileNameLen)
+	log.Infoln("max download routine set to:", maxDownloadRoutine)
+	maxFileNameLen := conf.MaxFileNameLen
+	if maxFileNameLen <= 0 {
+		maxFileNameLen = utils.DefaultMaxFileNameLen
+	}
+	log.Infoln("max file name length set to:", maxFileNameLen)
 
 	if conf.ProxyURL != "" {
 		os.Setenv("HTTP_PROXY", conf.ProxyURL)
@@ -207,6 +207,7 @@ func main() {
 			AdditionalClients: additional,
 			DB:                db,
 			Config:            conf,
+			ListSyncManager:   downloading.NewListSyncManager(db),
 		},
 	}
 
@@ -335,7 +336,6 @@ func initializeClients(
 		log.Fatalln("failed to connect to database:", err)
 	}
 	log.Infoln("database is connected")
-	downloading.InitListSyncManager(db)
 
 	return client, additional, pathHelper, db
 }

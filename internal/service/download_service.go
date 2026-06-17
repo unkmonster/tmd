@@ -343,6 +343,7 @@ func (s *downloadServiceImpl) executeDownloadTemplate(ctx context.Context, confi
 		ctx, s.deps.Client, s.deps.DB, lists, users,
 		pathHelper.Root, pathHelper.Users, effectiveAutoFollow(config.Opts),
 		s.deps.AdditionalClients, dwn, fileWriter, runtimeOptions, progress,
+		s.deps.ListSyncManager,
 	)
 	if err != nil {
 		return err
