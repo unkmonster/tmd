@@ -2029,4 +2029,9 @@ ul, ol {
   :root {
     --bg-elevated: #f0f2f5;
   }
+
+  /* Toast keeps dark snackbar-style background even in light mode */
+  .toast {
+    background: #21262d;
+  }
 }
