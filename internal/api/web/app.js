@@ -23,6 +23,7 @@ function glowNewFirstItem(panelId) {
 function readListIDsFromTextarea(inputId) {
   const validListID = /^[1-9]\d{0,19}$/;
   const input = document.getElementById(inputId);
+  if (!input) return [];
   const lines = input.value.split('\n').map(s => s.trim());
   const validIDs = [];
   const invalidCount = lines.filter(s => s && !validListID.test(s)).length;
@@ -34,7 +35,9 @@ function readListIDsFromTextarea(inputId) {
 }
 
 function readTextareaLines(inputId) {
-  return document.getElementById(inputId).value
+  const el = document.getElementById(inputId);
+  if (!el) return [];
+  return el.value
     .split('\n')
     .map(s => s.trim())
     .filter(Boolean);
@@ -197,7 +200,12 @@ const api = {
       if (body !== null && body !== undefined) options.body = JSON.stringify(body);
     }
     
-    const res = await fetch(this.base + path, options);
+    let res;
+    try {
+      res = await fetch(this.base + path, options);
+    } catch (e) {
+      throw new Error('网络请求失败，请检查服务器是否运行: ' + e.message);
+    }
     const data = await res.json().catch(() => ({ success: false, error: `Invalid response (HTTP ${res.status})` }));
     if (!res.ok || !data.success) throw new Error(data.error || `HTTP ${res.status}`);
     return data.data;
@@ -907,7 +915,7 @@ function getTaskTarget(task) {
 
 function getOptionalTimestamp(inputId) {
   const input = document.getElementById(inputId);
-  const value = input?.value.trim() || '';
+  const value = input?.value?.trim() || '';
   if (!value) return null;
 
   const date = new Date(value);
@@ -2527,7 +2535,7 @@ function renderCookiesForm(items, saving, exists) {
           <div class="empty-state">
             <div class="empty-icon">🍪</div>
             <div class="empty-title">暂无额外账户</div>
-            <div class="empty-desc">点击「添加账户」添加额外的 Twitter 账户 Cookie</div>
+            <div class="empty-desc">点击「添加账户」添加额外的 Twitter 账号</div>
           </div>
         </div>
       </div>
@@ -2894,7 +2902,17 @@ function getLastTask(s) {
 }
 
 function taskStatusTag(task) {
-  return '';
+  if (!task) return '';
+  const statusMap = {
+    completed: { tag: 'tag-completed', text: '完成' },
+    failed: { tag: 'tag-failed', text: '失败' },
+    running: { tag: 'tag-running', text: '运行中' },
+    queued: { tag: 'tag-queued', text: '排队' },
+    cancelled: { tag: 'tag-cancelled', text: '已取消' }
+  };
+  const st = statusMap[task.status];
+  if (!st) return '';
+  return `<span class="tag ${st.tag}" style="font-size:10px;padding:1px 6px">${st.text}</span>`;
 }
 
 function fmtTime(t) {
@@ -2973,7 +2991,7 @@ function renderScheduleTable(schedules, exists) {
           <div class="empty-state">
             <div class="empty-icon">⏰</div>
             <div class="empty-title">暂无定时任务</div>
-            <div class="empty-desc">在「定时任务」页面中添加定时下载规则</div>
+            <div class="empty-desc">点击「添加规则」创建定时下载任务</div>
           </div>
         </div>
       </div>
@@ -2994,7 +3012,7 @@ function renderScheduleTable(schedules, exists) {
           <div class="empty-state">
             <div class="empty-icon">⏰</div>
             <div class="empty-title">暂无定时任务</div>
-            <div class="empty-desc">点击上方「编辑任务」按钮创建新的定时下载规则</div>
+            <div class="empty-desc">点击上方「编辑任务」按钮创建定时下载规则</div>
           </div>
         ` : `
           <div class="schedule-list">
@@ -3051,7 +3069,10 @@ async function loadSchedules(options = {}) {
       update._scheduleFormDirty = false;
     }
     store.setState(update);
-  } catch (e) { /* ignore */ }
+  } catch (e) {
+    console.warn('loadSchedules failed:', e);
+    toast.show('加载定时任务失败: ' + e.message, 'error');
+  }
 }
 
 function scheduleStatusToFormItem(status) {
@@ -3117,7 +3138,10 @@ async function loadScheduleRaw() {
   try {
     const data = await api.getSchedulesRaw();
     store.setState({ _scheduleRaw: data.content || '', _scheduleExists: data.exists || false });
-  } catch (e) { /* ignore */ }
+  } catch (e) {
+    console.warn('loadScheduleRaw failed:', e);
+    toast.show('加载调度原始配置失败: ' + e.message, 'error');
+  }
 }
 
 async function saveScheduleRaw() {
@@ -3429,6 +3453,7 @@ async function validateScheduleForm() {
       return false;
     }
   } catch (e) {
+    toast.show('校验请求失败: ' + e.message, 'error');
     return false;
   }
   return true;
@@ -3772,16 +3797,58 @@ _state._cmWaitCancelled = false;
 function waitForCodeMirror(maxWait) {
   _state._cmWaitCancelled = false;
   if (typeof CodeMirror !== 'undefined') return Promise.resolve(true);
-  return new Promise(resolve => {
-    const start = Date.now();
-    const check = () => {
-      if (_state._cmWaitCancelled || typeof CodeMirror !== 'undefined' || Date.now() - start > maxWait) {
-        resolve(!_state._cmWaitCancelled && typeof CodeMirror !== 'undefined');
-      } else {
-        setTimeout(check, 100);
-      }
-    };
-    check();
+  // Dynamically load CodeMirror CSS and JS only when first needed
+  return loadCodeMirrorAssets().then(() => {
+    if (typeof CodeMirror !== 'undefined') return true;
+    return new Promise(resolve => {
+      const start = Date.now();
+      const check = () => {
+        if (_state._cmWaitCancelled || typeof CodeMirror !== 'undefined' || Date.now() - start > maxWait) {
+          resolve(!_state._cmWaitCancelled && typeof CodeMirror !== 'undefined');
+        } else {
+          setTimeout(check, 100);
+        }
+      };
+      check();
+    });
+  });
+}
+
+function loadCodeMirrorAssets() {
+  return new Promise((resolve) => {
+    // Check if already loaded
+    if (document.querySelector('link[href*="codemirror.min.css"]')) {
+      resolve();
+      return;
+    }
+    // Load CSS files
+    const cssUrls = [
+      'https://cdn.jsdelivr.net/npm/codemirror@5.65.18/lib/codemirror.min.css',
+      'https://cdn.jsdelivr.net/npm/codemirror@5.65.18/theme/material-darker.min.css'
+    ];
+    let loaded = 0;
+    cssUrls.forEach(url => {
+      const link = document.createElement('link');
+      link.rel = 'stylesheet';
+      link.href = url;
+      link.onload = () => { loaded++; if (loaded === cssUrls.length) loadScripts(); };
+      link.onerror = () => { loaded++; if (loaded === cssUrls.length) loadScripts(); };
+      document.head.appendChild(link);
+    });
+    function loadScripts() {
+      const scripts = [
+        'https://cdn.jsdelivr.net/npm/codemirror@5.65.18/lib/codemirror.min.js',
+        'https://cdn.jsdelivr.net/npm/codemirror@5.65.18/mode/yaml/yaml.min.js'
+      ];
+      let scriptLoaded = 0;
+      scripts.forEach(src => {
+        const script = document.createElement('script');
+        script.src = src;
+        script.onload = () => { scriptLoaded++; if (scriptLoaded === scripts.length) { setTimeout(resolve, 50); } };
+        script.onerror = () => { scriptLoaded++; if (scriptLoaded === scripts.length) { setTimeout(resolve, 50); } };
+        document.body.appendChild(script);
+      });
+    }
   });
 }
 
@@ -4241,7 +4308,8 @@ function render() {
       });
     }
     if (page === 'system') {
-      syncSystemTabView();
+      // Defer to avoid re-entering store subscription via loadConfigFields() -> setState
+      setTimeout(() => syncSystemTabView(), 0);
     } else if (page === 'logs') {
       syncLogsPageView();
     }
@@ -4298,43 +4366,6 @@ async function init() {
   `;
 
   sseManager.connect();
-
-  document.getElementById('contentContainer').addEventListener('keydown', (e) => {
-    if (e.key !== 'Enter') return;
-    const id = e.target.id;
-    if (id === 'quickDownloadInput') handleQuickDownload();
-    else if (id === 'dbSearchInput') searchDB();
-    else if (id === 'logSearchInput') refreshLogs();
-  });
-
-  document.getElementById('contentContainer').addEventListener('click', (e) => {
-    const tab = e.target.closest('[data-task-tab]');
-    if (tab) {
-      document.querySelectorAll('[data-task-tab]').forEach(t => t.classList.remove('active'));
-      tab.classList.add('active');
-      document.getElementById('taskFormContainer').innerHTML = renderTaskForm(tab.dataset.taskTab);
-      return;
-    }
-
-    const cancelBtn = e.target.closest('[data-action="cancel"]');
-    if (cancelBtn) {
-      const taskItem = cancelBtn.closest('[data-task-id]');
-      if (taskItem) cancelTask(taskItem.dataset.taskId);
-      return;
-    }
-
-    const detailBtn = e.target.closest('[data-action="detail"]');
-    if (detailBtn) {
-      const taskItem = detailBtn.closest('[data-task-id]');
-      if (taskItem) showTaskDetail(taskItem.dataset.taskId);
-      return;
-    }
-
-    const taskItem = e.target.closest('.task-item[data-task-id]');
-    if (taskItem) {
-      showTaskDetail(taskItem.dataset.taskId);
-    }
-  });
 
   try {
     const [health, tasks] = await Promise.all([
@@ -4692,6 +4723,44 @@ function updateTaskListUI(tasks) {
     subtitle.textContent = `共 ${tasks.length} 个任务`;
   }
 }
+
+// Register global event listeners once (event delegation on content container)
+document.getElementById('contentContainer').addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter') return;
+  const id = e.target.id;
+  if (id === 'quickDownloadInput') handleQuickDownload();
+  else if (id === 'dbSearchInput') searchDB();
+  else if (id === 'logSearchInput') refreshLogs();
+});
+
+document.getElementById('contentContainer').addEventListener('click', (e) => {
+  const tab = e.target.closest('[data-task-tab]');
+  if (tab) {
+    document.querySelectorAll('[data-task-tab]').forEach(t => t.classList.remove('active'));
+    tab.classList.add('active');
+    document.getElementById('taskFormContainer').innerHTML = renderTaskForm(tab.dataset.taskTab);
+    return;
+  }
+
+  const cancelBtn = e.target.closest('[data-action="cancel"]');
+  if (cancelBtn) {
+    const taskItem = cancelBtn.closest('[data-task-id]');
+    if (taskItem) cancelTask(taskItem.dataset.taskId);
+    return;
+  }
+
+  const detailBtn = e.target.closest('[data-action="detail"]');
+  if (detailBtn) {
+    const taskItem = detailBtn.closest('[data-task-id]');
+    if (taskItem) showTaskDetail(taskItem.dataset.taskId);
+    return;
+  }
+
+  const taskItem = e.target.closest('.task-item[data-task-id]');
+  if (taskItem) {
+    showTaskDetail(taskItem.dataset.taskId);
+  }
+});
 
 // Start
 init();
