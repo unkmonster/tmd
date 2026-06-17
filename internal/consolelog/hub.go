@@ -45,24 +45,16 @@ type Hub struct {
 }
 
 type logSubscriber struct {
-	mu      sync.Mutex
-	ch      chan string
-	wake    chan struct{}
-	done    chan struct{}
+	mu      sync.Mutex // guards close+send race
 	closeMu sync.Once
+	ch      chan string
 	closed  bool
-	queue   []string
 }
 
 func newLogSubscriber() *logSubscriber {
-	sub := &logSubscriber{
-		ch:    make(chan string),
-		wake:  make(chan struct{}, 1),
-		done:  make(chan struct{}),
-		queue: make([]string, 0, subscriberBuffer),
+	return &logSubscriber{
+		ch: make(chan string, subscriberBuffer),
 	}
-	go sub.run()
-	return sub
 }
 
 type logSendResult int
@@ -80,85 +72,22 @@ func (s *logSubscriber) send(line string) logSendResult {
 	if s.closed {
 		return logSendClosed
 	}
-	if len(s.queue) >= subscriberBuffer {
+	select {
+	case s.ch <- line:
+		return logSendQueued
+	default:
 		s.closed = true
-		s.closeDone()
+		s.closeMu.Do(func() { close(s.ch) })
 		return logSendOverflow
 	}
-
-	s.queue = append(s.queue, line)
-	s.wakeLocked()
-	return logSendQueued
 }
 
 func (s *logSubscriber) close() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if s.closed {
-		return
-	}
-	s.closed = true
-	s.closeDone()
-}
-
-func (s *logSubscriber) run() {
-	defer close(s.ch)
-
-	for {
-		select {
-		case <-s.wake:
-		case <-s.done:
-			return
-		}
-
-		// 排空多余的 wake 信号，避免时序导致的空转
-		select {
-		case <-s.wake:
-		default:
-		}
-
-		for {
-			line, ok := s.nextLine()
-			if !ok {
-				break
-			}
-
-			select {
-			case s.ch <- line:
-			case <-s.done:
-				return
-			}
-		}
-	}
-}
-
-func (s *logSubscriber) nextLine() (string, bool) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if len(s.queue) == 0 {
-		return "", false
-	}
-
-	line := s.queue[0]
-	s.queue = s.queue[1:]
-	if len(s.queue) == 0 {
-		s.queue = nil
-	}
-	return line, true
-}
-
-func (s *logSubscriber) wakeLocked() {
-	select {
-	case s.wake <- struct{}{}:
-	default:
-	}
-}
-
-func (s *logSubscriber) closeDone() {
 	s.closeMu.Do(func() {
-		close(s.done)
+		s.mu.Lock()
+		s.closed = true
+		close(s.ch)
+		s.mu.Unlock()
 	})
 }
 
