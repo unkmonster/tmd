@@ -150,7 +150,7 @@ const store = {
     cookieItems: [],
     cookiesMode: 'form',
     _scheduleTab: 'form',
-    _schedules: [],
+    _schedules: null,
     _scheduleRaw: '',
     _scheduleExists: false,
     _scheduleSaving: false,
@@ -819,6 +819,23 @@ const pages = {
 
   schedules() {
     const { _schedules, _scheduleExists, _schedulerRunning } = store.state;
+
+    if (_schedules === null) {
+      return `
+        <div class="page-container">
+          <div class="card">
+            <div class="card-header"><div><div class="card-title">定时下载任务</div></div></div>
+            <div class="card-body">
+              <div class="empty-state">
+                <div class="skeleton" style="width:64px;height:64px;border-radius:12px;margin-bottom:16px"></div>
+                <div class="empty-title">加载中...</div>
+                <div class="empty-desc">正在加载定时任务配置</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+    }
 
     const schedulerBanner = !_schedulerRunning
       ? `<div class="alert alert-warning" style="margin-bottom:var(--space-3)">⚠️ 调度器未启动，定时任务不会自动执行。请在「定时任务」页面中添加并启用规则后重载配置。</div>`
@@ -2998,6 +3015,7 @@ function renderScheduleItem(s) {
 }
 
 function renderScheduleTable(schedules, exists) {
+  schedules = schedules || [];
   const active = schedules.filter(s => readScheduleEntryField(s.entry, 'enabled', 'Enabled')).length;
   const total = schedules.length;
   const failures = schedules.filter(s => (s.consecutive_failures || 0) > 0).length;
@@ -3203,7 +3221,7 @@ async function triggerSchedule(id) {
 
 async function triggerAllSchedules() {
   const btn = document.getElementById('btnTriggerAll');
-  const schedules = store.state._schedules.filter(s => readScheduleEntryField(s.entry, 'enabled', 'Enabled'));
+  const schedules = (store.state._schedules || []).filter(s => readScheduleEntryField(s.entry, 'enabled', 'Enabled'));
   if (schedules.length === 0) {
     toast.show('没有已启用的调度任务', 'error');
     return;
@@ -3549,7 +3567,7 @@ async function initScheduleCodeMirror() {
 }
 
 function syncScheduleTabView() {
-  if (store.state._schedules.length === 0 && !store.state.sseConnected) loadSchedules();
+  if (store.state._schedules === null && !store.state.sseConnected) loadSchedules();
   if (store.state._scheduleTab === 'edit' && !store.state._scheduleRaw) loadScheduleRaw();
   if (store.state._scheduleTab === 'edit' && !_state.scheduleCodeMirror) requestAnimationFrame(() => requestAnimationFrame(initScheduleCodeMirror));
 }
@@ -4288,7 +4306,7 @@ function render() {
     }
 
     if (page === 'schedules') {
-      if (store.state._schedules.length === 0) loadSchedules();
+      if (store.state._schedules === null) loadSchedules();
     }
     
     // Restore search value for logs
