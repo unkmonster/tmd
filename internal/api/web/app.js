@@ -129,7 +129,7 @@ const store = {
       previousNames: ''
     },
     _prevNameUserIdFilter: '',
-    configRaw: '',
+    configRaw: null,
     configExists: false,
     configSaving: false,
     configFieldsLoading: false,
@@ -145,7 +145,7 @@ const store = {
     _systemTab: 'config',
     configMode: 'form',
     configFields: [],
-    cookiesRaw: '',
+    cookiesRaw: null,
     cookiesExists: false,
     cookiesSaving: false,
     cookieItems: [],
@@ -153,7 +153,7 @@ const store = {
     cookiesMode: 'form',
     _scheduleTab: 'form',
     _schedules: null,
-    _scheduleRaw: '',
+    _scheduleRaw: null,
     _scheduleExists: false,
     _scheduleSaving: false,
     _scheduleFormItems: [],
@@ -2524,6 +2524,19 @@ function renderConfigForm(fields, saving, exists, loading = false) {
 }
 
 function renderConfigRawEditor(raw, saving, exists) {
+  if (raw === null) {
+    return `
+      <div class="card">
+        <div class="card-header"><div><div class="card-title">conf.yaml 原始编辑器</div></div></div>
+        <div class="card-body">
+          <div class="empty-state">
+            <div class="skeleton" style="width:64px;height:64px;border-radius:12px;margin-bottom:16px"></div>
+            <div class="empty-title">加载中...</div>
+            <div class="empty-desc">正在加载配置文件</div>
+          </div>
+        </div>
+      </div>`;
+  }
   return `
     <div class="card">
       <div class="card-header">
@@ -2634,6 +2647,19 @@ function renderCookiesForm(items, saving, exists, loading = false) {
 }
 
 function renderCookiesRawEditor(raw, saving, exists) {
+  if (raw === null) {
+    return `
+      <div class="card">
+        <div class="card-header"><div><div class="card-title">additional_cookies.yaml 原始编辑器</div></div></div>
+        <div class="card-body">
+          <div class="empty-state">
+            <div class="skeleton" style="width:64px;height:64px;border-radius:12px;margin-bottom:16px"></div>
+            <div class="empty-title">加载中...</div>
+            <div class="empty-desc">正在加载额外账户配置</div>
+          </div>
+        </div>
+      </div>`;
+  }
   return `
     <div class="card">
       <div class="card-header">
@@ -3098,6 +3124,19 @@ function renderScheduleTable(schedules, exists) {
 }
 
 function renderScheduleRawEditor(raw, saving, exists) {
+  if (raw === null) {
+    return `
+      <div class="card">
+        <div class="card-header"><div><div class="card-title">schedules.yaml 原始编辑器</div></div></div>
+        <div class="card-body">
+          <div class="empty-state">
+            <div class="skeleton" style="width:64px;height:64px;border-radius:12px;margin-bottom:16px"></div>
+            <div class="empty-title">加载中...</div>
+            <div class="empty-desc">正在加载定时任务配置</div>
+          </div>
+        </div>
+      </div>`;
+  }
   return `
     <div class="card">
       <div class="card-header">
@@ -3311,8 +3350,8 @@ function setScheduleTab(tab) {
     _state._scheduleCmInitializing = false;
   }
   store.setState({ _scheduleTab: tab });
-  if (tab === 'edit' && !store.state._scheduleRaw) loadScheduleRaw();
-  if (tab === 'form' && store.state._scheduleFormItems.length === 0 && store.state._schedules.length === 0) loadSchedules();
+  if (tab === 'edit' && store.state._scheduleRaw === null) loadScheduleRaw();
+  if (tab === 'form' && store.state._scheduleFormItems.length === 0 && (store.state._schedules || []).length === 0) loadSchedules();
 }
 
 _state._addScheduleItemPending = false;
@@ -3602,7 +3641,7 @@ async function initScheduleCodeMirror() {
 
 function syncScheduleTabView() {
   if (store.state._schedules === null && !store.state.sseConnected) loadSchedules();
-  if (store.state._scheduleTab === 'edit' && !store.state._scheduleRaw) loadScheduleRaw();
+  if (store.state._scheduleTab === 'edit' && store.state._scheduleRaw === null) loadScheduleRaw();
   if (store.state._scheduleTab === 'edit' && !_state.scheduleCodeMirror) requestAnimationFrame(() => requestAnimationFrame(initScheduleCodeMirror));
 }
 
@@ -3760,7 +3799,7 @@ function setCookiesMode(mode) {
     _state.cookiesCodeMirror = destroyCodeMirror(_state.cookiesCodeMirror);
   }
   store.setState({ cookiesMode: mode });
-  if (mode === 'raw' && !store.state.cookiesRaw) loadCookiesRaw();
+  if (mode === 'raw' && store.state.cookiesRaw === null) loadCookiesRaw();
 }
 
 function addCookieAccount() {
@@ -3803,7 +3842,7 @@ function setConfigMode(mode) {
     _state.configCodeMirror = destroyCodeMirror(_state.configCodeMirror);
   }
   store.setState({ configMode: mode });
-  if (mode === 'raw' && !store.state.configRaw) loadConfigRaw();
+  if (mode === 'raw' && store.state.configRaw === null) loadConfigRaw();
 }
 
 async function loadLogs() {
@@ -4154,7 +4193,7 @@ function syncConfigTabView() {
   if (store.state.configMode === 'form' && (!store.state.configFields || store.state.configFields.length === 0)) {
     loadConfigFields();
   }
-  if (store.state.configMode === 'raw' && !store.state.configRaw) {
+  if (store.state.configMode === 'raw' && store.state.configRaw === null) {
     loadConfigRaw();
   }
   if (store.state.configMode === 'raw' && !_state.configCodeMirror) {
@@ -4166,7 +4205,7 @@ function syncCookiesTabView() {
   if (store.state.cookiesMode === 'form' && (!store.state.cookieItems || store.state.cookieItems.length === 0)) {
     loadCookiesItems();
   }
-  if (store.state.cookiesMode === 'raw' && !store.state.cookiesRaw) {
+  if (store.state.cookiesMode === 'raw' && store.state.cookiesRaw === null) {
     loadCookiesRaw();
   }
   if (store.state.cookiesMode === 'raw' && !_state.cookiesCodeMirror) {
@@ -4524,7 +4563,7 @@ function syncSystemPage(state, tasksChanged) {
   }
 
   const configPanelShouldRebuild = state.configMode === 'raw'
-    ? (configModeChanged || configSavingChanged)
+    ? (configModeChanged || configSavingChanged || configRawChanged)
     : (configRawChanged || configFieldsChanged || configFieldsLoadingChanged || configSavingChanged || configModeChanged);
   if (configPanelShouldRebuild) {
     _state.lastConfigRaw = state.configRaw;
@@ -4546,7 +4585,7 @@ function syncSystemPage(state, tasksChanged) {
   }
 
   const cookiesPanelShouldRebuild = state.cookiesMode === 'raw'
-    ? (cookiesModeChanged || cookiesSavingChanged)
+    ? (cookiesModeChanged || cookiesSavingChanged || cookiesRawChanged)
     : (cookiesChanged || cookiesModeChanged || cookiesRawChanged || cookiesSavingChanged);
   if (cookiesPanelShouldRebuild) {
     _state.lastCookieItemsJson = JSON.stringify(state.cookieItems);
@@ -4571,7 +4610,7 @@ function syncSystemPage(state, tasksChanged) {
     _state.lastSchedulesJson = JSON.stringify(state._schedules);
   }
   const schedulePanelShouldRebuild = state._scheduleTab === 'edit'
-    ? (scheduleTabChanged || scheduleSavingChanged || scheduleExistsChanged || schedulePanelSchedulesChanged || scheduleFormItemsChanged)
+    ? (scheduleTabChanged || scheduleSavingChanged || scheduleExistsChanged || scheduleRawChanged || schedulePanelSchedulesChanged || scheduleFormItemsChanged)
     : (schedulePanelSchedulesChanged || scheduleRawChanged || scheduleExistsChanged || scheduleSavingChanged || scheduleTabChanged || scheduleFormItemsChanged);
   if (schedulePanelShouldRebuild) {
     _state.lastSchedulesJson = JSON.stringify(state._schedules);
