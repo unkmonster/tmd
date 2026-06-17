@@ -2023,14 +2023,3 @@ ul, ol {
   font-size: var(--text-xs);
   color: var(--text-tertiary);
 }
-
-/* Light mode overrides (mirrors inline critical CSS for resilience) */
-@media (prefers-color-scheme: light) {
-  :root {
-  }
-
-  /* Toast keeps dark snackbar-style background even in light mode */
-  .toast {
-    background: #21262d;
-  }
-}
