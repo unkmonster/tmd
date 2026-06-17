@@ -2027,7 +2027,6 @@ ul, ol {
 /* Light mode overrides (mirrors inline critical CSS for resilience) */
 @media (prefers-color-scheme: light) {
   :root {
-    --bg-elevated: #f0f2f5;
   }
 
   /* Toast keeps dark snackbar-style background even in light mode */
