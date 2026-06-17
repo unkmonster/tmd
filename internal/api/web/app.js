@@ -134,6 +134,7 @@ const store = {
     configSaving: false,
     configFieldsLoading: false,
     logs: [],
+    _logsLoading: false,
     logLevel: 'all',
     logSearch: '',
     logStats: { debug: 0, info: 0, warn: 0, error: 0, total: 0 },
@@ -148,6 +149,7 @@ const store = {
     cookiesExists: false,
     cookiesSaving: false,
     cookieItems: [],
+    _cookiesLoading: false,
     cookiesMode: 'form',
     _scheduleTab: 'form',
     _schedules: null,
@@ -2543,7 +2545,7 @@ function renderConfigRawEditor(raw, saving, exists) {
 }
 
 function renderCookiesEditor() {
-  const { cookiesMode, cookieItems, cookiesSaving, cookiesExists, cookiesRaw } = store.state;
+  const { cookiesMode, cookieItems, cookiesSaving, cookiesExists, cookiesRaw, _cookiesLoading } = store.state;
 
   const modeTabs = `
     <div class="config-mode-tabs">
@@ -2553,10 +2555,24 @@ function renderCookiesEditor() {
   `;
 
   if (cookiesMode === 'raw') return `<div style="display:flex;flex-direction:column;height:100%">${modeTabs}${renderCookiesRawEditor(cookiesRaw, cookiesSaving, cookiesExists)}</div>`;
-  return `<div style="display:flex;flex-direction:column;height:100%">${modeTabs}${renderCookiesForm(cookieItems, cookiesSaving, cookiesExists)}</div>`;
+  return `<div style="display:flex;flex-direction:column;height:100%">${modeTabs}${renderCookiesForm(cookieItems, cookiesSaving, cookiesExists, _cookiesLoading)}</div>`;
 }
 
-function renderCookiesForm(items, saving, exists) {
+function renderCookiesForm(items, saving, exists, loading = false) {
+  if (loading) {
+    return `
+      <div class="card">
+        <div class="card-header"><div><div class="card-title">额外账户管理</div></div></div>
+        <div class="card-body">
+          <div class="empty-state">
+            <div class="skeleton" style="width:64px;height:64px;border-radius:12px;margin-bottom:16px"></div>
+            <div class="empty-title">加载中...</div>
+            <div class="empty-desc">正在加载额外账户配置</div>
+          </div>
+        </div>
+      </div>
+    `;
+  }
   if (!items || items.length === 0) {
     return `
       <div class="card">
@@ -2639,7 +2655,7 @@ function renderCookiesRawEditor(raw, saving, exists) {
 }
 
 function renderLogViewer() {
-  const { logs, logLevel, logSearch, logPagination, logAutoRefresh, logStats } = store.state;
+  const { logs, logLevel, logSearch, logPagination, logAutoRefresh, logStats, _logsLoading } = store.state;
 
   function getLineColor(line) {
     if (line.startsWith('ERRO[')) return 'var(--danger)';
@@ -2695,7 +2711,11 @@ function renderLogViewer() {
       </div>
       <div class="card-body card-body-scroll" style="position:relative">
         <div class="log-container" id="logContainer">
-          ${logs.length === 0 ? `<div class="empty-state"><div class="empty-icon">📋</div><div class="empty-title">暂无日志</div><div class="empty-desc">选择日志级别或调整筛选条件</div></div>` : logs.map(renderLine).join('')}
+          ${_logsLoading && logs.length === 0
+            ? `<div class="empty-state"><div class="skeleton" style="width:64px;height:64px;border-radius:12px;margin-bottom:16px"></div><div class="empty-title">加载中...</div><div class="empty-desc">正在加载系统日志</div></div>`
+            : logs.length === 0
+            ? `<div class="empty-state"><div class="empty-icon">📋</div><div class="empty-title">暂无日志</div><div class="empty-desc">选择日志级别或调整筛选条件</div></div>`
+            : logs.map(renderLine).join('')}
         </div>
         <button class="log-scroll-to-top-btn" id="logScrollToTopBtn"
           onclick="scrollLogToTop()" aria-label="滚动到日志顶部"
@@ -2779,7 +2799,7 @@ function renderScheduleViewer() {
   `;
 
   if (_scheduleTab === 'edit') return `<div style="display:flex;flex-direction:column;height:100%">${schedulerBanner}${modeTabs}${renderScheduleRawEditor(_scheduleRaw, _scheduleSaving, _scheduleExists)}</div>`;
-  return `<div style="display:flex;flex-direction:column;height:100%">${schedulerBanner}${modeTabs}${renderScheduleForm(_scheduleFormItems, _scheduleSaving, _scheduleExists)}</div>`;
+  return `<div style="display:flex;flex-direction:column;height:100%">${schedulerBanner}${modeTabs}${renderScheduleForm(_scheduleFormItems, _scheduleSaving, _scheduleExists, _schedules === null)}</div>`;
 }
 
 function renderScheduleFormField(item, idx) {
@@ -2881,7 +2901,21 @@ function renderScheduleFormField(item, idx) {
   `;
 }
 
-function renderScheduleForm(items, saving, exists) {
+function renderScheduleForm(items, saving, exists, loading = false) {
+  if (loading) {
+    return `
+      <div class="card">
+        <div class="card-header"><div><div class="card-title">定时下载任务</div></div></div>
+        <div class="card-body">
+          <div class="empty-state">
+            <div class="skeleton" style="width:64px;height:64px;border-radius:12px;margin-bottom:16px"></div>
+            <div class="empty-title">加载中...</div>
+            <div class="empty-desc">正在加载定时任务配置</div>
+          </div>
+        </div>
+      </div>
+    `;
+  }
   if (!items || items.length === 0) {
     return `
       <div class="card">
@@ -3638,10 +3672,14 @@ async function saveConfig() {
 }
 
 async function loadCookiesItems() {
+  store.setState({ _cookiesLoading: true });
   try {
     const d = await api.getCookies();
-    store.setState({ cookieItems: d.items || [], cookiesExists: d.exists || false });
-  } catch (e) { toast.show('加载额外账户失败: ' + e.message, 'error'); }
+    store.setState({ cookieItems: d.items || [], cookiesExists: d.exists || false, _cookiesLoading: false });
+  } catch (e) {
+    store.setState({ _cookiesLoading: false });
+    toast.show('加载额外账户失败: ' + e.message, 'error');
+  }
 }
 
 async function loadCookiesRaw() {
@@ -3775,10 +3813,14 @@ async function loadLogs() {
   if (logSearch) p.append('q', logSearch);
   p.append('page', logPagination.page);
   p.append('pageSize', logPagination.pageSize);
+  store.setState({ _logsLoading: true });
   try {
     const d = await api.getLogs('?' + p.toString());
-    store.setState({ logs: d.logs || [], logPagination: { page: d.page, pageSize: d.pageSize, total: d.total, totalPages: d.totalPages } });
-  } catch (e) { toast.show('加载日志失败: ' + e.message, 'error'); }
+    store.setState({ logs: d.logs || [], logPagination: { page: d.page, pageSize: d.pageSize, total: d.total, totalPages: d.totalPages }, _logsLoading: false });
+  } catch (e) {
+    store.setState({ _logsLoading: false });
+    toast.show('加载日志失败: ' + e.message, 'error');
+  }
 
   // 异步获取统计（不阻塞日志加载）
   api.getLogStats()
