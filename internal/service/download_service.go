@@ -13,12 +13,12 @@ import (
 
 	"github.com/unkmonster/tmd/internal/config"
 	"github.com/unkmonster/tmd/internal/database"
-		"github.com/unkmonster/tmd/internal/downloader"
-		"github.com/unkmonster/tmd/internal/downloading"
-		"github.com/unkmonster/tmd/internal/downloading/profile"
-		"github.com/unkmonster/tmd/internal/path"
-		"github.com/unkmonster/tmd/internal/twitter"
-		"github.com/unkmonster/tmd/internal/utils"
+	"github.com/unkmonster/tmd/internal/downloader"
+	"github.com/unkmonster/tmd/internal/downloading"
+	"github.com/unkmonster/tmd/internal/downloading/profile"
+	"github.com/unkmonster/tmd/internal/path"
+	"github.com/unkmonster/tmd/internal/twitter"
+	"github.com/unkmonster/tmd/internal/utils"
 )
 
 type downloadServiceImpl struct {
@@ -302,7 +302,6 @@ type downloadTemplateConfig struct {
 	Prepare func(ctx context.Context, pathHelper *path.StorePath) (
 		users []*twitter.User,
 		lists []twitter.ListBase,
-		explicitProfileUsers []*twitter.User,
 		err error,
 	)
 
@@ -330,7 +329,7 @@ func (s *downloadServiceImpl) executeDownloadTemplate(ctx context.Context, confi
 	s.dumperMu.Unlock()
 	defer s.saveDumper(dumper, pathHelper.ErrorsPath)
 
-	users, lists, explicitProfileUsers, err := config.Prepare(ctx, pathHelper)
+	users, lists, err := config.Prepare(ctx, pathHelper)
 	if err != nil {
 		return err
 	}
@@ -371,12 +370,7 @@ func (s *downloadServiceImpl) executeDownloadTemplate(ctx context.Context, confi
 	var profileResult *ProfileResult
 	profileWarning := ""
 
-	var profileTargetUsers []*twitter.User
-	if explicitProfileUsers != nil {
-		profileTargetUsers = explicitProfileUsers
-	} else {
-		profileTargetUsers = listMembers
-	}
+	profileTargetUsers := dedupeProfileUsers(append(append([]*twitter.User(nil), users...), listMembers...))
 
 	if config.ShouldDownloadProfile(profileTargetUsers) && len(profileTargetUsers) > 0 {
 		profileResult, err = s.downloadProfile(
@@ -414,13 +408,13 @@ func (s *downloadServiceImpl) UserDownload(ctx context.Context, taskID string, s
 			r.OnProgress(tid, Progress{Stage: "downloading", Current: screenName})
 		},
 
-		Prepare: func(ctx context.Context, ph *path.StorePath) ([]*twitter.User, []twitter.ListBase, []*twitter.User, error) {
+		Prepare: func(ctx context.Context, ph *path.StorePath) ([]*twitter.User, []twitter.ListBase, error) {
 			user, uid, err := twitter.GetUserByScreenName(ctx, s.deps.Client, screenName)
 			if err != nil {
 				database.MarkUserInaccessible(s.deps.DB, uid, screenName)
-				return nil, nil, nil, err
+				return nil, nil, err
 			}
-			return []*twitter.User{user}, nil, []*twitter.User{user}, nil
+			return []*twitter.User{user}, nil, nil
 		},
 
 		ShouldDownloadProfile: func(_ []*twitter.User) bool {
@@ -443,12 +437,12 @@ func (s *downloadServiceImpl) ListDownload(ctx context.Context, taskID string, l
 			r.OnProgress(tid, Progress{Stage: "downloading", Current: fmt.Sprintf("list:%d", listID)})
 		},
 
-		Prepare: func(ctx context.Context, ph *path.StorePath) ([]*twitter.User, []twitter.ListBase, []*twitter.User, error) {
+		Prepare: func(ctx context.Context, ph *path.StorePath) ([]*twitter.User, []twitter.ListBase, error) {
 			list, err := twitter.GetLst(ctx, s.deps.Client, listID)
 			if err != nil {
-				return nil, nil, nil, err
+				return nil, nil, err
 			}
-			return nil, []twitter.ListBase{list}, nil, nil
+			return nil, []twitter.ListBase{list}, nil
 		},
 
 		ShouldDownloadProfile: func(_ []*twitter.User) bool {
@@ -470,13 +464,13 @@ func (s *downloadServiceImpl) FollowingDownload(ctx context.Context, taskID stri
 			r.OnProgress(tid, Progress{Stage: "downloading", Current: screenName})
 		},
 
-		Prepare: func(ctx context.Context, ph *path.StorePath) ([]*twitter.User, []twitter.ListBase, []*twitter.User, error) {
+		Prepare: func(ctx context.Context, ph *path.StorePath) ([]*twitter.User, []twitter.ListBase, error) {
 			user, uid, err := twitter.GetUserByScreenName(ctx, s.deps.Client, screenName)
 			if err != nil {
 				database.MarkUserInaccessible(s.deps.DB, uid, screenName)
-				return nil, nil, nil, err
+				return nil, nil, err
 			}
-			return nil, []twitter.ListBase{user.Following()}, nil, nil
+			return nil, []twitter.ListBase{user.Following()}, nil
 		},
 
 		ShouldDownloadProfile: func(_ []*twitter.User) bool {
@@ -704,91 +698,31 @@ func (s *downloadServiceImpl) JsonFolderDownload(ctx context.Context, taskID str
 
 // BatchDownload 批量下载
 func (s *downloadServiceImpl) BatchDownload(ctx context.Context, taskID string, screenNames []string, listIDs []uint64, followingNames []string, opts DownloadOptions, reporter ProgressReporter) error {
-	reporter = s.getReporterOrDefault(reporter)
+	return s.executeDownloadTemplate(ctx, downloadTemplateConfig{
+		TaskID:            taskID,
+		Opts:              opts,
+		Reporter:          reporter,
+		ProfileIdentifier: "batch",
+		CompletionMessage: "Batch download completed",
 
-	reporter.OnProgress(taskID, Progress{Stage: "resolving"})
+		ReportBeforeDownload: func(tid string, r ProgressReporter) {
+			r.OnProgress(tid, Progress{Stage: "resolving"})
+		},
 
-	users := s.resolveUsers(ctx, screenNames)
-	lists := s.resolveLists(ctx, listIDs)
-	lists = append(lists, s.resolveFollowings(ctx, followingNames)...)
-
-	if len(users) == 0 && len(lists) == 0 {
-		return fmt.Errorf("all users and lists failed to resolve")
-	}
-
-	reporter.OnProgress(taskID, Progress{Stage: "preparing"})
-
-	pathHelper, err := path.NewStorePath(s.deps.Config.RootPath)
-	if err != nil {
-		return err
-	}
-
-	// 初始化 Dumper
-	dumper := downloading.NewDumper()
-	s.dumperMu.Lock()
-	if err := dumper.Load(pathHelper.ErrorsPath); err != nil {
-		log.Warnf("Failed to load dumper: %v", err)
-	}
-	s.dumperMu.Unlock()
-	defer s.saveDumper(dumper, pathHelper.ErrorsPath)
-
-	reporter.OnProgress(taskID, Progress{Stage: "downloading"})
-
-	// 初始化下载器
-	versionManager, fileWriter, dwn := s.initDownloader()
-	progress := s.newBatchProgressCallback(taskID, reporter)
-	retryProgress := s.newRetryProgressCallback(taskID, reporter)
-	runtimeOptions := s.runtimeOptions()
-
-	// 执行批量下载（返回列表成员用于 Profile 下载）
-	failedTweets, listMembers, summary, err := downloading.BatchDownloadAny(ctx, s.deps.Client, s.deps.DB, lists, users, pathHelper.Root, pathHelper.Users, effectiveAutoFollow(opts), s.deps.AdditionalClients, dwn, fileWriter, runtimeOptions, progress)
-	if err != nil {
-		return err
-	}
-	if opts.FollowMembers {
-		followTargets := make([]*twitter.User, 0, len(users)+len(listMembers))
-		followTargets = append(followTargets, users...)
-		followTargets = append(followTargets, listMembers...)
-		if err := s.followMembersIfNeeded(ctx, followTargets); err != nil {
-			return err
-		}
-	}
-	mainFailures := collectFailedTweetSet(failedTweets)
-
-	// 收集失败的推文到 Dumper
-	s.collectFailedTweets(dumper, failedTweets)
-
-	// 重试失败的推文
-	if !opts.NoRetry {
-		if _, err := downloading.RetryFailedTweets(ctx, dumper, s.deps.DB, s.deps.Client, dwn, fileWriter, runtimeOptions, retryProgress); err != nil {
-			log.Warnf("Retry failed tweets error: %v", err)
-		}
-	}
-
-	// Profile 下载（复用 BatchDownloadAny 返回的 listMembers，避免重复 API 调用）
-	var profileResult *ProfileResult
-	profileWarning := ""
-	if !opts.SkipProfile && (len(users) > 0 || len(listMembers) > 0) {
-		profileUsers := make([]*twitter.User, 0, len(users)+len(listMembers))
-		profileUsers = append(profileUsers, users...)
-		profileUsers = append(profileUsers, listMembers...)
-		profileUsers = dedupeProfileUsers(profileUsers)
-
-		if len(profileUsers) > 0 {
-			profileResult, err = s.downloadProfile(ctx, taskID, profileUsers, pathHelper, versionManager, fileWriter, dwn, reporter)
-			if err != nil {
-				log.Warnf("Profile download failed for batch: %v", err)
-				reporter.OnProgress(taskID, Progress{Stage: "profile_warning", Current: fmt.Sprintf("profile failed for batch: %v", err)})
-				profileWarning = "with profile warnings"
+		Prepare: func(ctx context.Context, ph *path.StorePath) ([]*twitter.User, []twitter.ListBase, error) {
+			users := s.resolveUsers(ctx, screenNames)
+			lists := s.resolveLists(ctx, listIDs)
+			lists = append(lists, s.resolveFollowings(ctx, followingNames)...)
+			if len(users) == 0 && len(lists) == 0 {
+				return nil, nil, fmt.Errorf("all users and lists failed to resolve")
 			}
-		}
-	}
+			return users, lists, nil
+		},
 
-	s.completeTask(taskID, reporter, "Batch download completed", &Result{
-		Main:    s.buildMainDownloadResult(summary, countRemainingFailedEntities(dumper, mainFailures)),
-		Profile: cloneProfileResult(profileResult),
-	}, profileWarning)
-	return nil
+		ShouldDownloadProfile: func(_ []*twitter.User) bool {
+			return !opts.SkipProfile
+		},
+	})
 }
 
 // saveDumper 保存 Dumper 到文件（直接覆写，不做 load-merge，确保 Remove 操作被持久化）。

@@ -1102,7 +1102,7 @@ func TestDownloadServiceImpl_ClearErrorsRace(t *testing.T) {
 	// 验证：文件要么不存在（Clear 成功），要么是合法 JSON（saveDumper 写入完成）
 	// 但不应该是损坏的 JSON
 	for name, path := range map[string]string{
-		"errors.json":     pathHelper.ErrorsPath,
+		"errors.json":      pathHelper.ErrorsPath,
 		"json_errors.json": pathHelper.JSONErrorsPath,
 	} {
 		_, err := os.Stat(path)
