@@ -336,14 +336,15 @@ func BatchUserDownload(ctx context.Context, client *resty.Client, db *sqlx.DB, u
 		}
 	}
 
-	config := workerConfig{
-		ctx:        ctx,
-		wg:         &conswg,
-		cancel:     cancel,
-		downloader: dwn,
-		fileWriter: fileWriter,
-		client:     client,
-	}
+		config := workerConfig{
+			ctx:            ctx,
+			wg:             &conswg,
+			cancel:         cancel,
+			downloader:     dwn,
+			fileWriter:     fileWriter,
+			client:         client,
+			maxFileNameLen: opts.normalizedMaxFileNameLen(),
+		}
 	if progress != nil {
 		config.onTweetDone = func(pt PackagedTweet, failed bool) {
 			current := ""
