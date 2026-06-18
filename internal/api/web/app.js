@@ -4562,8 +4562,9 @@ function syncSystemPage(state, tasksChanged) {
     document.getElementById('systemSchedulesPanel').style.display = state._systemTab === 'schedules' ? '' : 'none';
   }
 
+  const configRawRebuildNeeded = configRawChanged && _state.lastConfigRaw === null && state.configRaw !== null;
   const configPanelShouldRebuild = state.configMode === 'raw'
-    ? (configModeChanged || configSavingChanged || configRawChanged)
+    ? (configModeChanged || configSavingChanged || configRawRebuildNeeded)
     : (configRawChanged || configFieldsChanged || configFieldsLoadingChanged || configSavingChanged || configModeChanged);
   if (configPanelShouldRebuild) {
     _state.lastConfigRaw = state.configRaw;
@@ -4584,8 +4585,9 @@ function syncSystemPage(state, tasksChanged) {
     setEditorValue(_state.configCodeMirror, state.configRaw);
   }
 
+  const cookiesRawRebuildNeeded = cookiesRawChanged && _state.lastCookiesRaw === null && state.cookiesRaw !== null;
   const cookiesPanelShouldRebuild = state.cookiesMode === 'raw'
-    ? (cookiesModeChanged || cookiesSavingChanged || cookiesRawChanged)
+    ? (cookiesModeChanged || cookiesSavingChanged || cookiesRawRebuildNeeded)
     : (cookiesChanged || cookiesModeChanged || cookiesRawChanged || cookiesSavingChanged);
   if (cookiesPanelShouldRebuild) {
     _state.lastCookieItemsJson = JSON.stringify(state.cookieItems);
@@ -4609,8 +4611,9 @@ function syncSystemPage(state, tasksChanged) {
   if (schedulesChanged && !schedulePanelSchedulesChanged) {
     _state.lastSchedulesJson = JSON.stringify(state._schedules);
   }
+  const scheduleRawRebuildNeeded = scheduleRawChanged && _state.lastScheduleRaw === null && state._scheduleRaw !== null;
   const schedulePanelShouldRebuild = state._scheduleTab === 'edit'
-    ? (scheduleTabChanged || scheduleSavingChanged || scheduleExistsChanged || scheduleRawChanged || schedulePanelSchedulesChanged || scheduleFormItemsChanged)
+    ? (scheduleTabChanged || scheduleSavingChanged || scheduleExistsChanged || scheduleRawRebuildNeeded || schedulePanelSchedulesChanged || scheduleFormItemsChanged)
     : (schedulePanelSchedulesChanged || scheduleRawChanged || scheduleExistsChanged || scheduleSavingChanged || scheduleTabChanged || scheduleFormItemsChanged);
   if (schedulePanelShouldRebuild) {
     _state.lastSchedulesJson = JSON.stringify(state._schedules);
