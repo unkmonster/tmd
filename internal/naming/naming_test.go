@@ -340,9 +340,9 @@ func TestTweetNaming_baseName_Truncation(t *testing.T) {
 		},
 	}
 
-		for _, tt := range tests {
-			t.Run(tt.name, func(t *testing.T) {
-				tn := NewTweetNaming(tt.text, tt.tweetID, "creator", tt.maxLen)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tn := NewTweetNaming(tt.text, tt.tweetID, "creator", tt.maxLen)
 			got := tn.FileName(".ext")
 			if !strings.Contains(got, tt.wantContains) {
 				t.Errorf("FileName() = %q, should contain %q", got, tt.wantContains)
@@ -444,18 +444,18 @@ func TestUserNaming_SanitizedTitle(t *testing.T) {
 }
 
 func TestUserNaming_Truncation(t *testing.T) {
-		// 测试长名称截断
-		const maxLen = 30
+	// 测试长名称截断
+	const maxLen = 30
 
-		longName := strings.Repeat("a", 50)
-		longScreen := strings.Repeat("b", 50)
-		un := NewUserNaming(longName, longScreen, maxLen)
+	longName := strings.Repeat("a", 50)
+	longScreen := strings.Repeat("b", 50)
+	un := NewUserNaming(longName, longScreen, maxLen)
 
-		got := un.SanitizedTitle()
-		if len(got) > maxLen {
-			t.Errorf("SanitizedTitle() length = %d, exceeds maxLen %d", len(got), maxLen)
-		}
+	got := un.SanitizedTitle()
+	if len(got) > maxLen {
+		t.Errorf("SanitizedTitle() length = %d, exceeds maxLen %d", len(got), maxLen)
 	}
+}
 
 // ============================================================================
 // ListNaming 测试
@@ -542,9 +542,9 @@ func TestListNaming_SanitizedTitle(t *testing.T) {
 		},
 	}
 
-		for _, tt := range tests {
-			t.Run(tt.name, func(t *testing.T) {
-				ln := NewListNamingFromBase(tt.listBase, testMaxFileNameLen)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ln := NewListNamingFromBase(tt.listBase, testMaxFileNameLen)
 			if got := ln.SanitizedTitle(); got != tt.expected {
 				t.Errorf("SanitizedTitle() = %q, want %q", got, tt.expected)
 			}
@@ -615,7 +615,7 @@ func TestTweetNaming_Concurrent(t *testing.T) {
 }
 
 func TestUserNaming_Concurrent(t *testing.T) {
-		un := NewUserNaming("User", "screen", testMaxFileNameLen)
+	un := NewUserNaming("User", "screen", testMaxFileNameLen)
 
 	done := make(chan bool, 2)
 
@@ -743,7 +743,7 @@ func BenchmarkTweetNaming_FilePath(b *testing.B) {
 }
 
 func BenchmarkUserNaming_SanitizedTitle(b *testing.B) {
-		un := NewUserNaming("User Name", "screen_name", testMaxFileNameLen)
+	un := NewUserNaming("User Name", "screen_name", testMaxFileNameLen)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_ = un.SanitizedTitle()

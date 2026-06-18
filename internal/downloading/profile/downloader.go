@@ -466,7 +466,7 @@ func (pd *ProfileDownloader) downloadFile(ctx context.Context, userTitle, screen
 
 	result, err := pd.downloader.Download(downloadReq)
 	if err != nil {
-		log.Errorln(label+" download failed:", screenName, "-", err)
+		log.Debugln(label+" download failed:", screenName, "-", err)
 		return FileResult{FileType: fileType, FilePath: filePath, Status: StatusFailed, Error: err}
 	}
 

@@ -924,6 +924,7 @@ func (s *downloadServiceImpl) downloadProfile(ctx context.Context, taskID string
 
 	// 统计结果
 	var successCount, failCount, versionedFileCount int
+	var avatarFailed, bannerFailed int
 	var firstErr error
 	for _, result := range results {
 		if result == nil {
@@ -933,6 +934,8 @@ func (s *downloadServiceImpl) downloadProfile(ctx context.Context, taskID string
 			}
 			continue
 		}
+
+		// 统计单个用户维度
 		if result.Error != nil {
 			failCount++
 			if firstErr == nil {
@@ -940,11 +943,21 @@ func (s *downloadServiceImpl) downloadProfile(ctx context.Context, taskID string
 			}
 		} else if result.Success {
 			successCount++
-			// 统计被版本化的文件数
-			for _, file := range result.Files {
-				if file.Versioned {
-					versionedFileCount++
-				}
+		}
+
+		// 跨所有用户统计 avatar/banner 文件级失败
+		for _, file := range result.Files {
+			if file.Versioned {
+				versionedFileCount++
+			}
+			if file.Status != profile.StatusFailed {
+				continue
+			}
+			switch file.FileType {
+			case profile.FileTypeAvatar:
+				avatarFailed++
+			case profile.FileTypeBanner:
+				bannerFailed++
 			}
 		}
 	}
@@ -953,6 +966,17 @@ func (s *downloadServiceImpl) downloadProfile(ctx context.Context, taskID string
 		Downloaded: successCount,
 		Failed:     failCount,
 		Versioned:  versionedFileCount,
+	}
+
+	if avatarFailed > 0 || bannerFailed > 0 {
+		var parts []string
+		if avatarFailed > 0 {
+			parts = append(parts, fmt.Sprintf("%d avatars", avatarFailed))
+		}
+		if bannerFailed > 0 {
+			parts = append(parts, fmt.Sprintf("%d banners", bannerFailed))
+		}
+		log.Errorln("profile download:", strings.Join(parts, ", "), "failed")
 	}
 
 	if successCount == 0 && failCount > 0 {
