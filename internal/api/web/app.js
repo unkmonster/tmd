@@ -4916,6 +4916,9 @@ document.getElementById('contentContainer').addEventListener('click', (e) => {
 
   const taskItem = e.target.closest('.task-item[data-task-id]');
   if (taskItem) {
+    // 如果点击的是 data-action 按钮（如取消/重试），
+    // 该按钮已由 Universal action dispatch 处理，此处不应再打开详情
+    if (e.target.closest('[data-action]')) return;
     showTaskDetail(taskItem.dataset.taskId);
   }
 });
