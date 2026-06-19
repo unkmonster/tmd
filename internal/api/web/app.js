@@ -173,7 +173,18 @@ const store = {
 
   setState(newState) {
     this.state = deepMerge(this.state, newState);
-    this.listeners.forEach(fn => fn(this.state));
+    this._scheduleNotify();
+  },
+
+  _notifyPending: false,
+
+  _scheduleNotify() {
+    if (this._notifyPending) return;
+    this._notifyPending = true;
+    Promise.resolve().then(() => {
+      this._notifyPending = false;
+      this.listeners.forEach(fn => fn(this.state));
+    });
   }
 };
 
