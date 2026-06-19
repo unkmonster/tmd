@@ -173,18 +173,7 @@ const store = {
 
   setState(newState) {
     this.state = deepMerge(this.state, newState);
-    this._scheduleNotify();
-  },
-
-  _notifyPending: false,
-
-  _scheduleNotify() {
-    if (this._notifyPending) return;
-    this._notifyPending = true;
-    Promise.resolve().then(() => {
-      this._notifyPending = false;
-      this.listeners.forEach(fn => fn(this.state));
-    });
+    this.listeners.forEach(fn => fn(this.state));
   }
 };
 
@@ -4528,6 +4517,7 @@ _state.lastCookiesSaving = store.state.cookiesSaving;
 _state.lastCookieItemsJson = JSON.stringify(store.state.cookieItems);
 _state.lastCookiesMode = store.state.cookiesMode;
 _state.lastLogsLength = store.state.logs.length;
+_state.lastLogFirst = store.state.logs[0] || null;
 _state.lastLogLevel = store.state.logLevel;
 _state.lastLogNewArrived = store.state._logNewArrived;
 _state.lastDataSubPage = store.state.dataSubPage;
@@ -4724,7 +4714,8 @@ function syncSchedulesPage(state) {
 
 function syncLogsPage(state) {
   const logPagChanged = JSON.stringify(state.logPagination) !== _state.lastLogPaginationJson;
-  const logsChanged = state.logs.length !== _state.lastLogsLength;
+  const logsChanged = state.logs.length !== _state.lastLogsLength ||
+    (state.logs.length > 0 && state.logs[0] !== _state.lastLogFirst);
   const logLevelChanged = state.logLevel !== _state.lastLogLevel;
   const logNewArrivedChanged = state._logNewArrived !== _state.lastLogNewArrived;
 
@@ -4743,6 +4734,7 @@ function syncLogsPage(state) {
 
   // 手术刀：日志行 — 只改 #logLines，保留容器和滚动位置
   if (logsChanged) {
+    _state.lastLogFirst = state.logs[0] || null;
     const linesEl = document.getElementById('logLines');
     if (linesEl) linesEl.innerHTML = renderLogLines(state.logs, state._logsLoading !== false);
   }
