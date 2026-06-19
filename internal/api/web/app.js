@@ -382,6 +382,7 @@ const sseManager = {
   baseReconnectDelay: 2000,
   reconnectAttempts: 0,
   reconnectDisabled: false,
+  _everConnected: false, // 首次成功连接前不显示"断开"状态
 
   connect() {
     this.reconnectDisabled = false;
@@ -390,6 +391,7 @@ const sseManager = {
     this.conn = new EventSource('/api/v1/sse/tasks');
 
     this.conn.onopen = () => {
+      this._everConnected = true;
       store.setState({ sseConnected: true });
       this._updateIndicator(true);
       if (this.reconnectAttempts > 0) {
@@ -463,8 +465,10 @@ const sseManager = {
     this.conn.onerror = () => {
       this.conn.close();
       this.conn = null;
-      store.setState({ sseConnected: false });
-      this._updateIndicator(false);
+      if (this._everConnected) {
+        store.setState({ sseConnected: false });
+        this._updateIndicator(false);
+      }
       if (this.reconnectDisabled) return;
       if (store.state.currentPage === 'shutdown') return;
       this.reconnectAttempts++;
@@ -744,14 +748,14 @@ const pages = {
             </div>
             <div class="toolbar">
               <div class="toolbar-left">
-                <select class="form-select" style="width: 100px;" id="taskFilter" onchange="updateSearchState('taskFilter',null,this.value);filterTasks()">
+                <select class="form-select" style="width: 100px;" id="taskFilter" data-binding="taskFilter">
                   <option value="all">全部状态</option>
                   <option value="running">运行中</option>
                   <option value="queued">排队中</option>
                   <option value="completed">已完成</option>
                   <option value="failed">失败</option>
                 </select>
-                <input type="text" class="form-input search-input" id="taskSearch" placeholder="搜索任务..." oninput="updateSearchState('taskSearch',null,this.value);filterTasks()">
+                <input type="text" class="form-input search-input" id="taskSearch" placeholder="搜索任务..." data-binding="taskSearch">
               </div>
               <div class="toolbar-right">
                 <button class="btn btn-secondary btn-sm" data-action="cancelQueuedTasks">取消排队中任务</button>
@@ -806,7 +810,7 @@ const pages = {
           </div>
           <div class="flex gap-2 items-center">
             <input type="text" class="form-input search-input" id="dbSearchInput"
-              placeholder="搜索..." oninput="updateSearchState('dbSearch',store.state.dataSubPage,this.value)">
+              placeholder="搜索..." data-binding="dbSearch">
             <button class="btn btn-ghost btn-icon" data-action="searchDB">🔍</button>
           </div>
         </div>
@@ -907,7 +911,72 @@ const pages = {
 // ============================================
 // Module-level state bag (replaces top-level let/const)
 // ============================================
-const _state = {};
+const _state = {
+  _taskFormState: {},
+  _cmDestroyVersion: 0
+};
+
+// 变化检测器：消除手动维护 _state.lastXxx 的重复模式
+// keys: 要追踪的状态键名数组。基础类型用 !== 比较，对象/数组用 JSON.stringify 比较
+// 返回 { hasAny: bool, changed: { [key]: bool } }
+function makeChangeDetector(keys) {
+  const snapshots = {};
+  keys.forEach(k => { snapshots[k] = undefined; });
+  return {
+    detect(state) {
+      const changed = {};
+      let hasAny = false;
+      keys.forEach(k => {
+        const cur = state[k];
+        const last = snapshots[k];
+        let isDiff;
+        if (typeof cur === 'object' && cur !== null) {
+          isDiff = JSON.stringify(cur) !== JSON.stringify(last);
+        } else {
+          isDiff = cur !== last;
+        }
+        changed[k] = isDiff;
+        if (isDiff) hasAny = true;
+        snapshots[k] = (typeof cur === 'object' && cur !== null) ? JSON.parse(JSON.stringify(cur)) : cur;
+      });
+      return { hasAny, changed };
+    }
+  };
+}
+
+// 保存当前任务 tab 的表单值
+function saveTaskFormState() {
+  const inputs = document.querySelectorAll('#taskFormContainer input, #taskFormContainer textarea, #taskFormContainer select');
+  const state = {};
+  inputs.forEach(el => {
+    if (el.id) {
+      state[el.id] = el.type === 'checkbox' ? el.checked : el.value;
+    }
+  });
+  // 找到当前激活的 tab
+  const activeTab = document.querySelector('[data-task-tab].active');
+  if (activeTab) {
+    _state._taskFormState[activeTab.dataset.taskTab] = state;
+  }
+}
+
+// 恢复任务 tab 的表单值
+function restoreTaskFormState(tabType) {
+  const saved = _state._taskFormState[tabType];
+  if (!saved) return;
+  // 延迟执行，等待 DOM 渲染完成
+  requestAnimationFrame(() => {
+    Object.entries(saved).forEach(([id, value]) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      if (el.type === 'checkbox') {
+        el.checked = value;
+      } else {
+        el.value = value;
+      }
+    });
+  });
+}
 
 // ============================================
 // Helper Functions
@@ -2564,7 +2633,7 @@ function renderConfigForm(fields, saving, exists, loading = false) {
         <input type="${inputType}" class="form-input config-input" id="cf_${escapeAttr(f.name)}"
           name="${escapeAttr(f.name)}" value="${escapeAttr(f.type === 'password' ? '' : f.value)}"
           placeholder="${placeholder}"
-          ${f.type === 'number' ? `min="1" max="${f.name.includes('routine') ? '100' : '250'}"` : ''}>
+          ${f.type === 'number' ? `min="1" max="${f.name.includes('routine') ? '100' : '245'}"` : ''}>
       </div>
     `;
   };
@@ -2775,7 +2844,7 @@ function renderLogViewer() {
         <div id="logFilterArea" class="flex gap-2 items-center flex-wrap">
           <input type="text" class="form-input search-input" id="logSearchInput"
             placeholder="🔍 搜索..."
-            oninput="onLogSearchInput(this.value)">
+            data-binding="logSearch">
           ${renderLogFilterButtons(logLevel, logStats)}
           <button class="btn btn-ghost btn-sm ${logAutoRefresh?'active':''}" data-action="toggleLogAutoRefresh">${logAutoRefresh?'⏸️':'▶️'} 实时</button>
           <button class="btn btn-ghost btn-sm" data-action="downloadLogExport" title="导出完整日志文件">📥 导出</button>
@@ -2897,7 +2966,7 @@ function renderScheduleFormField(item, idx) {
       </div>
       <div class="config-field">
         <label class="config-label" for="sf_type_${idx}">类型</label>
-        <select class="form-input config-input" id="sf_type_${idx}" onchange="updateScheduleFormItem(${idx}, 'type', this.value)">
+        <select class="form-input config-input" id="sf_type_${idx}" data-binding="sf_type" data-idx="${idx}">
           ${typeOptions(item.type)}
         </select>
       </div>
@@ -2906,19 +2975,19 @@ function renderScheduleFormField(item, idx) {
         <label class="config-label" for="sf_users_${idx}">用户名 <span style="font-size:11px;color:var(--text-tertiary)">每行一个</span></label>
         <textarea class="form-textarea config-input" id="sf_users_${idx}" rows="3"
           aria-describedby="sf_schedule_hint_${idx}"
-          placeholder="elonmusk&#10;openai" oninput="scheduleFieldChanged(${idx})" onblur="validateScheduleField(${idx})">${escapeHtml((item.users || []).join('\n'))}</textarea>
+          placeholder="elonmusk&#10;openai" data-binding="sf_field" data-idx="${idx}">${escapeHtml((item.users || []).join('\n'))}</textarea>
       </div>
       <div class="config-field">
         <label class="config-label" for="sf_lists_${idx}">列表 ID <span style="font-size:11px;color:var(--text-tertiary)">每行一个</span></label>
         <textarea class="form-textarea config-input" id="sf_lists_${idx}" rows="3"
           aria-describedby="sf_schedule_hint_${idx}"
-          placeholder="123456789&#10;987654321" oninput="scheduleFieldChanged(${idx})" onblur="validateScheduleField(${idx})">${escapeHtml((item.lists || []).join('\n'))}</textarea>
+          placeholder="123456789&#10;987654321" data-binding="sf_field" data-idx="${idx}">${escapeHtml((item.lists || []).join('\n'))}</textarea>
       </div>
       <div class="config-field">
         <label class="config-label" for="sf_following_${idx}">关注用户名 <span style="font-size:11px;color:var(--text-tertiary)">每行一个</span></label>
         <textarea class="form-textarea config-input" id="sf_following_${idx}" rows="3"
           aria-describedby="sf_schedule_hint_${idx}"
-          placeholder="someuser" oninput="scheduleFieldChanged(${idx})" onblur="validateScheduleField(${idx})">${escapeHtml((item.following_names || []).join('\n'))}</textarea>
+          placeholder="someuser" data-binding="sf_field" data-idx="${idx}">${escapeHtml((item.following_names || []).join('\n'))}</textarea>
       </div>` : `
       <div class="config-field">
         <label class="config-label" for="sf_target_${idx}">${item.type === 'list' ? '列表 ID' : '用户名 (Screen Name)'}</label>
@@ -2926,7 +2995,7 @@ function renderScheduleFormField(item, idx) {
           value="${escapeAttr(item.target || '')}"
           aria-describedby="sf_schedule_hint_${idx}"
           placeholder="${item.type === 'list' ? '例如: 123456789' : '例如: elonmusk'}"
-          onblur="validateScheduleField(${idx})" oninput="scheduleFieldChanged(${idx})">
+          data-binding="sf_field" data-idx="${idx}">
       </div>`}
       <div class="config-field">
         <label class="config-label">名称（可选）</label>
@@ -2936,7 +3005,7 @@ function renderScheduleFormField(item, idx) {
       </div>
       <div class="config-field">
         <label class="config-label">调度方式</label>
-        <select class="form-input config-input" id="sf_schedule_mode_${idx}" onchange="updateScheduleFormItem(${idx}, 'scheduleMode', this.value)">
+        <select class="form-input config-input" id="sf_schedule_mode_${idx}" data-binding="sf_type" data-idx="${idx}">
           ${scheduleModeOptions(item.scheduleMode || 'interval')}
         </select>
       </div>
@@ -2946,7 +3015,7 @@ function renderScheduleFormField(item, idx) {
           value="${escapeAttr(item.scheduleValue || '')}"
           aria-describedby="sf_schedule_hint_${idx}"
           placeholder="${(item.scheduleMode || 'interval') === 'interval' ? '例如: 2h, 30m, 6h30m, 24h' : '例如: 07:00,21:00 或 02:30'}"
-          onblur="validateScheduleField(${idx})" oninput="scheduleFieldChanged(${idx})">
+          data-binding="sf_field" data-idx="${idx}">
       </div>
       <div class="config-field" style="display:flex;gap:16px;flex-wrap:wrap;">
         <label class="config-label" style="display:inline-flex;align-items:center;gap:4px">
@@ -3695,7 +3764,9 @@ _state._scheduleCmInitializing = false;
 async function initScheduleCodeMirror() {
   if (_state._scheduleCmInitializing || _state.scheduleCodeMirror) return;
   _state._scheduleCmInitializing = true;
+  const versionAtStart = _state._cmDestroyVersion;
   await waitForCodeMirror(3000);
+  if (_state._cmDestroyVersion !== versionAtStart) { _state._scheduleCmInitializing = false; return; }
   if (document.getElementById('scheduleEditorContainer')) {
     _state.scheduleCodeMirror = initCodeMirror('scheduleEditorContainer', store.state._scheduleRaw, 'yaml');
   }
@@ -3732,7 +3803,7 @@ async function saveConfigForm() {
     if (el.type === 'number') {
       const val = parseInt(el.value, 10);
       const min = el.min !== '' ? parseInt(el.min, 10) : 1;
-      const max = el.max !== '' ? parseInt(el.max, 10) : (el.name.includes('routine') ? 100 : 250);
+      const max = el.max !== '' ? parseInt(el.max, 10) : (el.name.includes('routine') ? 100 : 245);
       if (isNaN(val) || val < min || val > max) {
         toast.show(`${el.name} 必须在 ${min}-${max} 之间`, 'error');
         return;
@@ -3906,6 +3977,16 @@ function setConfigMode(mode) {
   }
   store.setState({ configMode: mode });
   if (mode === 'raw' && store.state.configRaw === null) loadConfigRaw();
+  // configRaw 已存在时直接同步重建面板，设置标志位防止订阅重复重建
+  if (mode === 'raw' && store.state.configRaw !== null) {
+    _state._configCmInitializing = false;
+    _state._configPanelSkipNextRebuild = true;
+    const panel = document.getElementById('systemConfigPanel');
+    if (panel) {
+      panel.innerHTML = renderConfigEditor();
+      requestAnimationFrame(() => requestAnimationFrame(initConfigCodeMirror));
+    }
+  }
 }
 
 async function loadLogs() {
@@ -4080,7 +4161,9 @@ function setEditorValue(editor, value) {
 async function initConfigCodeMirror() {
   if (_state._configCmInitializing || _state.configCodeMirror) return;
   _state._configCmInitializing = true;
+  const versionAtStart = _state._cmDestroyVersion;
   await waitForCodeMirror(3000);
+  if (_state._cmDestroyVersion !== versionAtStart) { _state._configCmInitializing = false; return; }
   if (document.getElementById('configEditorContainer')) {
     _state.configCodeMirror = initCodeMirror('configEditorContainer', store.state.configRaw, 'yaml');
   }
@@ -4090,7 +4173,9 @@ async function initConfigCodeMirror() {
 async function initCookiesCodeMirror() {
   if (_state._cookiesCmInitializing || _state.cookiesCodeMirror) return;
   _state._cookiesCmInitializing = true;
+  const versionAtStart = _state._cmDestroyVersion;
   await waitForCodeMirror(3000);
+  if (_state._cmDestroyVersion !== versionAtStart) { _state._cookiesCmInitializing = false; return; }
   if (document.getElementById('cookiesEditorContainer')) {
     _state.cookiesCodeMirror = initCodeMirror('cookiesEditorContainer', store.state.cookiesRaw, 'yaml');
   }
@@ -4120,6 +4205,7 @@ function cleanupSystemTimers() {
 }
 
 function destroyAllEditors() {
+  _state._cmDestroyVersion++;
   _state.configCodeMirror = destroyCodeMirror(_state.configCodeMirror);
   _state._configCmInitializing = false;
   _state.cookiesCodeMirror = destroyCodeMirror(_state.cookiesCodeMirror);
@@ -4551,55 +4637,24 @@ window.addEventListener('resize', () => {
 });
 
 // Subscribe to state changes
-_state.lastPage = store.state.currentPage;
-_state.lastTasksJson = JSON.stringify(store.state.tasks);
-_state.lastSystemTab = store.state._systemTab;
-_state.lastLogPaginationJson = JSON.stringify(store.state.logPagination);
-_state.lastConfigRaw = store.state.configRaw;
-_state.lastConfigSaving = store.state.configSaving;
-_state.lastConfigFieldsJson = JSON.stringify(store.state.configFields);
-_state.lastConfigFieldsLoading = store.state.configFieldsLoading;
-_state.lastConfigMode = store.state.configMode;
-_state.lastCookiesRaw = store.state.cookiesRaw;
-_state.lastCookiesSaving = store.state.cookiesSaving;
-_state.lastCookieItemsJson = JSON.stringify(store.state.cookieItems);
-_state.lastCookiesMode = store.state.cookiesMode;
-_state.lastLogsLength = store.state.logs.length;
-_state.lastLogFirst = store.state.logs[0] || null;
-_state.lastLogLevel = store.state.logLevel;
-_state.lastLogNewArrived = store.state._logNewArrived;
-_state.lastDataSubPage = store.state.dataSubPage;
-_state.lastDbDataJson = JSON.stringify(store.state.dbData);
-_state.lastDbPaginationJson = JSON.stringify(store.state.dbPagination);
-_state.lastDbSortJson = JSON.stringify(store.state.dbSort);
-_state.lastHealth = store.state.health;
-_state.lastSchedulesJson = JSON.stringify(store.state._schedules);
-_state.lastScheduleRaw = store.state._scheduleRaw;
-_state.lastScheduleExists = store.state._scheduleExists;
-_state.lastScheduleSaving = store.state._scheduleSaving;
-_state.lastScheduleTab = store.state._scheduleTab;
-_state.lastScheduleFormItemsJson = JSON.stringify(store.state._scheduleFormItems);
-_state.lastSchedulerRunning = store.state._schedulerRunning;
+const dataDetector = makeChangeDetector(['dataSubPage', 'dbData', 'dbPagination', 'dbSort']);
+const systemTabDetector = makeChangeDetector(['_systemTab']);
+const configDetector = makeChangeDetector(['configRaw', 'configSaving', 'configFields', 'configFieldsLoading', 'configMode']);
+const cookiesDetector = makeChangeDetector(['cookieItems', 'cookiesMode', 'cookiesRaw', 'cookiesSaving']);
+const scheduleDetector = makeChangeDetector(['_schedules', '_scheduleRaw', '_scheduleExists', '_scheduleSaving', '_scheduleTab', '_scheduleFormItems', '_schedulerRunning']);
+const logDetector = makeChangeDetector(['logs', 'logLevel', 'logPagination', '_logNewArrived']);
+const overviewDetector = makeChangeDetector(['tasks', 'health']);
 
 // ============================================
 // Page-specific state sync functions
 // ============================================
 
 function syncDataPage(state) {
-  const dataSubPageChanged = state.dataSubPage !== _state.lastDataSubPage;
-  const dbDataChanged = JSON.stringify(state.dbData) !== _state.lastDbDataJson;
-  const dbPaginationChanged = JSON.stringify(state.dbPagination) !== _state.lastDbPaginationJson;
-  const dbSortChanged = JSON.stringify(state.dbSort) !== _state.lastDbSortJson;
-
-  if (!dataSubPageChanged && !dbDataChanged && !dbPaginationChanged && !dbSortChanged) return;
-
-  _state.lastDataSubPage = state.dataSubPage;
-  _state.lastDbDataJson = JSON.stringify(state.dbData);
-  _state.lastDbPaginationJson = JSON.stringify(state.dbPagination);
-  _state.lastDbSortJson = JSON.stringify(state.dbSort);
+  const { hasAny, changed } = dataDetector.detect(state);
+  if (!hasAny) return;
 
   // 子页面切换（如 Users→Lists）：全量重建（tab 切换需要重新渲染标题）
-  if (dataSubPageChanged) { render(); return; }
+  if (changed.dataSubPage) { render(); return; }
 
   // 仅数据/排序/分页变化：局部更新表格 + 分页栏，保留标签页和搜索状态
   const subPage = state.dataSubPage;
@@ -4659,9 +4714,20 @@ function syncSystemPage(state, tasksChanged) {
   }
 
   const configRawRebuildNeeded = configRawChanged && _state.lastConfigRaw === null && state.configRaw !== null;
-  const configPanelShouldRebuild = state.configMode === 'raw'
+  let configPanelShouldRebuild = state.configMode === 'raw'
     ? (configModeChanged || configSavingChanged || configRawRebuildNeeded)
     : (configRawChanged || configFieldsChanged || configFieldsLoadingChanged || configSavingChanged || configModeChanged);
+  if (state.currentPage === 'system' && _state._configPanelSkipNextRebuild && configPanelShouldRebuild && configModeChanged) {
+    _state._configPanelSkipNextRebuild = false;
+    // setConfigMode 已同步重建面板，此处跳过 Config 重建（继续处理 cookies/schedules）
+    configPanelShouldRebuild = false;
+    // 但需要同步 _state last* 避免后续反复重建
+    _state.lastConfigRaw = state.configRaw;
+    _state.lastConfigSaving = state.configSaving;
+    _state.lastConfigFieldsJson = JSON.stringify(state.configFields);
+    _state.lastConfigFieldsLoading = state.configFieldsLoading;
+    _state.lastConfigMode = state.configMode;
+  }
   if (configPanelShouldRebuild) {
     _state.lastConfigRaw = state.configRaw;
     _state.lastConfigSaving = state.configSaving;
@@ -4734,18 +4800,11 @@ function syncSystemPage(state, tasksChanged) {
 }
 
 function syncSchedulesPage(state) {
-  const schedulesChanged = JSON.stringify(state._schedules) !== _state.lastSchedulesJson;
-  const scheduleExistsChanged = state._scheduleExists !== _state.lastScheduleExists;
-  const schedulerRunningChanged = state._schedulerRunning !== _state.lastSchedulerRunning;
-
-  if (!schedulesChanged && !scheduleExistsChanged && !schedulerRunningChanged) return;
-
-  _state.lastSchedulesJson = JSON.stringify(state._schedules);
-  _state.lastScheduleExists = state._scheduleExists;
-  _state.lastSchedulerRunning = state._schedulerRunning;
+  const { hasAny, changed } = scheduleDetector.detect(state);
+  if (!hasAny) return;
 
   // 手术刀更新：banner → 只改 #scheduleBanner，保留列表 DOM 和滚动位置
-  if (schedulerRunningChanged) {
+  if (changed._schedulerRunning) {
     const bannerEl = document.getElementById('scheduleBanner');
     if (bannerEl) {
       bannerEl.innerHTML = state._schedulerRunning
@@ -4754,44 +4813,32 @@ function syncSchedulesPage(state) {
   }
 
   // 手术刀更新：列表 → 只改 #scheduleTable，保留页面容器
-  if (schedulesChanged || scheduleExistsChanged) {
+  if (changed._schedules || changed._scheduleExists) {
     const tableEl = document.getElementById('scheduleTable');
     if (tableEl) tableEl.innerHTML = renderScheduleTable(state._schedules, state._scheduleExists);
   }
 }
 
 function syncLogsPage(state) {
-  const logPagChanged = JSON.stringify(state.logPagination) !== _state.lastLogPaginationJson;
-  const logsChanged = state.logs.length !== _state.lastLogsLength ||
-    (state.logs.length > 0 && state.logs[0] !== _state.lastLogFirst);
-  const logLevelChanged = state.logLevel !== _state.lastLogLevel;
-  const logNewArrivedChanged = state._logNewArrived !== _state.lastLogNewArrived;
+  const { hasAny, changed } = logDetector.detect(state);
+  if (!hasAny) return;
 
-  // 手术刀：滚动到顶按钮显示/隐藏（已有）
-  if (logNewArrivedChanged) {
-    _state.lastLogNewArrived = state._logNewArrived;
+  // 手术刀：滚动到顶按钮显示/隐藏
+  if (changed._logNewArrived) {
     const btn = document.getElementById('logScrollToTopBtn');
     if (btn) btn.style.display = state._logNewArrived ? 'flex' : 'none';
   }
 
-  if (!logsChanged && !logLevelChanged && !logPagChanged) return;
-
-  _state.lastLogPaginationJson = JSON.stringify(state.logPagination);
-  _state.lastLogsLength = state.logs.length;
-  _state.lastLogLevel = state.logLevel;
-
   // 手术刀：日志行 — 只改 #logLines，保留容器和滚动位置
-  if (logsChanged) {
-    _state.lastLogFirst = state.logs[0] || null;
+  if (changed.logs) {
     const linesEl = document.getElementById('logLines');
     if (linesEl) linesEl.innerHTML = renderLogLines(state.logs, state._logsLoading !== false);
   }
 
   // 手术刀：筛选按钮 — 只改 #logFilterArea，保留搜索输入框状态
-  if (logLevelChanged) {
+  if (changed.logLevel) {
     const filterEl = document.getElementById('logFilterArea');
     if (filterEl) {
-      // 重建 level 按钮（保留输入框和 auto-refresh/导出按钮）
       const levelBtns = renderLogFilterButtons(state.logLevel, state.logStats);
       const oldBtns = filterEl.querySelector('.log-level-filters');
       if (oldBtns) oldBtns.outerHTML = levelBtns;
@@ -4799,7 +4846,7 @@ function syncLogsPage(state) {
   }
 
   // 手术刀：分页栏 — 只改 #logPagination
-  if (logPagChanged) {
+  if (changed.logPagination) {
     const pagEl = document.getElementById('logPagination');
     if (pagEl) {
       pagEl.innerHTML = `
@@ -4814,13 +4861,13 @@ function syncLogsPage(state) {
 }
 
 function syncOverviewPage(state) {
-  const tasksJson = JSON.stringify(state.tasks);
-  if (tasksJson !== _state.lastTasksJson) {
-    _state.lastTasksJson = tasksJson;
+  const { hasAny, changed } = overviewDetector.detect(state);
+  if (!hasAny) return;
+
+  if (changed.tasks) {
     updateOverviewTasksUI(state.tasks);
   }
-  if (state.health !== _state.lastHealth) {
-    _state.lastHealth = state.health;
+  if (changed.health) {
     updateOverviewHealthUI(state.health);
   }
 }
@@ -4839,11 +4886,9 @@ store.subscribe((state) => {
     return;
   }
 
-  const tasksJson = JSON.stringify(state.tasks);
-  const tasksChanged = tasksJson !== _state.lastTasksJson;
+  const { hasAny: tasksChanged } = overviewDetector.detect(state);
 
   if (tasksChanged) {
-    _state.lastTasksJson = tasksJson;
     if (state.currentPage === 'tasks') { updateTaskListUI(state.tasks); }
   }
 
@@ -4945,12 +4990,54 @@ document.getElementById('contentContainer').addEventListener('keydown', (e) => {
   else if (id === 'logSearchInput') refreshLogs();
 });
 
+// Delegated input/change/blur for data-binding elements (replaces inline on* handlers)
+document.getElementById('contentContainer').addEventListener('input', (e) => {
+  const el = e.target.closest('[data-binding]');
+  if (!el) return;
+  const binding = el.dataset.binding;
+  const idx = el.dataset.idx;
+  if (binding === 'taskSearch') {
+    updateSearchState('taskSearch', null, el.value);
+    filterTasks();
+  } else if (binding === 'dbSearch') {
+    updateSearchState('dbSearch', store.state.dataSubPage, el.value);
+  } else if (binding === 'logSearch') {
+    onLogSearchInput(el.value);
+  } else if (binding === 'sf_field' && idx !== undefined) {
+    scheduleFieldChanged(Number(idx));
+  }
+});
+
+document.getElementById('contentContainer').addEventListener('change', (e) => {
+  const el = e.target.closest('[data-binding]');
+  if (!el) return;
+  const binding = el.dataset.binding;
+  const idx = el.dataset.idx;
+  if (binding === 'taskFilter') {
+    updateSearchState('taskFilter', null, el.value);
+    filterTasks();
+  } else if (binding === 'sf_type' && idx !== undefined) {
+    updateScheduleFormItem(Number(idx), el.id.includes('mode') ? 'scheduleMode' : 'type', el.value);
+  }
+});
+
+document.getElementById('contentContainer').addEventListener('focusout', (e) => {
+  const el = e.target.closest('[data-binding]');
+  if (!el) return;
+  const idx = el.dataset.idx;
+  if ((el.dataset.binding === 'sf_field' || el.dataset.binding === 'sf_target') && idx !== undefined) {
+    validateScheduleField(Number(idx));
+  }
+});
+
 document.getElementById('contentContainer').addEventListener('click', (e) => {
   const tab = e.target.closest('[data-task-tab]');
   if (tab) {
+    saveTaskFormState();
     document.querySelectorAll('[data-task-tab]').forEach(t => t.classList.remove('active'));
     tab.classList.add('active');
     document.getElementById('taskFormContainer').innerHTML = renderTaskForm(tab.dataset.taskTab);
+    restoreTaskFormState(tab.dataset.taskTab);
     return;
   }
 
