@@ -228,16 +228,16 @@ const api = {
       this._cleanupAbortController(controller);
       throw new Error('网络请求失败，请检查服务器是否运行: ' + e.message);
     }
-    let body;
+    let json;
     try {
-      body = await res.json();
+      json = await res.json();
     } catch (e) {
       this._cleanupAbortController(controller);
       throw new Error('服务器返回无效响应 (HTTP ' + res.status + ')');
     }
     this._cleanupAbortController(controller);
-    if (!res.ok || !body.success) throw new Error(body.error || '服务器错误 (HTTP ' + res.status + ')');
-    return body.data;
+    if (!res.ok || !json.success) throw new Error(json.error || '服务器错误 (HTTP ' + res.status + ')');
+    return json.data;
   },
   
   get(path) { return this.request('GET', path); },
