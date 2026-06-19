@@ -642,7 +642,7 @@ const pages = {
         <div class="stat-card">
           <div class="stat-icon" style="color: var(--success);">●</div>
           <div class="stat-content">
-            <div class="stat-value">${health ? (health.status === 'ok' ? '健康' : '异常') : '检查中'}</div>
+            <div class="stat-value" data-overview-stat="health">${health ? (health.status === 'ok' ? '健康' : '异常') : '检查中'}</div>
             <div class="stat-label">系统状态 ${health ? health.version : ''}</div>
           </div>
         </div>
@@ -859,8 +859,8 @@ const pages = {
 
     return `
       <div class="page-container">
-        <div style="flex-shrink:0">${schedulerBanner}</div>
-        ${renderScheduleTable(_schedules, _scheduleExists)}
+        <div id="scheduleBanner" style="flex-shrink:0">${schedulerBanner}</div>
+        <div id="scheduleTable">${renderScheduleTable(_schedules, _scheduleExists)}</div>
       </div>
     `;
   },
@@ -2471,6 +2471,51 @@ function escapeAttr(str) {
 
 function stripAnsi(str) { return str.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, ''); }
 
+function getLineColor(line) {
+  if (line.startsWith('ERRO[')) return 'var(--danger)';
+  if (line.startsWith('WARN[')) return 'var(--warning)';
+  if (line.startsWith('INFO[')) return 'var(--info)';
+  if (line.startsWith('DEBU[')) return 'var(--text-tertiary)';
+  const levelColors = {
+    DEBUG: 'var(--text-tertiary)',
+    INFO: 'var(--info)',
+    WARNING: 'var(--warning)',
+    WARN: 'var(--warning)',
+    ERROR: 'var(--danger)'
+  };
+  for (const [key, level] of [['debug', 'DEBUG'], ['info', 'INFO'], ['warn', 'WARN'], ['warning', 'WARNING'], ['error', 'ERROR']]) {
+    if (line.includes('level=' + key)) return levelColors[level];
+  }
+  return 'var(--text-secondary)';
+}
+
+function highlightLogTimestamp(line) {
+  // logrus 格式: time="..." → escapeHtml 后 time=&quot;...&quot;
+  line = line.replace(
+    /time=(&quot;)(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[-+]\d{2}:\d{2})(&quot;)/g,
+    'time=<span class="log-timestamp">$2</span>'
+  );
+  // text 格式: LEVEL[TIMESTAMP]
+  line = line.replace(
+    /(ERRO|WARN|INFO|DEBU)\[(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})\]/g,
+    '$1[<span class="log-timestamp">$2</span>]'
+  );
+  return line;
+}
+
+function renderLine(line) {
+  return `<div class="log-line" style="color:${getLineColor(line)}">${highlightLogTimestamp(escapeHtml(stripAnsi(line)))}</div>`;
+}
+
+function renderLogFilterButtons(level, stats) {
+  return `<div class="log-level-filters">
+    ${['all','debug','info','warn','error'].map(l => {
+      const count = l === 'all' ? stats.total : (stats[l] || 0);
+      return `<button class="btn btn-sm ${level===l?'btn-primary':'btn-ghost'}" onclick="setLogLevel('${l}')">${l.toUpperCase()}${count > 0 ? ` (${count})` : ''}</button>`;
+    }).join('')}
+  </div>`;
+}
+
 function renderConfigEditor() {
   const { configMode, configFields, configSaving, configExists, configRaw, configFieldsLoading } = store.state;
 
@@ -2697,65 +2742,22 @@ function renderCookiesRawEditor(raw, saving, exists) {
 function renderLogViewer() {
   const { logs, logLevel, logSearch, logPagination, logAutoRefresh, logStats, _logsLoading } = store.state;
 
-  function getLineColor(line) {
-    if (line.startsWith('ERRO[')) return 'var(--danger)';
-    if (line.startsWith('WARN[')) return 'var(--warning)';
-    if (line.startsWith('INFO[')) return 'var(--info)';
-    if (line.startsWith('DEBU[')) return 'var(--text-tertiary)';
-    const levelColors = {
-      DEBUG: 'var(--text-tertiary)',
-      INFO: 'var(--info)',
-      WARNING: 'var(--warning)',
-      WARN: 'var(--warning)',
-      ERROR: 'var(--danger)'
-    };
-    for (const [key, level] of [['debug', 'DEBUG'], ['info', 'INFO'], ['warn', 'WARN'], ['warning', 'WARNING'], ['error', 'ERROR']]) {
-      if (line.includes('level=' + key)) return levelColors[level];
-    }
-    return 'var(--text-secondary)';
-  }
-  function highlightLogTimestamp(line) {
-    // logrus 格式: time="..." → escapeHtml 后 time=&quot;...&quot;
-    line = line.replace(
-      /time=(&quot;)(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[-+]\d{2}:\d{2})(&quot;)/g,
-      'time=<span class="log-timestamp">$2</span>'
-    );
-    // text 格式: LEVEL[TIMESTAMP]
-    line = line.replace(
-      /(ERRO|WARN|INFO|DEBU)\[(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})\]/g,
-      '$1[<span class="log-timestamp">$2</span>]'
-    );
-    return line;
-  }
-  function renderLine(line) {
-    return `<div class="log-line" style="color:${getLineColor(line)}">${highlightLogTimestamp(escapeHtml(stripAnsi(line)))}</div>`;
-  }
-
   return `
-    <div class="card card-page">
+    <div class="card card-page" id="logViewerCard">
       <div class="card-header">
         <div><div class="card-title">系统日志</div><div class="card-subtitle">共 ${logPagination.total} 条记录</div></div>
-        <div class="flex gap-2 items-center flex-wrap">
+        <div id="logFilterArea" class="flex gap-2 items-center flex-wrap">
           <input type="text" class="form-input search-input" id="logSearchInput"
             placeholder="🔍 搜索..."
             oninput="onLogSearchInput(this.value)">
-          <div class="log-level-filters">
-            ${['all','debug','info','warn','error'].map(l => {
-              const count = l === 'all' ? logStats.total : (logStats[l] || 0);
-              return `<button class="btn btn-sm ${logLevel===l?'btn-primary':'btn-ghost'}" onclick="setLogLevel('${l}')">${l.toUpperCase()}${count > 0 ? ` (${count})` : ''}</button>`;
-            }).join('')}
-          </div>
+          ${renderLogFilterButtons(logLevel, logStats)}
           <button class="btn btn-ghost btn-sm ${logAutoRefresh?'active':''}" onclick="toggleLogAutoRefresh()">${logAutoRefresh?'⏸️':'▶️'} 实时</button>
           <button class="btn btn-ghost btn-sm" onclick="api.downloadLogExport()" title="导出完整日志文件">📥 导出</button>
         </div>
       </div>
       <div class="card-body card-body-scroll" style="position:relative">
         <div class="log-container" id="logContainer">
-          ${_logsLoading && logs.length === 0
-            ? `<div class="empty-state"><div class="skeleton" style="width:64px;height:64px;border-radius:12px;margin-bottom:16px"></div><div class="empty-title">加载中...</div><div class="empty-desc">正在加载系统日志</div></div>`
-            : logs.length === 0
-            ? `<div class="empty-state"><div class="empty-icon">📋</div><div class="empty-title">暂无日志</div><div class="empty-desc">选择日志级别或调整筛选条件</div></div>`
-            : logs.map(renderLine).join('')}
+          <div id="logLines">${renderLogLines(logs, _logsLoading)}</div>
         </div>
         <button class="log-scroll-to-top-btn" id="logScrollToTopBtn"
           onclick="scrollLogToTop()" aria-label="滚动到日志顶部"
@@ -2763,7 +2765,7 @@ function renderLogViewer() {
           📌 新日志已到达
         </button>
       </div>
-      <div class="pagination">
+      <div class="pagination" id="logPagination">
         <div class="pagination-info">显示 ${logs.length} / ${logPagination.total} 条 (第 ${logPagination.page}/${logPagination.totalPages} 页)</div>
         <div class="pagination-controls">
           <button class="page-btn" onclick="changeLogPage(-1)" ${logPagination.page <= 1 ? 'disabled' : ''}>←</button>
@@ -2773,6 +2775,16 @@ function renderLogViewer() {
       </div>
     </div>
   `;
+}
+
+function renderLogLines(logs, loading) {
+  if (loading && logs.length === 0) {
+    return `<div class="empty-state"><div class="skeleton" style="width:64px;height:64px;border-radius:12px;margin-bottom:16px"></div><div class="empty-title">加载中...</div><div class="empty-desc">正在加载系统日志</div></div>`;
+  }
+  if (logs.length === 0) {
+    return `<div class="empty-state"><div class="empty-icon">📋</div><div class="empty-title">暂无日志</div><div class="empty-desc">选择日志级别或调整筛选条件</div></div>`;
+  }
+  return logs.map(renderLine).join('');
 }
 
 async function loadConfigFields() {
@@ -4369,21 +4381,8 @@ function render() {
   const page = store.state.currentPage;
 
   if (pages[page]) {
-    let scrollPos = 0;
-    let scrollEl = null;
-    if (page === 'schedules') {
-      scrollEl = container.querySelector('.schedule-list') || container;
-      scrollPos = scrollEl.scrollTop;
-    }
-
     container.innerHTML = pages[page]();
 
-    if (page === 'schedules' && scrollEl) {
-      requestAnimationFrame(() => {
-        const target = container.querySelector('.schedule-list') || container;
-        if (target) target.scrollTop = scrollPos;
-      });
-    }
     if (page === 'system') {
       // Defer to avoid re-entering store subscription via loadConfigFields() -> setState
       setTimeout(() => syncSystemTabView(), 0);
@@ -4535,6 +4534,7 @@ _state.lastDataSubPage = store.state.dataSubPage;
 _state.lastDbDataJson = JSON.stringify(store.state.dbData);
 _state.lastDbPaginationJson = JSON.stringify(store.state.dbPagination);
 _state.lastDbSortJson = JSON.stringify(store.state.dbSort);
+_state.lastHealth = store.state.health;
 _state.lastSchedulesJson = JSON.stringify(store.state._schedules);
 _state.lastScheduleRaw = store.state._scheduleRaw;
 _state.lastScheduleExists = store.state._scheduleExists;
@@ -4700,11 +4700,25 @@ function syncSchedulesPage(state) {
   const scheduleExistsChanged = state._scheduleExists !== _state.lastScheduleExists;
   const schedulerRunningChanged = state._schedulerRunning !== _state.lastSchedulerRunning;
 
-  if (schedulesChanged || scheduleExistsChanged || schedulerRunningChanged) {
-    _state.lastSchedulesJson = JSON.stringify(state._schedules);
-    _state.lastScheduleExists = state._scheduleExists;
-    _state.lastSchedulerRunning = state._schedulerRunning;
-    render();
+  if (!schedulesChanged && !scheduleExistsChanged && !schedulerRunningChanged) return;
+
+  _state.lastSchedulesJson = JSON.stringify(state._schedules);
+  _state.lastScheduleExists = state._scheduleExists;
+  _state.lastSchedulerRunning = state._schedulerRunning;
+
+  // 手术刀更新：banner → 只改 #scheduleBanner，保留列表 DOM 和滚动位置
+  if (schedulerRunningChanged) {
+    const bannerEl = document.getElementById('scheduleBanner');
+    if (bannerEl) {
+      bannerEl.innerHTML = state._schedulerRunning
+        ? '' : '<div class="alert alert-warning" style="margin-bottom:var(--space-3)">⚠️ 调度器未启动，定时任务不会自动执行。请在「定时任务」页面中添加并启用规则后重载配置。</div>';
+    }
+  }
+
+  // 手术刀更新：列表 → 只改 #scheduleTable，保留页面容器
+  if (schedulesChanged || scheduleExistsChanged) {
+    const tableEl = document.getElementById('scheduleTable');
+    if (tableEl) tableEl.innerHTML = renderScheduleTable(state._schedules, state._scheduleExists);
   }
 }
 
@@ -4714,17 +4728,48 @@ function syncLogsPage(state) {
   const logLevelChanged = state.logLevel !== _state.lastLogLevel;
   const logNewArrivedChanged = state._logNewArrived !== _state.lastLogNewArrived;
 
+  // 手术刀：滚动到顶按钮显示/隐藏（已有）
   if (logNewArrivedChanged) {
     _state.lastLogNewArrived = state._logNewArrived;
     const btn = document.getElementById('logScrollToTopBtn');
     if (btn) btn.style.display = state._logNewArrived ? 'flex' : 'none';
   }
 
-  if (logsChanged || logLevelChanged || logPagChanged) {
-    _state.lastLogPaginationJson = JSON.stringify(state.logPagination);
-    _state.lastLogsLength = state.logs.length;
-    _state.lastLogLevel = state.logLevel;
-    render();
+  if (!logsChanged && !logLevelChanged && !logPagChanged) return;
+
+  _state.lastLogPaginationJson = JSON.stringify(state.logPagination);
+  _state.lastLogsLength = state.logs.length;
+  _state.lastLogLevel = state.logLevel;
+
+  // 手术刀：日志行 — 只改 #logLines，保留容器和滚动位置
+  if (logsChanged) {
+    const linesEl = document.getElementById('logLines');
+    if (linesEl) linesEl.innerHTML = renderLogLines(state.logs, state._logsLoading !== false);
+  }
+
+  // 手术刀：筛选按钮 — 只改 #logFilterArea，保留搜索输入框状态
+  if (logLevelChanged) {
+    const filterEl = document.getElementById('logFilterArea');
+    if (filterEl) {
+      // 重建 level 按钮（保留输入框和 auto-refresh/导出按钮）
+      const levelBtns = renderLogFilterButtons(state.logLevel, state.logStats);
+      const oldBtns = filterEl.querySelector('.log-level-filters');
+      if (oldBtns) oldBtns.outerHTML = levelBtns;
+    }
+  }
+
+  // 手术刀：分页栏 — 只改 #logPagination
+  if (logPagChanged) {
+    const pagEl = document.getElementById('logPagination');
+    if (pagEl) {
+      pagEl.innerHTML = `
+        <div class="pagination-info">显示 ${state.logs.length} / ${state.logPagination.total} 条 (第 ${state.logPagination.page}/${state.logPagination.totalPages} 页)</div>
+        <div class="pagination-controls">
+          <button class="page-btn" onclick="changeLogPage(-1)" ${state.logPagination.page <= 1 ? 'disabled' : ''}>←</button>
+          ${renderPageNumbers(state.logPagination.page, state.logPagination.totalPages, 'goToLogPage')}
+          <button class="page-btn" onclick="changeLogPage(1)" ${state.logPagination.page >= state.logPagination.totalPages ? 'disabled' : ''}>→</button>
+        </div>`;
+    }
   }
 }
 
@@ -4734,6 +4779,17 @@ function syncOverviewPage(state) {
     _state.lastTasksJson = tasksJson;
     updateOverviewTasksUI(state.tasks);
   }
+  if (state.health !== _state.lastHealth) {
+    _state.lastHealth = state.health;
+    updateOverviewHealthUI(state.health);
+  }
+}
+
+function updateOverviewHealthUI(health) {
+  const el = document.querySelector('[data-overview-stat="health"]');
+  if (el) el.textContent = health ? (health.status === 'ok' ? '健康' : '异常') : '检查中';
+  const labelEl = document.querySelector('.stat-card:first-child .stat-label');
+  if (labelEl) labelEl.textContent = '系统状态 ' + (health ? health.version : '');
 }
 
 store.subscribe((state) => {
