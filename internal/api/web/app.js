@@ -3975,12 +3975,16 @@ function setConfigMode(mode) {
   if (mode !== 'raw' && _state.configCodeMirror) {
     _state.configCodeMirror = destroyCodeMirror(_state.configCodeMirror);
   }
-  store.setState({ configMode: mode });
-  if (mode === 'raw' && store.state.configRaw === null) loadConfigRaw();
-  // configRaw 已存在时直接同步重建面板，设置标志位防止订阅重复重建
-  if (mode === 'raw' && store.state.configRaw !== null) {
+  // 直接更新 store 状态并同步 _state 快照，避免异步订阅触发不必要的重建
+  _state.lastConfigMode = mode;
+  store.state.configMode = mode;
+  if (mode === 'raw' && store.state.configRaw === null) {
+    loadConfigRaw();
+    // 加载完成后订阅会自动重建面板，此处不做事
+    return;
+  }
+  if (mode === 'raw') {
     _state._configCmInitializing = false;
-    _state._configPanelSkipNextRebuild = true;
     const panel = document.getElementById('systemConfigPanel');
     if (panel) {
       panel.innerHTML = renderConfigEditor();
