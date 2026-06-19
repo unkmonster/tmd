@@ -674,7 +674,7 @@ const pages = {
             <input type="text" class="form-input" id="quickDownloadInput"
               placeholder="输入用户名，如: elonmusk 或 https://twitter.com/elonmusk"
               style="flex: 1; min-width: 280px;">
-            <button class="btn btn-primary" onclick="handleQuickDownload()">粘贴并创建任务</button>
+            <button class="btn btn-primary" data-action="handleQuickDownload">粘贴并创建任务</button>
           </div>
           <div class="text-sm text-tertiary mt-4">
             支持格式: twitter.com/username | x.com/username | twitter.com/i/lists/123 | @username
@@ -685,7 +685,7 @@ const pages = {
       <div class="card card-fill">
         <div class="card-header">
           <div class="card-title">最近任务</div>
-          <button class="btn btn-ghost btn-sm" onclick="navigateTo('tasks')">查看全部 →</button>
+          <button class="btn btn-ghost btn-sm" data-action="navigateToTasks">查看全部 →</button>
         </div>
         <div class="card-body card-body-scroll">
           ${recentTasks.length === 0 ? `
@@ -754,7 +754,7 @@ const pages = {
                 <input type="text" class="form-input search-input" id="taskSearch" placeholder="搜索任务..." oninput="updateSearchState('taskSearch',null,this.value);filterTasks()">
               </div>
               <div class="toolbar-right">
-                <button class="btn btn-secondary btn-sm" onclick="cancelQueuedTasks()">取消排队中任务</button>
+                <button class="btn btn-secondary btn-sm" data-action="cancelQueuedTasks">取消排队中任务</button>
               </div>
             </div>
             <div class="card-body card-body-scroll">
@@ -796,18 +796,18 @@ const pages = {
         <div class="card-header">
           <div>
             <div class="tabs" style="margin: 0; border: none;">
-              <div class="tab ${dataSubPage === 'users' ? 'active' : ''}" onclick="setDataSubPage('users')">Users</div>
-              <div class="tab ${dataSubPage === 'lists' ? 'active' : ''}" onclick="setDataSubPage('lists')">Lists</div>
-              <div class="tab ${dataSubPage === 'entities' ? 'active' : ''}" onclick="setDataSubPage('entities')">User Entities</div>
-              <div class="tab ${dataSubPage === 'listEntities' ? 'active' : ''}" onclick="setDataSubPage('listEntities')">List Entities</div>
-              <div class="tab ${dataSubPage === 'userLinks' ? 'active' : ''}" onclick="setDataSubPage('userLinks')">User Links</div>
-              <div class="tab ${dataSubPage === 'previousNames' ? 'active' : ''}" onclick="setDataSubPage('previousNames')">Previous Names</div>
+              <div class="tab ${dataSubPage === 'users' ? 'active' : ''}" data-action="setDataSubPage" data-subpage="users">Users</div>
+              <div class="tab ${dataSubPage === 'lists' ? 'active' : ''}" data-action="setDataSubPage" data-subpage="lists">Lists</div>
+              <div class="tab ${dataSubPage === 'entities' ? 'active' : ''}" data-action="setDataSubPage" data-subpage="entities">User Entities</div>
+              <div class="tab ${dataSubPage === 'listEntities' ? 'active' : ''}" data-action="setDataSubPage" data-subpage="listEntities">List Entities</div>
+              <div class="tab ${dataSubPage === 'userLinks' ? 'active' : ''}" data-action="setDataSubPage" data-subpage="userLinks">User Links</div>
+              <div class="tab ${dataSubPage === 'previousNames' ? 'active' : ''}" data-action="setDataSubPage" data-subpage="previousNames">Previous Names</div>
             </div>
           </div>
           <div class="flex gap-2 items-center">
             <input type="text" class="form-input search-input" id="dbSearchInput"
               placeholder="搜索..." oninput="updateSearchState('dbSearch',store.state.dataSubPage,this.value)">
-            <button class="btn btn-ghost btn-icon" onclick="searchDB()">🔍</button>
+            <button class="btn btn-ghost btn-icon" data-action="searchDB">🔍</button>
           </div>
         </div>
 
@@ -824,9 +824,9 @@ const pages = {
             (第 ${pagination.page} / ${pagination.totalPages} 页)
           </div>
           <div class="pagination-controls">
-            <button class="page-btn" onclick="changeDBPage(-1)" ${pagination.page <= 1 ? 'disabled' : ''}>←</button>
+            <button class="page-btn" data-action="changeDBPage" data-delta="-1" ${pagination.page <= 1 ? 'disabled' : ''}>←</button>
             ${renderPageNumbers(pagination.page, pagination.totalPages)}
-            <button class="page-btn" onclick="changeDBPage(1)" ${pagination.page >= pagination.totalPages ? 'disabled' : ''}>→</button>
+            <button class="page-btn" data-action="changeDBPage" data-delta="1" ${pagination.page >= pagination.totalPages ? 'disabled' : ''}>→</button>
           </div>
         </div>
       </div>
@@ -871,11 +871,11 @@ const pages = {
       <div class="page-container">
         <div class="system-tab-bar">
           <div class="system-tabs" style="margin:0">
-            <div class="tab ${store.state._systemTab === 'config' ? 'active' : ''}" data-tab="config" onclick="setSystemTab('config')">⚙️ 配置编辑</div>
-            <div class="tab ${store.state._systemTab === 'cookies' ? 'active' : ''}" data-tab="cookies" onclick="setSystemTab('cookies')">🍪 额外账户</div>
-            <div class="tab ${store.state._systemTab === 'schedules' ? 'active' : ''}" data-tab="schedules" onclick="setSystemTab('schedules')">⏰ 任务配置</div>
+            <div class="tab ${store.state._systemTab === 'config' ? 'active' : ''}" data-tab="config" data-action="setSystemTab">⚙️ 配置编辑</div>
+            <div class="tab ${store.state._systemTab === 'cookies' ? 'active' : ''}" data-tab="cookies" data-action="setSystemTab">🍪 额外账户</div>
+            <div class="tab ${store.state._systemTab === 'schedules' ? 'active' : ''}" data-tab="schedules" data-action="setSystemTab">⏰ 任务配置</div>
           </div>
-          <button class="btn btn-danger btn-sm" onclick="shutdownServer()">⏻ 关闭服务器</button>
+          <button class="btn btn-danger btn-sm" data-action="shutdownServer">⏻ 关闭服务器</button>
         </div>
 
         <div id="systemConfigPanel" class="system-panel system-panel-scroll" style="${store.state._systemTab === 'config' ? '' : 'display:none'}">
@@ -1054,8 +1054,8 @@ function renderTaskForm(type) {
         </label>
       </div>
       <div class="flex gap-3">
-        <button class="btn btn-primary" onclick="createUserTask()">创建下载任务</button>
-        <button class="btn btn-secondary" onclick="createProfileTask()">仅下载 Profile</button>
+        <button class="btn btn-primary" data-action="createUserTask">创建下载任务</button>
+        <button class="btn btn-secondary" data-action="createProfileTask">仅下载 Profile</button>
       </div>
     `,
     list: `
@@ -1078,8 +1078,8 @@ function renderTaskForm(type) {
         </label>
       </div>
       <div class="flex gap-3">
-        <button class="btn btn-primary" onclick="createListTask()">创建下载任务</button>
-        <button class="btn btn-secondary" onclick="createListProfileTask()">仅下载 Profile</button>
+        <button class="btn btn-primary" data-action="createListTask">创建下载任务</button>
+        <button class="btn btn-secondary" data-action="createListProfileTask">仅下载 Profile</button>
       </div>
     `,
     following: `
@@ -1102,7 +1102,7 @@ function renderTaskForm(type) {
         </label>
       </div>
       <div class="flex gap-3">
-        <button class="btn btn-primary" onclick="createFollowingTask()">创建关注下载任务</button>
+        <button class="btn btn-primary" data-action="createFollowingTask">创建关注下载任务</button>
       </div>
     `,
     mark: `
@@ -1123,7 +1123,7 @@ function renderTaskForm(type) {
         <input type="datetime-local" class="form-input" id="markTimestamp" placeholder="选择日期和时间">
         <div class="text-sm text-tertiary mt-2">留空则使用服务器当前时间。每个输入目标会创建独立标记任务。</div>
       </div>
-      <button class="btn btn-primary" onclick="createMarkTask()">创建标记任务</button>
+      <button class="btn btn-primary" data-action="createMarkTask">创建标记任务</button>
     `,
     batch: `
       <div class="form-group">
@@ -1153,7 +1153,7 @@ function renderTaskForm(type) {
           <input type="checkbox" id="batchNoRetry"> NoRetry
         </label>
       </div>
-      <button class="btn btn-primary" onclick="createBatchTask()">创建批量任务</button>
+      <button class="btn btn-primary" data-action="createBatchTask">创建批量任务</button>
     `,
     jsonfile: `
   <div class="form-group">
@@ -1175,7 +1175,7 @@ function renderTaskForm(type) {
       <input type="checkbox" id="jsonFileNoRetry"> NoRetry
     </label>
   </div>
-  <button class="btn btn-primary" onclick="createJsonFileTask()">创建 JSON 文件任务</button>
+  <button class="btn btn-primary" data-action="createJsonFileTask">创建 JSON 文件任务</button>
 `,
 jsonfolder: `
   <div class="form-group">
@@ -1197,7 +1197,7 @@ jsonfolder: `
       <input type="checkbox" id="jsonFolderNoRetry"> NoRetry
     </label>
   </div>
-  <button class="btn btn-primary" onclick="createJsonFolderTask()">创建 LoongTweet 任务</button>
+  <button class="btn btn-primary" data-action="createJsonFolderTask">创建 LoongTweet 任务</button>
 `
   };
   return forms[type] || forms.user;
@@ -1213,7 +1213,7 @@ function sortIcon(sort, field) {
 
 function sortableHeader(sort, field, label) {
   return `
-    <th data-sort-field="${escapeAttr(field)}" class="${sort.sortBy === field ? 'sort-active' : ''}" onclick="sortDB(this.dataset.sortField)">
+    <th data-sort-field="${escapeAttr(field)}" class="${sort.sortBy === field ? 'sort-active' : ''}" data-action="sortDB">
       ${label} ${sortIcon(sort, field)}
     </th>
   `;
@@ -1223,8 +1223,8 @@ function renderActionButtons(type, item) {
   const idStr = String(item.id);
   return `
     <div class="flex gap-2">
-      <button class="btn btn-ghost btn-sm" data-db-type="${escapeAttr(type)}" data-db-id="${escapeAttr(idStr)}" onclick="editDBItem(this.dataset.dbType, this.dataset.dbId)">✏️</button>
-      <button class="btn btn-danger btn-sm" data-db-type="${escapeAttr(type)}" data-db-id="${escapeAttr(idStr)}" onclick="deleteDBItem(this.dataset.dbType, this.dataset.dbId)">🗑️</button>
+      <button class="btn btn-ghost btn-sm" data-db-type="${escapeAttr(type)}" data-db-id="${escapeAttr(idStr)}" data-action="editDBItem">✏️</button>
+      <button class="btn btn-danger btn-sm" data-db-type="${escapeAttr(type)}" data-db-id="${escapeAttr(idStr)}" data-action="deleteDBItem">🗑️</button>
     </div>
   `;
 }
@@ -1333,7 +1333,7 @@ function renderDBPreviousNamesTable(type, data, sort) {
   const rows = data.map(item => {
     const currentLabel = item.current_screen_name ? `@${escapeHtml(item.current_screen_name)}` : escapeHtml(item.user_id || '');
     return `<tr>
-      <td><a href="javascript:void(0)" onclick="filterPreviousNamesByUser('${escapeAttr(item.user_id || '')}')">${currentLabel}</a></td>
+      <td><a href="javascript:void(0)" data-action="filterPreviousNamesByUser" data-user-id="${escapeAttr(item.user_id || '')}">${currentLabel}</a></td>
       <td>@${escapeHtml(item.screen_name)}</td>
       <td>${escapeHtml(item.name)}</td>
       <td>${escapeHtml(item.record_date || '-')}</td>
@@ -1502,7 +1502,7 @@ function renderPageNumbers(currentPage, totalPages, onClickHandler = 'goToDBPage
 
   return pages.map(p => {
     if (p === '...') return `<span class="page-btn" style="cursor: default;">...</span>`;
-    return `<button class="page-btn ${p === currentPage ? 'active' : ''}" onclick="${onClickHandler}(${p})">${p}</button>`;
+    return `<button class="page-btn ${p === currentPage ? 'active' : ''}" data-action="${onClickHandler}" data-page="${p}">${p}</button>`;
   }).join('');
 }
 
@@ -1771,8 +1771,8 @@ async function editDBItem(type, id) {
     }
 
     const footer = `
-      <button class="btn btn-secondary" onclick="drawer.close()">取消</button>
-      <button class="btn btn-primary" data-db-type="${escapeAttr(type)}" data-db-id="${escapeAttr(id)}" onclick="saveDBItem(this.dataset.dbType, this.dataset.dbId)">保存</button>
+      <button class="btn btn-secondary" data-action="closeDrawer">取消</button>
+      <button class="btn btn-primary" data-db-type="${escapeAttr(type)}" data-db-id="${escapeAttr(id)}" data-action="saveDBItem">保存</button>
     `;
 
     drawer.open('编辑 ' + type, content, footer);
@@ -2236,8 +2236,8 @@ async function showTaskDetail(id) {
   } catch (err) {
     drawer.open('任务详情',
       `<div class="task-detail-error">获取任务详情失败: ${escapeHtml(err.message)}</div>`,
-      `<button class="btn btn-secondary" onclick="drawer.close()">关闭</button>
-       <button class="btn btn-primary" onclick="showTaskDetail('${escapeAttr(id)}')">重试</button>`
+      `<button class="btn btn-secondary" data-action="closeDrawer">关闭</button>
+	       <button class="btn btn-primary" data-task-id="${escapeAttr(id)}" data-action="showTaskDetail">重试</button>`
     );
     return;
   }
@@ -2245,7 +2245,7 @@ async function showTaskDetail(id) {
   if (!task) {
     drawer.open('任务详情',
       '<div class="task-detail-error">未找到该任务</div>',
-      '<button class="btn btn-secondary" onclick="drawer.close()">关闭</button>'
+      '<button class="btn btn-secondary" data-action="closeDrawer">关闭</button>'
     );
     return;
   }
@@ -2439,10 +2439,10 @@ async function showTaskDetail(id) {
   `;
 
   const footer = task.status === 'running' || task.status === 'queued' ?
-    `<button class="btn btn-danger" data-task-id="${escapeAttr(task.task_id)}" onclick="cancelTask(this.dataset.taskId); drawer.close();">取消任务</button>` :
-    `<button class="btn btn-primary" data-task-id="${escapeAttr(task.task_id)}" onclick="retryTask(this.dataset.taskId); drawer.close();">重试</button>
-     <button class="btn btn-danger" data-task-id="${escapeAttr(task.task_id)}" onclick="deleteTask(this.dataset.taskId); drawer.close();">删除</button>
-     <button class="btn btn-secondary" onclick="drawer.close()">关闭</button>`;
+    `<button class="btn btn-danger" data-task-id="${escapeAttr(task.task_id)}" data-action="cancelTask">取消任务</button>` :
+    `<button class="btn btn-primary" data-task-id="${escapeAttr(task.task_id)}" data-action="retryTask">重试</button>
+     <button class="btn btn-danger" data-task-id="${escapeAttr(task.task_id)}" data-action="deleteTask">删除</button>
+     <button class="btn btn-secondary" data-action="closeDrawer">关闭</button>`;
 
   drawer.open('任务详情', content, footer);
 }
@@ -2511,7 +2511,7 @@ function renderLogFilterButtons(level, stats) {
   return `<div class="log-level-filters">
     ${['all','debug','info','warn','error'].map(l => {
       const count = l === 'all' ? stats.total : (stats[l] || 0);
-      return `<button class="btn btn-sm ${level===l?'btn-primary':'btn-ghost'}" onclick="setLogLevel('${l}')">${l.toUpperCase()}${count > 0 ? ` (${count})` : ''}</button>`;
+      return `<button class="btn btn-sm ${level===l?'btn-primary':'btn-ghost'}" data-action="setLogLevel" data-level="${l}">${l.toUpperCase()}${count > 0 ? ` (${count})` : ''}</button>`;
     }).join('')}
   </div>`;
 }
@@ -2521,8 +2521,8 @@ function renderConfigEditor() {
 
   const modeTabs = `
     <div class="config-mode-tabs">
-      <button class="mode-tab ${configMode === 'form' ? 'active' : ''}" onclick="setConfigMode('form')">📝 简易模式</button>
-      <button class="mode-tab ${configMode === 'raw' ? 'active' : ''}" onclick="setConfigMode('raw')">🔧 高级 (YAML)</button>
+      <button class="mode-tab ${configMode === 'form' ? 'active' : ''}" data-action="setConfigMode" data-mode="form">📝 简易模式</button>
+      <button class="mode-tab ${configMode === 'raw' ? 'active' : ''}" data-action="setConfigMode" data-mode="raw">🔧 高级 (YAML)</button>
     </div>
   `;
 
@@ -2566,7 +2566,7 @@ function renderConfigForm(fields, saving, exists, loading = false) {
           <div class="card-title">配置编辑</div>
           <div class="card-subtitle">${exists ? '✅ 配置文件存在' : '⚠️ 将创建新配置'} · 共 ${fields.length} 个可编辑项</div>
         </div>
-        <button class="btn btn-primary btn-sm" onclick="saveConfigForm()" ${saving ? 'disabled' : ''}>
+        <button class="btn btn-primary btn-sm" data-action="saveConfigForm" ${saving ? 'disabled' : ''}>
           ${saving ? '<span class="loading-spinner"></span> 保存中...' : '💾 保存配置'}
         </button>
       </div>
@@ -2601,7 +2601,7 @@ function renderConfigRawEditor(raw, saving, exists) {
       <div class="card-header">
         <div><div class="card-title">conf.yaml 原始编辑器</div><div class="card-subtitle">${exists ? '✅ 文件存在' : '⚠️ 将创建新配置'}</div></div>
         <div class="flex gap-2">
-          <button class="btn btn-primary btn-sm" onclick="saveConfig()" ${saving ? 'disabled' : ''}>
+          <button class="btn btn-primary btn-sm" data-action="saveConfig" ${saving ? 'disabled' : ''}>
             ${saving ? '<span class="loading-spinner"></span> 保存中...' : '💾 保存配置'}
           </button>
         </div>
@@ -2621,8 +2621,8 @@ function renderCookiesEditor() {
 
   const modeTabs = `
     <div class="config-mode-tabs">
-      <button class="mode-tab ${cookiesMode === 'form' ? 'active' : ''}" onclick="setCookiesMode('form')">📝 简易模式</button>
-      <button class="mode-tab ${cookiesMode === 'raw' ? 'active' : ''}" onclick="setCookiesMode('raw')">🔧 高级 (YAML)</button>
+      <button class="mode-tab ${cookiesMode === 'form' ? 'active' : ''}" data-action="setCookiesMode" data-mode="form">📝 简易模式</button>
+      <button class="mode-tab ${cookiesMode === 'raw' ? 'active' : ''}" data-action="setCookiesMode" data-mode="raw">🔧 高级 (YAML)</button>
     </div>
   `;
 
@@ -2651,8 +2651,8 @@ function renderCookiesForm(items, saving, exists, loading = false) {
         <div class="card-header">
           <div><div class="card-title">额外账户管理</div><div class="card-subtitle">${exists ? '✅ 文件存在 · 0 个账户' : '⚠️ 将创建新文件'}</div></div>
           <div class="flex gap-2">
-            <button class="btn btn-ghost btn-sm" onclick="addCookieAccount()">➕ 添加账户</button>
-            <button class="btn btn-primary btn-sm" onclick="saveCookiesForm()" ${saving ? 'disabled' : ''}>
+            <button class="btn btn-ghost btn-sm" data-action="addCookieAccount">➕ 添加账户</button>
+            <button class="btn btn-primary btn-sm" data-action="saveCookiesForm" ${saving ? 'disabled' : ''}>
               ${saving ? '<span class="loading-spinner"></span> 保存中...' : '💾 保存配置'}
             </button>
           </div>
@@ -2672,7 +2672,7 @@ function renderCookiesForm(items, saving, exists, loading = false) {
     <div class="config-group">
       <div class="config-group-title">
         <span>🏷️ 账户 #${idx + 1}</span>
-        <button class="btn btn-danger btn-sm" onclick="removeCookieAccount(${idx})">删除</button>
+        <button class="btn btn-danger btn-sm" data-action="removeCookieAccount" data-index="${idx}">删除</button>
       </div>
       <div class="config-field">
         <label class="config-label">Auth Token</label>
@@ -2692,8 +2692,8 @@ function renderCookiesForm(items, saving, exists, loading = false) {
       <div class="card-header">
         <div><div class="card-title">额外账户管理</div><div class="card-subtitle">${exists ? '✅ 文件存在' : '⚠️ 将创建新文件'} · 共 ${items.length} 个账户</div></div>
         <div class="flex gap-2">
-          <button class="btn btn-ghost btn-sm" onclick="addCookieAccount()">➕ 添加账户</button>
-          <button class="btn btn-primary btn-sm" onclick="saveCookiesForm()" ${saving ? 'disabled' : ''}>
+          <button class="btn btn-ghost btn-sm" data-action="addCookieAccount">➕ 添加账户</button>
+          <button class="btn btn-primary btn-sm" data-action="saveCookiesForm" ${saving ? 'disabled' : ''}>
             ${saving ? '<span class="loading-spinner"></span> 保存中...' : '💾 保存配置'}
           </button>
         </div>
@@ -2724,7 +2724,7 @@ function renderCookiesRawEditor(raw, saving, exists) {
       <div class="card-header">
         <div><div class="card-title">additional_cookies.yaml 原始编辑器</div><div class="card-subtitle">${exists ? '✅ 文件存在' : '⚠️ 将创建新文件'}</div></div>
         <div class="flex gap-2">
-          <button class="btn btn-primary btn-sm" onclick="saveCookies()" ${saving ? 'disabled' : ''}>
+          <button class="btn btn-primary btn-sm" data-action="saveCookies" ${saving ? 'disabled' : ''}>
             ${saving ? '<span class="loading-spinner"></span> 保存中...' : '💾 保存配置'}
           </button>
         </div>
@@ -2751,8 +2751,8 @@ function renderLogViewer() {
             placeholder="🔍 搜索..."
             oninput="onLogSearchInput(this.value)">
           ${renderLogFilterButtons(logLevel, logStats)}
-          <button class="btn btn-ghost btn-sm ${logAutoRefresh?'active':''}" onclick="toggleLogAutoRefresh()">${logAutoRefresh?'⏸️':'▶️'} 实时</button>
-          <button class="btn btn-ghost btn-sm" onclick="api.downloadLogExport()" title="导出完整日志文件">📥 导出</button>
+          <button class="btn btn-ghost btn-sm ${logAutoRefresh?'active':''}" data-action="toggleLogAutoRefresh">${logAutoRefresh?'⏸️':'▶️'} 实时</button>
+          <button class="btn btn-ghost btn-sm" data-action="downloadLogExport" title="导出完整日志文件">📥 导出</button>
         </div>
       </div>
       <div class="card-body card-body-scroll" style="position:relative">
@@ -2760,7 +2760,7 @@ function renderLogViewer() {
           <div id="logLines">${renderLogLines(logs, _logsLoading)}</div>
         </div>
         <button class="log-scroll-to-top-btn" id="logScrollToTopBtn"
-          onclick="scrollLogToTop()" aria-label="滚动到日志顶部"
+          data-action="scrollLogToTop" aria-label="滚动到日志顶部"
           style="display:${store.state._logNewArrived ? 'flex' : 'none'}">
           📌 新日志已到达
         </button>
@@ -2768,9 +2768,9 @@ function renderLogViewer() {
       <div class="pagination" id="logPagination">
         <div class="pagination-info">显示 ${logs.length} / ${logPagination.total} 条 (第 ${logPagination.page}/${logPagination.totalPages} 页)</div>
         <div class="pagination-controls">
-          <button class="page-btn" onclick="changeLogPage(-1)" ${logPagination.page <= 1 ? 'disabled' : ''}>←</button>
+          <button class="page-btn" data-action="changeLogPage" data-delta="-1" ${logPagination.page <= 1 ? 'disabled' : ''}>←</button>
           ${renderPageNumbers(logPagination.page, logPagination.totalPages, 'goToLogPage')}
-          <button class="page-btn" onclick="changeLogPage(1)" ${logPagination.page >= logPagination.totalPages ? 'disabled' : ''}>→</button>
+          <button class="page-btn" data-action="changeLogPage" data-delta="1" ${logPagination.page >= logPagination.totalPages ? 'disabled' : ''}>→</button>
         </div>
       </div>
     </div>
@@ -2845,8 +2845,8 @@ function renderScheduleViewer() {
 
   const modeTabs = `
     <div class="config-mode-tabs">
-      <button class="mode-tab ${_scheduleTab === 'form' ? 'active' : ''}" onclick="setScheduleTab('form')">📝 简易模式</button>
-      <button class="mode-tab ${_scheduleTab === 'edit' ? 'active' : ''}" onclick="setScheduleTab('edit')">🔧 高级 (YAML)</button>
+      <button class="mode-tab ${_scheduleTab === 'form' ? 'active' : ''}" data-action="setScheduleTab" data-tab="form">📝 简易模式</button>
+      <button class="mode-tab ${_scheduleTab === 'edit' ? 'active' : ''}" data-action="setScheduleTab" data-tab="edit">🔧 高级 (YAML)</button>
     </div>
   `;
 
@@ -2867,7 +2867,7 @@ function renderScheduleFormField(item, idx) {
     <div class="config-group">
       <div class="config-group-title">
         <span>📋 任务 #${idx + 1}${item.name ? ' · ' + escapeHtml(item.name) : ''}</span>
-        <button class="btn btn-danger btn-sm" onclick="removeScheduleItem(${idx})">删除</button>
+        <button class="btn btn-danger btn-sm" data-action="removeScheduleItem" data-index="${idx}">删除</button>
       </div>
       <div class="config-field">
         <label class="config-label" for="sf_type_${idx}">类型</label>
@@ -2974,7 +2974,7 @@ function renderScheduleForm(items, saving, exists, loading = false) {
         <div class="card-header">
           <div><div class="card-title">定时下载任务</div><div class="card-subtitle">${exists ? '✅ 文件存在 · 0 条规则' : '⚠️ 配置文件不存在'}</div></div>
           <div class="flex gap-2">
-            <button class="btn btn-ghost btn-sm" onclick="addScheduleItem()">➕ 添加规则</button>
+            <button class="btn btn-ghost btn-sm" data-action="addScheduleItem">➕ 添加规则</button>
           </div>
         </div>
         <div class="card-body">
@@ -2993,8 +2993,8 @@ function renderScheduleForm(items, saving, exists, loading = false) {
       <div class="card-header">
         <div><div class="card-title">定时下载任务</div><div class="card-subtitle">${exists ? '✅ 文件存在' : '⚠️ 将创建新文件'} · 共 ${items.length} 条规则</div></div>
         <div class="flex gap-2">
-          <button class="btn btn-ghost btn-sm" onclick="addScheduleItem()">➕ 添加规则</button>
-          <button class="btn btn-primary btn-sm" onclick="saveScheduleForm()" ${saving ? 'disabled' : ''}>
+          <button class="btn btn-ghost btn-sm" data-action="addScheduleItem">➕ 添加规则</button>
+          <button class="btn btn-primary btn-sm" data-action="saveScheduleForm" ${saving ? 'disabled' : ''}>
             ${saving ? '<span class="loading-spinner"></span> 保存中...' : '💾 保存并重载'}
           </button>
         </div>
@@ -3087,14 +3087,14 @@ function renderScheduleItem(s) {
         <div class="schedule-meta">${metaParts.join('<span style="color:var(--border-secondary)">·</span>')}</div>
       </div>
       <div class="schedule-status">
-        <span class="tag ${entry.enabled ? 'tag-success' : 'tag-danger'}" style="cursor:pointer" data-schedule-id="${escapeAttr(entry.id)}" data-enabled="${entry.enabled}" onclick="toggleScheduleEnabled(this.dataset.scheduleId, this.dataset.enabled === 'true')">${entry.enabled ? '启用' : '禁用'}</span>
-      </div>
-      <div class="schedule-time">
-        <div>上次 ${fmtTime(s.last_run_at)}</div>
-        <div>下次 ${fmtTime(s.next_run_at)}</div>
-      </div>
-      <div class="schedule-actions">
-        <button class="btn btn-primary btn-sm" data-schedule-id="${escapeAttr(entry.id)}" onclick="triggerSchedule(this.dataset.scheduleId)" ${!entry.enabled ? 'disabled title="规则已禁用"' : ''}>▶ 执行</button>
+        <span class="tag ${entry.enabled ? 'tag-success' : 'tag-danger'}" style="cursor:pointer" data-schedule-id="${escapeAttr(entry.id)}" data-enabled="${entry.enabled}" data-action="toggleScheduleEnabled">${entry.enabled ? '启用' : '禁用'}</span>
+	      </div>
+	      <div class="schedule-time">
+	        <div>上次 ${fmtTime(s.last_run_at)}</div>
+	        <div>下次 ${fmtTime(s.next_run_at)}</div>
+	      </div>
+	      <div class="schedule-actions">
+	        <button class="btn btn-primary btn-sm" data-schedule-id="${escapeAttr(entry.id)}" data-action="triggerSchedule" ${!entry.enabled ? 'disabled title="规则已禁用"' : ''}>▶ 执行</button>
       </div>
     </div>
   `;
@@ -3128,8 +3128,8 @@ function renderScheduleTable(schedules, exists) {
       <div class="card-header">
         <div><div class="card-title">定时下载任务</div><div class="card-subtitle">共 ${total} 条规则 · ${active} 个启用${failures > 0 ? ` · ${failures} 个异常` : ''}</div></div>
         <div class="flex gap-2">
-          <button class="btn btn-primary btn-sm" id="btnTriggerAll" onclick="triggerAllSchedules()">⬇️ 下载全部</button>
-          <button class="btn btn-ghost btn-sm" onclick="navigateToSystemSchedules()">📝 编辑任务</button>
+          <button class="btn btn-primary btn-sm" id="btnTriggerAll" data-action="triggerAllSchedules">⬇️ 下载全部</button>
+          <button class="btn btn-ghost btn-sm" data-action="navigateToSystemSchedules">📝 编辑任务</button>
         </div>
       </div>
       <div class="card-body card-body-scroll">
@@ -3168,7 +3168,7 @@ function renderScheduleRawEditor(raw, saving, exists) {
       <div class="card-header">
         <div><div class="card-title">schedules.yaml 原始编辑器</div><div class="card-subtitle">${exists ? '✅ 文件存在' : '⚠️ 将创建新文件'}</div></div>
         <div class="flex gap-2">
-          <button class="btn btn-primary btn-sm" onclick="saveScheduleRaw()" ${saving ? 'disabled' : ''}>
+          <button class="btn btn-primary btn-sm" data-action="saveScheduleRaw" ${saving ? 'disabled' : ''}>
             ${saving ? '<span class="loading-spinner"></span> 保存中...' : '💾 保存并重载'}
           </button>
         </div>
@@ -4584,9 +4584,9 @@ function syncDataPage(state) {
     const controlsEl = pagEl.querySelector('.pagination-controls');
     if (controlsEl) {
       controlsEl.innerHTML = `
-        <button class="page-btn" onclick="changeDBPage(-1)" ${pagination.page <= 1 ? 'disabled' : ''}>←</button>
+        <button class="page-btn" data-action="changeDBPage" data-delta="-1" ${pagination.page <= 1 ? 'disabled' : ''}>←</button>
         ${renderPageNumbers(pagination.page, pagination.totalPages)}
-        <button class="page-btn" onclick="changeDBPage(1)" ${pagination.page >= pagination.totalPages ? 'disabled' : ''}>→</button>
+        <button class="page-btn" data-action="changeDBPage" data-delta="1" ${pagination.page >= pagination.totalPages ? 'disabled' : ''}>→</button>
       `;
     }
   }
@@ -4765,9 +4765,9 @@ function syncLogsPage(state) {
       pagEl.innerHTML = `
         <div class="pagination-info">显示 ${state.logs.length} / ${state.logPagination.total} 条 (第 ${state.logPagination.page}/${state.logPagination.totalPages} 页)</div>
         <div class="pagination-controls">
-          <button class="page-btn" onclick="changeLogPage(-1)" ${state.logPagination.page <= 1 ? 'disabled' : ''}>←</button>
+          <button class="page-btn" data-action="changeLogPage" data-delta="-1" ${state.logPagination.page <= 1 ? 'disabled' : ''}>←</button>
           ${renderPageNumbers(state.logPagination.page, state.logPagination.totalPages, 'goToLogPage')}
-          <button class="page-btn" onclick="changeLogPage(1)" ${state.logPagination.page >= state.logPagination.totalPages ? 'disabled' : ''}>→</button>
+          <button class="page-btn" data-action="changeLogPage" data-delta="1" ${state.logPagination.page >= state.logPagination.totalPages ? 'disabled' : ''}>→</button>
         </div>`;
     }
   }
@@ -4932,6 +4932,96 @@ document.getElementById('contentContainer').addEventListener('click', (e) => {
   if (taskItem) {
     showTaskDetail(taskItem.dataset.taskId);
   }
+});
+
+// ============================================
+// Universal action dispatch (replaces inline onclick)
+// ============================================
+document.getElementById('app').addEventListener('click', (e) => {
+  const el = e.target.closest('[data-action]');
+  if (!el) return;
+
+  const action = el.dataset.action;
+  const inDrawer = !!el.closest('#drawer');
+
+  switch (action) {
+    // Navigation
+    case 'navigateTo':            navigateTo(el.dataset.page); break;
+    case 'setSystemTab':          setSystemTab(el.dataset.tab); break;
+    case 'setDataSubPage':        setDataSubPage(el.dataset.subpage); break;
+    case 'navigateToSystemSchedules': navigateToSystemSchedules(); break;
+    case 'navigateToTasks':       navigateTo('tasks'); break;
+
+    // Task creation
+    case 'createUserTask':        createUserTask(); break;
+    case 'createProfileTask':     createProfileTask(); break;
+    case 'createListTask':        createListTask(); break;
+    case 'createListProfileTask': createListProfileTask(); break;
+    case 'createFollowingTask':   createFollowingTask(); break;
+    case 'createMarkTask':        createMarkTask(); break;
+    case 'createBatchTask':       createBatchTask(); break;
+    case 'createJsonFileTask':    createJsonFileTask(); break;
+    case 'createJsonFolderTask':  createJsonFolderTask(); break;
+    case 'handleQuickDownload':   handleQuickDownload(); break;
+    case 'cancelQueuedTasks':     cancelQueuedTasks(); break;
+
+    // Config
+    case 'setConfigMode':         setConfigMode(el.dataset.mode); break;
+    case 'saveConfigForm':        saveConfigForm(); break;
+    case 'saveConfig':            saveConfig(); break;
+
+    // Cookies
+    case 'setCookiesMode':        setCookiesMode(el.dataset.mode); break;
+    case 'addCookieAccount':      addCookieAccount(); break;
+    case 'saveCookiesForm':       saveCookiesForm(); break;
+    case 'removeCookieAccount':   removeCookieAccount(Number(el.dataset.index)); break;
+    case 'saveCookies':           saveCookies(); break;
+
+    // Schedules
+    case 'setScheduleTab':        setScheduleTab(el.dataset.tab); break;
+    case 'addScheduleItem':       addScheduleItem(); break;
+    case 'removeScheduleItem':    removeScheduleItem(Number(el.dataset.index)); break;
+    case 'saveScheduleForm':      saveScheduleForm(); break;
+    case 'saveScheduleRaw':       saveScheduleRaw(); break;
+    case 'triggerSchedule':       triggerSchedule(el.dataset.scheduleId); break;
+    case 'triggerAllSchedules':   triggerAllSchedules(); break;
+    case 'toggleScheduleEnabled': toggleScheduleEnabled(el.dataset.scheduleId, el.dataset.enabled === 'true'); break;
+
+    // DB page
+    case 'changeDBPage':          changeDBPage(Number(el.dataset.delta)); break;
+    case 'goToDBPage':            goToDBPage(Number(el.dataset.page)); break;
+    case 'goToLogPage':           goToLogPage(Number(el.dataset.page)); break;
+    case 'sortDB':                sortDB(el.dataset.field); break;
+    case 'searchDB':              searchDB(); break;
+    case 'editDBItem':            editDBItem(el.dataset.dbType, el.dataset.dbId); break;
+    case 'deleteDBItem':          deleteDBItem(el.dataset.dbType, el.dataset.dbId); break;
+    case 'saveDBItem':            saveDBItem(el.dataset.dbType, el.dataset.dbId); break;
+    case 'filterPreviousNamesByUser': filterPreviousNamesByUser(el.dataset.userId); break;
+
+    // Logs
+    case 'setLogLevel':           setLogLevel(el.dataset.level); break;
+    case 'changeLogPage':         changeLogPage(Number(el.dataset.delta)); break;
+    case 'toggleLogAutoRefresh':  toggleLogAutoRefresh(); break;
+    case 'scrollLogToTop':        scrollLogToTop(); break;
+    case 'downloadLogExport':     api.downloadLogExport(); break;
+
+    // Server
+    case 'shutdownServer':        shutdownServer(); break;
+
+    // Drawer
+    case 'closeDrawer':           drawer.close(); return;
+
+    // Tasks in list/drawer
+    case 'cancelTask':            cancelTask(el.dataset.taskId); break;
+    case 'retryTask':             retryTask(el.dataset.taskId); break;
+    case 'deleteTask':            deleteTask(el.dataset.taskId); break;
+    case 'showTaskDetail':        showTaskDetail(el.dataset.taskId); break;
+
+    default: return;
+  }
+
+  // Actions triggered from inside the drawer close it afterwards
+  if (inDrawer) drawer.close();
 });
 
 // Start
