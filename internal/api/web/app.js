@@ -173,7 +173,18 @@ const store = {
 
   setState(newState) {
     this.state = deepMerge(this.state, newState);
-    this.listeners.forEach(fn => fn(this.state));
+    this._scheduleNotify();
+  },
+
+  _notifyPending: false,
+
+  _scheduleNotify() {
+    if (this._notifyPending) return;
+    this._notifyPending = true;
+    Promise.resolve().then(() => {
+      this._notifyPending = false;
+      this.listeners.forEach(fn => fn(this.state));
+    });
   }
 };
 
@@ -798,14 +809,14 @@ const pages = {
         </div>
 
         <div class="card-body card-body-scroll">
-          <div class="table-scroll-container">
+          <div class="table-scroll-container" id="dataTableContainer">
             ${renderDBTable(dataSubPage, current.data, sort)}
           </div>
-          ${renderDBMobileCards(dataSubPage, current.data)}
+          <div id="dataMobileCards">${renderDBMobileCards(dataSubPage, current.data)}</div>
         </div>
 
-        <div class="pagination">
-          <div class="pagination-info">
+        <div class="pagination" id="dataPagination">
+          <div class="pagination-info" id="dataPaginationInfo">
             显示 ${current.data.length} / ${current.count} 条记录 
             (第 ${pagination.page} / ${pagination.totalPages} 页)
           </div>
@@ -4525,12 +4536,42 @@ function syncDataPage(state) {
   const dbPaginationChanged = JSON.stringify(state.dbPagination) !== _state.lastDbPaginationJson;
   const dbSortChanged = JSON.stringify(state.dbSort) !== _state.lastDbSortJson;
 
-  if (dataSubPageChanged || dbDataChanged || dbPaginationChanged || dbSortChanged) {
-    _state.lastDataSubPage = state.dataSubPage;
-    _state.lastDbDataJson = JSON.stringify(state.dbData);
-    _state.lastDbPaginationJson = JSON.stringify(state.dbPagination);
-    _state.lastDbSortJson = JSON.stringify(state.dbSort);
-    render();
+  if (!dataSubPageChanged && !dbDataChanged && !dbPaginationChanged && !dbSortChanged) return;
+
+  _state.lastDataSubPage = state.dataSubPage;
+  _state.lastDbDataJson = JSON.stringify(state.dbData);
+  _state.lastDbPaginationJson = JSON.stringify(state.dbPagination);
+  _state.lastDbSortJson = JSON.stringify(state.dbSort);
+
+  // 子页面切换（如 Users→Lists）：全量重建（tab 切换需要重新渲染标题）
+  if (dataSubPageChanged) { render(); return; }
+
+  // 仅数据/排序/分页变化：局部更新表格 + 分页栏，保留标签页和搜索状态
+  const subPage = state.dataSubPage;
+  const current = state.dbData[subPage] || { data: [], total: 0 };
+  const pagination = state.dbPagination[subPage] || { page: 1, pageSize: 200, totalPages: 1 };
+  const sort = state.dbSort[subPage] || { sortBy: 'id', sortOrder: 'desc' };
+
+  const tableEl = document.getElementById('dataTableContainer');
+  if (tableEl) tableEl.innerHTML = renderDBTable(subPage, current.data, sort);
+
+  const mobileEl = document.getElementById('dataMobileCards');
+  if (mobileEl) mobileEl.innerHTML = renderDBMobileCards(subPage, current.data);
+
+  const pagEl = document.getElementById('dataPagination');
+  if (pagEl) {
+    const infoEl = pagEl.querySelector('#dataPaginationInfo');
+    if (infoEl) {
+      infoEl.innerHTML = `显示 ${current.data.length || 0} / ${current.total || 0} 条记录 (第 ${pagination.page} / ${pagination.totalPages} 页)`;
+    }
+    const controlsEl = pagEl.querySelector('.pagination-controls');
+    if (controlsEl) {
+      controlsEl.innerHTML = `
+        <button class="page-btn" onclick="changeDBPage(-1)" ${pagination.page <= 1 ? 'disabled' : ''}>←</button>
+        ${renderPageNumbers(pagination.page, pagination.totalPages)}
+        <button class="page-btn" onclick="changeDBPage(1)" ${pagination.page >= pagination.totalPages ? 'disabled' : ''}>→</button>
+      `;
+    }
   }
 }
 
