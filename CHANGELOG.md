@@ -7,6 +7,71 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ***
 
+## [v3.4.23] - 2026-06-19
+
+### Added
+
+#### 完整架构文档体系
+- `AGENTS.md`: 基于 CodeGraph 全面重写，从 11 节扩展为 22 节的完整架构文档，涵盖分层关系、调用链、任务类型、并发模型、API 路由表等
+- `doc/mark-downloaded详解.md`: 完全重写，移除已不存在的代码引用和行号，替换为当前 Service 层实现
+- `doc/SERVICE_LAYER.md`: 修复 Dependencies 缺少 ListSyncManager、API Server config copy、CLI 局部变量模式 3 处过时代码
+- `doc/foo.db 技术文档.md`: 修复 uid→user_id、owner_uid→owner_user_id、索引名等 9 处过时 Schema
+- `doc/call_chain_analysis_report.md`: 修正 DB 端点 PUT→PATCH，新增 scheduler API 13 个路由
+- `doc/用户名变更处理机制.md`: 修复 user_previous_names 表字段名 uid→user_id
+
+#### CLUADE.md 行为准则完善
+- 修正「九荣八耻」→「十荣八耻」，与实际条款数一致
+- 新增「以使用 RTK 为荣」条款及 RTK 速查表（git / diff / log / test 等命令的 rtk 前缀用法）
+
+#### 独立工具说明
+- `readme.md` 开发指南中新增 tmd-db-migrate 和 convert_db_to_legacy.py 说明表格
+
+### Changed
+
+#### readme.md 全面重构（精简约 130 行）
+- **精简**：功能特性 65 行→9 行概览，删除与「命令行参数详解」完全重复的「参数类型总结」(32 行)
+- **去重**：API 端点速查中 13 行 scheduler 路由改为引用「调度器 API」节
+- **前移**：安全说明移至安装与配置之后，使用示例前移至第 4 节（快速开始）
+- **重组**：参数兼容性速查表改为命令行参数详解的子节，项目架构移至开发指南前
+- **更新**：测试文件数 49→58、最大文件名范围 50-250→50-245、优雅关闭顺序补充队列 15s 等待、删除已不存在的 PROFILE_DOWNLOAD_RESULTS 和 MARK_DOWNLOADED_RESULTS 输出格式
+
+#### 前端架构重构（Web UI）
+- **事件系统**：替换所有内联 `onclick`/`oninput`/`onchange` 为 `data-action`/`data-binding` 事件委托，消除全局命名空间污染
+- **DOM 更新策略**：全量 `render()` → 页面级「手术刀」增量 DOM 更新，保持滚动位置和表单状态
+- **状态管理**：`store.setState` 通知从同步改为微任务批处理（`Promise.resolve().then`），消除连续 setState 导致的重复渲染
+- **变化检测**：引入 `makeChangeDetector` 自动快照对比，消除 syncDataPage/syncSchedulesPage/syncLogsPage/syncOverviewPage 中 13 处手动 `_state.last*` 维护
+- **CodeMirror**：按需延迟加载（首次进入 YAML 编辑器时才加载 CDN 资源）
+- **事件委托**：`blur` capture 改为 `focusout` 冒泡，消除对点击事件分发的干扰
+
+#### 应用配置面板优化
+- 三个面板（配置/额外账户/任务配置）统一预加载原始数据，切换高级模式时无需等待异步请求
+- 面板重建时保存/恢复滚动位置
+- `rerenderSystemPanel` save/restore 增加空内容跳过逻辑，防止空值覆盖已加载数据
+
+### Fixed
+
+- **原始 YAML 编辑器内容空白**：`rerenderSystemPanel` 的 save/restore 机制在数据异步加载完成后，saveFn 保存了旧 CodeMirror 的空内容（`''`），restoreFn 用空内容覆盖了新加载的数据。修复：restore 条件增加 `saved !== ''` 检查
+- **三个面板高级模式无法回退**：`_configPanelSkipNextRebuild` 等 skip 标志在模式切换后未清除，阻挡了订阅路径的面板重建。修复：`setSystemTab` 切换 tab 时清除所有 skip 标志，syncSystemPage 增加方向判断
+- **setState 微任务批处理时序问题**：setConfigMode/setCookiesMode/setScheduleTab 中 store.setState 异步通知 + loadRaw 异步请求导致编辑器初始化时序错乱。修复：访问 tab 时即预加载原始数据
+- **SSE 初始连接闪变**：首次连接未建立时的 onerror 被误判为断线。修复：sseManager 增加 `_everConnected` 标志
+- **表单切换丢失输入**：任务中心 tab 切换时表单值被清空。修复：增加 `saveTaskFormState` / `restoreTaskFormState`
+
+### Removed
+
+- `readme.md`：「参数类型总结」整节（与命令行参数详解完全重复）
+- `readme.md`：「功能特性」7 个子节（被后面各节详细重复说明）
+- `internal/api/web/app.js`：11 个内联 `on*` 处理器（全部改为 `data-action`/`data-binding` 委托）
+- `internal/api/web/app.js`：`blur` capture 监听器（改为 `focusout` 冒泡）
+- `internal/naming/base.go`：可变的全局 `MaxFileNameLen`（改为通过参数注入）
+- `internal/downloading/list_sync.go`：`ListSyncManager` 全局单例模式（改为依赖注入）
+
+### Stats
+
+- **48 个文件变更**
+- **+3,778 行 / -2,401 行**
+
+***
+
 ## [v3.4.22] - 2026-06-17
 
 ### Added

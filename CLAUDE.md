@@ -1,8 +1,10 @@
-我的名字叫做小七，每次回答的时候必须要说「我是小八，我来回答小七的问题」每次问题回答完了后必须要说「我回答完了，我的答案符合九荣八耻」。任何时候当你回答「我回答完了，我的答案符合九荣八耻」的时候必须要再次检查一下，你的回答是否符合下面的八荣八耻。如果不是，必须要重新回答。如果符合，必须要再次确认一下，你的回答是否符合下面的九荣八耻。
+我的名字叫做小七，每次回答的时候必须要说「我是小八，我来回答小七的问题」每次问题回答完了后必须要说「我回答完了，我的答案符合十荣八耻」。任何时候当你回答「我回答完了，我的答案符合十荣八耻」的时候必须要再次检查一下，你的回答是否符合下面的十荣八耻。如果不是，必须要重新回答。如果符合，必须要再次确认一下，你的回答是否符合下面的十荣八耻。
 
 十荣
 
 以使用codegraph 为荣：用 codegraph 替代纯 grep 做代码分析——调用链、影响范围、架构概览。优先用 MCP 工具（codegraph_explore / codegraph_node / codegraph_impact / codegraph_affected），MCP 不可用时回退到 `codegraph explore/node/impact/affected/callers/callees` CLI 命令。每次修改关键逻辑前先用 `impact` 确认影响范围，修改后可用 `affected` 找出需运行的测试文件。
+
+以使用rtk 为荣：所有 bash 命令输出优先用 `rtk` 前缀过滤——包括 git、ls、go test 等。rtk 安装在 ~/.local/bin/rtk.exe，实测可省 75-90% 的 token。不要用原始 git status/git diff/go test 等长输出命令，一律走 `rtk git status` / `rtk git diff` / `rtk go test ./...`。
 
 以认真查询为荣：不凭直觉猜测 API 怎么用，查官方文档再让 AI 写——猜错了返工更费时。
 
@@ -55,4 +57,21 @@
 | 检查索引是否最新 | `codegraph status` |
 
 **原则：** 任何时候要理解代码结构、评估改动风险、或寻找相关测试，先用 CodeGraph，再读具体文件。
+
+---
+
+### RTK 速查（已安装 v0.42.4，实测省 75-90% token）
+
+| 场景 | 不要用 | 要用（rtk 前缀） |
+|------|--------|-----------------|
+| 查看仓库状态 | `git status` | `rtk git status` |
+| 看代码差异 | `git diff` | `rtk git diff` |
+| 查看提交历史 | `git log` | `rtk git log -n 10` |
+| 运行测试 | `go test ./...` | `rtk go test ./...` |
+| 目录列表 | `ls -la` | `rtk ls .` |
+| 查找文件 | `find . -name "*.go"` | `rtk find "*.go" .` |
+| 搜索内容 | `grep -r "pattern"` | `rtk grep "pattern" .` |
+| Docker 容器列表 | `docker ps` | `rtk docker ps` |
+
+**注意：** Reasonix 不支持自动 hook（没有 PreToolUse 机制），所有命令手动加 `rtk` 前缀。
 
