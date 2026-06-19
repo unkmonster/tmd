@@ -3786,7 +3786,8 @@ async function initScheduleCodeMirror() {
 
 function syncScheduleTabView() {
   if (store.state._schedules === null && !store.state.sseConnected) loadSchedules();
-  if (store.state._scheduleTab === 'edit' && store.state._scheduleRaw === null) loadScheduleRaw();
+  // 提前加载原始数据，切换高级模式时无需等待异步请求
+  if (store.state._scheduleRaw === null) loadScheduleRaw();
   if (store.state._scheduleTab === 'edit' && !_state.scheduleCodeMirror) requestAnimationFrame(() => requestAnimationFrame(initScheduleCodeMirror));
 }
 
@@ -4371,9 +4372,8 @@ function syncConfigTabView() {
   if (store.state.configMode === 'form' && (!store.state.configFields || store.state.configFields.length === 0)) {
     loadConfigFields();
   }
-  if (store.state.configMode === 'raw' && store.state.configRaw === null) {
-    loadConfigRaw();
-  }
+  // 提前加载原始数据，切换高级模式时无需等待异步请求
+  if (store.state.configRaw === null) loadConfigRaw();
   if (store.state.configMode === 'raw' && !_state.configCodeMirror) {
     requestAnimationFrame(() => requestAnimationFrame(initConfigCodeMirror));
   }
@@ -4383,9 +4383,8 @@ function syncCookiesTabView() {
   if (store.state.cookiesMode === 'form' && (!store.state.cookieItems || store.state.cookieItems.length === 0)) {
     loadCookiesItems();
   }
-  if (store.state.cookiesMode === 'raw' && store.state.cookiesRaw === null) {
-    loadCookiesRaw();
-  }
+  // 提前加载原始数据，切换高级模式时无需等待异步请求
+  if (store.state.cookiesRaw === null) loadCookiesRaw();
   if (store.state.cookiesMode === 'raw' && !_state.cookiesCodeMirror) {
     requestAnimationFrame(() => requestAnimationFrame(initCookiesCodeMirror));
   }
