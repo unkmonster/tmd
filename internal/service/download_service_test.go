@@ -846,8 +846,8 @@ func TestDownloadServiceImpl_SaveDumper_RemoveAfterRetry(t *testing.T) {
 	require.True(t, removed)
 	assert.Equal(t, 2, dumper.Count())
 
-	// 使用 replaceDumper（修复路径）写回，不做 load-merge
-	impl.replaceDumper(dumper, dumpPath)
+	// 使用 saveDumper 写回，不做 load-merge
+	impl.saveDumper(dumper, dumpPath)
 
 	// 验证文件内容
 	loaded := downloading.NewDumper()
@@ -1001,7 +1001,7 @@ func TestDownloadServiceImpl_JsonLoadWithoutLock(t *testing.T) {
 				Id:        90000 + uint64(i),
 				CreatedAt: now,
 			})
-			impl.replaceJsonDumper(incoming, dumpPath)
+			impl.saveJsonDumper(incoming, dumpPath)
 		}
 	}()
 

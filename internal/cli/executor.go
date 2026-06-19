@@ -86,7 +86,7 @@ func (s cliTaskSelection) primaryMode() cliTaskMode {
 	}
 }
 
-func (s cliTaskSelection) hasIgnoredForExclusiveMode(mode cliTaskMode) bool {
+func (s cliTaskSelection) shouldWarnExclusiveMode(mode cliTaskMode) bool {
 	switch mode {
 	case cliTaskModeJSONFile:
 		return s.hasJSONFolder() || s.hasMarkDownloaded() || s.hasBatchDownload() || s.hasProfileDownload()
@@ -159,20 +159,20 @@ func Execute(ctx context.Context, args []string, deps *Dependencies) error {
 	switch selection.primaryMode() {
 	case cliTaskModeJSONFile:
 		log.Infof("jsonfile: %d files", len(cfg.JsonFileArgs.GetPaths()))
-		if selection.hasIgnoredForExclusiveMode(cliTaskModeJSONFile) {
-			log.Warn("-jsonfile is exclusive, other download parameters will be ignored")
+		if selection.shouldWarnExclusiveMode(cliTaskModeJSONFile) {
+			log.Warn("-jsonfile is exclusive; jsonfolder/mark-downloaded/batch/profile will be ignored")
 		}
 		return downloadService.JsonFileDownload(ctx, "cli", cfg.JsonFileArgs.GetPaths(), cfg.NoRetry, reporter)
 	case cliTaskModeJSONFolder:
 		log.Infof("jsonfolder: %d folders", len(cfg.JsonFolderArgs.GetPaths()))
-		if selection.hasIgnoredForExclusiveMode(cliTaskModeJSONFolder) {
-			log.Warn("-jsonfolder is exclusive, other download parameters will be ignored")
+		if selection.shouldWarnExclusiveMode(cliTaskModeJSONFolder) {
+			log.Warn("-jsonfolder is exclusive; jsonfile/mark-downloaded/batch/profile will be ignored")
 		}
 		return downloadService.JsonFolderDownload(ctx, "cli", cfg.JsonFolderArgs.GetPaths(), cfg.NoRetry, reporter)
 	case cliTaskModeMarkDownloaded:
 		log.Infoln("mark downloaded mode")
-		if selection.hasIgnoredForExclusiveMode(cliTaskModeMarkDownloaded) {
-			log.Warn("-mark-downloaded is exclusive, other download parameters will be ignored")
+		if selection.shouldWarnExclusiveMode(cliTaskModeMarkDownloaded) {
+			log.Warn("-mark-downloaded is exclusive; profile download parameters will be ignored")
 		}
 		log.Infof("mark downloaded: users: %d, lists: %d, following: %d",
 			len(cfg.UsrArgs.ScreenName), len(cfg.ListArgs.ID), len(cfg.FollArgs.ScreenName))
@@ -217,6 +217,8 @@ func Execute(ctx context.Context, args []string, deps *Dependencies) error {
 	// 5. Profile 下载 - 第五优先级
 	// 可以与批量下载（第4步）同时执行（-user + -profile-user）
 	// 也可以单独执行（仅 -profile-user/-profile-list）
+	// 注意：如果批量下载失败，此处的 Profile 下载不会执行
+	// （第4步失败时直接返回，不会走到这里）
 	hasProfileUsers := len(cfg.ProfileUsers.ScreenName) > 0
 	hasProfileLists := len(cfg.ProfileList.ID) > 0
 

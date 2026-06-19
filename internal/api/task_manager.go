@@ -39,7 +39,7 @@ func (tm *TaskManager) publishTasks() {
 		return
 	}
 	tasks := tm.snapshotForPublish()
-	tm.eventBus.PublishTasks(tasks)
+	tm.eventBus.Publish("tasks", tasks)
 }
 
 // CreateTask 创建任务

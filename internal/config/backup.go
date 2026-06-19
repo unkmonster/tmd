@@ -44,8 +44,9 @@ func CreateBackup(filePath string) (string, error) {
 	return filepath.Join(backupDirName, backupName), nil
 }
 
-// pruneConfigBackups 修剪 backups/ 目录中的旧备份，仅保留最近 maxConfigBackupCount 份。
-// 文件名中的纳秒时间戳天然有序，按名排序即可。
+// pruneConfigBackups 修剪 backups/ 目录中的旧备份，按源文件分组，
+// 每个源文件仅保留最近 maxConfigBackupCount 份。
+// 文件名格式 {source}.backup.{nanotimestamp}，时间戳天然有序。
 func pruneConfigBackups(backupDir string) {
 	entries, err := os.ReadDir(backupDir)
 	if err != nil {
@@ -53,24 +54,32 @@ func pruneConfigBackups(backupDir string) {
 		return
 	}
 
-	backups := make([]os.DirEntry, 0)
+	// 按源文件分组：conf.yaml.backup.123 → 按 conf.yaml 分组
+	groups := make(map[string][]os.DirEntry)
 	for _, entry := range entries {
-		if entry.IsDir() || !strings.Contains(entry.Name(), ".backup.") {
+		if entry.IsDir() {
 			continue
 		}
-		backups = append(backups, entry)
-	}
-	if len(backups) <= maxConfigBackupCount {
-		return
+		name := entry.Name()
+		idx := strings.Index(name, ".backup.")
+		if idx < 0 {
+			continue
+		}
+		sourceFile := name[:idx]
+		groups[sourceFile] = append(groups[sourceFile], entry)
 	}
 
-	sort.Slice(backups, func(i, j int) bool {
-		return backups[i].Name() < backups[j].Name()
-	})
-
-	for _, entry := range backups[:len(backups)-maxConfigBackupCount] {
-		if err := os.Remove(filepath.Join(backupDir, entry.Name())); err != nil && !os.IsNotExist(err) {
-			log.Warnf("Failed to remove stale backup %q: %v", entry.Name(), err)
+	for _, backups := range groups {
+		if len(backups) <= maxConfigBackupCount {
+			continue
+		}
+		sort.Slice(backups, func(i, j int) bool {
+			return backups[i].Name() < backups[j].Name()
+		})
+		for _, entry := range backups[:len(backups)-maxConfigBackupCount] {
+			if err := os.Remove(filepath.Join(backupDir, entry.Name())); err != nil && !os.IsNotExist(err) {
+				log.Warnf("Failed to remove stale backup %q: %v", entry.Name(), err)
+			}
 		}
 	}
 }

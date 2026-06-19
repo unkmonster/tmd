@@ -66,7 +66,6 @@ func migrateExistingDatabase(path string) error {
 		removeSQLiteFiles(tempPath)
 		return fmt.Errorf("failed to prepare migration target database %q: %w", tempPath, err)
 	}
-	CreateIndexes(targetDB)
 
 	if err := copyAllData(sourceDB, targetDB); err != nil {
 		targetDB.Close()

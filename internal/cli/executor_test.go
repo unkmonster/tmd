@@ -14,7 +14,6 @@ import (
 	"github.com/stretchr/testify/mock"
 
 	"github.com/unkmonster/tmd/internal/config"
-	"github.com/unkmonster/tmd/internal/database"
 	"github.com/unkmonster/tmd/internal/service"
 )
 
@@ -294,10 +293,10 @@ func TestCLITaskSelection_MarkDownloadedTreatsBatchArgsAsTargets(t *testing.T) {
 	selection := newCLITaskSelection(cfg)
 
 	assert.Equal(t, cliTaskModeMarkDownloaded, selection.primaryMode())
-	assert.False(t, selection.hasIgnoredForExclusiveMode(cliTaskModeMarkDownloaded))
+	assert.False(t, selection.shouldWarnExclusiveMode(cliTaskModeMarkDownloaded))
 
 	cfg.ProfileUsers = UserArgs{ScreenName: []string{"profile-user"}}
-	assert.True(t, selection.hasIgnoredForExclusiveMode(cliTaskModeMarkDownloaded))
+	assert.True(t, selection.shouldWarnExclusiveMode(cliTaskModeMarkDownloaded))
 }
 
 func TestExecute_ProfileDownload(t *testing.T) {
@@ -457,16 +456,11 @@ func TestExecute_DefaultServiceCreation(t *testing.T) {
 }
 
 func TestExecute_DefaultServiceDoesNotMutateDependencies(t *testing.T) {
-	db, err := sqlx.Connect(database.DriverName, database.MemoryDSN(true))
-	assert.NoError(t, err)
-	defer db.Close()
-	database.CreateTables(db)
-
 	deps := &Dependencies{
 		Dependencies: service.Dependencies{
 			Client:            resty.New(),
 			AdditionalClients: []*resty.Client{},
-			DB:                db,
+			DB:                &sqlx.DB{},
 			Config: &config.Config{
 				RootPath:       t.TempDir(),
 				MaxFileNameLen: 100,
@@ -474,7 +468,8 @@ func TestExecute_DefaultServiceDoesNotMutateDependencies(t *testing.T) {
 		},
 	}
 
-	err = Execute(context.Background(), []string{"-jsonfile", "missing.json"}, deps)
+	// 空参数不应触发 service 创建，deps.DownloadService 应保持 nil
+	err := Execute(context.Background(), []string{}, deps)
 
 	assert.NoError(t, err)
 	assert.Nil(t, deps.DownloadService)

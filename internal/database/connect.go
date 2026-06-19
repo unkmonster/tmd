@@ -32,7 +32,6 @@ func Connect(path string) (*sqlx.DB, error) {
 		db.Close()
 		return nil, fmt.Errorf("failed to migrate database at %q: %w", path, err)
 	}
-	CreateIndexes(db)
 
 	if err := validateDatabase(db); err != nil {
 		db.Close()

@@ -743,38 +743,6 @@ func (s *downloadServiceImpl) saveDumper(dumper *downloading.TweetDumper, path s
 	_ = os.Remove(path)
 }
 
-// replaceDumper 直接写入 dumper 到文件，不做 load-merge（用于 RetryAllFailed 等需要持久化 Remove 的场景）。
-func (s *downloadServiceImpl) replaceDumper(dumper *downloading.TweetDumper, path string) {
-	s.dumperMu.Lock()
-	defer s.dumperMu.Unlock()
-
-	if dumper.Count() > 0 {
-		if err := dumper.Dump(path); err != nil {
-			log.Warnf("Failed to replace dumper: %v", err)
-		} else {
-			log.Infof("%d tweets have been dumped", dumper.Count())
-		}
-		return
-	}
-	_ = os.Remove(path)
-}
-
-// replaceJsonDumper 直接写入 JsonTweetDumper，不做 load-merge。
-func (s *downloadServiceImpl) replaceJsonDumper(dumper *downloading.JsonTweetDumper, path string) {
-	s.dumperMu.Lock()
-	defer s.dumperMu.Unlock()
-
-	if dumper.Count() > 0 {
-		if err := dumper.Dump(path); err != nil {
-			log.Warnf("Failed to replace JSON dumper: %v", err)
-		} else {
-			log.Infof("%d JSON tweets have been dumped", dumper.Count())
-		}
-		return
-	}
-	_ = os.Remove(path)
-}
-
 // RetryAllFailed 重试所有历史失败推文
 func (s *downloadServiceImpl) RetryAllFailed(ctx context.Context, taskID string, reporter ProgressReporter) error {
 	pathHelper, err := path.NewStorePath(s.deps.Config.RootPath)
@@ -794,7 +762,7 @@ func (s *downloadServiceImpl) RetryAllFailed(ctx context.Context, taskID string,
 		if _, err := downloading.RetryFailedTweets(ctx, regDumper, s.deps.DB, s.deps.Client, dwn, fileWriter, runtimeOptions, nil); err != nil {
 			return fmt.Errorf("retry regular failed tweets: %w", err)
 		}
-		s.replaceDumper(regDumper, pathHelper.ErrorsPath)
+		s.saveDumper(regDumper, pathHelper.ErrorsPath)
 	}
 
 	// 重试 JSON 导入错误
@@ -806,7 +774,7 @@ func (s *downloadServiceImpl) RetryAllFailed(ctx context.Context, taskID string,
 		if _, err := downloading.RetryFailedJsonTweets(ctx, jsonDumper, s.deps.Client, dwn, fileWriter, runtimeOptions, nil); err != nil {
 			return fmt.Errorf("retry JSON failed tweets: %w", err)
 		}
-		s.replaceJsonDumper(jsonDumper, pathHelper.JSONErrorsPath)
+		s.saveJsonDumper(jsonDumper, pathHelper.JSONErrorsPath)
 	}
 
 	reporter.OnComplete(taskID, Result{Message: "completed"})

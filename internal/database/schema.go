@@ -89,9 +89,6 @@ func CreateTables(db *sqlx.DB) {
 	db.MustExec(indexes)
 }
 
-func CreateIndexes(db *sqlx.DB) {
-	db.MustExec(indexes)
-}
 
 // renameMigration 描述一条 ALTER TABLE RENAME COLUMN 迁移。
 type renameMigration struct {

@@ -307,3 +307,4 @@ func capturePipe(reader io.Reader, output *os.File, h *Hub) {
 func stripANSI(s string) string {
 	return ansiRegex.ReplaceAllString(s, "")
 }
+

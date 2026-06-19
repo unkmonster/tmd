@@ -267,9 +267,6 @@ func (b *EventBus) Publish(event string, data interface{}) {
 	log.Warnf("[SSE] closing %d slow subscriber(s) after %s event queue overflow", len(overflowed), event)
 }
 
-func (b *EventBus) PublishTasks(tasks []*Task) {
-	b.Publish("tasks", tasks)
-}
 
 func (b *EventBus) PublishNotification(notifType, message string, detail interface{}) {
 	b.Publish("notification", map[string]interface{}{

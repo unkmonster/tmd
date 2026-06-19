@@ -32,7 +32,23 @@ func FileDSN(path string, sharedCache bool) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("failed to get absolute path for %q: %w", path, err)
 	}
-	return sqliteFileDSN(absPath, sharedCache), nil
+
+	query := url.Values{}
+	if sharedCache {
+		query.Set("cache", "shared")
+	}
+	addSQLiteQueryDefaults(query)
+
+	normalizedPath := filepath.ToSlash(absPath)
+	if !strings.HasPrefix(normalizedPath, "/") {
+		normalizedPath = "/" + normalizedPath
+	}
+
+	return (&url.URL{
+		Scheme:   "file",
+		Path:     normalizedPath,
+		RawQuery: query.Encode(),
+	}).String(), nil
 }
 
 func MustFileDSN(path string, sharedCache bool) string {
@@ -43,24 +59,6 @@ func MustFileDSN(path string, sharedCache bool) string {
 	return dsn
 }
 
-func sqliteFileDSN(path string, sharedCache bool) string {
-	query := url.Values{}
-	if sharedCache {
-		query.Set("cache", "shared")
-	}
-	addSQLiteQueryDefaults(query)
-
-	normalizedPath := filepath.ToSlash(path)
-	if !strings.HasPrefix(normalizedPath, "/") {
-		normalizedPath = "/" + normalizedPath
-	}
-
-	return (&url.URL{
-		Scheme:   "file",
-		Path:     normalizedPath,
-		RawQuery: query.Encode(),
-	}).String()
-}
 
 func addSQLiteQueryDefaults(query url.Values) {
 	query.Add("_pragma", "journal_mode(WAL)")

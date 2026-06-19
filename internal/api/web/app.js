@@ -2544,14 +2544,7 @@ function escapeAttr(str) {
   return String(str).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/`/g, '&#96;');
 }
 
-function stripAnsi(str) {
-  if (typeof AnsiUp !== 'undefined') {
-    if (!_state._ansiUp) _state._ansiUp = new AnsiUp();
-    return _state._ansiUp.ansi_to_html(str);
-  }
-  // fallback: 暴力删除 ANSI 码（CDN 未加载时）
-  return escapeHtml(str.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, ''));
-}
+function stripAnsi(str) { return str.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, ''); }
 
 function getLineColor(line) {
   if (line.startsWith('ERRO[')) return 'var(--danger)';
@@ -2586,11 +2579,7 @@ function highlightLogTimestamp(line) {
 }
 
 function renderLine(line) {
-  const hasAnsi = line.includes('\x1b[');
-  const processed = stripAnsi(line); // ansi_up 返回含颜色 span 的 HTML，或 fallback 纯文本
-  const lineColor = getLineColor(line);
-  const style = hasAnsi ? '' : ` style="color:${lineColor}"`;
-  return `<div class="log-line"${style}>${highlightLogTimestamp(processed)}</div>`;
+  return `<div class="log-line" style="color:${getLineColor(line)}">${highlightLogTimestamp(escapeHtml(stripAnsi(line)))}</div>`;
 }
 
 function renderLogFilterButtons(level, stats) {
