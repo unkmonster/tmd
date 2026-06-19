@@ -3918,6 +3918,9 @@ async function saveCookiesForm() {
     await api.saveCookies(cookies);
     store.setState({ cookiesSaving: false });
     showManualRestartNotice('额外账户');
+    // 保存后重载数据，刷新脱敏显示
+    loadCookiesItems();
+    loadCookiesRaw();
   } catch (e) {
     toast.show('❌ 保存失败: ' + e.message, 'error');
     store.setState({ cookiesSaving: false });
@@ -3933,6 +3936,7 @@ async function saveCookies() {
     await api.updateCookiesRaw(content);
     store.setState({ cookiesSaving: false, cookiesRaw: content });
     showManualRestartNotice('额外账户');
+    loadCookiesItems(); // 同步刷新表单模式数据
   } catch (e) {
     toast.show('❌ 保存失败: ' + e.message, 'error');
     store.setState({ cookiesSaving: false });
@@ -4405,9 +4409,11 @@ function syncSystemTabView() {
 
 function rerenderSystemPanel(panelId, renderFn, resetEditor = null, initEditor = null, saveFn = null, restoreFn = null) {
   const saved = saveFn ? saveFn() : null;
-  if (resetEditor) resetEditor();
   const panel = document.getElementById(panelId);
+  const savedScrollTop = panel ? panel.scrollTop : 0;
+  if (resetEditor) resetEditor();
   if (panel) panel.innerHTML = renderFn();
+  if (panel) panel.scrollTop = savedScrollTop;
   if (initEditor) requestAnimationFrame(() => requestAnimationFrame(() => {
     initEditor();
     if (restoreFn && saved !== null) restoreFn(saved);
@@ -4415,6 +4421,10 @@ function rerenderSystemPanel(panelId, renderFn, resetEditor = null, initEditor =
 }
 
 function setSystemTab(tab) {
+  // 切换 tab 时清除所有 Skip 标志，防止残留阻挡后续重建
+  _state._configPanelSkipNextRebuild = false;
+  _state._cookiesPanelSkipNextRebuild = false;
+  _state._schedulePanelSkipNextRebuild = false;
   store.setState({ _systemTab: tab });
   setTimeout(syncSystemTabView, 0);
 }
@@ -5069,7 +5079,7 @@ document.getElementById('contentContainer').addEventListener('focusout', (e) => 
   const el = e.target.closest('[data-binding]');
   if (!el) return;
   const idx = el.dataset.idx;
-  if ((el.dataset.binding === 'sf_field' || el.dataset.binding === 'sf_target') && idx !== undefined) {
+  if (el.dataset.binding === 'sf_field' && idx !== undefined) {
     validateScheduleField(Number(idx));
   }
 });
