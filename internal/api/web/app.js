@@ -836,21 +836,27 @@ const pages = {
   schedules() {
     const { _schedules, _scheduleExists, _schedulerRunning } = store.state;
 
-    if (_schedules === null) {
-      return `
-        <div class="page-container">
-          <div class="card">
-            <div class="card-header"><div><div class="card-title">定时下载任务</div></div></div>
-            <div class="card-body">
-              <div class="empty-state">
-                <div class="skeleton" style="width:64px;height:64px;border-radius:12px;margin-bottom:16px"></div>
-                <div class="empty-title">加载中...</div>
-                <div class="empty-desc">正在加载定时任务配置</div>
-              </div>
-            </div>
-          </div>
-        </div>
-      `;
+		    if (_schedules === null) {
+		      return `
+		        <div class="page-container">
+		          <div class="card">
+		            <div class="card-header">
+		              <div><div class="card-title">定时下载任务</div><div class="card-subtitle">加载中...</div></div>
+		              <div class="flex gap-2">
+		                <button class="btn btn-primary btn-sm" disabled>⬇️ 下载全部</button>
+		                <button class="btn btn-ghost btn-sm" disabled>📝 编辑任务</button>
+		              </div>
+		            </div>
+		            <div class="card-body">
+		              <div class="empty-state">
+		                <div class="skeleton" style="width:64px;height:64px;border-radius:12px;margin-bottom:16px"></div>
+		                <div class="empty-title">加载中...</div>
+		                <div class="empty-desc">正在加载定时任务配置</div>
+		              </div>
+		            </div>
+		          </div>
+		        </div>
+		      `;
     }
 
     const schedulerBanner = !_schedulerRunning
@@ -2534,6 +2540,10 @@ function renderConfigForm(fields, saving, exists, loading = false) {
   if (loading || !fields || fields.length === 0) {
     return `
       <div class="card">
+        <div class="card-header">
+          <div><div class="card-title">配置编辑</div><div class="card-subtitle">加载中...</div></div>
+          <button class="btn btn-primary btn-sm" disabled>⏳ 加载中...</button>
+        </div>
         <div class="card-body"><div class="empty-state"><div class="empty-icon">⏳</div><div class="empty-title">加载中...</div></div></div>
       </div>
     `;
@@ -2586,7 +2596,12 @@ function renderConfigRawEditor(raw, saving, exists) {
   if (raw === null) {
     return `
       <div class="card">
-        <div class="card-header"><div><div class="card-title">conf.yaml 原始编辑器</div></div></div>
+        <div class="card-header">
+          <div><div class="card-title">conf.yaml 原始编辑器</div><div class="card-subtitle">加载中...</div></div>
+          <div class="flex gap-2">
+            <button class="btn btn-primary btn-sm" disabled>⏳ 加载中...</button>
+          </div>
+        </div>
         <div class="card-body">
           <div class="empty-state">
             <div class="skeleton" style="width:64px;height:64px;border-radius:12px;margin-bottom:16px"></div>
@@ -2634,7 +2649,13 @@ function renderCookiesForm(items, saving, exists, loading = false) {
   if (loading) {
     return `
       <div class="card">
-        <div class="card-header"><div><div class="card-title">额外账户管理</div></div></div>
+        <div class="card-header">
+          <div><div class="card-title">额外账户管理</div><div class="card-subtitle">加载中...</div></div>
+          <div class="flex gap-2">
+            <button class="btn btn-ghost btn-sm" disabled>➕ 添加账户</button>
+            <button class="btn btn-primary btn-sm" disabled>⏳ 加载中...</button>
+          </div>
+        </div>
         <div class="card-body">
           <div class="empty-state">
             <div class="skeleton" style="width:64px;height:64px;border-radius:12px;margin-bottom:16px"></div>
@@ -2709,7 +2730,12 @@ function renderCookiesRawEditor(raw, saving, exists) {
   if (raw === null) {
     return `
       <div class="card">
-        <div class="card-header"><div><div class="card-title">additional_cookies.yaml 原始编辑器</div></div></div>
+        <div class="card-header">
+          <div><div class="card-title">additional_cookies.yaml 原始编辑器</div><div class="card-subtitle">加载中...</div></div>
+          <div class="flex gap-2">
+            <button class="btn btn-primary btn-sm" disabled>⏳ 加载中...</button>
+          </div>
+        </div>
         <div class="card-body">
           <div class="empty-state">
             <div class="skeleton" style="width:64px;height:64px;border-radius:12px;margin-bottom:16px"></div>
@@ -2957,7 +2983,13 @@ function renderScheduleForm(items, saving, exists, loading = false) {
   if (loading) {
     return `
       <div class="card">
-        <div class="card-header"><div><div class="card-title">定时下载任务</div></div></div>
+        <div class="card-header">
+          <div><div class="card-title">定时下载任务</div><div class="card-subtitle">加载中...</div></div>
+          <div class="flex gap-2">
+            <button class="btn btn-ghost btn-sm" disabled>➕ 添加规则</button>
+            <button class="btn btn-primary btn-sm" disabled>⏳ 加载中...</button>
+          </div>
+        </div>
         <div class="card-body">
           <div class="empty-state">
             <div class="skeleton" style="width:64px;height:64px;border-radius:12px;margin-bottom:16px"></div>
@@ -3153,7 +3185,12 @@ function renderScheduleRawEditor(raw, saving, exists) {
   if (raw === null) {
     return `
       <div class="card">
-        <div class="card-header"><div><div class="card-title">schedules.yaml 原始编辑器</div></div></div>
+        <div class="card-header">
+          <div><div class="card-title">schedules.yaml 原始编辑器</div><div class="card-subtitle">加载中...</div></div>
+          <div class="flex gap-2">
+            <button class="btn btn-primary btn-sm" disabled>⏳ 加载中...</button>
+          </div>
+        </div>
         <div class="card-body">
           <div class="empty-state">
             <div class="skeleton" style="width:64px;height:64px;border-radius:12px;margin-bottom:16px"></div>
