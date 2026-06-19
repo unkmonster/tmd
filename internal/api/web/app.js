@@ -3484,6 +3484,17 @@ function setScheduleTab(tab) {
   store.setState({ _scheduleTab: tab });
   if (tab === 'edit' && store.state._scheduleRaw === null) loadScheduleRaw();
   if (tab === 'form' && store.state._scheduleFormItems.length === 0 && (store.state._schedules || []).length === 0) loadSchedules();
+  if (tab === 'edit' && store.state._scheduleRaw !== null) {
+    _state._scheduleCmInitializing = false;
+    _state._schedulePanelSkipNextRebuild = true;
+    const panel = document.getElementById('systemSchedulesPanel');
+    if (panel) {
+      panel.innerHTML = renderScheduleViewer();
+      requestAnimationFrame(() => requestAnimationFrame(initScheduleCodeMirror));
+    }
+  } else {
+    _state._schedulePanelSkipNextRebuild = false;
+  }
 }
 
 _state._addScheduleItemPending = false;
@@ -3934,6 +3945,17 @@ function setCookiesMode(mode) {
   }
   store.setState({ cookiesMode: mode });
   if (mode === 'raw' && store.state.cookiesRaw === null) loadCookiesRaw();
+  if (mode === 'raw' && store.state.cookiesRaw !== null) {
+    _state._cookiesCmInitializing = false;
+    _state._cookiesPanelSkipNextRebuild = true;
+    const panel = document.getElementById('systemCookiesPanel');
+    if (panel) {
+      panel.innerHTML = renderCookiesEditor();
+      requestAnimationFrame(() => requestAnimationFrame(initCookiesCodeMirror));
+    }
+  } else {
+    _state._cookiesPanelSkipNextRebuild = false;
+  }
 }
 
 function addCookieAccount() {
@@ -4751,9 +4773,17 @@ function syncSystemPage(state, tasksChanged) {
   }
 
   const cookiesRawRebuildNeeded = cookiesRawChanged && _state.lastCookiesRaw === null && state.cookiesRaw !== null;
-  const cookiesPanelShouldRebuild = state.cookiesMode === 'raw'
+  let cookiesPanelShouldRebuild = state.cookiesMode === 'raw'
     ? (cookiesModeChanged || cookiesSavingChanged || cookiesRawRebuildNeeded)
     : (cookiesChanged || cookiesModeChanged || cookiesRawChanged || cookiesSavingChanged);
+  if (_state._cookiesPanelSkipNextRebuild && cookiesPanelShouldRebuild && cookiesModeChanged && state.cookiesMode === 'raw') {
+    _state._cookiesPanelSkipNextRebuild = false;
+    cookiesPanelShouldRebuild = false;
+    _state.lastCookieItemsJson = JSON.stringify(state.cookieItems);
+    _state.lastCookiesMode = state.cookiesMode;
+    _state.lastCookiesRaw = state.cookiesRaw;
+    _state.lastCookiesSaving = state.cookiesSaving;
+  }
   if (cookiesPanelShouldRebuild) {
     _state.lastCookieItemsJson = JSON.stringify(state.cookieItems);
     _state.lastCookiesMode = state.cookiesMode;
@@ -4777,9 +4807,20 @@ function syncSystemPage(state, tasksChanged) {
     _state.lastSchedulesJson = JSON.stringify(state._schedules);
   }
   const scheduleRawRebuildNeeded = scheduleRawChanged && _state.lastScheduleRaw === null && state._scheduleRaw !== null;
-  const schedulePanelShouldRebuild = state._scheduleTab === 'edit'
+  let schedulePanelShouldRebuild = state._scheduleTab === 'edit'
     ? (scheduleTabChanged || scheduleSavingChanged || scheduleExistsChanged || scheduleRawRebuildNeeded || schedulePanelSchedulesChanged || scheduleFormItemsChanged)
     : (schedulePanelSchedulesChanged || scheduleRawChanged || scheduleExistsChanged || scheduleSavingChanged || scheduleTabChanged || scheduleFormItemsChanged);
+  if (_state._schedulePanelSkipNextRebuild && schedulePanelShouldRebuild && scheduleTabChanged && state._scheduleTab === 'edit') {
+    _state._schedulePanelSkipNextRebuild = false;
+    schedulePanelShouldRebuild = false;
+    _state.lastSchedulesJson = JSON.stringify(state._schedules);
+    _state.lastTasksJson = JSON.stringify(state.tasks);
+    _state.lastScheduleRaw = state._scheduleRaw;
+    _state.lastScheduleExists = state._scheduleExists;
+    _state.lastScheduleSaving = state._scheduleSaving;
+    _state.lastScheduleTab = state._scheduleTab;
+    _state.lastScheduleFormItemsJson = JSON.stringify(state._scheduleFormItems);
+  }
   if (schedulePanelShouldRebuild) {
     _state.lastSchedulesJson = JSON.stringify(state._schedules);
     _state.lastTasksJson = JSON.stringify(state.tasks);
