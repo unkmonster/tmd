@@ -11,84 +11,39 @@
 
 ## 目录
 
-- [项目架构](#项目架构)
 - [功能特性](#功能特性)
 - [安装与配置](#安装与配置)
+- [安全说明](#安全说明)
+- [使用场景与示例](#使用场景与示例)
 - [命令行参数详解](#命令行参数详解)
+- [参数兼容性速查表](#参数兼容性速查表)
 - [API Server 模式](#api-server-模式)
 - [定时任务调度器](#定时任务调度器)
 - [Profile 下载功能](#profile-下载功能)
 - [推文 JSON 保存](#推文-json-保存)
 - [文件存储结构](#文件存储结构)
-- [使用场景与示例](#使用场景与示例)
 - [高级设置](#高级设置)
+- [项目架构](#项目架构)
+- [Service 层架构](#service-层架构)
 - [常见问题](#常见问题)
+- [输出结果格式](#输出结果格式)
+- [开发指南](#开发指南)
+- [性能参考](#性能参考)
+- [故障排除进阶](#故障排除进阶)
 
 ***
 
 ## 功能特性
 
-### 下载入口
-
-- 按用户下载媒体推文（图片、视频、GIF）
-- 按列表下载列表成员的媒体推文
-- 按关注下载某个用户关注列表中的媒体推文
-- 支持混合批量任务：用户、列表、关注源可组合提交
-- 支持单独下载 Profile：头像、横幅、简介、`profile.json`
-- 支持下载列表成员的 Profile
-
-### 下载过程与行为
-
-- 媒体文件按推文时间设置修改时间
-- 保存推文侧车文件：`.txt` / `.json`
-- 下载时可选跳过 Profile（`-noprofile` / `skip_profile`）
-- 下载失败后可选关闭重试（`-no-retry` / `no_retry`）
-- 支持下载时主动关注目标或成员（`-follow-members`）
-- 支持对受保护账号自动发起关注请求（`-auto-follow`）
-- 支持附加 Cookie 多账号分摊请求压力
-- 内置速率限制处理与重试逻辑，降低触发 X/Twitter 限流后的失败率
-
-### 增量、去重与失败处理
-
-- 基于数据库中的 `latest_release_time` 做增量拉取，避免重复抓取历史推文
-- 同一用户在多个列表中只维护一份用户目录，列表目录通过链接复用
-- 失败推文记录到 `.data/errors.json`，后续下载时只重试失败项
-- 403/404 类媒体错误不进入重试队列
-- 用户/列表元数据会同步到 SQLite，包括用户名、历史用户名、受保护状态、可访问状态等
-- 可将用户、列表或关注源直接标记为“已下载”，跳过历史推文（`-mark-downloaded`）
-- `mark-time` 支持指定时间戳，或设为 `null` / `nil` 以清空增量游标
-
-### 导入与补录
-
-- **第三方 JSON 导入**（`-jsonfile`）：读取外部导出的推文 JSON，转换为内部推文结构后下载媒体，并保存 `.txt` / `.json`
-- **LoongTweet 文件夹导入**（`-jsonfolder`）：递归读取 `.loongtweet` / JSON 目录中的推文数据并补下载媒体
-- JSON 导入与文件夹导入都复用统一的推文下载与命名逻辑
-
-### 文件写入与资料版本
-
-- 小文件使用内存缓冲下载，大文件（≥10MB）自动切换流式下载
-- 文件写入采用原子替换，减少中断时的半写入风险
-- 对未变化文件可跳过重写
-- Profile 与需要版本化的文件支持写入前备份到 `.versions/`
-- Profile 数据保存在用户目录下 `.loongtweet/.profile/`
-
-### API Server 与 Web UI
-
-- 提供 HTTP API 与内置 Web 管理界面
-- Server 模式中的下载任务异步执行，先返回 `task_id`
-- 任务支持排队、运行、完成、失败、取消等状态流转
-- 通过 SSE 实时推送任务进度与任务列表更新
-- 提供实时日志流，支持按级别和关键词过滤
-- 提供配置、附加 Cookie、调度任务的表单/原始 YAML 编辑
-- 提供数据库浏览与基础维护接口（用户、列表、实体、关联）
-- 支持通过 API 触发优雅关闭
-
-### 调度与自动化
-
-- 内置调度器，支持 `interval` 和 `daily` 两种调度模式
-- 支持 `user`、`list`、`following`、`mixed` 四种调度目标类型
-- 调度项支持 `auto_follow`、`follow_members`、`skip_profile`、`no_retry`
-- 调度配置可热重载、校验、启停和手动触发
+- **多源下载**：支持按用户、列表、关注、混合批量、Profile 五种下载入口
+- **增量拉取**：基于 `latest_release_time` 时间戳，只拉取新推文
+- **失败重试**：失败项记录到 `.data/errors.json`（403/404 除外），支持自动重试
+- **多账号分流**：支持附加 Cookie 多账号分摊 API 请求压力
+- **JSON 导入**：支持第三方导出 JSON（`-jsonfile`）和 TMD 元数据文件夹（`-jsonfolder`）补下载
+- **文件写入**：小文件 Buffer / 大文件流式(≥10MB)，原子写入，MD5 跳过未变化文件，版本备份
+- **标记已下载**：`-mark-downloaded` 指定时间戳，跳过历史推文
+- **Web 管理界面**：内置 HTTP API + SSE 实时推送 + 任务队列 + 定时调度 + 数据库管理
+- **调度自动化**：支持 `interval` / `daily` 两种模式，`user` / `list` / `following` / `mixed` 四种目标
 
 ***
 
@@ -274,7 +229,7 @@ tmd -conf
 | auth\_token          | Twitter Cookie 中的 auth\_token | 无（必填）                | `a1b2c3d4e5f6...`      |
 | ct0                  | Twitter Cookie 中的 ct0         | 无（必填）                | `x1y2z3...`            |
 | max download routine | 最大并发下载数（范围 1-100）         | `min(100, CPU×10)`¹                | `35`                   |
-| max file name len    | 最大文件名长度（50-250）           | `158`                   | `158`                  |
+| max file name len    | 最大文件名长度（50-245）           | `158`                   | `158`                  |
 | proxy_url            | 代理服务器 URL（支持 http/https/socks5） | 空（使用系统代理） | `http://127.0.0.1:7890` |
 
 > ¹ `max download routine` 默认值为 `min(100, runtime.GOMAXPROCS(0)*10)`，即 CPU 核数的 10 倍且不超过 100。首次通过 `-conf` 配置时建议输入 35。
@@ -303,6 +258,234 @@ tmd -conf
 4. 复制 `auth_token` 和 `ct0` 的值
 
 > 详细获取方式请参考 [获取 Cookie](https://github.com/unkmonster/tmd/blob/master/doc/help.md#获取-cookie)
+
+***
+
+## 安全说明
+
+### Cookie 安全 ⚠️
+
+`auth_token` 和 `ct0` 相当于你的 **Twitter 登录凭证**，请务必妥善保管！
+
+**安全建议：**
+
+- ❌ **不要**将配置文件提交到公开 Git 仓库（已在 `.gitignore` 排除）
+- ❌ **不要**分享包含真实 Cookie 的配置文件或截图
+- ❌ **不要**在日志或调试信息中暴露完整 Cookie
+- ✅ 定期更新 Cookie（Twitter 可能会使其失效或定期轮换）
+- ✅ 使用 `tmd -conf` 安全更新配置，避免手动编辑出错
+- ✅ 仅在可信设备上运行程序
+
+**Cookie 存储位置：**
+
+| 平台 | 路径 | 权限 |
+|------|------|------|
+| Windows | `%APPDATA%\.tmd2\conf.yaml` | 当前用户 |
+| macOS/Linux | `~/.tmd2/conf.yaml` | 当前用户 (600) |
+
+### 权限要求
+
+| 操作系统 | 特殊权限 | 原因 |
+|---------|---------|------|
+| **Windows** | 管理员权限 | 创建符号链接需要 SeCreateSymbolicLinkPrivilege |
+| **Linux/macOS** | 文件系统写入权限 | 写入存储目录和数据库文件 |
+
+> 💡 **提示**: Windows 用户可以右键点击 `tmd.exe` → "以管理员身份运行"，或在管理员 PowerShell 中执行。
+
+### 数据隐私
+
+所有下载的数据**仅存储在本地**，不会上传到任何第三方服务器：
+
+```
+{存储目录}/
+├── users/              # 推文媒体文件（图片/视频/GIF）
+│   └── {用户名}/
+│       ├── .loongtweet/   # 推文元数据（JSON/TXT）
+│       │   └── .profile/ # 用户资料（头像/横幅/简介）
+│       └── {日期}/        # 按日期组织的媒体文件
+├── .data/
+│   ├── foo.db          # SQLite 数据库（用户/列表/实体关系）
+│   └── errors.json     # 失败推文记录
+└── ...
+```
+
+**数据保护建议：**
+- 定期备份 `{存储目录}` 和 `.data/foo.db`
+- 敏感数据（如受保护用户的推文）注意访问控制
+- 删除用户数据时同时清理数据库记录
+
+### API Server 安全
+
+当前版本 API Server **无需认证**，适用于本地使用：
+
+**生产环境安全加固方案：**
+
+```nginx
+# Nginx 反向代理示例 - 添加 Basic Auth
+server {
+    listen 8080;
+    
+    location /api/v1/ {
+        auth_basic "TMD API";
+        auth_basic_user_file /etc/nginx/.htpasswd;
+        
+        proxy_pass http://127.0.0.1:25556;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        
+        # 限制请求速率
+        limit_req zone=api burst=20 nodelay;
+    }
+}
+```
+
+**推荐安全措施：**
+1. **网络隔离**: 仅绑定到 localhost (`127.0.0.1:25556`)
+2. **反向代理**: 使用 Nginx/Caddy 添加认证层
+3. **IP 白名单**: 防火墙限制访问来源 IP
+4. **HTTPS**: 公网部署时强制 TLS 加密
+5. **速率限制**: 防止 API 滥用
+
+***
+
+## 使用场景与示例
+
+### 场景1：首次使用
+
+```bash
+# 1. 配置
+tmd -conf
+
+# 2. 测试下载
+tmd -user elonmusk -dbg
+```
+
+### 场景2：下载单个用户
+
+```bash
+# 下载推文 + Profile（默认行为）
+tmd -user elonmusk
+
+# 仅下载推文，不下载 Profile
+tmd -user elonmusk -noprofile
+
+# 使用数字用户名（如纯数字的 screen_name）
+tmd -user 44196397
+
+# 使用 @ 前缀
+tmd -user @elonmusk
+```
+
+### 场景3：批量下载多个用户
+
+```bash
+# 下载多个用户的推文 + Profile
+tmd -user elonmusk -user NASA -user SpaceX
+
+# 下载多个用户的推文，不下载 Profile
+tmd -user elonmusk -user NASA -user SpaceX -noprofile
+
+# 仅下载多个用户的 Profile
+tmd -profile-user elonmusk -profile-user NASA -profile-user SpaceX
+```
+
+### 场景4：下载列表
+
+```bash
+# 下载列表成员推文 + Profile
+tmd -list 1234567890123
+
+# 下载列表成员推文，不下载 Profile
+tmd -list 1234567890123 -noprofile
+
+# 仅下载列表成员 Profile
+tmd -profile-list 1234567890123
+
+# 多个列表
+tmd -list 111111 -list 222222
+```
+
+### 场景5：下载关注列表
+
+```bash
+# 下载某用户关注的所有人
+tmd -foll myusername
+```
+
+### 场景6：混合下载
+
+```bash
+# 用户 + 列表 + 关注列表
+tmd -user elonmusk -list 123456 -foll myusername
+
+# Profile 专用下载，只下载 profile
+tmd -profile-user elonmusk -profile-list 123456
+```
+
+### 场景7：处理受保护用户
+
+```bash
+# 自动发送关注请求
+tmd -user protected_user -auto-follow
+```
+
+### 场景8：标记已下载
+
+```bash
+# 标记为当前时间
+tmd -user elonmusk -mark-downloaded
+
+# 标记为指定时间
+tmd -user elonmusk -mark-downloaded -mark-time "2024-01-01T00:00:00"
+
+# 批量标记
+tmd -user a -user b -user c -mark-downloaded
+```
+
+### 场景9：从 JSON 文件/文件夹下载
+
+```bash
+# 从第三方工具导出的推文搜索结果 JSON 下载推文媒体（图片/视频/txt/json）
+tmd -jsonfile ./twitter-search-results-123.json
+
+# 从多个 JSON 文件下载
+tmd -jsonfile ./search1.json -jsonfile ./search2.json -jsonfile ./followers.json
+
+# 从 TMD 生成的 .loongtweet 文件夹下载推文媒体（仅媒体，无元数据）
+tmd -jsonfolder ./path/to/.loongtweet
+
+# 从多个 .loongtweet 文件夹下载
+tmd -jsonfolder ./folder1/.loongtweet -jsonfolder ./folder2/.loongtweet
+
+# 注意：-jsonfile 和 -jsonfolder 是独占参数，优先级最高
+# 以下命令只会执行 -jsonfile，-user 被忽略
+tmd -jsonfile ./search.json -user elonmusk
+```
+
+**`-jsonfile` 输出示例**：
+```
+[screen_name] 推文文本内容_1234567890 [3/3 succeeded]
+[screen_name] 另一条推文_1234567891 [2/2 succeeded]
+JSON file download completed: 2 success, 0 failed, 5 media
+```
+
+**`-jsonfolder` 输出示例**：
+```
+[jsonfolder] .loongtweet: 8/10 tweets succeeded (2 failed)
+LoongTweet folder download completed: 1 folder(s) processed, 8 succeeded, 2 failed, 15 media
+```
+
+> 💡 **推荐搭配**：使用 [twitter-web-exporter](https://github.com/prinsss/twitter-web-exporter) 浏览器脚本导出推文或用户列表为 JSON 格式，然后用 `-jsonfile` 或 `-jsonfolder` 参数下载。
+
+### 场景10：调试与排错
+
+```bash
+# 调试模式
+tmd -user elonmusk -dbg
+
+# 快速退出（不重试）
+tmd -user elonmusk -no-retry
+```
 
 ***
 
@@ -368,6 +551,8 @@ tmd -conf
 > - `-auto-follow`：仅在下载过程中遇到 **受保护且未关注** 用户时发送关注请求。
 > - `-follow-members`：对下载目标/成员中 **未关注** 的用户尝试关注（不限是否受保护），并避免与 `-auto-follow` 重复请求。
 
+> **忽略用户**：程序默认会忽略被静音或被屏蔽的用户，所以当你想要下载的列表中包含你不想包含的用户，可以在推特将他们屏蔽或静音。
+
 ### 标记参数
 
 | 参数                 | 类型     | 默认值   | 说明                               |
@@ -384,6 +569,37 @@ tmd -conf
 | `-profile-list` | uint64 | ✅   | 单独指定下载 profile 的列表ID（无需同时下载推文）                             |
 
 > **注意**：使用 `-user`、`-list`、`-foll` 下载推文时，Profile 下载默认启用。使用 `-noprofile` 可跳过。使用 `-profile-user`/`-profile-list` 可仅下载 Profile 而不下载推文。
+
+***
+
+### 参数兼容性速查表
+
+| 组合                                    |  兼容 | 说明                      |
+| ------------------------------------- | :-: | ----------------------- |
+| `-user` + `-list` + `-foll`           |  ✅  | 多种来源可叠加                 |
+| `-user` + `-list` + `-foll` + `-jsonfile` |  ⚠️  | **仅执行 `-jsonfile`**（高优先级独占） |
+| `-user` + `-list` + `-foll` + `-jsonfolder` |  ⚠️  | **仅执行 `-jsonfolder`**（高优先级独占） |
+| `-jsonfile` + `-noprofile`            |  ⚠️  | **仅执行 `-jsonfile`**（高优先级独占） |
+| `-jsonfolder` + `-noprofile`           |  ⚠️  | **仅执行 `-jsonfolder`**（高优先级独占） |
+| `-user` + Profile 自动下载                |  ✅  | 下载推文时自动下载 Profile       |
+| `-list` + Profile 自动下载                |  ✅  | 下载列表成员推文时自动下载 Profile   |
+| `-foll` + Profile 自动下载                |  ✅  | 下载关注用户推文时自动下载 Profile   |
+| `-profile-user` + `-profile-list`     |  ✅  | 仅下载资料，不下载推文             |
+| `-user` + `-profile-user`             |  ✅  | 推文下载 + 额外用户资料           |
+| `-dbg` + 任意参数                         |  ✅  | 启用调试输出                  |
+| `-auto-follow` + 推文下载                 |  ✅  | 自动关注受保护用户               |
+| `-no-retry` + 推文下载                    |  ✅  | 失败不重试                   |
+| `-mark-downloaded` + `-mark-time`     |  ✅  | 指定标记时间                  |
+| `-mark-downloaded` + 推文下载             |  ⚠️  | **仅执行标记，不下载推文**（与稳定版不同） |
+| `-jsonfile` + `-mark-downloaded`        |  ⚠️  | **仅执行 `-jsonfile`**（高优先级独占） |
+| `-jsonfolder` + `-mark-downloaded`      |  ⚠️  | **仅执行 `-jsonfolder`**（高优先级独占） |
+| `-conf` + 其他参数                        |  ⚠️ | CLI 模式：配置后退出，忽略其他；Server 模式：配置后启动 Server |
+| `-noprofile` + 推文下载参数                 |  ✅  | 下载推文但跳过 Profile         |
+| `-follow-members` + 推文下载 |  ✅  | 下载时关注目标/成员（失败仅 warning） |
+| `-mark-downloaded` + `-user` + `-list` + `-foll` |  ✅  | 批量标记多种来源 |
+| `-server` + `-port`                   |  ✅  | 指定 API Server 端口        |
+| `-server` + 下载参数                      |  ⚠️ | Server 模式下忽略下载参数        |
+| `-server` + `-conf`                   |  ⚠️ | 配置后启动 Server           |
 
 ***
 
@@ -482,19 +698,7 @@ tmd -server -port 8080
 | **GET** | `/api/v1/logs/stream` | SSE 实时日志流 | ❌ |
 | **GET** | `/api/v1/logs/stats` | 日志级别统计计数 | ❌ |
 | **GET** | `/api/v1/logs/export` | 导出完整日志文件 | ❌ |
-| **GET** | `/api/v1/schedules` | 获取定时任务列表和状态 | ❌ |
-| **PUT** | `/api/v1/schedules` | 替换全部调度配置 | ❌ |
-| **POST** | `/api/v1/schedules` | 创建定时任务 | ❌ |
-| **GET** | `/api/v1/schedules/raw` | 获取原始调度配置 | ❌ |
-| **PUT** | `/api/v1/schedules/raw` | 更新原始调度配置 (YAML) | ❌ |
-| **POST** | `/api/v1/schedules/reload` | 重载调度配置 | ❌ |
-| **POST** | `/api/v1/schedules/validate` | 验证调度配置 | ❌ |
-| **POST** | `/api/v1/schedules/trigger-all` | 批量触发所有已启用的调度 | ❌ |
-| **GET** | `/api/v1/schedules/stats` | 调度概览统计（总数/启用/异常） | ❌ |
-| **PUT** | `/api/v1/schedules/{id}` | 更新定时任务 | ❌ |
-| **DELETE** | `/api/v1/schedules/{id}` | 删除定时任务 | ❌ |
-| **PATCH** | `/api/v1/schedules/{id}/enabled` | 启用/禁用定时任务 | ❌ |
-| **POST** | `/api/v1/schedules/{id}/trigger` | 手动触发定时任务 | ❌ |
+| **GET** | `/api/v1/schedules` | 定时任务管理（详见[调度器API](#调度器-api)） | ❌ |
 | **GET** | `/api/v1/errors` | 失败推文摘要（含常规+JSON来源） | ❌ |
 | **POST** | `/api/v1/errors/retry` | 重试所有历史失败推文 | ❌ |
 | **DELETE** | `/api/v1/errors` | 清除所有失败推文记录 | ❌ |
@@ -568,8 +772,8 @@ Server 支持优雅关闭，确保所有资源正确释放：
 
 - **信号触发**：收到 SIGINT/SIGTERM 信号时自动执行
 - **API 触发**：`POST /api/v1/server/shutdown`
-- **关闭顺序**：取消所有任务 → 停止调度器 → 关闭 HTTP Server → 关闭数据库 → 关闭日志写入器
-- **超时保护**：HTTP Server 关闭超时 5 秒
+- **关闭顺序**：取消所有运行中的任务 → 等待下载队列 15 秒 → 停止调度器 → 关闭 HTTP Server（超时 30 秒） → 关闭数据库 → 关闭日志写入器
+- **超时保护**：HTTP Server 关闭超时 30 秒，下载队列等待 15 秒
 - **幂等性**：使用 `sync.Once` 确保关闭只执行一次
 
 ### Web 管理界面
@@ -889,147 +1093,6 @@ media:2
 
 ***
 
-## 使用场景与示例
-
-### 场景1：首次使用
-
-```bash
-# 1. 配置
-tmd -conf
-
-# 2. 测试下载
-tmd -user elonmusk -dbg
-```
-
-### 场景2：下载单个用户
-
-```bash
-# 下载推文 + Profile（默认行为）
-tmd -user elonmusk
-
-# 仅下载推文，不下载 Profile
-tmd -user elonmusk -noprofile
-
-# 使用数字用户名（如纯数字的 screen_name）
-tmd -user 44196397
-
-# 使用 @ 前缀
-tmd -user @elonmusk
-```
-
-### 场景3：批量下载多个用户
-
-```bash
-# 下载多个用户的推文 + Profile
-tmd -user elonmusk -user NASA -user SpaceX
-
-# 下载多个用户的推文，不下载 Profile
-tmd -user elonmusk -user NASA -user SpaceX -noprofile
-
-# 仅下载多个用户的 Profile
-tmd -profile-user elonmusk -profile-user NASA -profile-user SpaceX
-```
-
-### 场景4：下载列表
-
-```bash
-# 下载列表成员推文 + Profile
-tmd -list 1234567890123
-
-# 下载列表成员推文，不下载 Profile
-tmd -list 1234567890123 -noprofile
-
-# 仅下载列表成员 Profile
-tmd -profile-list 1234567890123
-
-# 多个列表
-tmd -list 111111 -list 222222
-```
-
-### 场景5：下载关注列表
-
-```bash
-# 下载某用户关注的所有人
-tmd -foll myusername
-```
-
-### 场景6：混合下载
-
-```bash
-# 用户 + 列表 + 关注列表
-tmd -user elonmusk -list 123456 -foll myusername
-
-# Profile 专用下载，只下载 profile
-tmd -profile-user elonmusk -profile-list 123456
-```
-
-### 场景7：处理受保护用户
-
-```bash
-# 自动发送关注请求
-tmd -user protected_user -auto-follow
-```
-
-### 场景8：标记已下载
-
-```bash
-# 标记为当前时间
-tmd -user elonmusk -mark-downloaded
-
-# 标记为指定时间
-tmd -user elonmusk -mark-downloaded -mark-time "2024-01-01T00:00:00"
-
-# 批量标记
-tmd -user a -user b -user c -mark-downloaded
-```
-
-### 场景9：从 JSON 文件/文件夹下载
-
-```bash
-# 从第三方工具导出的推文搜索结果 JSON 下载推文媒体（图片/视频/txt/json）
-tmd -jsonfile ./twitter-search-results-123.json
-
-# 从多个 JSON 文件下载
-tmd -jsonfile ./search1.json -jsonfile ./search2.json -jsonfile ./followers.json
-
-# 从 TMD 生成的 .loongtweet 文件夹下载推文媒体（仅媒体，无元数据）
-tmd -jsonfolder ./path/to/.loongtweet
-
-# 从多个 .loongtweet 文件夹下载
-tmd -jsonfolder ./folder1/.loongtweet -jsonfolder ./folder2/.loongtweet
-
-# 注意：-jsonfile 和 -jsonfolder 是独占参数，优先级最高
-# 以下命令只会执行 -jsonfile，-user 被忽略
-tmd -jsonfile ./search.json -user elonmusk
-```
-
-**`-jsonfile` 输出示例**：
-```
-[screen_name] 推文文本内容_1234567890 [3/3 succeeded]
-[screen_name] 另一条推文_1234567891 [2/2 succeeded]
-JSON file download completed: 2 success, 0 failed, 5 media
-```
-
-**`-jsonfolder` 输出示例**：
-```
-[jsonfolder] .loongtweet: 8/10 tweets succeeded (2 failed)
-LoongTweet folder download completed: 1 folder(s) processed, 8 succeeded, 2 failed, 15 media
-```
-
-> 💡 **推荐搭配**：使用 [twitter-web-exporter](https://github.com/prinsss/twitter-web-exporter) 浏览器脚本导出推文或用户列表为 JSON 格式，然后用 `-jsonfile` 或 `-jsonfolder` 参数下载。
-
-### 场景10：调试与排错
-
-```bash
-# 调试模式
-tmd -user elonmusk -dbg
-
-# 快速退出（不重试）
-tmd -user elonmusk -no-retry
-```
-
-***
-
 ## 高级设置
 
 ### 设置代理
@@ -1074,10 +1137,6 @@ export HTTPS_PROXY=http://127.0.0.1:7890
 tmd -user elonmusk
 ```
 
-### 忽略用户
-
-程序默认会忽略被静音或被屏蔽的用户，所以当你想要下载的列表中包含你不想包含的用户，可以在推特将他们屏蔽或静音。
-
 ### 添加额外 Cookie
 
 程序动态从所有可用 cookie 中选择一个不会被速率限制的 cookie 请求用户推文，以避免因单一 cookie 的速率限制导致程序被阻塞。
@@ -1117,36 +1176,114 @@ start-server.bat -port 8080
 
 ***
 
-## 参数兼容性速查表
+### 日志系统详解
 
-| 组合                                    |  兼容 | 说明                      |
-| ------------------------------------- | :-: | ----------------------- |
-| `-user` + `-list` + `-foll`           |  ✅  | 多种来源可叠加                 |
-| `-user` + `-list` + `-foll` + `-jsonfile` |  ⚠️  | **仅执行 `-jsonfile`**（高优先级独占） |
-| `-user` + `-list` + `-foll` + `-jsonfolder` |  ⚠️  | **仅执行 `-jsonfolder`**（高优先级独占） |
-| `-jsonfile` + `-noprofile`            |  ⚠️  | **仅执行 `-jsonfile`**（高优先级独占） |
-| `-jsonfolder` + `-noprofile`           |  ⚠️  | **仅执行 `-jsonfolder`**（高优先级独占） |
-| `-user` + Profile 自动下载                |  ✅  | 下载推文时自动下载 Profile       |
-| `-list` + Profile 自动下载                |  ✅  | 下载列表成员推文时自动下载 Profile   |
-| `-foll` + Profile 自动下载                |  ✅  | 下载关注用户推文时自动下载 Profile   |
-| `-profile-user` + `-profile-list`     |  ✅  | 仅下载资料，不下载推文             |
-| `-user` + `-profile-user`             |  ✅  | 推文下载 + 额外用户资料           |
-| `-dbg` + 任意参数                         |  ✅  | 启用调试输出                  |
-| `-auto-follow` + 推文下载                 |  ✅  | 自动关注受保护用户               |
-| `-no-retry` + 推文下载                    |  ✅  | 失败不重试                   |
-| `-mark-downloaded` + `-mark-time`     |  ✅  | 指定标记时间                  |
-| `-mark-downloaded` + 推文下载             |  ⚠️  | **仅执行标记，不下载推文**（与稳定版不同） |
-| `-jsonfile` + `-mark-downloaded`        |  ⚠️  | **仅执行 `-jsonfile`**（高优先级独占） |
-| `-jsonfolder` + `-mark-downloaded`      |  ⚠️  | **仅执行 `-jsonfolder`**（高优先级独占） |
-| `-conf` + 其他参数                        |  ⚠️ | CLI 模式：配置后退出，忽略其他；Server 模式：配置后启动 Server |
-| `-noprofile` + 推文下载参数                 |  ✅  | 下载推文但跳过 Profile         |
-| `-follow-members` + 推文下载 |  ✅  | 下载时关注目标/成员（失败仅 warning） |
-| `-mark-downloaded` + `-user` + `-list` + `-foll` |  ✅  | 批量标记多种来源 |
-| `-server` + `-port`                   |  ✅  | 指定 API Server 端口        |
-| `-server` + 下载参数                      |  ⚠️ | Server 模式下忽略下载参数        |
-| `-server` + `-conf`                   |  ⚠️ | 配置后启动 Server           |
+#### 日志位置
+
+| 平台 | 主日志路径 | CLI 输出日志 |
+|------|----------|-------------|
+| **Windows** | `%APPDATA%\.tmd2\tmd2.log` | `%APPDATA%\.tmd2\client.log` |
+| **macOS/Linux** | `~/.tmd2/tmd2.log` | `~/.tmd2/client.log` |
+
+#### 日志轮转配置
+
+程序使用 [lumberjack](https://github.com/natefinch/lumberjack) 进行日志轮转：
+
+| 配置项 | 当前值 | 说明 |
+|--------|-------|------|
+| 单文件最大 | **2 MB** | 防止单个日志文件过大 |
+| 保留份数 | **2** | 最多保留 2 个历史日志文件 |
+| 保留天数 | **14 天** | 自动清理 14 天前的日志 |
+| 压缩 | ❌ 关闭 | 不压缩历史日志（便于查看） |
+
+#### 日志级别
+
+```bash
+# 默认级别：Info（显示重要信息）
+tmd -user elonmusk
+
+# 调试级别：Debug（显示所有请求详情）
+tmd -user elonmusk -dbg
+```
+
+**Debug 模式额外输出：**
+- 每个 Twitter API 请求的 URL 和响应时间
+- 总请求数统计（`twitter.ReportRequestCount()`）
+- 数据库查询详情
+- 文件写入操作日志
+
+
+## 常见问题
+
+### Q: 如何查看失败的下载？
+
+失败的任务保存在 `{存储目录}/.data/errors.json`，下次运行会自动重试。详见[故障排除](#常见错误码速查)。
+
+### Q: Profile 文件存在时还会重新下载吗？
+
+如果文件内容未变更（MD5 校验），会自动跳过。详见[性能优化特性](#3-md5-去重)。
+
+### Q: 如何更新已下载用户的 Profile？
+
+重新运行相同的命令即可，只会下载变更的文件。
+
+### Q: 下载中断后怎么办？
+
+直接重新运行相同命令，程序会自动恢复。详见[典型问题场景](#典型问题场景与解决方案)。
+
+### Q: Windows 上需要管理员权限吗？
+
+创建符号链接需要管理员权限。详见[权限要求](#权限要求)。
+
+### Q: 如何获取列表ID？不知道啥是 user\_id/list\_id/screen\_name?
+
+在 Twitter 网页版打开列表，URL `https://x.com/i/lists/1234567890123` 中的数字就是列表ID。
+更多信息请参考 [doc/help.md](doc/help.md)。
+
+### Q: 推文 JSON 文件有什么用？
+
+即使媒体下载失败，推文信息也会保存到 `.loongtweet/` 目录，可用于数据分析或备份。详见[推文 JSON 保存](#推文-json-保存)。
 
 ***
+
+## 输出结果格式
+
+### 推文下载结果
+
+```
+users: 3
+    - Elon Musk(elonmusk)
+    - NASA(NASA)
+    - SpaceX(SpaceX)
+```
+
+### Profile 下载结果
+
+CLI 模式下，Profile 下载结果通过日志输出，例如：
+
+```
+[cli] Completed (profile(downloaded=2, failed=1, versionedfile=3))
+```
+
+API 模式下，Profile 结果可通过任务详情查看（`GET /api/v1/tasks/{task_id}`），包含 `profile.downloaded`、`profile.failed`、`profile.versioned` 字段。
+
+状态说明：
+- 用户级 `downloaded` — 下载成功
+- 用户级 `failed` — 下载失败
+- 文件级 `versioned` — 旧文件已备份到 `.versions/`
+
+### 标记结果
+
+CLI 模式下，标记结果通过日志输出，例如：
+
+```
+[cli] Completed: Marked 3 users as downloaded
+```
+
+API 模式下，标记结果可以通过任务详情查看（`GET /api/v1/tasks/{task_id}`），包含 `message` 和统计信息。
+
+***
+
 ## 项目架构
 
 本项目当前的主干调用关系是：
@@ -1164,7 +1301,7 @@ internal/service
   └─ 编排 downloading / downloader / twitter / database / path
 ```
 
-整体上采用“入口层 + 应用服务层 + 业务层 + 基础设施层”的结构，核心复用点是 **`internal/service`**：CLI 和 API Server 共用同一套下载编排逻辑，避免两边各自维护一份下载流程。
+整体上采用"入口层 + 应用服务层 + 业务层 + 基础设施层"的结构，核心复用点是 **`internal/service`**：CLI 和 API Server 共用同一套下载编排逻辑，避免两边各自维护一份下载流程。
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -1269,7 +1406,7 @@ internal/service
 | --- | --- |
 | **Service 复用** | CLI 和 API 统一走 `DownloadService`，避免重复维护下载逻辑 |
 | **入口与业务分离** | `internal/cli` / `internal/api` 只负责参数、HTTP、任务编排和响应 |
-| **业务与下载器分离** | `internal/downloading` 负责“下载什么、按什么流程下载”，`internal/downloader` 负责“文件怎么下、怎么写” |
+| **业务与下载器分离** | `internal/downloading` 负责"下载什么、按什么流程下载"，`internal/downloader` 负责"文件怎么下、怎么写" |
 | **数据库集中管理** | SQLite schema、迁移、查询和实体同步集中在 `internal/database` |
 | **任务异步化** | Server 模式通过 TaskManager、DownloadQueue、SSE 推进长任务 |
 | **增量与重试** | 基于数据库和 `.data/errors.json` 做增量抓取与失败重试 |
@@ -1320,6 +1457,12 @@ type DownloadService interface {
 
     // 标记已下载
     MarkDownloaded(ctx context.Context, taskID string, screenNames []string, listIDs []uint64, followingNames []string, markTime *string, reporter ProgressReporter) error
+
+    // 重试所有历史失败推文（常规下载和 JSON 导入）
+    RetryAllFailed(ctx context.Context, taskID string, reporter ProgressReporter) error
+
+    // 清除所有失败推文记录
+    ClearErrors() error
 }
 ```
 
@@ -1346,143 +1489,6 @@ type DownloadService interface {
 | 代码复用 | 低（CLI 和 API 各自实现） | 高（共享 Service） |
 | 可测试性 | 低 | 高（接口化设计） |
 | 实时进度 | 无 | SSE 推送 |
-
-***
-
-## 常见问题
-
-### Q: 如何查看失败的下载？
-
-失败的任务保存在 `{存储目录}/.data/errors.json`，下次运行会自动重试。
-
-### Q: Profile 文件存在时还会重新下载吗？
-
-如果文件内容未变更（MD5校验），会自动跳过。
-
-### Q: 如何更新已下载用户的 Profile？
-
-重新运行相同的命令即可，只会下载变更的文件。
-
-### Q: 下载中断后怎么办？
-
-直接重新运行相同命令，程序会自动恢复。
-
-### Q: `-mark-downloaded` 的用途？
-
-用于标记用户为"已下载到最后"，下次运行时不会下载历史推文，只下载新推文。
-
-### Q: 如何获取列表ID？
-
-在 Twitter 网页版打开列表，URL 格式为：
-
-```
-https://x.com/i/lists/1234567890123
-```
-
-其中数字就是列表ID。
-
-### Q: 不知道啥是 user\_id/list\_id/screen\_name?
-
-请参考 [获取 list\_id, user\_id, screen\_name](https://github.com/unkmonster/tmd/blob/master/doc/help.md#获取-list_id-user_id-screen_name)
-
-### Q: Windows 上需要管理员权限吗？
-
-为了创建符号链接，在 Windows 上应该以管理员身份运行程序。
-
-### Q: 推文 JSON 文件有什么用？
-
-即使媒体下载失败，推文信息也会保存到 `.loongtweet/` 目录。JSON 文件包含完整的推文数据，可用于数据分析或备份。
-
-### Q: `-jsonfile` 保存的 JSON 与 `-user` 的有什么区别？
-
-两者最终格式一致，但处理流程不同：
-- **`-user`**：直接调用 `cleanTweetJson` 清理冗余字段
-- **`-jsonfile`**：先经过 `ConvertThirdPartyTweetJSON` 格式转换（第三方新格式 → TMD 兼容旧格式），再由 `cleanTweetJson` 清理
-
-转换规则包括：嵌套对象扁平化（如 `RelationshipPerspectives` → `legacy` 扁平字段）、头像 `_normal` 后缀移除、图片 URL 追加高清参数等。
-
-### Q: `-jsonfile` 和 `-jsonfolder` 的区别？
-
-| 特性 | `-jsonfile` | `-jsonfolder` |
-|------|------------|--------------|
-| 输入来源 | 第三方工具导出的 JSON 文件 | TMD 生成的 `.loongtweet/` 文件夹 |
-| 保存元数据 | ✅ 保存 `.json` + `.txt` | ❌ 不保存 |
-| 格式转换 | ✅ 新格式→旧格式 | 不需要（已是 TMD 格式） |
-| 适用场景 | 首次从第三方导入 | 重新下载/迁移媒体文件 |
-
-***
-
-## 输出结果格式
-
-### 推文下载结果
-
-```
-users: 3
-    - Elon Musk(elonmusk)
-    - NASA(NASA)
-    - SpaceX(SpaceX)
-```
-
-### Profile 下载结果
-
-```
-=== PROFILE_DOWNLOAD_RESULTS ===
-SCREEN_NAME:elonmusk|STATUS:OK
-SCREEN_NAME:NASA|STATUS:OK
-SCREEN_NAME:SpaceX|STATUS:SKIP
-SCREEN_NAME:test|STATUS:FAIL
-=== END_RESULTS ===
-```
-
-状态说明：
-
-- `OK` - 下载成功
-- `SKIP` - 跳过（文件未变更）
-- `FAIL` - 下载失败
-
-### 标记结果
-
-```
-=== MARK_DOWNLOADED_RESULTS ===
-ENTITY_ID:1|USER_ID:44196397|SCREEN_NAME:elonmusk|STATUS:OK
-ENTITY_ID:2|USER_ID:23248887|SCREEN_NAME:NASA|STATUS:OK
-=== END_RESULTS ===
-```
-
-***
-
-## 参数类型总结
-
-### 布尔型参数（开关型，无需值）
-
-| 参数                 | 说明               |
-| ------------------ | ---------------- |
-| `-conf`            | 重新配置             |
-| `-dbg`             | 调试模式             |
-| `-server`          | 启动 API Server 模式 |
-| `-auto-follow`     | 自动关注受保护用户        |
-| `-follow-members`  | 下载时关注目标/成员        |
-| `-no-retry`        | 不重试失败推文          |
-| `-mark-downloaded` | 仅标记已下载           |
-| `-noprofile`       | 跳过 Profile 下载    |
-
-### 可重复参数（可多次使用）
-
-| 参数              | 说明                 |
-| --------------- | ------------------ |
-| `-user`         | 用户名/ID             |
-| `-list`         | 列表ID               |
-| `-foll`         | 用户名/ID             |
-| `-jsonfile`     | 第三方工具导出的 JSON 文件路径   |
-| `-jsonfolder`   | TMD 生成的 `.loongtweet` 文件夹路径 |
-| `-profile-user` | 用户名/ID             |
-| `-profile-list` | 列表ID               |
-
-### 字符串参数
-
-| 参数           | 说明                       |
-| ------------ | ------------------------ |
-| `-mark-time` | 时间戳（2006-01-02T15:04:05） |
 
 ***
 
@@ -1517,7 +1523,7 @@ tmd/
 
 ### 运行测试
 
-项目包含 **49 个测试文件**，覆盖核心业务逻辑：
+项目包含 **58 个测试文件**，覆盖核心业务逻辑：
 
 ```bash
 # 运行所有测试（含竞态检测）
@@ -1579,92 +1585,15 @@ go tool cover -html=covprofile -o coverage.html
   4. 发布版本时自动创建 Release
 ```
 
+### 独立工具
+
+| 工具 | 位置 | 用途 |
+|------|------|------|
+| **tmd-db-migrate** | `tools/tmd-db-migrate/` | 跨平台数据库路径迁移，当下载目录从 Windows 迁移到 Linux 等场景时重写 `foo.db` 中的 `parent_dir` 路径。详见 [foo.db 跨平台迁移说明](doc/foo.db%20跨平台迁移说明.md) |
+| **convert_db_to_legacy.py** | 仓库根目录 | 将新格式数据库转换为旧格式的辅助脚本 |
+
 ***
 
-## 安全说明
-
-### Cookie 安全 ⚠️
-
-`auth_token` 和 `ct0` 相当于你的 **Twitter 登录凭证**，请务必妥善保管！
-
-**安全建议：**
-
-- ❌ **不要**将配置文件提交到公开 Git 仓库（已在 `.gitignore` 排除）
-- ❌ **不要**分享包含真实 Cookie 的配置文件或截图
-- ❌ **不要**在日志或调试信息中暴露完整 Cookie
-- ✅ 定期更新 Cookie（Twitter 可能会使其失效或定期轮换）
-- ✅ 使用 `tmd -conf` 安全更新配置，避免手动编辑出错
-- ✅ 仅在可信设备上运行程序
-
-**Cookie 存储位置：**
-
-| 平台 | 路径 | 权限 |
-|------|------|------|
-| Windows | `%APPDATA%\.tmd2\conf.yaml` | 当前用户 |
-| macOS/Linux | `~/.tmd2/conf.yaml` | 当前用户 (600) |
-
-### 权限要求
-
-| 操作系统 | 特殊权限 | 原因 |
-|---------|---------|------|
-| **Windows** | 管理员权限 | 创建符号链接需要 SeCreateSymbolicLinkPrivilege |
-| **Linux/macOS** | 文件系统写入权限 | 写入存储目录和数据库文件 |
-
-> 💡 **提示**: Windows 用户可以右键点击 `tmd.exe` → "以管理员身份运行"，或在管理员 PowerShell 中执行。
-
-### 数据隐私
-
-所有下载的数据**仅存储在本地**，不会上传到任何第三方服务器：
-
-```
-{存储目录}/
-├── users/              # 推文媒体文件（图片/视频/GIF）
-│   └── {用户名}/
-│       ├── .loongtweet/   # 推文元数据（JSON/TXT）
-│       │   └── .profile/ # 用户资料（头像/横幅/简介）
-│       └── {日期}/        # 按日期组织的媒体文件
-├── .data/
-│   ├── foo.db          # SQLite 数据库（用户/列表/实体关系）
-│   └── errors.json     # 失败推文记录
-└── ...
-```
-
-**数据保护建议：**
-- 定期备份 `{存储目录}` 和 `.data/foo.db`
-- 敏感数据（如受保护用户的推文）注意访问控制
-- 删除用户数据时同时清理数据库记录
-
-### API Server 安全
-
-当前版本 API Server **无需认证**，适用于本地使用：
-
-**生产环境安全加固方案：**
-
-```nginx
-# Nginx 反向代理示例 - 添加 Basic Auth
-server {
-    listen 8080;
-    
-    location /api/v1/ {
-        auth_basic "TMD API";
-        auth_basic_user_file /etc/nginx/.htpasswd;
-        
-        proxy_pass http://127.0.0.1:25556;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        
-        # 限制请求速率
-        limit_req zone=api burst=20 nodelay;
-    }
-}
-```
-
-**推荐安全措施：**
-1. **网络隔离**: 仅绑定到 localhost (`127.0.0.1:25556`)
-2. **反向代理**: 使用 Nginx/Caddy 添加认证层
-3. **IP 白名单**: 防火墙限制访问来源 IP
-4. **HTTPS**: 公网部署时强制 TLS 加密
-5. **速率限制**: 防止 API 滥用
 
 ***
 
@@ -1848,41 +1777,6 @@ tmd -user elonmusk -dbg
 # 直接运行 tmd，不设置 HTTP_PROXY/HTTPS_PROXY
 ```
 
-### 日志系统详解
-
-#### 日志位置
-
-| 平台 | 主日志路径 | CLI 输出日志 |
-|------|----------|-------------|
-| **Windows** | `%APPDATA%\.tmd2\tmd2.log` | `%APPDATA%\.tmd2\client.log` |
-| **macOS/Linux** | `~/.tmd2/tmd2.log` | `~/.tmd2/client.log` |
-
-#### 日志轮转配置
-
-程序使用 [lumberjack](https://github.com/natefinch/lumberjack) 进行日志轮转：
-
-| 配置项 | 当前值 | 说明 |
-|--------|-------|------|
-| 单文件最大 | **2 MB** | 防止单个日志文件过大 |
-| 保留份数 | **2** | 最多保留 2 个历史日志文件 |
-| 保留天数 | **14 天** | 自动清理 14 天前的日志 |
-| 压缩 | ❌ 关闭 | 不压缩历史日志（便于查看） |
-
-#### 日志级别
-
-```bash
-# 默认级别：Info（显示重要信息）
-tmd -user elonmusk
-
-# 调试级别：Debug（显示所有请求详情）
-tmd -user elonmusk -dbg
-```
-
-**Debug 模式额外输出：**
-- 每个 Twitter API 请求的 URL 和响应时间
-- 总请求数统计（`twitter.ReportRequestCount()`）
-- 数据库查询详情
-- 文件写入操作日志
 
 ### 典型问题场景与解决方案
 

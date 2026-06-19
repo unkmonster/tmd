@@ -37,20 +37,20 @@
 |------|------|--------|------|
 | `/api/v1/db/users` | GET | `handleDBUsers` | 查询用户列表 |
 | `/api/v1/db/users/{id}` | GET | `handleDBUserDetail` | 获取用户详情 |
-| `/api/v1/db/users/{id}` | PUT | `handleDBUserUpdate` | 更新用户 |
+| `/api/v1/db/users/{id}` | PATCH | `handleDBUserUpdate` | 更新用户 |
 | `/api/v1/db/users/{id}` | DELETE | `handleDBUserDelete` | 删除用户 |
 | `/api/v1/db/users/{id}/previous-names` | GET | `handleDBUserPreviousNames` | 获取用户历史名称 |
 | `/api/v1/db/user-previous-names` | GET | `handleDBPreviousNames` | 全局历史名称查询（含当前名称） |
 | `/api/v1/db/lists` | GET | `handleDBLists` | 查询列表 |
 | `/api/v1/db/lists/{id}` | GET | `handleDBListDetail` | 获取列表详情 |
-| `/api/v1/db/lists/{id}` | PUT | `handleDBListUpdate` | 更新列表 |
+| `/api/v1/db/lists/{id}` | PATCH | `handleDBListUpdate` | 更新列表 |
 | `/api/v1/db/lists/{id}` | DELETE | `handleDBListDelete` | 删除列表 |
 | `/api/v1/db/user-entities` | GET | `handleDBUserEntities` | 查询用户实体 |
-| `/api/v1/db/user-entities/{id}` | GET/PUT/DELETE | ... | CRUD操作 |
+| `/api/v1/db/user-entities/{id}` | GET/PATCH/DELETE | ... | CRUD操作 |
 | `/api/v1/db/list-entities` | GET | `handleDBListEntities` | 查询列表实体 |
-| `/api/v1/db/list-entities/{id}` | GET/PUT/DELETE | ... | CRUD操作 |
+| `/api/v1/db/list-entities/{id}` | GET/PATCH/DELETE | ... | CRUD操作 |
 | `/api/v1/db/user-links` | GET | `handleDBUserLinks` | 查询用户链接 |
-| `/api/v1/db/user-links/{id}` | GET/PUT/DELETE | ... | CRUD操作 |
+| `/api/v1/db/user-links/{id}` | GET/PATCH/DELETE | ... | CRUD操作 |
 
 ### 1.4 配置管理端点 (config_handlers.go)
 
@@ -86,6 +86,7 @@
 | `/api/v1/errors` | GET | `handleErrors` | 失败推文摘要 |
 | `/api/v1/errors/retry` | POST | `handleRetryAllFailed` | 重试所有失败推文 |
 | `/api/v1/errors` | DELETE | `handleClearErrors` | 清除失败推文记录 |
+| `/api/v1/queue/status` | GET | `handleQueueStatus` | 队列状态（待处理/活动/分离任务数） |
 
 ### 1.8 静态资源端点 (handlers.go)
 
@@ -94,6 +95,24 @@
 | `/` | GET | `handleWeb` | 主页 |
 | `/`, `/tasks`, `/data`, `/system`, `/logs` | GET | `handleWeb` | 页面路由 |
 | `/static/*` | GET | `handleStatic` | 静态文件服务 |
+
+### 1.9 计划任务端点 (scheduler_handlers.go)
+
+| 端点 | 方法 | 处理器 | 功能 |
+|------|------|--------|------|
+| `/api/v1/schedules` | GET | `handleGetSchedules` | 获取所有计划任务 |
+| `/api/v1/schedules` | PUT | `handleReplaceSchedules` | 替换所有计划任务 |
+| `/api/v1/schedules` | POST | `handleCreateSchedule` | 创建计划任务 |
+| `/api/v1/schedules/raw` | GET | `handleGetSchedulesRaw` | 获取原始 YAML 配置 |
+| `/api/v1/schedules/raw` | PUT | `handleUpdateSchedulesRaw` | 更新原始 YAML 配置 |
+| `/api/v1/schedules/reload` | POST | `handleReloadSchedules` | 重新加载配置文件 |
+| `/api/v1/schedules/validate` | POST | `handleValidateSchedule` | 校验计划任务配置 |
+| `/api/v1/schedules/trigger-all` | POST | `handleTriggerAllSchedules` | 触发所有计划任务 |
+| `/api/v1/schedules/stats` | GET | `handleScheduleStats` | 计划任务统计 |
+| `/api/v1/schedules/{id}` | PUT | `handleUpdateSchedule` | 更新指定计划任务 |
+| `/api/v1/schedules/{id}` | DELETE | `handleDeleteSchedule` | 删除指定计划任务 |
+| `/api/v1/schedules/{id}/enabled` | PATCH | `handleSetScheduleEnabled` | 启用/禁用指定计划任务 |
+| `/api/v1/schedules/{id}/trigger` | POST | `handleTriggerSchedule` | 手动触发指定计划任务 |
 
 ---
 

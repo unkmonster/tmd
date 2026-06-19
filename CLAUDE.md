@@ -2,7 +2,8 @@
 
 十荣
 
-以使用codegraph 为荣
+以使用codegraph 为荣：用 codegraph 替代纯 grep 做代码分析——调用链、影响范围、架构概览。优先用 MCP 工具（codegraph_explore / codegraph_node / codegraph_impact / codegraph_affected），MCP 不可用时回退到 `codegraph explore/node/impact/affected/callers/callees` CLI 命令。每次修改关键逻辑前先用 `impact` 确认影响范围，修改后可用 `affected` 找出需运行的测试文件。
+
 以认真查询为荣：不凭直觉猜测 API 怎么用，查官方文档再让 AI 写——猜错了返工更费时。
 
 以寻求确认为荣：需求没说清楚时先问明白再动手，避免因误解做了一堆没用的东西。
@@ -26,15 +27,32 @@
 
 以模糊执行为耻：需求说不清楚就让 AI 动手，方向错了做再多都白费。
 
-以臆想业务为耻：让 AI 自行假设业务逻辑，它根本不了解你的业务，想当然必出错。
+以臆想业务为耻：AI 任何时候不能假设业务逻辑。
 
-以创造接口为耻：项目里已有现成的，偏要让 AI 重新造一个，增加维护负担，还容易出 bug。
+以创造接口为耻：项目里已有现成的，偏要让 AI 重新造一个，增加维护负担。
 
-以跳过验证为耻：「AI 写的应该没问题」——这句话坑坑了无数人，不测试就上线是大忌。
+以跳过验证为耻：AI 写的任何时候都需要经过测试。
 
 以破坏架构为耻：AI 一改代码结构就乱，事后没人能维护，技术债越堆越多。
 
 以假装理解为耻：不懂装懂，强行输出，错误答案比没有答案更危险。
 
-以盲目修改为耻：没想清楚就大改，「修好了一个 bug，引入了十个bug」
+以盲目修改为耻：没想清楚就大改万万不可
+
+---
+
+### CodeGraph 速查（项目已索引 163 文件 / 3,622 节点 / 12,231 边）
+
+| 场景 | 命令 / MCP 工具 |
+|------|----------------|
+| 探索某个主题的代码+影响范围 | `codegraph explore "<主题>"` 或 MCP `codegraph_explore` |
+| 查看单个符号的源码+调用链 | `codegraph node "<符号>"` 或 MCP `codegraph_node` |
+| 改某个符号前评估影响范围 | `codegraph impact "<符号>"` 或 MCP `codegraph_impact` |
+| 改完文件后找需跑的测试 | `codegraph affected <文件...>` 或 MCP `codegraph_affected` |
+| 查看调用者 | `codegraph callers "<符号>"` |
+| 查看被调用者 | `codegraph callees "<符号>"` |
+| 查看项目文件结构 | `codegraph files` |
+| 检查索引是否最新 | `codegraph status` |
+
+**原则：** 任何时候要理解代码结构、评估改动风险、或寻找相关测试，先用 CodeGraph，再读具体文件。
 

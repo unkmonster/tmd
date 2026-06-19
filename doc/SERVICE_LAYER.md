@@ -105,10 +105,11 @@ type DownloadOptions struct {
 
 ```go
 type Dependencies struct {
-    Client            *resty.Client      // 主 HTTP 客户端（主账号）
-    AdditionalClients []*resty.Client    // 附加账号客户端（负载均衡）
-    DB                *sqlx.DB           // SQLite 数据库
-    Config            *config.Config     // 应用配置（必须包含 RootPath）
+    Client            *resty.Client                // 主 HTTP 客户端（主账号）
+    AdditionalClients []*resty.Client              // 附加账号客户端（负载均衡）
+    DB                *sqlx.DB                     // SQLite 数据库
+    Config            *config.Config               // 应用配置（必须包含 RootPath）
+    ListSyncManager   *downloading.ListSyncManager // 可选，为 nil 时跳过 list 成员同步清理
 }
 ```
 
@@ -118,6 +119,7 @@ type Dependencies struct {
 - `Config` 不能为 nil
 - `Config.RootPath` 不能为空
 - `AdditionalClients` 可以为空切片（可选依赖）
+- `ListSyncManager` 可以为 nil（可选依赖）
 
 ### 3.4 ProgressReporter 接口
 
@@ -313,14 +315,19 @@ reporter := NewLogReporter(log.Printf)
 
 ### 6.1 API Server 接入
 
-`internal/api/server.go` 中：
+`internal/api/server.go` 中（为 Service 层创建独立的 Config 副本，避免运行时配置修改影响正在执行的任务）：
 
 ```go
+// 配置副本：使 service.Dependencies 持有独立的 Config 副本，
+// 避免与 Server.config 共享同一指针。这样 server 的配置热更新
+// 只影响 Server 显示用配置，不影响运行时依赖。
+configCopy := *config
 downloadService, err := service.NewDownloadService(&service.Dependencies{
     Client:            client,
     AdditionalClients: additionalClients,
     DB:                db,
-    Config:            config,
+    Config:            &configCopy,
+    ListSyncManager:   downloading.NewListSyncManager(db),
 })
 s.downloadService = downloadService
 ```
@@ -332,9 +339,15 @@ s.downloadService = downloadService
 `internal/cli/executor.go` 中：
 
 ```go
-if deps.DownloadService == nil {
-    downloadService, err := service.NewDownloadService(&deps.Dependencies)
-    deps.DownloadService = downloadService
+// 如果没有提供 Service，为本次执行创建默认 Service；
+// 不写回 deps，避免复用同一 deps 时产生隐式共享。
+downloadService := deps.DownloadService
+if downloadService == nil {
+    var err error
+    downloadService, err = service.NewDownloadService(&deps.Dependencies)
+    if err != nil {
+        return fmt.Errorf("failed to create download service: %w", err)
+    }
 }
 ```
 

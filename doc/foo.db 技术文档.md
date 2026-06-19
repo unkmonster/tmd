@@ -42,27 +42,33 @@ db, err := sqlx.Connect(database.DriverName, dsn)
 ### 1.3 初始化流程
 
 ```go
-func connectDatabase(path string) (*sqlx.DB, error) {
-    ex, err := utils.PathExists(path)
+// 实际实现在 internal/database/connect.go
+func Connect(path string) (*sqlx.DB, error) {
+    exists, err := utils.PathExists(path)
     if err != nil {
-        return nil, err
+        return nil, fmt.Errorf("failed to check if db file exists at %q: %w", path, err)
     }
 
-    dsn, err := database.FileDSN(path, false)
+    if exists {
+        if err := migrateExistingDatabase(path); err != nil {
+            return nil, err
+        }
+    }
+
+    db, err := openSQLiteFile(path, false) // → DSN: file:///path?_pragma=journal_mode(WAL)&_pragma=busy_timeout(30000)
     if err != nil {
+        return nil, fmt.Errorf("failed to connect to database at %q: %w", path, err)
+    }
+
+    configureSQLiteConnection(db)           // SetMaxOpenConns(1), SetMaxIdleConns(1)
+
+    CreateTables(db)                        // 自动创建表结构
+    if err := MigrateDatabase(db); err != nil {
+        db.Close()
         return nil, err
     }
-    db, err := sqlx.Connect(database.DriverName, dsn)
-    if err != nil {
-        return nil, err
-    }
-    
-    // 自动创建表结构
-    database.CreateTables(db)
-    
-    if !ex {
-        log.Debugln("created new db file", path)
-    }
+    CreateIndexes(db)
+    // ...
     return db, nil
 }
 ```
@@ -76,7 +82,7 @@ func connectDatabase(path string) (*sqlx.DB, error) {
 | 表名                    | 用途             | 主键   | 外键                                                                 |
 | --------------------- | -------------- | ---- | ------------------------------------------------------------------ |
 | `users`               | Twitter 用户基本信息 | `id` | 无                                                                  |
-| `user_previous_names` | 用户历史名称记录       | `id` | `uid` → `users.id`                                                 |
+| `user_previous_names` | 用户历史名称记录       | `id` | `user_id` → `users.id`                                                 |
 | `lsts`                | Twitter 列表信息   | `id` | 无                                                                  |
 | `lst_entities`        | 列表下载实体记录       | `id` | 无                                                                  |
 | `user_entities`       | 用户下载实体记录       | `id` | `user_id` → `users.id`                                             |
@@ -119,12 +125,12 @@ CREATE TABLE IF NOT EXISTS users (
 ```sql
 CREATE TABLE IF NOT EXISTS user_previous_names (
     id INTEGER NOT NULL,              -- 自增主键
-    uid INTEGER NOT NULL,             -- 用户 ID（外键）
+    user_id INTEGER NOT NULL,         -- 用户 ID（外键）
     screen_name VARCHAR NOT NULL,     -- 历史屏幕名称
     name VARCHAR NOT NULL,            -- 历史显示名称
     record_date DATE NOT NULL,        -- 记录时间戳
     PRIMARY KEY (id),
-    FOREIGN KEY(uid) REFERENCES users (id)
+    FOREIGN KEY(user_id) REFERENCES users (id)
 );
 ```
 
@@ -138,7 +144,7 @@ CREATE TABLE IF NOT EXISTS user_previous_names (
 CREATE TABLE IF NOT EXISTS lsts (
     id INTEGER NOT NULL,              -- 列表 ID
     name VARCHAR NOT NULL,            -- 列表名称
-    owner_uid INTEGER NOT NULL,       -- 列表所有者用户 ID
+    owner_user_id INTEGER NOT NULL,   -- 列表所有者用户 ID
     PRIMARY KEY (id)
 );
 ```
@@ -229,7 +235,7 @@ CREATE INDEX IF NOT EXISTS idx_user_previous_names_uid ON user_previous_names(ui
 - `idx_user_entities_*`: 加速用户实体查询（按用户ID、名称筛选）
 - `idx_lst_entities_lst_id`: 加速列表实体查询（按列表ID筛选）
 - `idx_user_links_*`: 加速用户链接查询（按用户ID、列表实体ID筛选）
-- `idx_user_previous_names_uid`: 加速历史名称查询（按用户ID筛选）
+- `idx_user_previous_names_user_id`: 加速历史名称查询（按用户ID筛选）
 
 ### 3.2 隐式索引
 
@@ -271,7 +277,7 @@ erDiagram
     
     user_previous_names {
         int id PK
-        int uid FK
+        int user_id FK
         string screen_name
         string name
         date record_date
@@ -280,7 +286,7 @@ erDiagram
     lsts {
         int id PK
         string name
-        int owner_uid
+        int owner_user_id
     }
     
     lst_entities {
@@ -431,7 +437,7 @@ func CreateUser(db *sqlx.DB, usr *User) error
 **SQL**:
 
 ```sql
-INSERT INTO Users(id, screen_name, name, protected, friends_count) 
+INSERT INTO users(id, screen_name, name, protected, friends_count, is_accessible) 
 VALUES(:id, :screen_name, :name, :protected, :friends_count)
 ```
 
@@ -812,18 +818,18 @@ CREATE TABLE IF NOT EXISTS users (
 
 CREATE TABLE IF NOT EXISTS user_previous_names (
     id INTEGER NOT NULL,
-    uid INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
     screen_name VARCHAR NOT NULL,
     name VARCHAR NOT NULL,
     record_date DATE NOT NULL,
     PRIMARY KEY (id),
-    FOREIGN KEY(uid) REFERENCES users (id)
+    FOREIGN KEY(user_id) REFERENCES users (id)
 );
 
 CREATE TABLE IF NOT EXISTS lsts (
     id INTEGER NOT NULL,
     name VARCHAR NOT NULL,
-    owner_uid INTEGER NOT NULL,
+    owner_user_id INTEGER NOT NULL,
     PRIMARY KEY (id)
 );
 
@@ -867,12 +873,12 @@ CREATE INDEX IF NOT EXISTS idx_users_name ON users(name);
 CREATE INDEX IF NOT EXISTS idx_users_accessible ON users(is_accessible);
 CREATE INDEX IF NOT EXISTS idx_users_protected ON users(protected);
 CREATE INDEX IF NOT EXISTS idx_lsts_name ON lsts(name);
-CREATE INDEX IF NOT EXISTS idx_lsts_owner ON lsts(owner_uid);
+CREATE INDEX IF NOT EXISTS idx_lsts_owner ON lsts(owner_user_id);
 CREATE INDEX IF NOT EXISTS idx_user_entities_user_id ON user_entities(user_id);
 CREATE INDEX IF NOT EXISTS idx_user_entities_name ON user_entities(name);
 CREATE INDEX IF NOT EXISTS idx_lst_entities_lst_id ON lst_entities(lst_id);
 CREATE INDEX IF NOT EXISTS idx_user_links_lst_entity ON user_links(parent_lst_entity_id);
-CREATE INDEX IF NOT EXISTS idx_user_previous_names_uid ON user_previous_names(uid);
+CREATE INDEX IF NOT EXISTS idx_user_previous_names_user_id ON user_previous_names(user_id);
 ```
 
 ### 12.2 相关文件清单

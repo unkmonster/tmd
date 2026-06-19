@@ -15,7 +15,7 @@
 7. [时间过滤机制](#时间过滤机制)
 8. [新用户处理流程](#新用户处理流程)
 9. [错误处理](#错误处理)
-10. [输出格式](#输出格式)
+10. [日志输出](#日志输出)
 11. [常见场景](#常见场景)
 12. [注意事项](#注意事项)
 
@@ -66,45 +66,30 @@
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    tmd -user xxx -mark-downloaded           │
-│                         [-mark-time "xxx"]                  │
-└─────────────────────────────────────────────────────────────┘
-                              ↓
-                    ┌─────────────────┐
-                    │  解析 markTimeStr │
-                    └─────────────────┘
-                              ↓
-        ┌─────────────────────┼─────────────────────┐
-        ↓                     ↓                     ↓
-     空字符串            "null"/"nil"           指定时间
-        ↓                     ↓                     ↓
-    当前时间            timestamp=nil          解析时间
-        ↓                     ↓                     ↓
-        └─────────────────────┼─────────────────────┘
-                              ↓
-                    ┌─────────────────┐
-                    │ 遍历 lists/users │
-                    └─────────────────┘
-                              ↓
-                    ┌─────────────────┐
-                    │syncUserAndEntity│
-                    └─────────────────┘
-                              ↓
-        ┌─────────────────────┼─────────────────────┐
-        ↓                     ↓                     ↓
-   syncUser()          NewUserEntity()        syncPath()
-  (更新users表)        (定位/创建实体)        (创建文件夹)
-        └─────────────────────┼─────────────────────┘
-                              ↓
-                    ┌─────────────────┐
-                    │ 设置时间戳       │
-                    │ Set/Clear       │
-                    │ LatestReleaseTime│
-                    └─────────────────┘
-                              ↓
-                    ┌─────────────────┐
-                    │ 输出结果         │
-                    └─────────────────┘
+│   tmd -user xxx -mark-downloaded [-mark-time "xxx"]         │
+│   CLI: internal/cli/executor.go                             │
+│   API: POST /api/v1/.../mark                                │
+└──────────────────────────┬──────────────────────────────────┘
+                           ↓
+┌──────────────────────────────────────────────────────────────┐
+│  service.DownloadService.MarkDownloaded                      │
+│  internal/service/download_service.go:552                   │
+│    ├── resolveUsers / resolveLists / resolveFollowings       │
+│    └── downloading.MarkUsersAsDownloaded()                   │
+└──────────────────────────┬──────────────────────────────────┘
+                           ↓
+┌──────────────────────────────────────────────────────────────┐
+│  downloading.MarkUsersAsDownloaded()                         │
+│  internal/downloading/mark_downloaded.go:23                  │
+│    ├── 解析 markTimeStr → timestamp/nil                      │
+│    ├── 遍历 lists → lst.GetMembers() → markSingleUserWithInfo│
+│    └── 遍历 users → markSingleUserWithInfo                   │
+└──────────────────────────┬──────────────────────────────────┘
+                           ↓
+        ┌──────────────────┼──────────────────┐
+        ↓                  ↓                  ↓
+  syncUserAndEntity   SetLatestReleaseTime  ClearLatestReleaseTime
+  (同步用户+实体)      (设置时间戳)           (清除时间戳=NULL)
 ```
 
 ### 与正常下载的关系
@@ -133,9 +118,6 @@ tmd -user elonmusk -mark-downloaded
 
 # 标记多个用户
 tmd -user user1 -user user2 -user user3 -mark-downloaded
-
-# 使用用户ID
-tmd -user 44196397 -mark-downloaded
 
 # 使用 @ 前缀
 tmd -user @elonmusk -mark-downloaded
@@ -177,195 +159,316 @@ tmd -user user1 -list 123456 -foll myusername -mark-downloaded
 ### 不同终端的引号处理
 
 ```powershell
-# PowerShell - null 需要引号
+# PowerShell
 tmd -user elonmusk -mark-downloaded -mark-time "null"
 tmd -user elonmusk -mark-downloaded -mark-time "2024-01-01T00:00:00"
 
-# CMD - 引号可选
+# CMD
 tmd -user elonmusk -mark-downloaded -mark-time null
 tmd -user elonmusk -mark-downloaded -mark-time 2024-01-01T00:00:00
+```
+
+### API 模式
+
+```bash
+# 标记某个用户
+curl -X POST http://localhost:25556/api/v1/users/elonmusk/mark
+
+# 标记某个列表
+curl -X POST http://localhost:25556/api/v1/lists/123456789/mark
+
+# 批量标记（带自定义时间）
+curl -X POST http://localhost:25556/api/v1/batch/mark \
+  -H "Content-Type: application/json" \
+  -d '{"users":["elonmusk"],"lists":["123456"],"timestamp":"2024-06-01T00:00:00"}'
 ```
 
 ---
 
 ## 实现细节
 
-### 入口函数 (main.go)
+### 整体调用链
+
+```text
+CLI 模式:
+  internal/cli/executor.go
+    → service.DownloadService.MarkDownloaded(ctx, "cli", screenNames, listIDs, followingNames, markTime, reporter)
+
+API 模式:
+  handleUserMark / handleListMark / handleFollowingMark / handleBatchMark
+    → taskManager.CreateTask(TaskTypeMarkDownloaded, data)
+    → downloadQueue.Enqueue(task, runFunc)
+    → service.DownloadService.MarkDownloaded(ctx, taskID, ...)
+```
+
+### Service 层入口 (`internal/service/download_service.go:552`)
 
 ```go
-// main.go:429-447
-if markDownloaded {
-    results, err := downloading.MarkUsersAsDownloaded(
-        ctx, client, db, task.lists, task.users, pathHelper.root, markTime)
+func (s *downloadServiceImpl) MarkDownloaded(ctx context.Context, taskID string,
+    screenNames []string, listIDs []uint64, followingNames []string,
+    markTime *string, reporter ProgressReporter) error {
+
+    reporter = s.getReporterOrDefault(reporter)
+    reporter.OnProgress(taskID, Progress{Stage: "resolving"})
+
+    // 1. 解析用户/列表/关注
+    users := s.resolveUsers(ctx, screenNames)
+    lists := s.resolveLists(ctx, listIDs)
+    lists = append(lists, s.resolveFollowings(ctx, followingNames)...)
+
+    if len(users) == 0 && len(lists) == 0 {
+        return fmt.Errorf("no users or lists to mark (all failed to resolve)")
+    }
+
+    reporter.OnProgress(taskID, Progress{Stage: "marking",
+        Total: len(users) + len(lists),
+        Current: fmt.Sprintf("%d users, %d lists", len(users), len(lists))})
+
+    // 2. 准备 markTime 字符串
+    var markTimeStr string
+    if markTime != nil {
+        markTimeStr = *markTime
+    }
+
+    // 3. 委托 downloading 层执行
+    pathHelper, _ := path.NewStorePath(s.deps.Config.RootPath)
+    results, err := downloading.MarkUsersAsDownloaded(ctx, s.deps.Client,
+        s.deps.DB, lists, users, pathHelper.Users, markTimeStr, s.maxFileNameLen())
+
     if err != nil {
-        log.Errorln("failed to mark users as downloaded:", err)
-        os.Exit(1)
+        return err
     }
-    // 输出结果供外部程序解析
-    if len(results) > 0 {
-        fmt.Println("\n=== MARK_DOWNLOADED_RESULTS ===")
-        for _, r := range results {
-            status := "OK"
-            if !r.Success {
-                status = "FAIL"
-            }
-            fmt.Printf("ENTITY_ID:%d|USER_ID:%d|SCREEN_NAME:%s|STATUS:%s\n",
-                r.EntityID, r.UserID, r.ScreenName, status)
-        }
-        fmt.Println("=== END_RESULTS ===")
-    }
+    reporter.OnComplete(taskID, Result{
+        Message: fmt.Sprintf("Marked %d users as downloaded", len(results))})
+    return nil
 }
 ```
 
-### 核心函数 (mark_downloaded.go)
+### 核心函数 (`internal/downloading/mark_downloaded.go:23`)
 
 ```go
-// mark_downloaded.go:849-938
-func MarkUsersAsDownloaded(ctx context.Context, client *resty.Client, 
-    db *sqlx.DB, lists []twitter.ListBase, users []*twitter.User, 
-    dir string, markTimeStr string) ([]MarkedUserInfo, error) {
-    
+func MarkUsersAsDownloaded(ctx context.Context, client *resty.Client,
+    db *sqlx.DB, lists []twitter.ListBase, users []*twitter.User,
+    dir string, markTimeStr string, maxLen int) ([]MarkedUserInfo, error) {
+
     // 1. 解析时间戳
     var timestamp *time.Time
     if markTimeStr == "" {
         now := time.Now()
         timestamp = &now
-        log.Infoln("marking users as downloaded, timestamp:", timestamp.Format(time.RFC3339))
-    } else if strings.ToLower(markTimeStr) == "null" || 
+    } else if strings.ToLower(markTimeStr) == "null" ||
               strings.ToLower(markTimeStr) == "nil" {
         timestamp = nil
-        log.Infoln("marking users as downloaded, timestamp: NULL (full download)")
     } else {
-        loc, locErr := time.LoadLocation("Local")
-        if locErr != nil {
-            loc = time.UTC
-        }
-        parsedTime, err := time.ParseInLocation(
-            "2006-01-02T15:04:05", markTimeStr, loc)
+        parsedTime, err := time.ParseInLocation("2006-01-02T15:04:05", markTimeStr, time.Local)
         if err != nil {
-            return nil, fmt.Errorf("invalid mark-time format '%s'...", markTimeStr)
+            return nil, fmt.Errorf("invalid mark-time format: %v", err)
         }
         timestamp = &parsedTime
-        log.Infoln("marking users as downloaded, timestamp:", timestamp.Format(time.RFC3339))
     }
-
-    var results []MarkedUserInfo
-    var successCount, failCount int
 
     // 2. 处理列表中的用户
     for _, lst := range lists {
-        if err := context.Cause(ctx); err != nil {
-            return results, err
-        }
-        if lst == nil {
-            continue
-        }
-        members, err := lst.GetMembers(ctx, client)
-        if err != nil {
-            errStr := err.Error()
-            if strings.Contains(errStr, "does not exist or is not accessible") ||
-                strings.Contains(errStr, "unable to get timeline data") {
-                return nil, fmt.Errorf("list %s does not exist or is not accessible", lst.Title())
-            }
-            log.WithField("list", lst.Title()).Warnln("failed to get list members:", err)
-            continue
-        }
-        for _, user := range members {
-            if err := context.Cause(ctx); err != nil {
-                return results, err
-            }
-            if user == nil {
-                continue
-            }
-            info := markSingleUserWithInfo(db, user, dir, timestamp)
+        membersResult, err := lst.GetMembers(ctx, client)
+        // ... 遍历 membersResult.Users ...
+        for _, user := range membersResult.Users {
+            info := markSingleUserWithInfo(db, user, dir, timestamp, maxLen)
             results = append(results, info)
-            if info.Success {
-                successCount++
-            } else {
-                failCount++
-            }
         }
     }
 
     // 3. 处理直接指定的用户
     for _, user := range users {
-        if user == nil {
-            continue
-        }
-        info := markSingleUserWithInfo(db, user, dir, timestamp)
+        info := markSingleUserWithInfo(db, user, dir, timestamp, maxLen)
         results = append(results, info)
-        if info.Success {
-            successCount++
-        } else {
-            failCount++
-        }
     }
 
-    log.Infoln("finished marking users as downloaded, success:", successCount, "failed:", failCount)
     return results, nil
 }
 ```
 
-### 标记单个用户 (mark_downloaded.go)
+### 标记单个用户 (`internal/downloading/mark_downloaded.go:109`)
 
 ```go
-// mark_downloaded.go:941-995
-// markSingleUserWithInfo 标记单个用户为已下载并返回详细信息
-func markSingleUserWithInfo(db *sqlx.DB, user *twitter.User, 
-    dir string, timestamp *time.Time) (info MarkedUserInfo) {
-    
-    // 防御性检查：确保 user 不为 nil
+func markSingleUserWithInfo(db *sqlx.DB, user *twitter.User,
+    dir string, timestamp *time.Time, maxLen int) (info MarkedUserInfo) {
+
     if user == nil {
         info.Success = false
         info.Error = "user is nil"
         return info
     }
 
-    info = MarkedUserInfo{
-        UserID:     user.Id,
-        ScreenName: user.ScreenName,
-        Success:    false,
-    }
-
-    // 捕获可能的 panic，增加健壮性
     defer func() {
         if r := recover(); r != nil {
             info.Success = false
             info.Error = fmt.Sprintf("panic: %v", r)
-            log.WithField("user", user.Title()).Errorln("panic in markSingleUserWithInfo:", r)
         }
     }()
 
-    // 同步用户和实体（与正常下载使用相同的逻辑）
-    entity, err := syncUserAndEntity(db, user, dir)
+    // 同步用户和实体（与正常下载使用相同的底层逻辑）
+    entity, err := syncUserAndEntity(db, user, dir, maxLen)
     if err != nil {
         info.Error = fmt.Sprintf("failed to sync user and entity: %v", err)
-        log.WithField("user", user.Title()).Warnln("failed to mark user:", err)
         return info
     }
 
     // 设置 latest_release_time
     if timestamp == nil {
-        // 设置为 NULL，用于全量下载
         if err := entity.ClearLatestReleaseTime(); err != nil {
             info.Error = fmt.Sprintf("failed to clear latest release time: %v", err)
-            log.WithField("user", user.Title()).Warnln("failed to clear latest release time:", err)
             return info
         }
-        log.WithField("user", user.Title()).Infoln("cleared latest release time for full download")
     } else {
-        // 设置为指定时间
         if err := entity.SetLatestReleaseTime(*timestamp); err != nil {
             info.Error = fmt.Sprintf("failed to set latest release time: %v", err)
-            log.WithField("user", user.Title()).Warnln("failed to set latest release time:", err)
             return info
         }
     }
 
     info.Success = true
-    info.EntityID = entity.Id()
-    log.WithField("user", user.Title()).Infoln("marked as downloaded")
+    eid, err := entity.Id()
+    if err != nil {
+        info.Error = fmt.Sprintf("failed to get entity id: %v", err)
+        return info
+    }
+    info.EntityID = eid
     return info
+}
+```
+
+### 用户同步 (`internal/downloading/user_sync.go:11`)
+
+```go
+func syncUserAndEntity(db *sqlx.DB, user *twitter.User, dir string, maxLen int) (*entity.UserEntity, error) {
+    // 1. 同步用户信息到 users 表
+    if err := database.SyncUser(db, user.Id, user.Name, user.ScreenName,
+        user.IsProtected, user.FriendsCount, true); err != nil {
+        return nil, err
+    }
+
+    // 2. 生成期望的文件夹名（name(screen_name) 格式，按 maxLen 截断）
+    userNaming := naming.NewUserNaming(user.Name, user.ScreenName, maxLen)
+    expectedTitle := userNaming.SanitizedTitle()
+
+    // 3. 创建或定位用户实体
+    ent, err := entity.NewUserEntity(db, user.Id, dir)
+    if err != nil {
+        return nil, err
+    }
+
+    // 4. 同步实体路径（创建/重命名目录）
+    if err = entity.Sync(ent, expectedTitle); err != nil {
+        return nil, err
+    }
+    return ent, nil
+}
+```
+
+### 用户名变更检测 — 数据库层 (`internal/database/user_sync.go:9`)
+
+当前使用 UPSERT 实现幂等写入，用户名变更检测在 upsert 之前完成：
+
+```go
+func SyncUser(db *sqlx.DB, userId uint64, name string, screenName string,
+    isProtected bool, friendsCount int, accessible bool) error {
+
+    usrdb, err := GetUserById(db, userId)
+    if err != nil {
+        return err
+    }
+
+    renamed := false
+    isNew := usrdb == nil
+    if !isNew {
+        renamed = usrdb.Name != name || usrdb.ScreenName != screenName
+    }
+
+    // 改名：在 UPSERT 之前记录旧名称
+    if renamed {
+        if err := RecordUserPreviousName(db, userId, usrdb.Name, usrdb.ScreenName); err != nil {
+            return err
+        }
+    }
+
+    // UPSERT：消除并发下的 TOCTOU 竞态
+    stmt := `INSERT INTO users(id, screen_name, name, protected, friends_count, is_accessible)
+        VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+            screen_name=excluded.screen_name, name=excluded.name,
+            protected=excluded.protected, friends_count=excluded.friends_count,
+            is_accessible=excluded.is_accessible`
+    db.Exec(stmt, userId, screenName, name, isProtected, friendsCount, accessible)
+
+    // 新用户：记录初始名称作为基线
+    if isNew {
+        RecordUserPreviousName(db, userId, name, screenName)
+    }
+    return nil
+}
+```
+
+### 文件夹重命名逻辑 (`internal/entity/sync.go:11`)
+
+```go
+func Sync(e Entity, expectedName string) error {
+    if !e.Recorded() {
+        return e.Create(expectedName)   // 新用户：创建文件夹
+    }
+
+    name, err := e.Name()
+    if err != nil {
+        return err
+    }
+    if name != expectedName {
+        return e.Rename(expectedName)   // 用户名变更：重命名文件夹
+    }
+
+    p, err := e.Path()
+    if err != nil {
+        return err
+    }
+    return os.MkdirAll(p, 0755)          // 名称一致：确保目录存在
+}
+```
+
+### Entity 接口 (`internal/entity/interface.go`)
+
+```go
+type Entity interface {
+    Path() (string, error)
+    Create(name string) error
+    Rename(string) error
+    Remove() error
+    Name() (string, error)
+    Id() (int, error)
+    Recorded() bool
+}
+```
+
+### 用户实体重命名 (`internal/entity/user.go:63`)
+
+```go
+func (ue *UserEntity) Rename(title string) error {
+    if !ue.created {
+        return fmt.Errorf("user entity was not created")
+    }
+    old, _ := ue.Path()
+    newPath := filepath.Join(filepath.Dir(old), title)
+
+    // 使用系统调用重命名文件夹
+    err := os.Rename(old, newPath)
+    if os.IsNotExist(err) {
+        // 边界情况：原文件夹被手动删除，创建新文件夹
+        err = os.Mkdir(newPath, 0755)
+    }
+    if err != nil && !os.IsExist(err) {
+        return err
+    }
+
+    // 更新数据库记录
+    ue.record.Name = title
+    return database.UpdateUserEntity(ue.db, ue.record)
 }
 ```
 
@@ -376,58 +479,61 @@ func markSingleUserWithInfo(db *sqlx.DB, user *twitter.User,
 ### users 表
 
 ```sql
-CREATE TABLE users (
-    id INTEGER PRIMARY KEY,
-    screen_name TEXT UNIQUE,
-    name TEXT,
-    protected BOOLEAN,
-    friends_count INTEGER,
-    is_accessible BOOLEAN NOT NULL DEFAULT 1
+CREATE TABLE IF NOT EXISTS users (
+    id INTEGER NOT NULL,              -- Twitter 用户 ID
+    screen_name VARCHAR NOT NULL,     -- 用户名
+    name VARCHAR NOT NULL,            -- 显示名称
+    protected BOOLEAN NOT NULL,       -- 是否受保护
+    friends_count INTEGER NOT NULL,   -- 关注数
+    is_accessible BOOLEAN NOT NULL DEFAULT 1, -- 是否可访问
+    PRIMARY KEY (id),
+    UNIQUE (screen_name)
 );
 ```
 
 ### user_entities 表
 
 ```sql
-CREATE TABLE user_entities (
-    id INTEGER PRIMARY KEY,
-    user_id INTEGER,                -- 用户ID（外键关联 users.id）
-    name TEXT,                      -- 用户文件夹名称
-    parent_dir TEXT,                -- 父目录路径
-    latest_release_time DATETIME,   -- 最新推文时间（可为NULL）
+CREATE TABLE IF NOT EXISTS user_entities (
+    id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    name VARCHAR NOT NULL,                  -- 文件夹名称
+    latest_release_time DATETIME,           -- 最新推文时间（可为NULL）
+    parent_dir VARCHAR COLLATE NOCASE NOT NULL,
     media_count INTEGER,
+    PRIMARY KEY (id),
     UNIQUE (user_id, parent_dir),
     FOREIGN KEY(user_id) REFERENCES users (id)
 );
 ```
 
-**Go 结构体映射**：
-```go
-type UserEntity struct {
-    Id                sql.NullInt32 `db:"id"`
-    Uid               uint64        `db:"user_id"`    // Go 字段 Uid → 数据库 user_id
-    Name              string        `db:"name"`
-    LatestReleaseTime sql.NullTime  `db:"latest_release_time"`
-    ParentDir         string        `db:"parent_dir"`
-    MediaCount        sql.NullInt32 `db:"media_count"`
-}
-```
-
-### 数据库操作函数 (user_entity.go)
+### 数据库操作函数 (`internal/database/user_entity.go`)
 
 ```go
 // 设置时间戳
 func SetUserEntityLatestReleaseTime(db *sqlx.DB, id int, t time.Time) error {
     stmt := `UPDATE user_entities SET latest_release_time=? WHERE id=?`
-    result, err := db.Exec(stmt, t, id)
-    // ...
+    _, err := db.Exec(stmt, t, id)
+    return err
 }
 
 // 清除时间戳（设置为NULL）
 func ClearUserEntityLatestReleaseTime(db *sqlx.DB, id int) error {
     stmt := `UPDATE user_entities SET latest_release_time=NULL WHERE id=?`
-    result, err := db.Exec(stmt, id)
-    // ...
+    _, err := db.Exec(stmt, id)
+    return err
+}
+```
+
+### 标记返回结构
+
+```go
+type MarkedUserInfo struct {
+    UserID     uint64 `json:"user_id"`
+    ScreenName string `json:"screen_name"`
+    EntityID   int    `json:"entity_id"`
+    Success    bool   `json:"success"`
+    Error      string `json:"error,omitempty"`
 }
 ```
 
@@ -435,113 +541,24 @@ func ClearUserEntityLatestReleaseTime(db *sqlx.DB, id int) error {
 
 ## 时间过滤机制
 
-### 下载时的时间过滤 (user.go)
+### 下载时的时间过滤 — 增量下载原理
+
+每次下载用户时，`BatchDownload` 从 `user_entities.latest_release_time` 读取时间戳，作为 `TimeRange.Min` 传入 `GetMedias()`，实现增量下载：
 
 ```go
-// user.go:174-223
-func (u *User) GetMedias(ctx context.Context, client *resty.Client, 
-    timeRange *utils.TimeRange) ([]*Tweet, error) {
-    
-    if !u.IsVisiable() {
-        return nil, nil
-    }
-
-    api := userMedia{}
-    api.count = 100
-    api.cursor = ""
-    api.userId = u.Id
-
-    results := make([]*Tweet, 0)
-
-    var minTime *time.Time
-    var maxTime *time.Time
-
-    if timeRange != nil {
-        minTime = &timeRange.Min
-        maxTime = &timeRange.Max
-    }
-
-    for {
-        currentTweets, next, err := u.getMediasOnePage(ctx, &api, client)
-        if err != nil {
-            return nil, err
-        }
-
-        if len(currentTweets) == 0 {
-            break // empty page
-        }
-
-        api.SetCursor(next)
-
-        if timeRange == nil {
-            results = append(results, currentTweets...)
-            continue
-        }
-
-        // 筛选推文，并判断是否获取下页
-        cutMin, cutMax, currentTweets := filterTweetsByTimeRange(currentTweets, minTime, maxTime)
-        results = append(results, currentTweets...)
-
-        if cutMin {
-            break
-        }
-        if cutMax && len(currentTweets) != 0 {
-            maxTime = nil
-        }
-    }
-    return results, nil
-}
-```
-
-### 时间过滤函数 (user.go)
-
-```go
-// user.go:139-172
-func filterTweetsByTimeRange(tweets []*Tweet, min *time.Time, max *time.Time) 
-    (cutMin bool, cutMax bool, res []*Tweet) {
-    
-    n := len(tweets)
-    begin, end := 0, n
-
-    // 从左到右查找第一个小于 min 的推文
-    if min != nil && !min.IsZero() {
-        for i := 0; i < n; i++ {
-            if !tweets[i].CreatedAt.After(*min) {
-                end = i // 找到第一个不大于 min 的推文位置
-                cutMin = true
-                break
-            }
-        }
-    }
-
-    // 从右到左查找最后一个大于 max 的推文
-    if max != nil && !max.IsZero() {
-        for i := n - 1; i >= 0; i-- {
-            if !tweets[i].CreatedAt.Before(*max) {
-                begin = i + 1 // 找到第一个不小于 max 的推文位置
-                cutMax = true
-                break
-            }
-        }
-    }
-
-    if begin >= end {
-        // 如果最终的范围无效，返回空结果
-        return cutMin, cutMax, nil
-    }
-
-    res = tweets[begin:end]
-    return
-}
+// batch_download.go — 简化示意
+minTime, err := ent.LatestReleaseTime()
+// ...
+tweets, err := user.GetMedias(ctx, cli, &utils.TimeRange{Min: minTime})
 ```
 
 ### 关键行为
 
-| `latest_release_time` 值 | `min.IsZero()` | 过滤行为 |
-|-------------------------|----------------|---------|
-| NULL | true | 不过滤，获取全部历史推文 |
-| 零值 `time.Time{}` | true | 不过滤，获取全部历史推文 |
-| 有效时间 | false | 只获取该时间之后的推文 |
+| `latest_release_time` 值 | 过滤行为 |
+|-------------------------|----------|
+| NULL | 不过滤，获取全部历史推文 |
+| 零值 `time.Time{}` | 不参加过滤，获取全部 |
+| 有效时间 | 只获取该时间点**之后**的推文 |
 
 ---
 
@@ -552,131 +569,37 @@ func filterTweetsByTimeRange(tweets []*Tweet, min *time.Time, max *time.Time)
 ```
 用户不存在于数据库
         ↓
-    syncUserAndEntity()
+    syncUserAndEntity(db, user, dir, maxLen)
         ↓
-    ├── syncUser()
+    ├── database.SyncUser(db, ...)
     │       ↓
-    │   GetUserById() 返回 nil
+    │   GetUserById() 返回 nil → isNew = true
     │       ↓
-    │   创建 User 记录
+    │   UPSERT 写入 users 表
     │       ↓
-    │   CreateUser() INSERT
+    │   RecordUserPreviousName() 记录初始名称
     │
-    ├── NewUserEntity()
+    ├── naming.NewUserNaming(name, screenName, maxLen)
+    │       ↓
+    │   expectedTitle = "DisplayName(screen_name)"
+    │
+    ├── entity.NewUserEntity(db, userId, dir)
     │       ↓
     │   LocateUserEntity() 返回 nil
     │       ↓
-    │   创建 UserEntity 记录（内存）
-    │       ↓
-    │   created = false
+    │   创建 UserEntity 记录（内存），created = false
     │
-    └── syncPath()
+    └── entity.Sync(ent, expectedTitle)
             ↓
-        path.Recorded() 返回 false
+        ent.Recorded() 返回 false
             ↓
-        path.Create(expectedName)
+        ent.Create(expectedTitle)
             ↓
         os.MkdirAll() 创建文件夹
             ↓
-        CreateUserEntity() INSERT
+        database.CreateUserEntity() INSERT
             ↓
         created = true
-```
-
-### 代码实现
-
-```go
-// user_sync.go
-func syncUserAndEntity(db *sqlx.DB, user *twitter.User, dir string) (*UserEntity, error) {
-    // 1. 同步用户信息到 users 表
-    if err := syncUser(db, user, true); err != nil {
-        return nil, err
-    }
-    
-    // 2. 创建或定位用户实体
-    entity, err := NewUserEntity(db, user.Id, dir)
-    if err != nil {
-        return nil, err
-    }
-    
-    // 3. 同步文件夹路径
-    expectedTitle := utils.WinFileName(user.Title())
-    if err = syncPath(entity, expectedTitle); err != nil {
-        return nil, err
-    }
-    
-    return entity, nil
-}
-
-// database/user_sync.go
-func syncUser(db *sqlx.DB, user *twitter.User, accessible bool) error {
-    renamed := false
-    isNew := false
-    usrdb, err := database.GetUserById(db, user.Id)
-    if err != nil {
-        return err
-    }
-
-    if usrdb == nil {
-        isNew = true
-        usrdb = &database.User{}
-        usrdb.Id = user.Id
-    } else {
-        renamed = usrdb.Name != user.Name || usrdb.ScreenName != user.ScreenName
-    }
-
-    usrdb.FriendsCount = user.FriendsCount
-    usrdb.IsProtected = user.IsProtected
-    usrdb.Name = user.Name
-    usrdb.ScreenName = user.ScreenName
-    usrdb.IsAccessible = accessible
-
-    if isNew {
-        err = database.CreateUser(db, usrdb)
-    } else {
-        err = database.UpdateUser(db, usrdb)
-    }
-    if err != nil {
-        return err
-    }
-    if renamed || isNew {
-        err = database.RecordUserPreviousName(db, user.Id, user.Name, user.ScreenName)
-    }
-    return err
-}
-
-// user.go
-func NewUserEntity(db *sqlx.DB, uid uint64, parentDir string) (*UserEntity, error) {
-    created := true
-    record, err := database.LocateUserEntity(db, uid, parentDir)
-    
-    if record == nil {
-        // 新用户：创建实体记录（尚未保存到数据库）
-        record = &database.UserEntity{}
-        record.Uid = uid
-        record.ParentDir = parentDir
-        created = false
-    }
-    return &UserEntity{record: record, db: db, created: created}, nil
-}
-
-// sync.go
-func syncPath(path SmartPath, expectedName string) error {
-    if !path.Recorded() {
-        // 新用户：创建文件夹 + 数据库记录
-        return path.Create(expectedName)
-    }
-    // 已存在：检查是否需要重命名
-    if path.Name() != expectedName {
-        return path.Rename(expectedName)
-    }
-    
-    p, err := path.Path()
-    if err != nil {
-        return err
-    }
-    return os.MkdirAll(p, 0755)
-}
 ```
 
 ---
@@ -702,7 +625,7 @@ defer func() {
 }()
 
 // 3. 同步失败处理
-entity, err := syncUserAndEntity(db, user, dir)
+entity, err := syncUserAndEntity(db, user, dir, maxLen)
 if err != nil {
     info.Error = fmt.Sprintf("failed to sync user and entity: %v", err)
     return info
@@ -718,45 +641,25 @@ if err := entity.SetLatestReleaseTime(*timestamp); err != nil {
 ### 列表访问错误
 
 ```go
-members, err := lst.GetMembers(ctx, client)
+membersResult, err := lst.GetMembers(ctx, client)
 if err != nil {
-    errStr := err.Error()
-    if strings.Contains(errStr, "does not exist or is not accessible") {
+    if strings.Contains(err.Error(), "does not exist or is not accessible") {
         return nil, fmt.Errorf("list %s does not exist or is not accessible", lst.Title())
     }
-    log.WithField("list", lst.Title()).Warnln("failed to get list members:", err)
+    log.Warnln("✗", lst.Title(), "-", "failed to get list members:", err)
     continue  // 继续处理其他列表
 }
 ```
 
 ---
 
-## 输出格式
+## 日志输出
 
-### 标准输出
-
-```
-=== MARK_DOWNLOADED_RESULTS ===
-ENTITY_ID:1|USER_ID:44196397|SCREEN_NAME:elonmusk|STATUS:OK
-ENTITY_ID:2|USER_ID:23248887|SCREEN_NAME:NASA|STATUS:OK
-ENTITY_ID:3|USER_ID:12345|SCREEN_NAME:testuser|STATUS:FAIL
-=== END_RESULTS ===
-```
-
-### 字段说明
-
-| 字段 | 说明 |
-|------|------|
-| `ENTITY_ID` | user_entities 表中的记录ID |
-| `USER_ID` | Twitter 用户ID |
-| `SCREEN_NAME` | Twitter 用户名 |
-| `STATUS` | `OK` 成功 / `FAIL` 失败 |
-
-### 日志输出
+CLI 模式下，使用 `LogReporter` 输出日志（不输出 `=== MARK_DOWNLOADED_RESULTS ===` 格式）：
 
 ```
 INFO[0000] marking users as downloaded, timestamp: 2024-06-15T10:30:00+08:00
-INFO[0001] marked as downloaded                              user=Elon Musk(elonmusk)
+INFO[0001] ✓ Elon Musk(elonmusk) - marked as downloaded
 INFO[0001] finished marking users as downloaded, success: 3 failed: 0
 ```
 
@@ -826,27 +729,32 @@ tmd -user elonmusk -mark-downloaded -mark-time "2024-01-01T00:00:00"
 tmd -user elonmusk -mark-downloaded -mark-time "2024-06-01T00:00:00"  # 覆盖
 ```
 
-### 3. PowerShell 引号问题
+### 3. 参数优先级
 
-```powershell
-# ❌ 错误 - null 会被解释为 $null
-tmd -user elonmusk -mark-downloaded -mark-time null
+`-mark-downloaded` 在 CLI 参数中具有**第三高优先级**：
+1. `-jsonfile`（独占）
+2. `-jsonfolder`（独占）
+3. **`-mark-downloaded`（独占）**
+4. `-user/-list/-foll`（可组合，可与 -profile 组合）
+5. `-profile-user/-profile-list`（可组合）
 
-# ✅ 正确
-tmd -user elonmusk -mark-downloaded -mark-time "null"
-```
+当 `-mark-downloaded` 生效时，同一命令行中的其他参数会被忽略。
 
-### 4. 与其他参数的兼容性
+### 4. CLI vs API 差异
 
-| 组合 | 兼容 | 说明 |
-|------|:----:|------|
-| `-mark-downloaded` + `-user` | ✅ | 标记指定用户 |
-| `-mark-downloaded` + `-list` | ✅ | 标记列表成员 |
-| `-mark-downloaded` + `-foll` | ✅ | 标记关注用户 |
-| `-mark-downloaded` + 任何下载参数 | ⚠️ | 只标记，不下载内容 |
-| `-mark-downloaded` + `-mark-time` | ✅ | 指定标记时间 |
+| 方面 | CLI 模式 | API 模式 |
+|------|----------|----------|
+| 入口 | `internal/cli/executor.go` | `internal/api/download_handlers.go` |
+| 执行 | 同步等待 | 异步任务（返回 task_id） |
+| 进度 | `LogReporter` | `SSEProgressReporter` |
+| 结果 | 日志输出 | 通过 SSE 推送到前端 |
+| 任务ID | `"cli"` | `task_<uuid>` |
 
-### 5. 时间格式严格
+### 5. MongoDB 用户 ID 格式
+
+`-user` 参数接受 Twitter **screen_name**（例如 `elonmusk`），不是数字 user_id。
+
+### 6. 时间格式严格
 
 格式必须为 `2006-01-02T15:04:05`：
 ```bash
@@ -858,7 +766,7 @@ tmd -user elonmusk -mark-downloaded -mark-time "2024-06-15"
 tmd -user elonmusk -mark-downloaded -mark-time "2024/06/15 10:30:00"
 ```
 
-### 6. 数据库文件位置
+### 7. 数据库文件位置
 
 | 系统 | 路径 |
 |------|------|
@@ -871,27 +779,20 @@ tmd -user elonmusk -mark-downloaded -mark-time "2024/06/15 10:30:00"
 
 | 文件 | 说明 |
 |------|------|
-| `main.go` | CLI 参数定义与入口调用 |
 | `internal/cli/args.go` | CLI 参数解析（`-mark-downloaded` / `-mark-time`） |
 | `internal/cli/executor.go` | CLI 模式执行入口，调用 Service 层 |
-| `internal/service/download_service.go` | `DownloadService` 实现，包含 `MarkDownloaded` 方法和失败重试 |
-| `internal/service/interfaces.go` | `DownloadService` 接口定义，含 `MarkDownloaded` 签名 |
-| `internal/downloading/mark_downloaded.go` | `MarkUsersAsDownloaded` 核心实现 |
+| `internal/service/download_service.go` | `DownloadService.MarkDownloaded` 实现 |
+| `internal/service/interfaces.go` | `DownloadService` 接口定义 |
+| `internal/downloading/mark_downloaded.go` | `MarkUsersAsDownloaded` / `markSingleUserWithInfo` 核心实现 |
 | `internal/downloading/user_sync.go` | `syncUserAndEntity` 用户同步 |
-| `internal/database/user_sync.go` | `SyncUser` 用户信息同步 |
+| `internal/database/user_sync.go` | `SyncUser` 用户信息同步（UPSERT） |
 | `internal/entity/user.go` | `SetLatestReleaseTime` / `ClearLatestReleaseTime` |
-| `internal/twitter/user.go` | `GetMedias` 时间过滤 |
-| `internal/api/download_handlers.go` | API 模式的标记处理器（`handleUserMark`、`handleListMark`、`handleFollowingMark`、`handleBatchMark`） |
-| `internal/api/types.go` | API 任务数据结构（`MarkDownloadedTaskData`、`BatchMarkDownloadedTaskData`） |
+| `internal/entity/sync.go` | `Sync` 实体路径同步函数 |
+| `internal/entity/interface.go` | `Entity` 接口定义 |
+| `internal/api/download_handlers.go` | API 模式的标记处理器 |
+| `internal/api/types.go` | API 任务数据结构 |
+| `internal/naming/user_naming.go` | `UserNaming` 文件夹名生成 |
 
 ---
 
-## 版本历史
-
-- 初始版本：支持基本标记功能
-- v2.x：支持 `null`/`nil` 重置、详细输出、错误处理
-- v3.4.x：Service 层重构后通过 `DownloadService.MarkDownloaded()` 统一入口，CLI 和 API 共享同一标记逻辑；新增批量标记（`batch/mark`）支持同时标记用户/列表/关注列表
-
----
-
-*文档生成日期：2026-06-04*
+*文档更新日期：2026-06-04*
