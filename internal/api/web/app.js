@@ -1022,12 +1022,12 @@ function renderTaskItem(task) {
         </div>
         <div class="task-progress-text">${pct}%${stageText}${currentText}</div>
       </div>
-      <div class="task-actions">
-        ${task.status === 'running' || task.status === 'queued' ?
-          `<button class="btn btn-danger btn-sm" data-action="cancel">取消</button>` :
-          `<button class="btn btn-ghost btn-sm" data-action="detail">详情</button>`
-        }
-      </div>
+	      <div class="task-actions">
+	        ${task.status === 'running' || task.status === 'queued' ?
+	          `<button class="btn btn-danger btn-sm" data-task-id="${escapeAttr(task.task_id)}" data-action="cancelTask">取消</button>` :
+	          `<button class="btn btn-ghost btn-sm" data-task-id="${escapeAttr(task.task_id)}" data-action="showTaskDetail">详情</button>`
+	        }
+	      </div>
     </div>
   `;
 }
@@ -4914,20 +4914,6 @@ document.getElementById('contentContainer').addEventListener('click', (e) => {
     return;
   }
 
-  const cancelBtn = e.target.closest('[data-action="cancel"]');
-  if (cancelBtn) {
-    const taskItem = cancelBtn.closest('[data-task-id]');
-    if (taskItem) cancelTask(taskItem.dataset.taskId);
-    return;
-  }
-
-  const detailBtn = e.target.closest('[data-action="detail"]');
-  if (detailBtn) {
-    const taskItem = detailBtn.closest('[data-task-id]');
-    if (taskItem) showTaskDetail(taskItem.dataset.taskId);
-    return;
-  }
-
   const taskItem = e.target.closest('.task-item[data-task-id]');
   if (taskItem) {
     showTaskDetail(taskItem.dataset.taskId);
@@ -4991,7 +4977,7 @@ document.getElementById('app').addEventListener('click', (e) => {
     case 'changeDBPage':          changeDBPage(Number(el.dataset.delta)); break;
     case 'goToDBPage':            goToDBPage(Number(el.dataset.page)); break;
     case 'goToLogPage':           goToLogPage(Number(el.dataset.page)); break;
-    case 'sortDB':                sortDB(el.dataset.field); break;
+    case 'sortDB':                sortDB(el.dataset.sortField); break;
     case 'searchDB':              searchDB(); break;
     case 'editDBItem':            editDBItem(el.dataset.dbType, el.dataset.dbId); break;
     case 'deleteDBItem':          deleteDBItem(el.dataset.dbType, el.dataset.dbId); break;
