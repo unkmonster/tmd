@@ -239,13 +239,16 @@ const api = {
       this._cleanupAbortController(controller);
       throw new Error('网络请求失败，请检查服务器是否运行: ' + e.message);
     }
-    const data = await res.json().catch(() => {
+    let body;
+    try {
+      body = await res.json();
+    } catch (e) {
       this._cleanupAbortController(controller);
-      return ({ success: false, error: `Invalid response (HTTP ${res.status})` });
-    });
+      throw new Error('服务器返回无效响应 (HTTP ' + res.status + ')');
+    }
     this._cleanupAbortController(controller);
-    if (!res.ok || !data.success) throw new Error(data.error || `HTTP ${res.status}`);
-    return data.data;
+    if (!res.ok || !body.success) throw new Error(body.error || '服务器错误 (HTTP ' + res.status + ')');
+    return body.data;
   },
   
   get(path) { return this.request('GET', path); },
@@ -452,6 +455,7 @@ const sseManager = {
         const data = JSON.parse(e.data);
         handleServerShutdown(data.message);
       } catch (err) {
+        console.warn('[SSE] server_shutdown parse error:', err);
         handleServerShutdown('服务器正在关闭');
       }
     });
@@ -465,9 +469,8 @@ const sseManager = {
       if (store.state.currentPage === 'shutdown') return;
       this.reconnectAttempts++;
       if (this.reconnectAttempts >= 10 && this.reconnectAttempts % 5 === 0) {
-        api.getHealth().catch(() => {
-          // 忽略 — 健康检查失败可能是临时问题，继续重试
-          console.warn('[SSE] 健康检查失败，继续重试...');
+        api.getHealth().catch((e) => {
+          console.warn('[SSE] 健康检查失败:', e.message, '- 继续重试...');
         });
       }
       const delay = Math.min(this.baseReconnectDelay * Math.pow(2, this.reconnectAttempts - 1), this.maxReconnectDelay);
@@ -3875,7 +3878,7 @@ async function loadLogs() {
   // 异步获取统计（不阻塞日志加载）
   api.getLogStats()
     .then(s => store.setState({ logStats: { debug: s.debug || 0, info: s.info || 0, warn: s.warn || 0, error: s.error || 0, total: s.total || 0 } }))
-    .catch(() => {});
+    .catch(() => { console.warn('[Logs] 获取日志统计失败'); });
 }
 
 function setLogLevel(level) {
@@ -3952,7 +3955,7 @@ function loadCodeMirrorAssets() {
       link.rel = 'stylesheet';
       link.href = url;
       link.onload = () => { loaded++; if (loaded === cssUrls.length) loadScripts(); };
-      link.onerror = () => { loaded++; if (loaded === cssUrls.length) loadScripts(); };
+      link.onerror = () => { loaded++; console.warn('[CodeMirror] CSS 加载失败:', url); if (loaded === cssUrls.length) loadScripts(); };
       document.head.appendChild(link);
     });
     function loadScripts() {
@@ -3965,7 +3968,7 @@ function loadCodeMirrorAssets() {
         const script = document.createElement('script');
         script.src = src;
         script.onload = () => { scriptLoaded++; if (scriptLoaded === scripts.length) { setTimeout(resolve, 50); } };
-        script.onerror = () => { scriptLoaded++; if (scriptLoaded === scripts.length) { setTimeout(resolve, 50); } };
+        script.onerror = () => { scriptLoaded++; console.warn('[CodeMirror] JS 加载失败:', src); if (scriptLoaded === scripts.length) { setTimeout(resolve, 50); } };
         document.body.appendChild(script);
       });
     }
@@ -4413,6 +4416,20 @@ function filterTasks() {
   // Reuse updateTaskListUI to render filtered tasks
   updateTaskListUI(store.state.tasks);
 }
+
+// ============================================
+// Global Error Boundary
+// ============================================
+
+window.onerror = function (msg, url, line, col, error) {
+  console.error('[Global] 未捕获的异常:', msg, 'at', url + ':' + line + ':' + col, error);
+  return true;
+};
+
+window.addEventListener('unhandledrejection', function (e) {
+  console.error('[Global] 未处理的 Promise 拒绝:', e.reason);
+  e.preventDefault();
+});
 
 // ============================================
 // Initialization
