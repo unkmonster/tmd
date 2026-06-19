@@ -4415,7 +4415,8 @@ function rerenderSystemPanel(panelId, renderFn, resetEditor = null, initEditor =
   if (panel) panel.scrollTop = savedScrollTop;
   if (initEditor) requestAnimationFrame(() => requestAnimationFrame(() => {
     initEditor();
-    if (restoreFn && saved !== null) restoreFn(saved);
+    // 仅在旧编辑器有实际内容时恢复，避免空内容覆盖新加载的数据
+    if (restoreFn && saved !== null && saved !== '') restoreFn(saved);
   }));
 }
 
