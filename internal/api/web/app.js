@@ -3975,21 +3975,16 @@ function setConfigMode(mode) {
   if (mode !== 'raw' && _state.configCodeMirror) {
     _state.configCodeMirror = destroyCodeMirror(_state.configCodeMirror);
   }
-  // 直接更新 store 状态并同步 _state 快照，避免异步订阅触发不必要的重建
+  store.setState({ configMode: mode });
+  // 在异步通知触发前同步 _state 快照，syncSystemPage 不会检测到变化，跳过重建
   _state.lastConfigMode = mode;
-  store.state.configMode = mode;
-  if (mode === 'raw' && store.state.configRaw === null) {
-    loadConfigRaw();
-    // 加载完成后订阅会自动重建面板，此处不做事
-    return;
-  }
-  if (mode === 'raw') {
-    _state._configCmInitializing = false;
-    const panel = document.getElementById('systemConfigPanel');
-    if (panel) {
-      panel.innerHTML = renderConfigEditor();
-      requestAnimationFrame(() => requestAnimationFrame(initConfigCodeMirror));
-    }
+  if (mode !== 'raw') return;
+  if (store.state.configRaw === null) { loadConfigRaw(); return; }
+  _state._configCmInitializing = false;
+  const panel = document.getElementById('systemConfigPanel');
+  if (panel) {
+    panel.innerHTML = renderConfigEditor();
+    requestAnimationFrame(() => requestAnimationFrame(initConfigCodeMirror));
   }
 }
 
@@ -4721,17 +4716,6 @@ function syncSystemPage(state, tasksChanged) {
   let configPanelShouldRebuild = state.configMode === 'raw'
     ? (configModeChanged || configSavingChanged || configRawRebuildNeeded)
     : (configRawChanged || configFieldsChanged || configFieldsLoadingChanged || configSavingChanged || configModeChanged);
-  if (state.currentPage === 'system' && _state._configPanelSkipNextRebuild && configPanelShouldRebuild && configModeChanged) {
-    _state._configPanelSkipNextRebuild = false;
-    // setConfigMode 已同步重建面板，此处跳过 Config 重建（继续处理 cookies/schedules）
-    configPanelShouldRebuild = false;
-    // 但需要同步 _state last* 避免后续反复重建
-    _state.lastConfigRaw = state.configRaw;
-    _state.lastConfigSaving = state.configSaving;
-    _state.lastConfigFieldsJson = JSON.stringify(state.configFields);
-    _state.lastConfigFieldsLoading = state.configFieldsLoading;
-    _state.lastConfigMode = state.configMode;
-  }
   if (configPanelShouldRebuild) {
     _state.lastConfigRaw = state.configRaw;
     _state.lastConfigSaving = state.configSaving;
