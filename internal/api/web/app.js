@@ -728,7 +728,7 @@ const pages = {
             <div class="card-header">
               <div class="card-title">创建新任务</div>
             </div>
-            <div class="card-body" style="flex:1;overflow-y:auto">
+            <div class="card-body card-body-fill">
               <div class="tabs">
                 <div class="tab active" data-task-tab="user">用户</div>
                 <div class="tab" data-task-tab="list">列表</div>

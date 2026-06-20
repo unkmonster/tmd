@@ -1419,6 +1419,12 @@ ul, ol {
   flex-direction: column;
 }
 
+/* 保持 card-body 原有 padding 的填充滚动容器 */
+.card-body-fill {
+  flex: 1;
+  overflow-y: auto;
+}
+
 .system-tab-bar {
   flex-shrink: 0;
   display: flex;
