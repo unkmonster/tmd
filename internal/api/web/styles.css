@@ -1413,7 +1413,8 @@ ul, ol {
 .card-body-scroll {
   padding: 0;
   flex: 1;
-  overflow: hidden;
+  min-height: 0;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
 }
@@ -1873,7 +1874,6 @@ ul, ol {
 /* ===== Schedule List ===== */
 .schedule-list {
   flex: 1;
-  overflow-y: auto;
 }
 
 /* ===== Schedule Item ===== */
