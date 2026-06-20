@@ -1874,6 +1874,15 @@ ul, ol {
 /* ===== Schedule List ===== */
 .schedule-list {
   flex: 1;
+  min-height: 0;
+}
+
+/* #scheduleTable 在 page-container flex 列中撑满剩余空间 */
+#scheduleTable {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 /* ===== Schedule Item ===== */
