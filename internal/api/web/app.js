@@ -4878,10 +4878,21 @@ function syncSchedulesPage(state) {
     }
   }
 
-  // 手术刀更新：列表 → 只改 #scheduleTable，保留页面容器
+  // 手术刀更新：列表 → 只改 #scheduleTable，保留页面容器和滚动位置
   if (changed._schedules || changed._scheduleExists) {
     const tableEl = document.getElementById('scheduleTable');
-    if (tableEl) tableEl.innerHTML = renderScheduleTable(state._schedules, state._scheduleExists);
+    if (!tableEl) return;
+    // 保存当前滚动位置（card-body-scroll 是实际滚动容器）
+    const scrollBody = tableEl.querySelector('.card-body-scroll');
+    const scrollPos = scrollBody ? scrollBody.scrollTop : 0;
+    tableEl.innerHTML = renderScheduleTable(state._schedules, state._scheduleExists);
+    // 恢复滚动位置
+    if (scrollPos > 0) {
+      requestAnimationFrame(() => {
+        const newScroll = tableEl.querySelector('.card-body-scroll');
+        if (newScroll) newScroll.scrollTop = scrollPos;
+      });
+    }
   }
 }
 
