@@ -1,4 +1,9 @@
 // ============================================
+// Init guard — 初始化完成前忽略 SSE 任务事件以消除竞态
+// ============================================
+let _initComplete = false;
+
+// ============================================
 // Utility Functions
 // ============================================
 function debounce(fn, delay) {
@@ -406,6 +411,7 @@ const sseManager = {
     }, 100);
 
     this.conn.addEventListener('tasks', (e) => {
+      if (!_initComplete) return;
       try {
         const tasks = JSON.parse(e.data);
         debouncedTasksUpdate(tasks);
@@ -1712,7 +1718,7 @@ function searchDB() {
       ...store.state.dbPagination,
       [store.state.dataSubPage]: { ...store.state.dbPagination[store.state.dataSubPage], page: 1 }
     },
-    _prevNameUserIdFilter: ''
+    _prevNameUserIdFilter: store.state.dataSubPage !== 'previousNames' ? '' : store.state._prevNameUserIdFilter,
   });
   refreshDBData();
 }
@@ -2025,7 +2031,9 @@ async function handleQuickDownload() {
   }
 
   let username = value;
-  const listMatch = value.match(/(?:twitter\.com|x\.com)\/i\/lists\/(\d+)/);
+  // 从粘贴文本中提取第一个 URL（支持行内混合粘贴），无 URL 时用原始输入
+  const firstUrl = (value.match(/https?:\/\/[^\s]+/) || [value])[0];
+  const listMatch = firstUrl.match(/https?:\/\/(?:twitter\.com|x\.com)\/i\/lists\/(\d+)/);
   if (listMatch) {
     try {
       await api.createListDownload(listMatch[1], { auto_follow: true });
@@ -2036,7 +2044,7 @@ async function handleQuickDownload() {
     }
     return;
   }
-  const userMatch = value.match(/(?:twitter\.com|x\.com)\/([^/\s?]+)/);
+  const userMatch = firstUrl.match(/https?:\/\/(?:twitter\.com|x\.com)\/([^/\s?]+)/);
   if (userMatch) {
     const pathPart = userMatch[1];
     if (!['i', 'search', 'status', 'home', 'explore', 'notifications', 'messages', 'settings', 'compose', 'bookmarks', 'lists', 'communities'].includes(pathPart.toLowerCase())) {
@@ -3432,6 +3440,7 @@ async function triggerSchedule(id) {
 
 async function triggerAllSchedules() {
   const btn = document.getElementById('btnTriggerAll');
+  if (!btn) return;
   const schedules = (store.state._schedules || []).filter(s => readScheduleEntryField(s.entry, 'enabled', 'Enabled'));
   if (schedules.length === 0) {
     toast.show('没有已启用的调度任务', 'error');
@@ -3991,9 +4000,9 @@ async function shutdownServer() {
   try {
     await api.shutdownServer();
   } catch (err) {
-    sseManager.disconnect();
-    renderServerClosedState();
+    // HTTP 请求异常时服务端可能也已关闭，继续走同一套清理
   }
+  handleServerShutdown('服务器已关闭');
 }
 
 function handleServerShutdown(message) {
@@ -4619,12 +4628,15 @@ async function init() {
       currentPage: page,
       dataSubPage: dataSubPage,
       health,
-      tasks: store.state.tasks.length > 0 ? store.state.tasks : (tasks.tasks || []),
+      tasks: tasks.tasks || [],
     });
+
+    _initComplete = true;
 
     await refreshDBData();
 
   } catch (err) {
+    _initComplete = true;
     store.setState({
       currentPage: page,
       dataSubPage: dataSubPage
@@ -4707,7 +4719,7 @@ function syncDataPage(state) {
   if (pagEl) {
     const infoEl = pagEl.querySelector('#dataPaginationInfo');
     if (infoEl) {
-      infoEl.innerHTML = `显示 ${current.data.length || 0} / ${current.total || 0} 条记录 (第 ${pagination.page} / ${pagination.totalPages} 页)`;
+      infoEl.textContent = `显示 ${current.data.length || 0} / ${current.total || 0} 条记录 (第 ${pagination.page} / ${pagination.totalPages} 页)`;
     }
     const controlsEl = pagEl.querySelector('.pagination-controls');
     if (controlsEl) {
