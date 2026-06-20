@@ -68,12 +68,10 @@ data/
 Desktop.ini
 *.bak
 *.tmp
-.tmd2.lnk
 
 # === Project Specific ===
 # 旧版本备份
-tmd-2.4.4/
-# tmd-*/
+tmd-*/
 
 # 示例数据
 json示例/
@@ -82,5 +80,5 @@ json示例/
 # === Misc ===
 todo.md
 .review/
-".codegraph/"  
+.codegraph/
 .reasonix/

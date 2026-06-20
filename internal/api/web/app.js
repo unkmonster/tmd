@@ -83,7 +83,7 @@ function deepMerge(target, source) {
 
 const store = {
   state: {
-    currentPage: 'overview',
+    currentPage: null,
     health: null,
     tasks: [],
     users: [],
@@ -237,6 +237,8 @@ const api = {
       res = await fetch(this.base + path, options);
     } catch (e) {
       this._cleanupAbortController(controller);
+      // 导航离页导致的主动中止，抛出原始 AbortError 供外层区分
+      if (e.name === 'AbortError') throw e;
       throw new Error('网络请求失败，请检查服务器是否运行: ' + e.message);
     }
     let json;
@@ -693,7 +695,7 @@ const pages = {
         </div>
         <div class="card-body card-body-scroll">
           ${recentTasks.length === 0 ? `
-            <div class="empty-state">
+            <div class="empty-state overview-tasks-list">
               <div class="empty-icon">📋</div>
               <div class="empty-title">暂无任务</div>
               <div class="empty-desc">创建一个新任务开始下载 Twitter 媒体文件</div>
@@ -762,12 +764,15 @@ const pages = {
               </div>
             </div>
             <div class="card-body card-body-scroll">
-              <div class="${tasks.length === 0 ? 'empty-state' : 'task-list'}" id="taskListContainer">
-                ${tasks.length === 0 ? `
+              <div class="${tasks.length === 0 ? (!store.state.health ? 'empty-state' : 'empty-state') : 'task-list'}" id="taskListContainer">
+                ${tasks.length === 0 ? (store.state.health === null ? `
+                  <div class="empty-icon">⏳</div>
+                  <div class="empty-title">加载中...</div>
+                ` : `
                   <div class="empty-icon">🚀</div>
                   <div class="empty-title">暂无任务</div>
-                  <div class="empty-desc">在左侧创建一个新任务开始下载</div>
-                ` : `
+                  <div class="empty-desc">前往概览页使用快速下载创建任务</div>
+                `) : `
                   ${tasks.map(t => renderTaskItem(t)).join('')}
                 `}
               </div>
@@ -2535,6 +2540,7 @@ async function refreshTasks() {
 function refreshLogs() { loadLogs(); restartLogStreamIfNeeded(); }
 
 function escapeHtml(str) {
+  if (str == null) return '';
   const d = document.createElement('div');
   d.textContent = str;
   return d.innerHTML;
@@ -4226,6 +4232,10 @@ function toggleLogAutoRefresh() {
 function cleanupSystemTimers() {
   _state._cmWaitCancelled = true;
   _state._logsPageLoaded = false;
+  if (_state._logSearchTimer) {
+    clearTimeout(_state._logSearchTimer);
+    _state._logSearchTimer = null;
+  }
   if (_state.logAutoRefreshTimer) {
     clearTimeout(_state.logAutoRefreshTimer);
     _state.logAutoRefreshTimer = null;
@@ -4471,6 +4481,7 @@ function updateURL(page, dataSubPage = null) {
 
 function navigateTo(page) {
   drawer.close();
+  api.abortAll();
   if ((_state.lastPage === 'system' || _state.lastPage === 'logs') && page !== _state.lastPage) {
     cleanupSystemTimers();
     destroyAllEditors();
@@ -4596,14 +4607,6 @@ async function init() {
   const { page, dataSubPage } = parseRoute();
   updateNavigationUI(page);
 
-  document.getElementById('contentContainer').innerHTML = `
-    <div class="empty-state">
-      <div class="skeleton" style="width: 64px; height: 64px; border-radius: var(--radius-xl); margin-bottom: var(--space-4);"></div>
-      <div class="empty-title">加载中...</div>
-      <div class="empty-desc">正在初始化应用数据</div>
-    </div>
-  `;
-
   sseManager.connect();
 
   try {
@@ -4673,9 +4676,6 @@ window.addEventListener('resize', () => {
 
 // Subscribe to state changes
 const dataDetector = makeChangeDetector(['dataSubPage', 'dbData', 'dbPagination', 'dbSort']);
-const systemTabDetector = makeChangeDetector(['_systemTab']);
-const configDetector = makeChangeDetector(['configRaw', 'configSaving', 'configFields', 'configFieldsLoading', 'configMode']);
-const cookiesDetector = makeChangeDetector(['cookieItems', 'cookiesMode', 'cookiesRaw', 'cookiesSaving']);
 const scheduleDetector = makeChangeDetector(['_schedules', '_scheduleRaw', '_scheduleExists', '_scheduleSaving', '_scheduleTab', '_scheduleFormItems', '_schedulerRunning']);
 const logDetector = makeChangeDetector(['logs', 'logLevel', 'logPagination', '_logNewArrived']);
 const overviewDetector = makeChangeDetector(['tasks', 'health']);
@@ -4720,7 +4720,7 @@ function syncDataPage(state) {
   }
 }
 
-function syncSystemPage(state, tasksChanged) {
+function syncSystemPage(state) {
   const tabChanged = state._systemTab !== _state.lastSystemTab;
   const configRawChanged = state.configRaw !== _state.lastConfigRaw;
   const configSavingChanged = state.configSaving !== _state.lastConfigSaving;
@@ -4934,20 +4934,22 @@ function updateOverviewHealthUI(health) {
 }
 
 store.subscribe((state) => {
+  // 首次渲染由 init() 的 render() 控制，订阅只处理页面切换和手术刀更新
+  if (state.currentPage === null) return;
+
   if (state.currentPage !== _state.lastPage) {
     _state.lastPage = state.currentPage;
     render();
     return;
   }
 
-  const { hasAny: tasksChanged } = overviewDetector.detect(state);
-
-  if (tasksChanged) {
-    if (state.currentPage === 'tasks') { updateTaskListUI(state.tasks); }
+  if (state.currentPage === 'tasks') {
+    const { hasAny: tasksChanged } = overviewDetector.detect(state);
+    if (tasksChanged) { updateTaskListUI(state.tasks); }
   }
 
   if (state.currentPage === 'data') syncDataPage(state);
-  else if (state.currentPage === 'system') syncSystemPage(state, tasksChanged);
+  else if (state.currentPage === 'system') syncSystemPage(state);
   else if (state.currentPage === 'schedules') syncSchedulesPage(state);
   else if (state.currentPage === 'logs') syncLogsPage(state);
   else if (state.currentPage === 'overview') syncOverviewPage(state);

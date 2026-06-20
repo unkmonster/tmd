@@ -903,13 +903,18 @@ HTTP POST /api/v1/users/elonmusk/download
 
 ## 十九、运行与验证
 
+### 本地验证
+
 ```bash
 go test ./...
 go test -race -covermode atomic -coverprofile=covprofile ./...
 go build -o tmd.exe .
+go vet ./...               # 静态分析，建议改完就跑
 ```
 
-CI 配置在 `.github/workflows/go.yml`，核心命令：
+### CI 持续集成
+
+CI 配置在 `.github/workflows/go.yml`，当前仅由 tag 推送（`v*`）触发，负责构建发布：
 
 ```bash
 # Windows
@@ -917,10 +922,9 @@ go build -o bin/tmd-${{ runner.os }}-amd64.exe -v -ldflags "-w -s" .
 
 # Unix (CGO_ENABLED=0)
 GOARCH=amd64 CGO_ENABLED=0 go build -o bin/tmd-${{ runner.os }}-amd64 -v -ldflags "-w -s" .
-
-# 非 tag 构建测试
-go test -race -covermode atomic -coverprofile=covprofile ./...
 ```
+
+> ⚠️ **当前 gap：`go.yml` 没有 PR/push 触发的测试 job。** 如果你加了 CI 测试，记得创建一个 `test.yml` 跑 `go test -race ./...` 并在本文件更新说明。
 
 ---
 
@@ -952,6 +956,25 @@ go test -race -covermode atomic -coverprofile=covprofile ./...
 8. **数据库改动必须有 migration 和测试**。改 schema 后补数据库测试。
 9. **文件/目录命名改动必须考虑旧数据兼容**。
 10. **改并发、任务状态、SSE、数据库写入、下载器时，优先跑 `go test -race ...`**。
+
+### 推荐变更工作流
+
+1. **确认起点**：`git status` 工作区干净，开特性分支
+2. **了解全貌**：`codegraph explore "<主题>"` + `codegraph impact "<核心符号>"` 评估影响范围
+3. **按需阅读**：`codegraph node` 定位符号 → `read_file -o 行号 -l 60` 精确读取（文件 <300 行才全读）
+4. **列出发现**：bug / 矛盾 / 可优化点，标注是否涉及 `internal/twitter` 等高风险区域
+5. **确认方向**：除非单测已覆盖的纯增量，否则先向用户确认
+6. **（bug 修复）先写复现测试**，再修
+7. **最小改动**：改完即 `go build ./internal/xxx/...` 确保编译
+8. **验证**：
+   - `go vet ./...`
+   - `go test ./pkg/...`
+   - `codegraph affected` → 跑关联包测试
+   - `grep` 确认无死代码残留
+   - `git diff` 自审查
+   - 查 `doc/` 目录是否需要同步更新
+   - 确认 CLI + API Server 两条路径一致
+9. **提交**：`<package>: <简洁描述>`，正文写做了什么 + 为什么
 
 ## 二十二、不要做的事
 

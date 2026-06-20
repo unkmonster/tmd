@@ -13,11 +13,11 @@ permissions:
 
 jobs:
   release-build:
-    if: ${{ startsWith(github.ref, 'refs/tags/v') }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
+        arch: [amd64, arm64]
 
     runs-on: ${{ matrix.os }}
     permissions:
@@ -31,29 +31,25 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: Build for Windows
-        if: ${{ matrix.os == 'windows-latest' }}
-        shell: pwsh
-        run: |
-          $env:GOARCH = "amd64"
-          $env:CGO_ENABLED = "0"
-          go build -o bin/tmd-${{ runner.os }}-amd64.exe -v -ldflags "-w -s -X github.com/unkmonster/tmd/internal/api.Version=${{ github.ref_name }}" .
-
-      - name: Build for Unix
-        if: ${{ matrix.os != 'windows-latest' }}
+      - name: Build
         shell: bash
+        env:
+          GOARCH: ${{ matrix.arch }}
+          CGO_ENABLED: "0"
         run: |
-          GOARCH=amd64 CGO_ENABLED=0 go build -o bin/tmd-${{ runner.os }}-amd64 -v -ldflags "-w -s -X github.com/unkmonster/tmd/internal/api.Version=${{ github.ref_name }}" .
+          suffix=""
+          [ "${{ runner.os }}" = "Windows" ] && suffix=".exe"
+          go build -o "bin/tmd-${{ runner.os }}-${{ matrix.arch }}${suffix}" \
+            -v -ldflags "-w -s -X github.com/unkmonster/tmd/internal/api.Version=${{ github.ref_name }}" .
 
       - name: Upload release artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: binaries-${{ runner.os }}
+          name: binaries-${{ runner.os }}-${{ matrix.arch }}
           path: bin/*
           if-no-files-found: error
 
   release:
-    if: ${{ startsWith(github.ref, 'refs/tags/v') }}
     needs: release-build
     runs-on: ubuntu-latest
     permissions:
@@ -66,6 +62,11 @@ jobs:
           pattern: binaries-*
           path: release-artifacts
           merge-multiple: true
+
+      - name: Generate checksums
+        shell: bash
+        working-directory: release-artifacts
+        run: sha256sum * > checksums.txt
 
       - name: Publish release
         uses: softprops/action-gh-release@v2

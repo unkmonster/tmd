@@ -1729,6 +1729,7 @@ ul, ol {
 .gap-2 { gap: var(--space-2); }
 .gap-3 { gap: var(--space-3); }
 .gap-4 { gap: var(--space-4); }
+.mt-2 { margin-top: var(--space-2); }
 .mt-3 { margin-top: var(--space-3); }
 .mt-4 { margin-top: var(--space-4); }
 .mb-4 { margin-bottom: var(--space-4); }
@@ -1743,7 +1744,17 @@ ul, ol {
   text-overflow: ellipsis;
 }
 
-/* ===== System Page ===== */
+.alert {
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+}
+.alert-warning {
+  background: rgba(240, 136, 62, 0.12);
+  border: 1px solid rgba(240, 136, 62, 0.3);
+  color: var(--warning);
+}
 .system-tabs {
   display: flex;
   gap: var(--space-2);

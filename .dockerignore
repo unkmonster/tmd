@@ -21,5 +21,8 @@ logs
 *.out
 coverage.*
 covprofile
+.codegraph
+.reasonix
+.review
 Dockerfile
 docker-compose.yml
