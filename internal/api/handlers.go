@@ -214,9 +214,7 @@ list.appendChild(b);
 async function switchTheme(t){
 var r=await fetch('/api/v1/config/theme',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({theme:t})});
 var d=await r.json();
-if(d.success){document.getElementById('ts-current').textContent='Current: '+t;
-document.querySelectorAll('#ts-list .ts-opt').forEach(function(b){b.classList.toggle('active',b.textContent.trim()===t)})}
-}
+if(d.success)window.location.reload()}
 </script>
 </div>`
 }
