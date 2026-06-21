@@ -19,11 +19,6 @@ var (
 	frontendTheme = "web1" // web1 或 web2，运行时热切换
 )
 
-func getFrontendDir() string {
-	themeMu.RLock()
-	defer themeMu.RUnlock()
-	return "web/" + frontendTheme
-}
 
 func readFrontendFile(name string) ([]byte, error) {
 	themeMu.RLock()
@@ -32,20 +27,16 @@ func readFrontendFile(name string) ([]byte, error) {
 }
 
 func setFrontendTheme(theme string) bool {
+	themeMu.Lock()
+	defer themeMu.Unlock()
 	if theme == "" || strings.ContainsAny(theme, "/\\..") {
 		return false
 	}
 	// 验证目录在 embed FS 中真实存在（尝试读 index.html）
-	themeMu.RLock()
-	_, err := webFS.ReadFile("web/" + theme + "/index.html")
-	themeMu.RUnlock()
-	if err != nil {
+	if _, err := webFS.ReadFile("web/" + theme + "/index.html"); err != nil {
 		return false
 	}
-
-	themeMu.Lock()
 	frontendTheme = theme
-	themeMu.Unlock()
 	return true
 }
 
@@ -168,7 +159,7 @@ func ifNoneMatch(header, etag string) bool {
 // themeSwitcherHTML 返回一个在所有主题中通用的浮动主题切换器 UI
 // 通过 handleWeb 注入到各主题的 HTML 中，无需修改主题文件
 func themeSwitcherHTML() string {
-	return `<div id="tmd-theme-switcher" style="position:fixed;bottom:16px;right:16px;z-index:9999;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:12px;line-height:1.4">
+	return `<div id="tmd-theme-switcher" style="position:fixed;bottom:16px;left:16px;z-index:9999;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:12px;line-height:1.4">
 <style>
 #tmd-theme-switcher *{box-sizing:border-box;margin:0;padding:0}
 #tmd-theme-switcher .ts-btn{width:36px;height:36px;border-radius:50%;border:1px solid rgba(255,255,255,.2);background:rgba(20,20,30,.85);backdrop-filter:blur(8px);color:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:16px;transition:transform .2s,box-shadow .2s;box-shadow:0 2px 12px rgba(0,0,0,.3);margin-left:auto}
