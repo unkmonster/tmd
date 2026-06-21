@@ -132,6 +132,7 @@ func (s *Server) buildHandler() http.Handler {
 	mux.HandleFunc("DELETE /api/v1/errors", s.handleClearErrors)
 
 	mux.HandleFunc("GET /{$}", s.handleWeb)
+	mux.HandleFunc("GET /favicon.ico", s.handleFavicon)
 	mux.HandleFunc("GET /tasks", s.handleWeb)
 	mux.HandleFunc("GET /data", s.handleWeb)
 	mux.HandleFunc("GET /schedules", s.handleWeb)
@@ -257,6 +258,11 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		Timestamp: time.Now().UTC(),
 	}
 	s.writeJSON(w, http.StatusOK, NewSuccessResponse(resp))
+}
+
+func (s *Server) handleFavicon(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "image/svg+xml")
+	w.Write([]byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#2563eb"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>`))
 }
 
 func (s *Server) writeJSON(w http.ResponseWriter, status int, data interface{}) {
