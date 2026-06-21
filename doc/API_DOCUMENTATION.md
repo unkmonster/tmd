@@ -1707,6 +1707,129 @@ GET /api/v1/config
 
 ***
 
+### 获取当前主题
+
+获取当前前端 UI 主题名称。
+
+**请求：**
+
+```http
+GET /api/v1/config/theme
+```
+
+**响应：**
+
+```json
+{
+  "success": true,
+  "data": {
+    "theme": "web1"
+  }
+}
+```
+
+**示例：**
+
+```bash
+curl http://localhost:25556/api/v1/config/theme
+```
+
+***
+
+### 切换主题
+
+切换到指定的前端 UI 主题。
+
+**请求：**
+
+```http
+POST /api/v1/config/theme
+Content-Type: application/json
+
+{
+  "theme": "web2"
+}
+```
+
+**请求体参数：**
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `theme` | string | 是 | 主题名称，来自可用主题列表（如 `web1`、`web2`） |
+
+**响应（成功）：**
+
+```json
+{
+  "success": true,
+  "data": {
+    "theme": "web2"
+  }
+}
+```
+
+**响应（无效主题）：**
+
+```json
+{
+  "success": false,
+  "error": "Invalid theme: directory not found or missing index.html"
+}
+```
+
+**说明：**
+
+- 主题对应 `web/{theme}/index.html` 目录，由 embed FS 提供
+- 无效主题名返回 400 Bad Request
+- 切换后会立即生效，无需重启服务器
+
+**示例：**
+
+```bash
+curl -X POST http://localhost:25556/api/v1/config/theme \
+  -H "Content-Type: application/json" \
+  -d '{"theme": "web2"}'
+```
+
+***
+
+### 获取可用主题列表
+
+列出所有可用的前端 UI 主题及其当前选中的主题。
+
+**请求：**
+
+```http
+GET /api/v1/config/themes
+```
+
+**响应：**
+
+```json
+{
+  "success": true,
+  "data": {
+    "themes": ["web1", "web2"],
+    "current": "web1"
+  }
+}
+```
+
+**字段说明：**
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `themes` | string[] | 所有可用主题名称列表 |
+| `current` | string | 当前生效的主题名称 |
+
+**示例：**
+
+```bash
+curl http://localhost:25556/api/v1/config/themes
+```
+
+***
+
 ### 获取原始配置文件内容
 
 获取 conf.yaml 文件的原始 YAML 内容。

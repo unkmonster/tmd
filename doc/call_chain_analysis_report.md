@@ -57,6 +57,9 @@
 | 端点 | 方法 | 处理器 | 功能 |
 |------|------|--------|------|
 | `/api/v1/config` | GET | `handleConfig` | 获取配置（脱敏） |
+| `/api/v1/config/theme` | GET | `handleGetTheme` | 获取当前主题 |
+| `/api/v1/config/theme` | POST | `handleSetTheme` | 切换主题 |
+| `/api/v1/config/themes` | GET | `handleGetThemes` | 获取可用主题列表 |
 | `/api/v1/config/raw` | GET/PUT | `handleGetConfigRaw`/`handleUpdateConfigRaw` | 原始配置操作 |
 | `/api/v1/config/fields` | GET/PUT | `handleGetConfigFields`/`handleSaveConfigFields` | 结构化配置 |
 
