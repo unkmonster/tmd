@@ -12,7 +12,7 @@ if not exist "%TMD_EXE%" (
 if not exist "%TMD_EXE%" (
     echo tmd executable not found beside this script.
     echo Building from source...
-    go build -ldflags "-s -w -X github.com/unkmonster/tmd/internal/api.Version=test" -o tmd.exe .
+    go build -ldflags "-s -w -X github.com/unkmonster/tmd/internal/api.Version=test" -o tmd-test.exe .
     if %errorlevel% neq 0 (
         echo Build failed.
         exit /b %errorlevel%

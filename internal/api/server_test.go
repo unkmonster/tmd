@@ -2796,3 +2796,75 @@ func TestHandleClearErrors(t *testing.T) {
 	assert.NoError(t, err)
 	assert.True(t, resp.Success)
 }
+
+func TestHandleGetTheme_ReturnsDefault(t *testing.T) {
+	server := &Server{}
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/config/theme", nil)
+	rr := httptest.NewRecorder()
+	server.handleGetTheme(rr, req)
+
+	assert.Equal(t, http.StatusOK, rr.Code)
+
+	var resp APIResponse
+	err := json.Unmarshal(rr.Body.Bytes(), &resp)
+	assert.NoError(t, err)
+	assert.True(t, resp.Success)
+
+	data, ok := resp.Data.(map[string]interface{})
+	assert.True(t, ok)
+	assert.Equal(t, "web1", data["theme"])
+}
+
+func TestHandleSetTheme_SwitchesToWeb2(t *testing.T) {
+	orig := getFrontendTheme()
+	defer setFrontendTheme(orig)
+
+	server := &Server{}
+	body := `{"theme":"web2"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/config/theme", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	server.handleSetTheme(rr, req)
+
+	assert.Equal(t, http.StatusOK, rr.Code)
+
+	var resp APIResponse
+	err := json.Unmarshal(rr.Body.Bytes(), &resp)
+	assert.NoError(t, err)
+	assert.True(t, resp.Success)
+
+	data, ok := resp.Data.(map[string]interface{})
+	assert.True(t, ok)
+	assert.Equal(t, "web2", data["theme"])
+	assert.Equal(t, "web2", getFrontendTheme())
+}
+
+func TestHandleSetTheme_InvalidBody(t *testing.T) {
+	server := &Server{}
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/config/theme", strings.NewReader("not json"))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	server.handleSetTheme(rr, req)
+
+	assert.Equal(t, http.StatusBadRequest, rr.Code)
+
+	var resp APIResponse
+	err := json.Unmarshal(rr.Body.Bytes(), &resp)
+	assert.NoError(t, err)
+	assert.False(t, resp.Success)
+}
+
+func TestHandleSetTheme_InvalidTheme(t *testing.T) {
+	orig := getFrontendTheme()
+	defer setFrontendTheme(orig)
+
+	server := &Server{}
+	body := `{"theme":"web3"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/config/theme", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	server.handleSetTheme(rr, req)
+
+	assert.Equal(t, http.StatusBadRequest, rr.Code)
+	assert.Equal(t, orig, getFrontendTheme())
+}

@@ -24,6 +24,12 @@ func getFrontendDir() string {
 	return "web/" + frontendTheme
 }
 
+func readFrontendFile(name string) ([]byte, error) {
+	themeMu.RLock()
+	defer themeMu.RUnlock()
+	return webFS.ReadFile("web/" + frontendTheme + "/" + name)
+}
+
 func setFrontendTheme(theme string) bool {
 	themeMu.Lock()
 	defer themeMu.Unlock()
@@ -42,7 +48,7 @@ func getFrontendTheme() string {
 
 // handleWeb 返回 Web 管理页面
 func (s *Server) handleWeb(w http.ResponseWriter, r *http.Request) {
-	data, err := webFS.ReadFile(getFrontendDir() + "/index.html")
+	data, err := readFrontendFile("index.html")
 	if err != nil {
 		s.writeError(w, http.StatusInternalServerError, "Failed to load web page")
 		return
@@ -69,7 +75,7 @@ func (s *Server) handleStatic(w http.ResponseWriter, r *http.Request) {
 
 	cleanPath = strings.TrimPrefix(cleanPath, "/")
 
-	data, err := webFS.ReadFile(getFrontendDir() + "/" + cleanPath)
+	data, err := readFrontendFile(cleanPath)
 	if err != nil {
 		http.NotFound(w, r)
 		return
