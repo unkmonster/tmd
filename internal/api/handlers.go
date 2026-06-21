@@ -7,14 +7,42 @@ import (
 	"net/http"
 	"path"
 	"strings"
+	"sync"
 )
 
-//go:embed web/*
+//go:embed web/web1 web/web2
 var webFS embed.FS
+
+var (
+	themeMu     sync.RWMutex
+	frontendTheme = "web1" // web1 或 web2，运行时热切换
+)
+
+func getFrontendDir() string {
+	themeMu.RLock()
+	defer themeMu.RUnlock()
+	return "web/" + frontendTheme
+}
+
+func setFrontendTheme(theme string) bool {
+	themeMu.Lock()
+	defer themeMu.Unlock()
+	if theme != "web1" && theme != "web2" {
+		return false
+	}
+	frontendTheme = theme
+	return true
+}
+
+func getFrontendTheme() string {
+	themeMu.RLock()
+	defer themeMu.RUnlock()
+	return frontendTheme
+}
 
 // handleWeb 返回 Web 管理页面
 func (s *Server) handleWeb(w http.ResponseWriter, r *http.Request) {
-	data, err := webFS.ReadFile("web/index.html")
+	data, err := webFS.ReadFile(getFrontendDir() + "/index.html")
 	if err != nil {
 		s.writeError(w, http.StatusInternalServerError, "Failed to load web page")
 		return
@@ -41,7 +69,7 @@ func (s *Server) handleStatic(w http.ResponseWriter, r *http.Request) {
 
 	cleanPath = strings.TrimPrefix(cleanPath, "/")
 
-	data, err := webFS.ReadFile("web/" + cleanPath)
+	data, err := webFS.ReadFile(getFrontendDir() + "/" + cleanPath)
 	if err != nil {
 		http.NotFound(w, r)
 		return

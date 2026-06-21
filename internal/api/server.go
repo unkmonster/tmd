@@ -173,6 +173,8 @@ func (s *Server) buildHandler() http.Handler {
 	mux.HandleFunc("GET /api/v1/db/user-previous-names", s.handleDBPreviousNames)
 	mux.HandleFunc("GET /api/v1/db/stats", s.handleDBStats)
 
+	mux.HandleFunc("GET /api/v1/config/theme", s.handleGetTheme)
+	mux.HandleFunc("POST /api/v1/config/theme", s.handleSetTheme)
 	mux.HandleFunc("GET /api/v1/config", s.handleConfig)
 	mux.HandleFunc("GET /api/v1/config/raw", s.handleGetConfigRaw)
 	mux.HandleFunc("PUT /api/v1/config/raw", s.handleUpdateConfigRaw)
@@ -244,6 +246,32 @@ func (s *Server) Start(port int) error {
 	}
 
 	return s.httpServer.ListenAndServe()
+}
+
+func (s *Server) handleGetTheme(w http.ResponseWriter, r *http.Request) {
+	s.writeJSON(w, http.StatusOK, NewSuccessResponse(map[string]string{
+		"theme": getFrontendTheme(),
+	}))
+}
+
+func (s *Server) handleSetTheme(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Theme string `json:"theme"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.writeError(w, http.StatusBadRequest, "Invalid JSON body")
+		return
+	}
+
+	if !setFrontendTheme(req.Theme) {
+		s.writeError(w, http.StatusBadRequest, "Invalid theme. Use \"web1\" or \"web2\"")
+		return
+	}
+
+	log.Infof("[theme] switched to %s", req.Theme)
+	s.writeJSON(w, http.StatusOK, NewSuccessResponse(map[string]string{
+		"theme": getFrontendTheme(),
+	}))
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
