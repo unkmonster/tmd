@@ -1,226 +1,11 @@
-/* ============================================================
-   TMD Web UI - app.js
-   SPA client for Twitter Media Downloader API
-   ============================================================ */
+// ============================================
+// Init guard — 初始化完成前忽略 SSE 任务事件以消除竞态
+// ============================================
+let _initComplete = false;
 
-/* ---- API Client ---- */
-const API_BASE = '';
-const API_TIMEOUT = 30000; // 30s timeout for all API requests
-
-function apiBase() { return API_BASE; }
-
-const API = {
-  async _fetch(url, options) {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), API_TIMEOUT);
-    try {
-      const r = await fetch(url, { ...options, signal: controller.signal });
-      return r;
-    } catch(e) {
-      if (e.name === 'AbortError') throw new Error('Request timed out');
-      throw e;
-    } finally {
-      clearTimeout(timer);
-    }
-  },
-  get: async (url) => {
-    const r = await API._fetch(apiBase() + url);
-    const j = await r.json();
-    if (!j.success) throw new Error(j.error || 'Request failed');
-    return j.data;
-  },
-  post: async (url, body) => {
-    const r = await API._fetch(apiBase() + url, { method: 'POST', headers: {'Content-Type':'application/json'}, body: body ? JSON.stringify(body) : undefined });
-    const j = await r.json();
-    if (!j.success) throw new Error(j.error || 'Request failed');
-    return j.data;
-  },
-  put: async (url, body) => {
-    const r = await API._fetch(apiBase() + url, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: body ? JSON.stringify(body) : undefined });
-    const j = await r.json();
-    if (!j.success) throw new Error(j.error || 'Request failed');
-    return j.data;
-  },
-  patch: async (url, body) => {
-    const r = await API._fetch(apiBase() + url, { method: 'PATCH', headers: {'Content-Type':'application/json'}, body: body ? JSON.stringify(body) : undefined });
-    const j = await r.json();
-    if (!j.success) throw new Error(j.error || 'Request failed');
-    return j.data;
-  },
-  del: async (url) => {
-    const r = await API._fetch(apiBase() + url, { method: 'DELETE' });
-    const j = await r.json();
-    if (!j.success) throw new Error(j.error || 'Request failed');
-    return j.data;
-  }
-};
-
-/* ---- Utility ---- */
-const esc = (s) => { if (s == null) return ''; const d = document.createElement('div'); d.appendChild(document.createTextNode(String(s))); return d.innerHTML; };
-const jsEsc = (s) => { if (s == null) return ''; return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/\n/g,'\\n').replace(/\r/g,''); };
-
-// Log helpers
-function stripAnsi(str) { return str.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, ''); }
-function getLogLineColor(line) {
-  if (line.startsWith('ERRO[') || line.includes('level=error')) return 'var(--red)';
-  if (line.startsWith('WARN[') || line.includes('level=warn') || line.includes('level=warning')) return 'var(--amber)';
-  if (line.startsWith('INFO[') || line.includes('level=info')) return 'var(--blue)';
-  if (line.startsWith('DEBU[') || line.includes('level=debug')) return 'var(--text-muted)';
-  return 'var(--text-secondary)';
-}
-function highlightLogTimestamp(line) {
-  line = line.replace(/time=(&quot;)(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[-+]\d{2}:\d{2})(&quot;)/g, 'time=<span class="log-timestamp">$2</span>');
-  line = line.replace(/(ERRO|WARN|INFO|DEBU)\[(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})\]/g, '$1[<span class="log-timestamp">$2</span>]');
-  return line;
-}
-
-const relativeTime = (iso) => {
-  if (!iso) return '-';
-  const d = new Date(iso);
-  if (isNaN(d.getTime())) return '-';
-  const diff = Date.now() - d.getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return 'just now';
-  if (mins < 60) return mins + 'm ago';
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return hrs + 'h ' + (mins % 60) + 'm ago';
-  return new Date(iso).toLocaleDateString();
-};
-
-const formatTime = (iso) => {
-  if (!iso) return '-';
-  const d = new Date(iso);
-  if (isNaN(d.getTime())) return '-';
-  return d.toLocaleString();
-};
-
-const formatDuration = (start, end) => {
-  if (!start || !end) return '-';
-  const s = new Date(start), e = new Date(end);
-  if (isNaN(s.getTime()) || isNaN(e.getTime())) return '-';
-  const d = e - s;
-  if (d < 1000) return d + 'ms';
-  if (d < 60000) return (d / 1000).toFixed(1) + 's';
-  const m = Math.floor(d / 60000);
-  const secs = Math.floor((d % 60000) / 1000);
-  return m + 'm ' + secs + 's';
-};
-
-function getTaskProgressPercent(task) {
-  if (task.status === 'completed') return 100;
-  const p = task.progress || {};
-  const total = p.total || 0;
-  const completed = p.completed || 0;
-  const ratio = total > 0 ? Math.min(completed / total, 1) : 0;
-  if (task.status === 'failed' || task.status === 'cancelled') return total > 0 ? Math.round(ratio * 100) : 0;
-  switch (p.stage) {
-    case 'syncing': return 5;
-    case 'preparing': return 10;
-    case 'downloading': return Math.round(10 + ratio * 70);
-    case 'retrying': return Math.round(80 + ratio * 10);
-    case 'profile': return total > 0 ? Math.round(90 + ratio * 9) : 90;
-    case 'profile_warning': return 99;
-    case 'marking': return total > 0 ? Math.round(10 + ratio * 85) : 10;
-    default: return 0;
-  }
-}
-
-function getStageText(stage) {
-  const m = { preparing:'Preparing', syncing:'Syncing', downloading:'Downloading', retrying:'Retrying', profile:'Profile', profile_warning:'Profile Warning', marking:'Marking', completed:'' };
-  return m[stage] ? ' · ' + m[stage] : (stage ? ' · ' + stage : '');
-}
-
-function getTaskTarget(task) {
-  const d = task.data || {};
-  if (d.screen_name) return '@' + d.screen_name;
-  if (d.list_id) return 'List ' + d.list_id;
-  const parts = [];
-  if (Array.isArray(d.users) && d.users.length) parts.push(d.users.length + ' users');
-  if (Array.isArray(d.lists) && d.lists.length) parts.push(d.lists.length + ' lists');
-  if (Array.isArray(d.following_names) && d.following_names.length) parts.push(d.following_names.length + ' following');
-  return parts.length ? parts.join(' · ') : '';
-}
-
-function taskTypeName(type) {
-  const names = {
-    user_download:'User Download', list_download:'List Download',
-    following_download:'Following Download', profile_download:'Profile Download',
-    mark_downloaded:'Mark Downloaded', json_file_download:'JSON File Download',
-    json_folder_download:'Folder Download', batch_download:'Batch Download',
-    list_profile:'List Profile', retry_all_failed:'Retry All Failed'
-  };
-  return names[type] || type;
-}
-
-function taskTypeIcon(type) {
-  const icons = {
-    user_download: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>',
-    list_download: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>',
-    following_download: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>',
-    profile_download: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/><path d="M12 3l-4 4h3v5h2V7h3z"/></svg>',
-    mark_downloaded: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>',
-    json_file_download: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="M9 15l3-3 3 3"/><path d="M12 12v6"/></svg>',
-    json_folder_download: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><path d="M9 15l3-3 3 3"/><path d="M12 12v6"/></svg>',
-    batch_download: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/></svg>',
-    list_profile: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>',
-    retry_all_failed: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>'
-  };
-  return icons[type] || '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/></svg>';
-}
-
-/* ---- Toast ---- */
-let toastId = 0;
-function toast(msg, type) {
-  type = type || 'info';
-  const container = document.getElementById('toast-container');
-  if (!container) return;
-
-  // Dedup: skip if same message already visible
-  for (const el of container.children) {
-    const msgEl = el.querySelector('.toast-msg');
-    if (msgEl && msgEl.textContent === msg) return;
-  }
-
-  // Max 3 concurrent toasts, remove oldest
-  while (container.children.length >= 3) container.firstChild.remove();
-
-  const id = ++toastId;
-  const el = document.createElement('div');
-  el.className = 'toast toast-' + type;
-  el.id = 'toast-' + id;
-  const icons = { success:'✓', error:'✕', warning:'!', info:'i' };
-  el.innerHTML = '<span class="toast-icon">' + icons[type] + '</span><span class="toast-msg">' + esc(msg) + '</span><button class="toast-close" onclick="dismissToast(' + id + ')">✕</button>';
-  el.querySelector('.toast-close').onclick = () => el.remove();
-  container.appendChild(el);
-  setTimeout(() => { const e = document.getElementById('toast-'+id); if (e) e.remove(); }, 5000);
-}
-function dismissToast(id) {
-  const el = document.getElementById('toast-'+id);
-  if (el) el.remove();
-}
-
-/* ---- Modal ---- */
-let currentModal = null;
-function openModal(html) {
-  closeModal();
-  const overlay = document.createElement('div');
-  overlay.className = 'modal-overlay';
-  overlay.innerHTML = '<div class="modal">' + html + '</div>';
-  overlay.addEventListener('click', (e) => { if (e.target === overlay) closeModal(); });
-  document.body.appendChild(overlay);
-  currentModal = overlay;
-}
-function closeModal() {
-  if (currentModal) { currentModal.remove(); currentModal = null; }
-}
-
-/* ---- Global State ---- */
-let pageTasks = [];
-let sseConnected = false;
-let pageRenderers = {};
-let currentPage = 'tasks';
-
-// Debounce utility to batch rapid updates
+// ============================================
+// Utility Functions
+// ============================================
 function debounce(fn, delay) {
   let timer = null;
   return function(...args) {
@@ -229,1738 +14,5210 @@ function debounce(fn, delay) {
   };
 }
 
-/* ---- API Endpoint Mappings ---- */
-const ENDPOINTS = {
-  // Health
-  health:      () => API.get('/api/v1/health'),
-  queueStatus: () => API.get('/api/v1/queue/status'),
+function glowNewFirstItem(panelId) {
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    const panel = document.getElementById(panelId);
+    if (!panel) return;
+    const first = panel.querySelector('.config-group');
+    if (!first) return;
+    first.classList.add('glow-new-item');
+    first.addEventListener('animationend', () => first.classList.remove('glow-new-item'), { once: true });
+  }));
+}
 
-  // Tasks
-  tasks:       () => API.get('/api/v1/tasks'),
-  taskStats:   () => API.get('/api/v1/tasks/stats'),
-  getTask:     (id) => API.get('/api/v1/tasks/' + encodeURIComponent(id)),
-  cancelTask:  (id) => API.post('/api/v1/tasks/' + encodeURIComponent(id) + '/cancel'),
-  cancelQueued:() => API.post('/api/v1/tasks/cancel-queued'),
-  retryTask:   (id) => API.post('/api/v1/tasks/' + encodeURIComponent(id) + '/retry'),
-  deleteTask:  (id) => API.del('/api/v1/tasks/' + encodeURIComponent(id)),
+function readListIDsFromTextarea(inputId) {
+  const validListID = /^[1-9]\d{0,19}$/;
+  const input = document.getElementById(inputId);
+  if (!input) return [];
+  const lines = input.value.split('\n').map(s => s.trim());
+  const validIDs = [];
+  const invalidCount = lines.filter(s => s && !validListID.test(s)).length;
+  lines.forEach(s => { if (validListID.test(s)) validIDs.push(s); });
+  if (invalidCount > 0) {
+    toast.show(`发现 ${invalidCount} 个无效列表ID，已自动过滤`, 'warning');
+  }
+  return validIDs;
+}
 
-  // Downloads
-  userDownload:        (sn, opts) => API.post('/api/v1/users/' + encodeURIComponent(sn) + '/download', opts),
-  userProfile:         (sn) => API.post('/api/v1/users/' + encodeURIComponent(sn) + '/profile', {}),
-  userMark:            (sn, ts) => API.post('/api/v1/users/' + encodeURIComponent(sn) + '/mark', ts ? {timestamp:ts} : {}),
-  userFollowingDL:     (sn, opts) => API.post('/api/v1/users/' + encodeURIComponent(sn) + '/following/download', opts),
-  userFollowingMark:   (sn, ts) => API.post('/api/v1/users/' + encodeURIComponent(sn) + '/following/mark', ts ? {timestamp:ts} : {}),
-  listDownload:        (id, opts) => API.post('/api/v1/lists/' + encodeURIComponent(id) + '/download', opts),
-  listProfile:         (id) => API.post('/api/v1/lists/' + encodeURIComponent(id) + '/profile', {}),
-  listMark:            (id, ts) => API.post('/api/v1/lists/' + encodeURIComponent(id) + '/mark', ts ? {timestamp:ts} : {}),
-  batchDownload:       (data) => API.post('/api/v1/batch/download', data),
-  batchMark:           (data) => API.post('/api/v1/batch/mark', data),
+function readTextareaLines(inputId) {
+  const el = document.getElementById(inputId);
+  if (!el) return [];
+  return el.value
+    .split('\n')
+    .map(s => s.trim())
+    .filter(Boolean);
+}
 
-  // JSON
-  jsonFileDownload:    (data) => API.post('/api/v1/json/file/download', data),
-  jsonFolderDownload:  (data) => API.post('/api/v1/json/folder/download', data),
+// ============================================
+// Search Input Helpers
+// ============================================
+function updateSearchState(stateKey, subKey, value) {
+  if (subKey) {
+    store.setState({
+      [stateKey]: { ...store.state[stateKey], [subKey]: value }
+    });
+  } else {
+    store.setState({ [stateKey]: value });
+  }
+}
 
-  // Errors
-  errors:      () => API.get('/api/v1/errors'),
-  retryErrors: () => API.post('/api/v1/errors/retry'),
-  clearErrors: () => API.del('/api/v1/errors'),
+function restoreSearchValue(inputId, stateKey, subKey = null) {
+  const input = document.getElementById(inputId);
+  if (!input) return;
+  const value = subKey ? store.state[stateKey]?.[subKey] : store.state[stateKey];
+  if (value !== undefined) {
+    input.value = value;
+  }
+}
 
-  // DB
-  dbUsers:             (p) => API.get('/api/v1/db/users' + qs(p)),
-  dbUser:              (id) => API.get('/api/v1/db/users/' + encodeURIComponent(id)),
-  dbUserUpdate:        (id,b) => API.patch('/api/v1/db/users/' + encodeURIComponent(id), b),
-  dbUserDelete:        (id) => API.del('/api/v1/db/users/' + encodeURIComponent(id)),
-  dbUserPrevNames:     (id) => API.get('/api/v1/db/users/' + encodeURIComponent(id) + '/previous-names'),
-  dbUserEntities:      (id) => API.get('/api/v1/db/users/' + encodeURIComponent(id) + '/entities'),
-  dbUserLinks:         (id) => API.get('/api/v1/db/users/' + encodeURIComponent(id) + '/links'),
-  dbLists:             (p) => API.get('/api/v1/db/lists' + qs(p)),
-  dbList:              (id) => API.get('/api/v1/db/lists/' + encodeURIComponent(id)),
-  dbListUpdate:        (id,b) => API.patch('/api/v1/db/lists/' + encodeURIComponent(id), b),
-  dbListDelete:        (id) => API.del('/api/v1/db/lists/' + encodeURIComponent(id)),
-  dbListEntities:      (id) => API.get('/api/v1/db/lists/' + encodeURIComponent(id) + '/entities'),
-  dbUserEntitiesAll:   (p) => API.get('/api/v1/db/user-entities' + qs(p)),
-  dbListEntitiesAll:   (p) => API.get('/api/v1/db/list-entities' + qs(p)),
-  dbUserLinksAll:      (p) => API.get('/api/v1/db/user-links' + qs(p)),
-  dbPrevNamesAll:      (p) => API.get('/api/v1/db/user-previous-names' + qs(p)),
-  dbStats:             () => API.get('/api/v1/db/stats'),
+// ============================================
+// State Management
+// ============================================
+function deepMerge(target, source) {
+  const result = { ...target };
+  for (const key of Object.keys(source)) {
+    if (source[key] && typeof source[key] === 'object' && !Array.isArray(source[key]) &&
+        target[key] && typeof target[key] === 'object' && !Array.isArray(target[key])) {
+      result[key] = deepMerge(target[key], source[key]);
+    } else {
+      result[key] = source[key];
+    }
+  }
+  return result;
+}
 
-  // Config
-  config:        () => API.get('/api/v1/config'),
-  configRaw:     () => API.get('/api/v1/config/raw'),
-  configFields:  () => API.get('/api/v1/config/fields'),
-  saveConfigRaw: (c) => API.put('/api/v1/config/raw', {content:c}),
-  saveConfigFields: (f) => API.put('/api/v1/config/fields', {fields:f}),
+const store = {
+  state: {
+    currentPage: null,
+    health: null,
+    tasks: [],
+    users: [],
+    lists: [],
+    entities: [],
+    sidebarOpen: false,
+    isMobile: window.innerWidth < 768,
+    sseConnected: false,
+    dataSubPage: 'users',
+    taskFilter: 'all',
+    taskSearch: '',
+    // Database pagination state
+    dbData: {
+      users: { data: [], total: 0, page: 1, pageSize: 200 },
+      lists: { data: [], total: 0, page: 1, pageSize: 200 },
+      entities: { data: [], total: 0, page: 1, pageSize: 200 },
+      listEntities: { data: [], total: 0, page: 1, pageSize: 200 },
+      userLinks: { data: [], total: 0, page: 1, pageSize: 200 },
+      previousNames: { data: [], total: 0, page: 1, pageSize: 200 }
+    },
+    dbPagination: {
+      users: { page: 1, pageSize: 200, totalPages: 1 },
+      lists: { page: 1, pageSize: 200, totalPages: 1 },
+      entities: { page: 1, pageSize: 200, totalPages: 1 },
+      listEntities: { page: 1, pageSize: 200, totalPages: 1 },
+      userLinks: { page: 1, pageSize: 200, totalPages: 1 },
+      previousNames: { page: 1, pageSize: 200, totalPages: 1 }
+    },
+    dbSort: {
+      users: { sortBy: 'id', sortOrder: 'desc' },
+      lists: { sortBy: 'id', sortOrder: 'desc' },
+      entities: { sortBy: 'id', sortOrder: 'desc' },
+      listEntities: { sortBy: 'id', sortOrder: 'desc' },
+      userLinks: { sortBy: 'id', sortOrder: 'desc' },
+      previousNames: { sortBy: 'record_date', sortOrder: 'desc' }
+    },
+    dbSearch: {
+      users: '',
+      lists: '',
+      entities: '',
+      listEntities: '',
+      userLinks: '',
+      previousNames: ''
+    },
+    _prevNameUserIdFilter: '',
+    configRaw: null,
+    configExists: false,
+    configSaving: false,
+    configFieldsLoading: false,
+    logs: [],
+    _logsLoading: true,
+    logLevel: 'all',
+    logSearch: '',
+    logStats: { debug: 0, info: 0, warn: 0, error: 0, total: 0 },
+    logAutoRefresh: true,
+    _logAutoScrollPaused: false,
+    _logNewArrived: false,
+    logPagination: { page: 1, pageSize: 100, total: 0, totalPages: 1 },
+    _systemTab: 'config',
+    configMode: 'form',
+    configFields: [],
+    cookiesRaw: null,
+    cookiesExists: false,
+    cookiesSaving: false,
+    cookieItems: [],
+    _cookiesLoading: true,
+    cookiesMode: 'form',
+    _scheduleTab: 'form',
+    _schedules: null,
+    _scheduleRaw: null,
+    _scheduleExists: false,
+    _scheduleSaving: false,
+    _scheduleFormItems: [],
+    _scheduleFormDirty: false,
+    _schedulerRunning: false,
+  },
 
-  // Cookies
-  cookies:       () => API.get('/api/v1/cookies'),
-  cookiesRaw:    () => API.get('/api/v1/cookies/raw'),
-  saveCookies:   (c) => API.put('/api/v1/cookies', {cookies:c}),
-  saveCookiesRaw:(c) => API.put('/api/v1/cookies/raw', {content:c}),
+  listeners: [],
 
-  // Schedules
-  schedules:       () => API.get('/api/v1/schedules'),
-  schedulesRaw:    () => API.get('/api/v1/schedules/raw'),
-  scheduleStats:   () => API.get('/api/v1/schedules/stats'),
-  createSchedule:  (e) => API.post('/api/v1/schedules', e),
-  saveSchedulesRaw:(c) => API.put('/api/v1/schedules/raw', {content:c}),
-  replaceSchedules:(e) => API.put('/api/v1/schedules', {entries:e}),
-  reloadSchedules: () => API.post('/api/v1/schedules/reload'),
-  validateSchedule:(b) => API.post('/api/v1/schedules/validate', b),
-  triggerAll:      () => API.post('/api/v1/schedules/trigger-all'),
-  updateSchedule:  (id,e) => API.put('/api/v1/schedules/' + encodeURIComponent(id), e),
-  deleteSchedule:  (id) => API.del('/api/v1/schedules/' + encodeURIComponent(id)),
-  setScheduleEnabled: (id,e) => API.patch('/api/v1/schedules/' + encodeURIComponent(id) + '/enabled', {enabled:e}),
-  triggerSchedule: (id) => API.post('/api/v1/schedules/' + encodeURIComponent(id) + '/trigger'),
+  subscribe(fn) {
+    this.listeners.push(fn);
+    return () => {
+      const idx = this.listeners.indexOf(fn);
+      if (idx !== -1) this.listeners.splice(idx, 1);
+    };
+  },
 
-  // Logs
-  logs:      (p) => API.get('/api/v1/logs' + qs(p)),
-  logStats:  () => API.get('/api/v1/logs/stats'),
+  setState(newState) {
+    this.state = deepMerge(this.state, newState);
+    this._scheduleNotify();
+  },
 
-  // Server
-  shutdown:  () => API.post('/api/v1/server/shutdown'),
+  _notifyPending: false,
+
+  _scheduleNotify() {
+    if (this._notifyPending) return;
+    this._notifyPending = true;
+    Promise.resolve().then(() => {
+      this._notifyPending = false;
+      this.listeners.forEach(fn => fn(this.state));
+    });
+  }
 };
 
-function qs(params) {
-  if (!params) return '';
-  const filtered = {};
-  for (const k of Object.keys(params)) if (params[k] !== undefined && params[k] !== null && params[k] !== '') filtered[k] = params[k];
-  const keys = Object.keys(filtered);
-  if (!keys.length) return '';
-  return '?' + keys.map(k => encodeURIComponent(k) + '=' + encodeURIComponent(filtered[k])).join('&');
-}
-
-/* ---- Routing ---- */
-function navigateTo(page) {
-  closeModal();
-  // Clean up log SSE when leaving logs page
-  if (currentPage === 'logs' && page !== 'logs' && logSSESource) {
-    logSSESource.close(); logSSESource = null;
-    if (window._logSSETimer) { clearTimeout(window._logSSETimer); window._logSSETimer = null; }
+// Update sidebar version when health changes (moved out of setState to keep it pure)
+store.subscribe((state) => {
+  if (state.health && state.health.version) {
+    const versionEl = document.getElementById('appVersion');
+    if (versionEl) versionEl.textContent = state.health.version;
   }
-  if (page === currentPage) return;
-  currentPage = page;
-  history.pushState({page}, '', page === 'tasks' ? '/' : '/' + page);
-  renderPage(page);
-}
-
-window.addEventListener('popstate', (e) => {
-  const page = location.pathname.replace(/^\//, '') || 'tasks';
-  currentPage = page;
-  renderPage(page);
 });
 
-function renderPage(page) {
-  // Update sidebar
-  document.querySelectorAll('.nav-item').forEach(el => el.classList.toggle('active', el.dataset.page === page));
-  const titles = {tasks:'Tasks', data:'Data', schedules:'Schedules', system:'System', logs:'Logs'};
-  document.getElementById('page-title').textContent = titles[page] || 'Tasks';
+// ============================================
+// API Client
+// ============================================
+const api = {
+  base: '',
+  _abortControllers: new Set(),
 
-  const container = document.getElementById('page-content');
-  if (pageRenderers[page]) {
-    pageRenderers[page](container);
-  } else {
-    container.innerHTML = '<div class="loading"><div class="spinner"></div> Loading...</div>';
-    loadPageModule(page, container);
-  }
-}
+  abortAll() {
+    const controllers = this._abortControllers;
+    this._abortControllers = new Set();
+    for (const ctrl of controllers) ctrl.abort();
+  },
 
-function loadPageModule(page, container) {
-  const loaders = {
-    tasks:     renderTasksPage,
-    data:      renderDataPage,
-    schedules: renderSchedulesPage,
-    system:    renderSystemPage,
-    logs:      renderLogsPage,
-  };
-  if (loaders[page]) {
-    loaders[page](container);
-    pageRenderers[page] = loaders[page];
-  }
-}
+  _getAbortSignal() {
+    const controller = new AbortController();
+    this._abortControllers.add(controller);
+    return { signal: controller.signal, controller };
+  },
+  
+  _cleanupAbortController(controller) {
+    this._abortControllers.delete(controller);
+  },
 
-/* ---- SSE ---- */
-let sseSource = null;
-let sseReconnectTimer = null;
-let sseReconnectDelay = 1000;
-
-// Debounce rapid SSE updates to avoid excessive re-renders
-const debouncedTasksUpdate = debounce(function(tasks) {
-  pageTasks = tasks;
-  if (currentPage === 'tasks' && pageRenderers.tasks) {
-    try { updateTasksView(); } catch(err) { console.warn('SSE tasks update error:', err); }
-  }
-}, 100);
-const debouncedSchedulesUpdate = debounce(function(data) {
-  window._lastSchedulesData = data;
-  if (currentPage === 'schedules' && pageRenderers.schedules) {
-    try { updateSchedulesView(); } catch(err) { /* ignore */ }
-  }
-}, 100);
-
-function connectSSE() {
-  if (sseReconnectTimer) { clearTimeout(sseReconnectTimer); sseReconnectTimer = null; }
-  if (sseSource) { sseSource.close(); sseSource = null; }
-  sseSource = new EventSource(apiBase() + '/api/v1/sse/tasks');
-
-  sseSource.addEventListener('tasks', (e) => {
-    try {
-      const tasks = JSON.parse(e.data);
-      if (Array.isArray(tasks)) debouncedTasksUpdate(tasks);
-    } catch(err) { /* ignore parse errors */ }
-  });
-
-  sseSource.addEventListener('schedules', (e) => {
-    try {
-      const data = JSON.parse(e.data);
-      debouncedSchedulesUpdate(data);
-    } catch(err) { /* ignore */ }
-  });
-
-  sseSource.addEventListener('notification', (e) => {
-    try {
-      const n = JSON.parse(e.data);
-      if (n && n.message) {
-        const type = n.type === 'task_completed' ? 'success' :
-                     n.type === 'task_failed' ? 'error' :
-                     n.type === 'task_cancelled' ? 'warning' :
-                     n.type === 'schedule_warning' ? 'warning' : 'info';
-        // Delay toast to align with SSE debounce
-        setTimeout(() => toast(n.message, type), 100);
-      }
-    } catch(err) { /* ignore */ }
-  });
-
-  sseSource.addEventListener('server_shutdown', (e) => {
-    toast('Server is shutting down...', 'error');
-  });
-
-  sseSource.onopen = () => {
-    sseConnected = true;
-    sseReconnectDelay = 1000;
-    // Refresh current page data after reconnect
-    if (currentPage === 'data') {
-      const activeTab = document.querySelector('#db-tabs .tab.active');
-      loadDBTab(activeTab ? activeTab.dataset.dbtab : 'users');
+  async request(method, path, body = null, extra = {}) {
+    const { signal, controller } = this._getAbortSignal();
+    const options = {
+      method,
+      signal
+    };
+    if (extra.isFormData) {
+      if (body !== null && body !== undefined) options.body = body;
+    } else {
+      options.headers = { 'Content-Type': 'application/json' };
+      if (body !== null && body !== undefined) options.body = JSON.stringify(body);
     }
-    document.querySelector('.health-dot') && (document.querySelector('.health-dot').style.background = 'var(--green)');
-  };
+    
+    let res;
+    try {
+      res = await fetch(this.base + path, options);
+    } catch (e) {
+      this._cleanupAbortController(controller);
+      // 导航离页导致的主动中止，抛出原始 AbortError 供外层区分
+      if (e.name === 'AbortError') throw e;
+      throw new Error('网络请求失败，请检查服务器是否运行: ' + e.message);
+    }
+    let json;
+    try {
+      json = await res.json();
+    } catch (e) {
+      this._cleanupAbortController(controller);
+      throw new Error('服务器返回无效响应 (HTTP ' + res.status + ')');
+    }
+    this._cleanupAbortController(controller);
+    if (!res.ok || !json.success) throw new Error(json.error || '服务器错误 (HTTP ' + res.status + ')');
+    return json.data;
+  },
+  
+  get(path) { return this.request('GET', path); },
+  post(path, body) { return this.request('POST', path, body); },
+  
+  // Health
+  getHealth() { return this.get('/api/v1/health'); },
+  
+  // Tasks
+  getTasks() { return this.get('/api/v1/tasks'); },
+  getTask(id) { return this.get(`/api/v1/tasks/${id}`); },
+  cancelTask(id) { return this.post(`/api/v1/tasks/${id}/cancel`, {}); },
+  cancelQueuedTasks() { return this.post('/api/v1/tasks/cancel-queued', {}); },
+  retryTask(id) { return this.post(`/api/v1/tasks/${id}/retry`, {}); },
+  deleteTask(id) { return this.request('DELETE', `/api/v1/tasks/${id}`); },
+  getTaskStats() { return this.get('/api/v1/tasks/stats'); },
+  
+  // Task Creation
+  createUserDownload(screenName, opts) { 
+    return this.post(`/api/v1/users/${encodeURIComponent(screenName)}/download`, opts); 
+  },
+  createProfileDownload(screenName) { 
+    return this.post(`/api/v1/users/${encodeURIComponent(screenName)}/profile`, {}); 
+  },
+  createUserMark(screenName, timestamp) {
+    return this.post(`/api/v1/users/${encodeURIComponent(screenName)}/mark`, timestamp ? { timestamp } : {});
+  },
+  createFollowingDownload(screenName, opts) {
+    return this.post(`/api/v1/users/${encodeURIComponent(screenName)}/following/download`, opts);
+  },
+  createFollowingMark(screenName, timestamp) {
+    return this.post(`/api/v1/users/${encodeURIComponent(screenName)}/following/mark`, timestamp ? { timestamp } : {});
+  },
+  createListDownload(listId, opts) { 
+    return this.post(`/api/v1/lists/${encodeURIComponent(listId)}/download`, opts); 
+  },
+  createListProfile(listId) { 
+    return this.post(`/api/v1/lists/${encodeURIComponent(listId)}/profile`, {}); 
+  },
+  createListMark(listId, timestamp) {
+    return this.post(`/api/v1/lists/${encodeURIComponent(listId)}/mark`, timestamp ? { timestamp } : {});
+  },
+  createBatchDownload(data) { 
+    return this.post('/api/v1/batch/download', data); 
+  },
+  createBatchMark(data) {
+    return this.post('/api/v1/batch/mark', data);
+  },
+  createJsonFileDownload(data) {
+    return this.post('/api/v1/json/file/download', data);
+  },
+  createJsonFolderDownload(data) {
+    return this.post('/api/v1/json/folder/download', data);
+  },
+  upload(path, formData) {
+    return this.request('POST', path, formData, { isFormData: true });
+  },
+  
+  // Config
+  getConfig() { return this.get('/api/v1/config'); },
+  getConfigRaw() { return this.get('/api/v1/config/raw'); },
+  updateConfigRaw(content) { return this.request('PUT', '/api/v1/config/raw', { content }); },
+  getConfigFields() { return this.get('/api/v1/config/fields'); },
+  saveConfigFields(fields) { return this.request('PUT', '/api/v1/config/fields', { fields }); },
+  getCookiesRaw()           { return this.get('/api/v1/cookies/raw'); },
+  updateCookiesRaw(content) { return this.request('PUT', '/api/v1/cookies/raw', { content }); },
+  getCookies()              { return this.get('/api/v1/cookies'); },
+  saveCookies(cookies)      { return this.request('PUT', '/api/v1/cookies', { cookies }); },
+  shutdownServer() { return this.post('/api/v1/server/shutdown'); },
 
-  sseSource.onerror = () => {
-    sseConnected = false;
-    document.querySelector('.health-dot') && (document.querySelector('.health-dot').style.background = 'var(--red)');
-    sseSource.close();
-    sseReconnectDelay = Math.min(sseReconnectDelay * 2, 30000);
-    sseReconnectTimer = setTimeout(connectSSE, sseReconnectDelay);
-  };
-}
+  // Logs
+  getLogs(params = '') { return this.get(`/api/v1/logs${params}`); },
+  getLogStats() { return this.get('/api/v1/logs/stats'); },
+  downloadLogExport() { window.open('/api/v1/logs/export', '_blank'); },
 
-/* ---- Health Check ---- */
-async function checkHealth() {
-  try {
-    const h = await ENDPOINTS.health();
-    const dot = document.getElementById('health-dot');
-    const text = document.getElementById('health-text');
-    if (dot) dot.className = 'health-dot';
-    if (text) text.textContent = h.status || 'OK';
-    const vi = document.getElementById('version-info');
-    if (vi) vi.innerHTML = esc(h.version || 'v2') + ' &middot; Go + SQLite';
-  } catch(e) {
-    const dot = document.getElementById('health-dot');
-    if (dot) dot.className = 'health-dot error';
-    document.getElementById('health-text').textContent = 'Offline';
+  // Schedules
+  getSchedules() { return this.get('/api/v1/schedules'); },
+  replaceSchedules(entries) { return this.request('PUT', '/api/v1/schedules', { entries }); },
+  setScheduleEnabled(id, enabled) { return this.request('PATCH', `/api/v1/schedules/${encodeURIComponent(id)}/enabled`, { enabled }); },
+  getSchedulesRaw() { return this.get('/api/v1/schedules/raw'); },
+  updateSchedulesRaw(content) { return this.request('PUT', '/api/v1/schedules/raw', { content }); },
+  triggerSchedule(id) { return this.request('POST', `/api/v1/schedules/${encodeURIComponent(id)}/trigger`, {}); },
+  triggerAllSchedules() { return this.post('/api/v1/schedules/trigger-all', {}); },
+  getScheduleStats() { return this.get('/api/v1/schedules/stats'); },
+  validateSchedule(body) { return this.post('/api/v1/schedules/validate', body); },
+
+  // Queue
+  getQueueStatus() { return this.get('/api/v1/queue/status'); },
+
+  // Database CRUD with pagination
+  getDBUsers(params = '') { return this.get(`/api/v1/db/users${params ? '?' + params : ''}`); },
+  getDBUser(id) { return this.get(`/api/v1/db/users/${id}`); },
+  updateDBUser(id, data) { return this.request('PATCH', `/api/v1/db/users/${id}`, data); },
+  deleteDBUser(id) { return this.request('DELETE', `/api/v1/db/users/${id}`); },
+  getDBUserEntities(id, params = '') { return this.get(`/api/v1/db/users/${id}/entities${params ? '?' + params : ''}`); },
+  getDBUserLinks(id, params = '') { return this.get(`/api/v1/db/users/${id}/links${params ? '?' + params : ''}`); },
+
+  getDBLists(params = '') { return this.get(`/api/v1/db/lists${params ? '?' + params : ''}`); },
+  getDBList(id) { return this.get(`/api/v1/db/lists/${id}`); },
+  updateDBList(id, data) { return this.request('PATCH', `/api/v1/db/lists/${id}`, data); },
+  deleteDBList(id) { return this.request('DELETE', `/api/v1/db/lists/${id}`); },
+  getDBListEntities(id, params = '') { return this.get(`/api/v1/db/lists/${id}/entities${params ? '?' + params : ''}`); },
+  
+  getDBUserEntities(params = '') { return this.get(`/api/v1/db/user-entities${params ? '?' + params : ''}`); },
+  getDBUserEntity(id) { return this.get(`/api/v1/db/user-entities/${id}`); },
+  updateDBUserEntity(id, data) { return this.request('PATCH', `/api/v1/db/user-entities/${id}`, data); },
+  deleteDBUserEntity(id) { return this.request('DELETE', `/api/v1/db/user-entities/${id}`); },
+  
+  getDBListEntities(params = '') { return this.get(`/api/v1/db/list-entities${params ? '?' + params : ''}`); },
+  getDBListEntity(id) { return this.get(`/api/v1/db/list-entities/${id}`); },
+  updateDBListEntity(id, data) { return this.request('PATCH', `/api/v1/db/list-entities/${id}`, data); },
+  deleteDBListEntity(id) { return this.request('DELETE', `/api/v1/db/list-entities/${id}`); },
+  
+  getDBUserLinks(params = '') { return this.get(`/api/v1/db/user-links${params ? '?' + params : ''}`); },
+  getDBUserLink(id) { return this.get(`/api/v1/db/user-links/${id}`); },
+  updateDBUserLink(id, data) { return this.request('PATCH', `/api/v1/db/user-links/${id}`, data); },
+  deleteDBUserLink(id) { return this.request('DELETE', `/api/v1/db/user-links/${id}`); },
+  getDBPreviousNames(params = '') { return this.get(`/api/v1/db/user-previous-names${params ? '?' + params : ''}`); },
+  getDBStats() { return this.get('/api/v1/db/stats'); },
+  getDBUserPreviousNames(id, params = '') { return this.get(`/api/v1/db/users/${id}/previous-names${params ? '?' + params : ''}`); }
+};
+
+// ============================================
+// SSE Manager
+// ============================================
+const sseManager = {
+  conn: null,
+  reconnectTimer: null,
+  reconnectDelay: 2000,
+  maxReconnectDelay: 30000,
+  baseReconnectDelay: 2000,
+  reconnectAttempts: 0,
+  reconnectDisabled: false,
+  _everConnected: false, // 首次成功连接前不显示"断开"状态
+
+  connect() {
+    this.reconnectDisabled = false;
+    if (this.conn) return;
+
+    this.conn = new EventSource('/api/v1/sse/tasks');
+
+    this.conn.onopen = () => {
+      this._everConnected = true;
+      store.setState({ sseConnected: true });
+      this._updateIndicator(true);
+      if (this.reconnectAttempts > 0) {
+        this.refreshCurrentPage();
+      }
+    };
+
+    const debouncedTasksUpdate = debounce((tasks) => {
+      store.setState({ tasks });
+    }, 100);
+
+    this.conn.addEventListener('tasks', (e) => {
+      if (!_initComplete) return;
+      try {
+        const tasks = JSON.parse(e.data);
+        debouncedTasksUpdate(tasks);
+        this.reconnectDelay = this.baseReconnectDelay;
+        this.reconnectAttempts = 0;
+      } catch (err) {
+        console.warn('SSE tasks parse error:', err);
+      }
+    });
+
+    const debouncedSchedulesUpdate = debounce((data) => {
+      const entries = data.entries || [];
+      const update = {
+        _schedules: entries,
+        _schedulerRunning: !!data.scheduler_running,
+        _scheduleExists: data.exists !== undefined ? !!data.exists : store.state._scheduleExists,
+      };
+      if (!store.state._scheduleFormDirty && !isScheduleFormEditing()) {
+        update._scheduleFormItems = entries.map(s => scheduleStatusToFormItem(s));
+      }
+      store.setState(update);
+    }, 100);
+
+    this.conn.addEventListener('schedules', (e) => {
+      try {
+        const data = JSON.parse(e.data);
+        debouncedSchedulesUpdate(data);
+      } catch (err) {
+        console.warn('SSE schedules parse error:', err);
+      }
+    });
+
+    this.conn.addEventListener('notification', (e) => {
+      try {
+        const notif = JSON.parse(e.data);
+        // notification 与 tasks debounce (100ms) 对齐，避免 toast 先出现但任务列表仍显示"运行中"
+        setTimeout(() => {
+          const type = notif.type === 'task_completed' ? 'success' :
+                       notif.type === 'task_failed' ? 'error' :
+                       notif.type === 'task_cancelled' ? 'warning' :
+                       notif.type === 'schedule_warning' ? 'warning' : 'success';
+          toast.show(notif.message, type);
+        }, 100);
+      } catch (err) {
+        console.warn('SSE notification parse error:', err);
+      }
+    });
+
+    this.conn.addEventListener('server_shutdown', (e) => {
+      try {
+        const data = JSON.parse(e.data);
+        handleServerShutdown(data.message);
+      } catch (err) {
+        console.warn('[SSE] server_shutdown parse error:', err);
+        handleServerShutdown('服务器正在关闭');
+      }
+    });
+
+    this.conn.onerror = () => {
+      this.conn.close();
+      this.conn = null;
+      if (this._everConnected) {
+        store.setState({ sseConnected: false });
+        this._updateIndicator(false);
+      }
+      if (this.reconnectDisabled) return;
+      if (store.state.currentPage === 'shutdown') return;
+      this.reconnectAttempts++;
+      if (this.reconnectAttempts >= 10 && this.reconnectAttempts % 5 === 0) {
+        api.getHealth().catch((e) => {
+          console.warn('[SSE] 健康检查失败:', e.message, '- 继续重试...');
+        });
+      }
+      const delay = Math.min(this.baseReconnectDelay * Math.pow(2, this.reconnectAttempts - 1), this.maxReconnectDelay);
+      console.warn(`[SSE] 连接断开，${delay / 1000}s 后重试（第 ${this.reconnectAttempts} 次）`);
+      this.reconnectTimer = setTimeout(() => {
+        this.reconnectTimer = null;
+        this.connect();
+      }, delay);
+    };
+  },
+  
+  disconnect() {
+    this.reconnectDisabled = true;
+    this.reconnectAttempts = 0;
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    if (this.conn) {
+      this.conn.close();
+      this.conn = null;
+    }
+    store.setState({ sseConnected: false });
+    this._updateIndicator(false);
+  },
+
+  resume() {
+    this.reconnectDisabled = false;
+    this.connect();
+  },
+
+  _updateIndicator(connected) {
+    const el = document.getElementById('sseIndicator');
+    if (!el) return;
+    el.classList.toggle('connected', connected);
+    el.title = connected ? '实时连接正常 (点击刷新)' : '实时连接已断开 (点击刷新)';
+  },
+
+  refreshCurrentPage() {
+    const page = store.state.currentPage;
+    if (page === 'overview' || page === 'tasks') {
+      this._safeRefresh(() => refreshTasks(), page);
+      return;
+    }
+    if (page === 'schedules') {
+      this._safeRefresh(() => loadSchedules(), 'schedules');
+      return;
+    }
+    if (page === 'logs') {
+      this._safeRefresh(() => loadLogs(), 'logs');
+      return;
+    }
+    if (page !== 'system') return;
+
+    if (store.state._systemTab === 'schedules') {
+      this._safeRefresh(() => loadSchedules({ updateFormItems: !isScheduleFormEditing() }), 'system schedules');
+    } else if (store.state._systemTab === 'config') {
+      this._safeRefresh(() => refreshConfigAfterReconnect(), 'config');
+    } else if (store.state._systemTab === 'cookies') {
+      this._safeRefresh(() => refreshCookiesAfterReconnect(), 'cookies');
+    }
+  },
+
+  _safeRefresh(fn, label) {
+    try {
+      const result = fn();
+      if (result && typeof result.catch === 'function') {
+        result.catch(err => console.warn(`[SSE] reconnect refresh failed (${label}):`, err));
+      }
+    } catch (err) {
+      console.warn(`[SSE] reconnect refresh failed (${label}):`, err);
+    }
   }
-}
+};
 
-/* ============================================================
-   PAGE RENDERERS
-   ============================================================ */
+// ============================================
+// Toast Notifications
+// ============================================
+const toast = {
+  container: document.getElementById('toastContainer'),
+  maxToasts: 3,
+  
+  show(message, type = 'success', title = '') {
+    if (!this.container) return;
+    const existingToasts = this.container.querySelectorAll('.toast');
+    
+    // Dedup: skip if same message already visible
+    for (const existing of existingToasts) {
+      const msgEl = existing.querySelector('.toast-message');
+      if (msgEl && msgEl.textContent === message) return;
+    }
+    
+    if (existingToasts.length >= this.maxToasts) {
+      // 移除最旧的消息（第一个）
+      existingToasts[0].remove();
+    }
+    
+    const el = document.createElement('div');
+    el.className = `toast toast-${type}`;
+    
+    const icons = { success: '✓', error: '✕', warning: '⚠' };
+    const titles = { success: '成功', error: '错误', warning: '警告' };
+    const safeTitle = escapeHtml(title || titles[type] || '');
+    const safeMessage = escapeHtml(message || '');
+    
+    el.innerHTML = `
+      <span class="toast-icon">${icons[type]}</span>
+      <div class="toast-content">
+        <div class="toast-title">${safeTitle}</div>
+        <div class="toast-message">${safeMessage}</div>
+      </div>
+      <span class="toast-close">✕</span>
+    `;
+    
+    el.querySelector('.toast-close').onclick = () => el.remove();
+    this.container.appendChild(el);
+    
+    setTimeout(() => el.remove(), 5000);
+  }
+};
 
-/* ---- Tasks Page ---- */
-function renderTasksPage(container) {
-  container.innerHTML = `
-    <div class="stats-grid" id="task-stats"></div>
-    <div class="card mb-4">
-      <div class="card-body" style="padding:12px 20px">
-        <div class="flex gap-2 items-center" style="flex-wrap:wrap">
-          <input type="text" id="quick-dl-input" placeholder="Twitter URL or @username ... paste link or type name" style="flex:1;min-width:200px">
-          <button class="btn btn-primary btn-sm" onclick="handleQuickDownload()">Quick Download</button>
+// ============================================
+// Drawer
+// ============================================
+const drawer = {
+  el: document.getElementById('drawer'),
+  overlay: document.getElementById('drawerOverlay'),
+  title: document.getElementById('drawerTitle'),
+  body: document.getElementById('drawerBody'),
+  footer: document.getElementById('drawerFooter'),
+  
+  open(title, content, footer = '') {
+    if (!this.el || !this.title || !this.body || !this.footer || !this.overlay) return;
+    delete this._taskId;
+    this.title.textContent = title;
+    this.body.innerHTML = content;
+    this.footer.innerHTML = footer;
+    this.el.classList.add('open');
+    this.overlay.classList.add('open');
+    document.body.style.overflow = 'hidden';
+  },
+  
+  close() {
+    this.el.classList.remove('open');
+    this.overlay.classList.remove('open');
+    document.body.style.overflow = '';
+  }
+};
+
+document.getElementById('drawerClose').onclick = () => drawer.close();
+document.getElementById('drawerOverlay').onclick = () => drawer.close();
+
+// ============================================
+// Page Renderers
+// ============================================
+const pages = {
+  // Overview Page
+  overview() {
+    const { health, tasks } = store.state;
+    
+    const taskStats = { queued: 0, running: 0, completed: 0, failed: 0, cancelled: 0 };
+    tasks.forEach(t => { if (taskStats[t.status] !== undefined) taskStats[t.status]++; });
+    
+    const recentTasks = tasks.slice(0, 5);
+    
+    return `
+      <div class="page-container">
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-icon" style="color: var(--success);">●</div>
+          <div class="stat-content">
+            <div class="stat-value" data-overview-stat="health">${health ? (health.status === 'ok' ? '健康' : '异常') : '检查中'}</div>
+            <div class="stat-label">系统状态 ${health ? health.version : ''}</div>
+          </div>
         </div>
-      </div>
-    </div>
-    <div class="section">
-      <div class="section-header">
-        <h2>Tasks</h2>
-        <div class="flex gap-2">
-          <button class="btn btn-ghost btn-sm" onclick="showBatchForm()">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-            New Download
-          </button>
-          <button class="btn btn-ghost btn-sm" onclick="cancelAllQueued()">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-            Cancel Queued
-          </button>
+        <div class="stat-card">
+          <div class="stat-icon" style="color: var(--info);">🚀</div>
+          <div class="stat-content">
+            <div class="stat-value" data-overview-stat="running">${taskStats.running}</div>
+            <div class="stat-label">运行中任务</div>
+          </div>
         </div>
-      </div>
-      <div class="card">
-        <div class="table-wrap">
-          <table class="task-table">
-            <colgroup>
-              <col style="width:48px">
-              <col>
-              <col style="width:100px">
-              <col style="width:220px">
-              <col style="width:130px">
-              <col style="width:100px">
-            </colgroup>
-            <thead>
-              <tr>
-                <th style="width:32px">Type</th>
-                <th>ID</th>
-                <th style="width:100px">Status</th>
-                <th style="width:220px">Progress</th>
-                <th style="width:130px">Time</th>
-                <th style="width:100px">Actions</th>
-              </tr>
-            </thead>
-            <tbody id="task-table-body"></tbody>
-          </table>
-        </div>
-        <div class="card-body" id="task-empty" style="display:none">
-          <div class="empty-state">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
-            <p>No tasks yet. Start a download to see tasks here.</p>
+        <div class="stat-card">
+          <div class="stat-icon" style="color: var(--success);">✓</div>
+          <div class="stat-content">
+            <div class="stat-value" data-overview-stat="completed">${taskStats.completed}</div>
+            <div class="stat-label">已完成任务</div>
           </div>
         </div>
       </div>
-    </div>`;
 
-  pageRenderers.tasks = renderTasksPage;
-  updateTasksView();
-}
+      <div class="card" style="margin-bottom: var(--space-6); flex-shrink: 0">
+        <div class="card-header">
+          <div>
+            <div class="card-title">⚡ 快速下载</div>
+            <div class="card-subtitle">输入 Twitter 用户名或链接快速创建下载任务</div>
+          </div>
+        </div>
+        <div class="card-body">
+          <div class="flex gap-3" style="flex-wrap: wrap;">
+            <input type="text" class="form-input" id="quickDownloadInput"
+              placeholder="输入用户名，如: elonmusk 或 https://twitter.com/elonmusk"
+              style="flex: 1; min-width: 280px;">
+            <button class="btn btn-primary" data-action="handleQuickDownload">粘贴并创建任务</button>
+          </div>
+          <div class="text-sm text-tertiary mt-4">
+            支持格式: twitter.com/username | x.com/username | twitter.com/i/lists/123 | @username
+          </div>
+        </div>
+      </div>
 
-function updateTasksView() {
-  const tasks = pageTasks;
-  // Stats
-  const stats = {queued:0, running:0, completed:0, failed:0, cancelled:0, total:tasks.length};
-  tasks.forEach(t => { if (stats[t.status] !== undefined) stats[t.status]++; });
+      <div class="card card-fill">
+        <div class="card-header">
+          <div class="card-title">最近任务</div>
+          <button class="btn btn-ghost btn-sm" data-action="navigateToTasks">查看全部 →</button>
+        </div>
+        <div class="card-body card-body-scroll">
+          ${recentTasks.length === 0 ? `
+            <div class="empty-state overview-tasks-list">
+              <div class="empty-icon">📋</div>
+              <div class="empty-title">暂无任务</div>
+              <div class="empty-desc">创建一个新任务开始下载 Twitter 媒体文件</div>
+            </div>
+          ` : `
+            <div class="task-list overview-tasks-list">
+              ${recentTasks.map(t => renderTaskItem(t)).join('')}
+            </div>
+          `}
+        </div>
+      </div>
+      </div>
+    `;
+  },
+  
+  // Tasks Page
+  tasks() {
+    const { tasks } = store.state;
+    
+    return `
+      <div class="tasks-layout">
+        <div>
+          <div class="card card-fill">
+            <div class="card-header">
+              <div class="card-title">创建新任务</div>
+            </div>
+            <div class="card-body card-body-fill">
+              <div class="tabs">
+                <div class="tab active" data-task-tab="user">用户</div>
+                <div class="tab" data-task-tab="list">列表</div>
+                <div class="tab" data-task-tab="following">关注</div>
+                <div class="tab" data-task-tab="batch">批量</div>
+                <div class="tab" data-task-tab="jsonfile"><span>JSON</span><span>文件</span></div>
+                <div class="tab" data-task-tab="jsonfolder"><span>JSON</span><span>文件夹</span></div>
+                <div class="tab" data-task-tab="mark">标记</div>
+              </div>
 
-  const statsHtml = Object.entries(stats).map(([k,v]) =>
-    `<div class="stat-card ${k}"><div class="stat-value">${v}</div><div class="stat-label">${k}</div></div>`
-  ).join('');
-  const statsEl = document.getElementById('task-stats');
-  if (statsEl) statsEl.innerHTML = statsHtml;
+              <div id="taskFormContainer">
+                ${renderTaskForm('user')}
+              </div>
+            </div>
+          </div>
+        </div>
 
-  // Table
-  const tbody = document.getElementById('task-table-body');
-  const empty = document.getElementById('task-empty');
-  if (!tbody) return;
+        <div>
+          <div class="card card-fill">
+            <div class="card-header">
+              <div>
+                <div class="card-title">任务列表</div>
+                <div class="card-subtitle" data-task-count-subtitle>共 ${tasks.length} 个任务</div>
+              </div>
+            </div>
+            <div class="toolbar">
+              <div class="toolbar-left">
+                <select class="form-select" style="width: 100px;" id="taskFilter" data-binding="taskFilter">
+                  <option value="all">全部状态</option>
+                  <option value="running">运行中</option>
+                  <option value="queued">排队中</option>
+                  <option value="completed">已完成</option>
+                  <option value="failed">失败</option>
+                </select>
+                <input type="text" class="form-input search-input" id="taskSearch" placeholder="搜索任务..." data-binding="taskSearch">
+              </div>
+              <div class="toolbar-right">
+                <button class="btn btn-secondary btn-sm" data-action="cancelQueuedTasks">取消排队中任务</button>
+              </div>
+            </div>
+            <div class="card-body card-body-scroll">
+              <div class="${tasks.length === 0 ? (!store.state.health ? 'empty-state' : 'empty-state') : 'task-list'}" id="taskListContainer">
+                ${tasks.length === 0 ? (store.state.health === null ? `
+                  <div class="empty-icon">⏳</div>
+                  <div class="empty-title">加载中...</div>
+                ` : `
+                  <div class="empty-icon">🚀</div>
+                  <div class="empty-title">暂无任务</div>
+                  <div class="empty-desc">前往概览页使用快速下载创建任务</div>
+                `) : `
+                  ${tasks.map(t => renderTaskItem(t)).join('')}
+                `}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+  },
+  
+  // Data Page
+  data() {
+    const { dataSubPage, dbData, dbPagination, dbSort, dbSearch } = store.state;
+    
+    const dataMap = {
+      users: { title: 'Users', data: dbData.users?.data || [], count: dbData.users?.total || 0 },
+      lists: { title: 'Lists', data: dbData.lists?.data || [], count: dbData.lists?.total || 0 },
+      entities: { title: 'User Entities', data: dbData.entities?.data || [], count: dbData.entities?.total || 0 },
+      listEntities: { title: 'List Entities', data: dbData.listEntities?.data || [], count: dbData.listEntities?.total || 0 },
+      userLinks: { title: 'User Links', data: dbData.userLinks?.data || [], count: dbData.userLinks?.total || 0 },
+      previousNames: { title: 'Previous Names', data: dbData.previousNames?.data || [], count: dbData.previousNames?.total || 0 }
+    };
+    
+    const current = dataMap[dataSubPage];
+    const pagination = dbPagination[dataSubPage] || { page: 1, pageSize: 200, totalPages: 1 };
+    const sort = dbSort[dataSubPage] || { sortBy: 'id', sortOrder: 'desc' };
+    
+    return `
+      <div class="card card-page">
+        <div class="card-header">
+          <div>
+            <div class="tabs" style="margin: 0; border: none;">
+              <div class="tab ${dataSubPage === 'users' ? 'active' : ''}" data-action="setDataSubPage" data-subpage="users">Users</div>
+              <div class="tab ${dataSubPage === 'lists' ? 'active' : ''}" data-action="setDataSubPage" data-subpage="lists">Lists</div>
+              <div class="tab ${dataSubPage === 'entities' ? 'active' : ''}" data-action="setDataSubPage" data-subpage="entities">User Entities</div>
+              <div class="tab ${dataSubPage === 'listEntities' ? 'active' : ''}" data-action="setDataSubPage" data-subpage="listEntities">List Entities</div>
+              <div class="tab ${dataSubPage === 'userLinks' ? 'active' : ''}" data-action="setDataSubPage" data-subpage="userLinks">User Links</div>
+              <div class="tab ${dataSubPage === 'previousNames' ? 'active' : ''}" data-action="setDataSubPage" data-subpage="previousNames">Previous Names</div>
+            </div>
+          </div>
+          <div class="flex gap-2 items-center">
+            <input type="text" class="form-input search-input" id="dbSearchInput"
+              placeholder="搜索..." data-binding="dbSearch">
+            <button class="btn btn-ghost btn-icon" data-action="searchDB">🔍</button>
+          </div>
+        </div>
 
-  if (!tasks.length) {
-    tbody.innerHTML = '';
-    if (empty) empty.style.display = '';
-    return;
+        <div class="card-body card-body-scroll">
+          <div class="table-scroll-container" id="dataTableContainer">
+            ${renderDBTable(dataSubPage, current.data, sort)}
+          </div>
+          <div id="dataMobileCards">${renderDBMobileCards(dataSubPage, current.data)}</div>
+        </div>
+
+        <div class="pagination" id="dataPagination">
+          <div class="pagination-info" id="dataPaginationInfo">
+            显示 ${current.data.length} / ${current.count} 条记录 
+            (第 ${pagination.page} / ${pagination.totalPages} 页)
+          </div>
+          <div class="pagination-controls">
+            <button class="page-btn" data-action="changeDBPage" data-delta="-1" ${pagination.page <= 1 ? 'disabled' : ''}>←</button>
+            ${renderPageNumbers(pagination.page, pagination.totalPages)}
+            <button class="page-btn" data-action="changeDBPage" data-delta="1" ${pagination.page >= pagination.totalPages ? 'disabled' : ''}>→</button>
+          </div>
+        </div>
+      </div>
+    `;
+  },
+
+  schedules() {
+    const { _schedules, _scheduleExists, _schedulerRunning } = store.state;
+
+		    if (_schedules === null) {
+		      return `
+		        <div class="page-container">
+		          <div class="card">
+		            <div class="card-header">
+		              <div><div class="card-title">定时下载任务</div><div class="card-subtitle">加载中...</div></div>
+		              <div class="flex gap-2">
+		                <button class="btn btn-primary btn-sm" disabled>⬇️ 下载全部</button>
+		                <button class="btn btn-ghost btn-sm" disabled>📝 编辑任务</button>
+		              </div>
+		            </div>
+		            <div class="card-body">
+		              <div class="empty-state">
+		                <div class="skeleton" style="width:64px;height:64px;border-radius:12px;margin-bottom:16px"></div>
+		                <div class="empty-title">加载中...</div>
+		                <div class="empty-desc">正在加载定时任务配置</div>
+		              </div>
+		            </div>
+		          </div>
+		        </div>
+		      `;
+    }
+
+    const schedulerBanner = !_schedulerRunning
+      ? `<div class="alert alert-warning" style="margin-bottom:var(--space-3)">⚠️ 调度器未启动，定时任务不会自动执行。请在「定时任务」页面中添加并启用规则后重载配置。</div>`
+      : '';
+
+    return `
+      <div class="page-container">
+        <div id="scheduleBanner" style="flex-shrink:0">${schedulerBanner}</div>
+        <div id="scheduleTable">${renderScheduleTable(_schedules, _scheduleExists)}</div>
+      </div>
+    `;
+  },
+
+  // System Page
+  system() {
+    return `
+      <div class="page-container">
+        <div class="system-tab-bar">
+          <div class="system-tabs" style="margin:0">
+            <div class="tab ${store.state._systemTab === 'config' ? 'active' : ''}" data-tab="config" data-action="setSystemTab">⚙️ 配置编辑</div>
+            <div class="tab ${store.state._systemTab === 'cookies' ? 'active' : ''}" data-tab="cookies" data-action="setSystemTab">🍪 额外账户</div>
+            <div class="tab ${store.state._systemTab === 'schedules' ? 'active' : ''}" data-tab="schedules" data-action="setSystemTab">⏰ 任务配置</div>
+          </div>
+          <button class="btn btn-danger btn-sm" data-action="shutdownServer">⏻ 关闭服务器</button>
+        </div>
+
+        <div id="systemConfigPanel" class="system-panel system-panel-scroll" style="${store.state._systemTab === 'config' ? '' : 'display:none'}">
+          ${renderConfigEditor()}
+        </div>
+
+        <div id="systemCookiesPanel" class="system-panel system-panel-scroll" style="${store.state._systemTab === 'cookies' ? '' : 'display:none'}">
+          ${renderCookiesEditor()}
+        </div>
+
+        <div id="systemSchedulesPanel" class="system-panel system-panel-scroll" style="${store.state._systemTab === 'schedules' ? '' : 'display:none'}">
+          ${renderScheduleViewer()}
+        </div>
+      </div>
+    `;
+  },
+
+  logs() {
+    return renderLogViewer();
   }
-  if (empty) empty.style.display = 'none';
+};
 
-  tbody.innerHTML = tasks.map(t => {
-    const p = t.progress || {};
-    const r = t.result || {};
-    const pct = getTaskProgressPercent(t);
-    const barClass = p.stage === 'completed' ? 'completed' : (t.status === 'failed' ? 'failed' : (t.status === 'running' ? 'pulsing' : ''));
-    const stageText = getStageText(p.stage);
-    const target = getTaskTarget(t);
-    const canCancel = t.status === 'queued' || t.status === 'running';
-    const canRetry = t.status === 'failed' || t.status === 'cancelled';
-    const canDelete = t.status === 'completed' || t.status === 'failed' || t.status === 'cancelled';
+// ============================================
+// Module-level state bag (replaces top-level let/const)
+// ============================================
+const _state = {
+  _taskFormState: {},
+  _cmDestroyVersion: 0
+};
 
-    return `<tr data-status="${t.status}">
-      <td>${taskTypeIcon(t.type)}</td>
-      <td><span class="mono">${esc(t.task_id || t.id)}</span><div class="text-sm text-muted">${taskTypeName(t.type)}${target ? ' - ' + esc(target) : ''}</div></td>
-      <td><span class="badge badge-${t.status}">${t.status}</span></td>
-      <td>
-        <div class="progress-bar-wrap"><div class="progress-bar-fill ${barClass}" style="width:${pct}%"></div></div>
-        <div class="progress-detail">
-          <span>${pct}%${stageText}</span>
-          ${p.current ? '<span> &middot; ' + esc(p.current) + '</span>' : ''}
-          ${p.failed ? '<span class="fail"> &middot; ' + esc(p.failed) + ' failed</span>' : ''}
-        </div>
-      </td>
-      <td>
-        <div class="text-sm">${relativeTime(t.created_at)}</div>
-        ${t.started_at && t.ended_at ? '<div class="text-sm text-muted">' + formatDuration(t.started_at, t.ended_at) + '</div>' : ''}
-      </td>
-      <td>
-        <div class="task-actions">
-          ${(t.status === 'completed' || t.status === 'failed' || t.status === 'cancelled') ? '<button class="btn btn-xs btn-ghost" onclick="showTaskDetail(\'' + jsEsc(t.task_id) + '\')" title="View"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button>' : ''}
-          ${canCancel ? '<button class="btn btn-xs btn-ghost" onclick="doCancelTask(\'' + jsEsc(t.task_id) + '\')" title="Cancel"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>' : ''}
-          ${canRetry ? '<button class="btn btn-xs btn-ghost" onclick="doRetryTask(\'' + jsEsc(t.task_id) + '\')" title="Retry"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg></button>' : ''}
-          ${canDelete ? '<button class="btn btn-xs btn-ghost" onclick="doDeleteTask(\'' + jsEsc(t.task_id) + '\')" title="Delete"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>' : ''}
-        </div>
-      </td>
-    </tr>`;
-  }).join('');
+// 变化检测器：消除手动维护 _state.lastXxx 的重复模式
+// keys: 要追踪的状态键名数组。基础类型用 !== 比较，对象/数组用 JSON.stringify 比较
+// 返回 { hasAny: bool, changed: { [key]: bool } }
+function makeChangeDetector(keys) {
+  const snapshots = {};
+  keys.forEach(k => { snapshots[k] = undefined; });
+  return {
+    detect(state) {
+      const changed = {};
+      let hasAny = false;
+      keys.forEach(k => {
+        const cur = state[k];
+        const last = snapshots[k];
+        let isDiff;
+        if (typeof cur === 'object' && cur !== null) {
+          isDiff = JSON.stringify(cur) !== JSON.stringify(last);
+        } else {
+          isDiff = cur !== last;
+        }
+        changed[k] = isDiff;
+        if (isDiff) hasAny = true;
+        snapshots[k] = (typeof cur === 'object' && cur !== null) ? JSON.parse(JSON.stringify(cur)) : cur;
+      });
+      return { hasAny, changed };
+    }
+  };
 }
 
-/* ---- Download Forms ---- */
+// 保存当前任务 tab 的表单值
+function saveTaskFormState() {
+  const inputs = document.querySelectorAll('#taskFormContainer input, #taskFormContainer textarea, #taskFormContainer select');
+  const state = {};
+  inputs.forEach(el => {
+    if (el.id) {
+      state[el.id] = el.type === 'checkbox' ? el.checked : el.value;
+    }
+  });
+  // 找到当前激活的 tab
+  const activeTab = document.querySelector('[data-task-tab].active');
+  if (activeTab) {
+    _state._taskFormState[activeTab.dataset.taskTab] = state;
+  }
+}
 
-function showBatchForm() {
-  openModal(`
-    <div class="modal-header">
-      <h2>New Download</h2>
-      <button class="btn btn-ghost btn-sm" onclick="closeModal()"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
-    </div>
-    <div class="modal-body">
-      <div class="tabs" id="dl-tabs">
-        <button class="tab active" data-dltab="user">User</button>
-        <button class="tab" data-dltab="list">List</button>
-        <button class="tab" data-dltab="following">Following</button>
-        <button class="tab" data-dltab="batch">Batch</button>
-        <button class="tab" data-dltab="json">JSON</button>
-      </div>
-
-      <!-- User Download -->
-      <div class="dl-tab-content" id="dl-tab-user">
-        <div class="form-group">
-          <label>Screen Name</label>
-          <input type="text" id="dl-user-name" placeholder="elonmusk">
-        </div>
-        <div class="form-row">
-          <label class="checkbox-label"><input type="checkbox" id="dl-user-autofollow"> Auto-follow</label>
-          <label class="checkbox-label"><input type="checkbox" id="dl-user-noretry"> No retry</label>
-        </div>
-        <div class="form-actions">
-          <button class="btn btn-primary" onclick="doUserDownload()">Download User</button>
-          <button class="btn btn-secondary" onclick="doUserProfile()">Profile Only</button>
-          <button class="btn btn-secondary" onclick="doUserMark()">Mark Downloaded</button>
-        </div>
-      </div>
-
-      <!-- List Download -->
-      <div class="dl-tab-content hidden" id="dl-tab-list">
-        <div class="form-group">
-          <label>List ID</label>
-          <input type="text" id="dl-list-id" placeholder="1234567890">
-        </div>
-        <div class="form-row">
-          <label class="checkbox-label"><input type="checkbox" id="dl-list-autofollow"> Auto-follow</label>
-          <label class="checkbox-label"><input type="checkbox" id="dl-list-noretry"> No retry</label>
-        </div>
-        <div class="form-actions">
-          <button class="btn btn-primary" onclick="doListDownload()">Download List</button>
-          <button class="btn btn-secondary" onclick="doListProfile()">Profile Only</button>
-          <button class="btn btn-secondary" onclick="doListMark()">Mark Downloaded</button>
-        </div>
-      </div>
-
-      <!-- Following Download -->
-      <div class="dl-tab-content hidden" id="dl-tab-following">
-        <div class="form-group">
-          <label>User's Followings</label>
-          <input type="text" id="dl-foll-name" placeholder="elonmusk">
-        </div>
-        <div class="form-row">
-          <label class="checkbox-label"><input type="checkbox" id="dl-foll-autofollow"> Auto-follow</label>
-          <label class="checkbox-label"><input type="checkbox" id="dl-foll-noretry"> No retry</label>
-        </div>
-        <div class="form-actions">
-          <button class="btn btn-primary" onclick="doFollowingDownload()">Download</button>
-          <button class="btn btn-secondary" onclick="doFollowingMark()">Mark Downloaded</button>
-        </div>
-      </div>
-
-      <!-- Batch Download -->
-      <div class="dl-tab-content hidden" id="dl-tab-batch">
-        <div class="form-group">
-          <label>Users (one per line)</label>
-          <textarea id="dl-batch-users" rows="3" placeholder="elonmusk"></textarea>
-        </div>
-        <div class="form-group">
-          <label>List IDs (one per line)</label>
-          <textarea id="dl-batch-lists" rows="2" placeholder="1234567890"></textarea>
-        </div>
-        <div class="form-group">
-          <label>Following (one per line)</label>
-          <textarea id="dl-batch-foll" rows="2" placeholder="jack"></textarea>
-        </div>
-        <div class="form-row">
-          <label class="checkbox-label"><input type="checkbox" id="dl-batch-autofollow"> Auto-follow</label>
-          <label class="checkbox-label"><input type="checkbox" id="dl-batch-followmembers"> Follow members</label>
-          <label class="checkbox-label"><input type="checkbox" id="dl-batch-noretry"> No retry</label>
-        </div>
-        <div class="form-actions">
-          <button class="btn btn-primary" onclick="doBatchDownload()">Batch Download</button>
-          <button class="btn btn-secondary" onclick="doBatchMark()">Batch Mark</button>
-        </div>
-      </div>
-
-      <!-- JSON Download -->
-      <div class="dl-tab-content hidden" id="dl-tab-json">
-        <div class="form-group">
-          <label>JSON File Paths (one per line)</label>
-          <textarea id="dl-json-paths" rows="3" placeholder="/path/to/tweets.json"></textarea>
-        </div>
-        <label class="checkbox-label"><input type="checkbox" id="dl-json-noretry"> No retry</label>
-        <div class="form-actions">
-          <button class="btn btn-primary" onclick="doJSONFileDownload()">Download from Files</button>
-          <button class="btn btn-secondary" onclick="doJSONFolderDownload()">Download from Folders</button>
-        </div>
-      </div>
-    </div>`);
-
-  // Tab switching
-  document.querySelectorAll('[data-dltab]').forEach(tab => {
-    tab.addEventListener('click', () => {
-      document.querySelectorAll('[data-dltab]').forEach(t => t.classList.remove('active'));
-      tab.classList.add('active');
-      document.querySelectorAll('.dl-tab-content').forEach(c => c.classList.add('hidden'));
-      document.getElementById('dl-tab-' + tab.dataset.dltab).classList.remove('hidden');
+// 恢复任务 tab 的表单值
+function restoreTaskFormState(tabType) {
+  const saved = _state._taskFormState[tabType];
+  if (!saved) return;
+  // 延迟执行，等待 DOM 渲染完成
+  requestAnimationFrame(() => {
+    Object.entries(saved).forEach(([id, value]) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      if (el.type === 'checkbox') {
+        el.checked = value;
+      } else {
+        el.value = value;
+      }
     });
   });
 }
 
-// Download action functions
-async function doUserDownload() {
-  const name = document.getElementById('dl-user-name').value.trim();
-  if (!name) return toast('Enter a screen name', 'warning');
-  closeModal();
-  try {
-    const r = await ENDPOINTS.userDownload(name, {
-      auto_follow: document.getElementById('dl-user-autofollow').checked,
-      no_retry: document.getElementById('dl-user-noretry').checked
-    });
-    toast('Task created: ' + r.task_id, 'success');
-    document.getElementById('dl-user-name').value = '';
-  } catch(e) { toast(e.message, 'error'); }
+// ============================================
+// Helper Functions
+// ============================================
+
+function getStageText(stage) {
+  const stageMap = {
+    'preparing': ' · 准备中',
+    'syncing': ' · 同步列表',
+    'downloading': ' · 下载中',
+    'retrying': ' · 重试中',
+    'profile': ' · 下载资料',
+    'profile_warning': ' · 资料下载异常',
+    'marking': ' · 标记中',
+    'completed': ''
+  };
+  return stageMap[stage] || (stage ? ` · ${stage}` : '');
 }
 
-async function doUserProfile() {
-  const name = document.getElementById('dl-user-name').value.trim();
-  if (!name) return toast('Enter a screen name', 'warning');
-  closeModal();
-  try { const r = await ENDPOINTS.userProfile(name); toast('Task created: ' + r.task_id, 'success'); }
-  catch(e) { toast(e.message, 'error'); }
-}
+function getTaskProgressPercent(task) {
+  if (task.status === 'completed') return 100;
 
-async function doUserMark() {
-  const name = document.getElementById('dl-user-name').value.trim();
-  if (!name) return toast('Enter a screen name', 'warning');
-  closeModal();
-  try { const r = await ENDPOINTS.userMark(name); toast('Marked: ' + r.task_id, 'success'); }
-  catch(e) { toast(e.message, 'error'); }
-}
+  const progress = task.progress || {};
+  const total = progress.total || 0;
+  const completed = progress.completed || 0;
+  const ratio = total > 0 ? Math.min(completed / total, 1) : 0;
 
-async function doListDownload() {
-  const id = document.getElementById('dl-list-id').value.trim();
-  if (!id) return toast('Enter a list ID', 'warning');
-  closeModal();
-  try {
-    const r = await ENDPOINTS.listDownload(id, {
-      auto_follow: document.getElementById('dl-list-autofollow').checked,
-      no_retry: document.getElementById('dl-list-noretry').checked
-    });
-    toast('Task created: ' + r.task_id, 'success');
-  } catch(e) { toast(e.message, 'error'); }
-}
-
-async function doListProfile() {
-  const id = document.getElementById('dl-list-id').value.trim();
-  if (!id) return toast('Enter a list ID', 'warning');
-  closeModal();
-  try { const r = await ENDPOINTS.listProfile(id); toast('Task created: ' + r.task_id, 'success'); }
-  catch(e) { toast(e.message, 'error'); }
-}
-
-async function doListMark() {
-  const id = document.getElementById('dl-list-id').value.trim();
-  if (!id) return toast('Enter a list ID', 'warning');
-  closeModal();
-  try { const r = await ENDPOINTS.listMark(id); toast('Marked: ' + r.task_id, 'success'); }
-  catch(e) { toast(e.message, 'error'); }
-}
-
-async function doFollowingDownload() {
-  const name = document.getElementById('dl-foll-name').value.trim();
-  if (!name) return toast('Enter a screen name', 'warning');
-  closeModal();
-  try {
-    const r = await ENDPOINTS.userFollowingDL(name, {
-      auto_follow: document.getElementById('dl-foll-autofollow').checked,
-      no_retry: document.getElementById('dl-foll-noretry').checked
-    });
-    toast('Task created: ' + r.task_id, 'success');
-  } catch(e) { toast(e.message, 'error'); }
-}
-
-async function doFollowingMark() {
-  const name = document.getElementById('dl-foll-name').value.trim();
-  if (!name) return toast('Enter a screen name', 'warning');
-  closeModal();
-  try { const r = await ENDPOINTS.userFollowingMark(name); toast('Marked: ' + r.task_id, 'success'); }
-  catch(e) { toast(e.message, 'error'); }
-}
-
-async function doBatchDownload() {
-  const users = document.getElementById('dl-batch-users').value.trim().split('\n').map(s => s.trim()).filter(Boolean);
-  const lists = document.getElementById('dl-batch-lists').value.trim().split('\n').map(s => s.trim()).filter(Boolean);
-  const foll = document.getElementById('dl-batch-foll').value.trim().split('\n').map(s => s.trim()).filter(Boolean);
-  if (!users.length && !lists.length && !foll.length) return toast('Enter at least one target', 'warning');
-  closeModal();
-  try {
-    const r = await ENDPOINTS.batchDownload({
-      users, lists, following_names: foll,
-      auto_follow: document.getElementById('dl-batch-autofollow').checked,
-      follow_members: document.getElementById('dl-batch-followmembers').checked,
-      no_retry: document.getElementById('dl-batch-noretry').checked
-    });
-    toast('Batch task: ' + r.task_id, 'success');
-  } catch(e) { toast(e.message, 'error'); }
-}
-
-async function doBatchMark() {
-  const users = document.getElementById('dl-batch-users').value.trim().split('\n').map(s => s.trim()).filter(Boolean);
-  const lists = document.getElementById('dl-batch-lists').value.trim().split('\n').map(s => s.trim()).filter(Boolean);
-  const foll = document.getElementById('dl-batch-foll').value.trim().split('\n').map(s => s.trim()).filter(Boolean);
-  if (!users.length && !lists.length && !foll.length) return toast('Enter at least one target', 'warning');
-  closeModal();
-  try {
-    const r = await ENDPOINTS.batchMark({ users, lists, following_names: foll });
-    toast('Batch mark: ' + r.task_id, 'success');
-  } catch(e) { toast(e.message, 'error'); }
-}
-
-async function doJSONFileDownload() {
-  const paths = document.getElementById('dl-json-paths').value.trim().split('\n').map(s => s.trim()).filter(Boolean);
-  if (!paths.length) return toast('Enter at least one path', 'warning');
-  closeModal();
-  try {
-    const r = await ENDPOINTS.jsonFileDownload({ paths, no_retry: document.getElementById('dl-json-noretry').checked });
-    toast('Task created: ' + r.task_id, 'success');
-  } catch(e) { toast(e.message, 'error'); }
-}
-
-async function doJSONFolderDownload() {
-  const paths = document.getElementById('dl-json-paths').value.trim().split('\n').map(s => s.trim()).filter(Boolean);
-  if (!paths.length) return toast('Enter at least one path', 'warning');
-  closeModal();
-  try {
-    const r = await ENDPOINTS.jsonFolderDownload({ paths, no_retry: document.getElementById('dl-json-noretry').checked });
-    toast('Task created: ' + r.task_id, 'success');
-  } catch(e) { toast(e.message, 'error'); }
-}
-
-// Task actions
-async function doCancelTask(id) {
-  if (!confirm('Cancel this task?')) return;
-  try { await ENDPOINTS.cancelTask(id); toast('Task cancelled', 'info'); }
-  catch(e) { toast(e.message, 'error'); }
-}
-
-async function doRetryTask(id) {
-  try { const r = await ENDPOINTS.retryTask(id); toast('Retry created: ' + r.task_id, 'success'); }
-  catch(e) { toast(e.message, 'error'); }
-}
-
-async function doDeleteTask(id) {
-  if (!confirm('Delete this task?')) return;
-  try { await ENDPOINTS.deleteTask(id); toast('Task deleted', 'info'); }
-  catch(e) { toast(e.message, 'error'); }
-}
-
-// Task detail view
-async function showTaskDetail(id) {
-  let task;
-  try {
-    task = await ENDPOINTS.getTask(id);
-  } catch(e) {
-    return toast('Failed to load task: ' + e.message, 'error');
+  if (task.status === 'failed' || task.status === 'cancelled') {
+    return total > 0 ? Math.round(ratio * 100) : 0;
   }
-  if (!task) return toast('Task not found', 'error');
 
-  const statusColors = { queued:'#8b949e', running:'#58a6ff', completed:'#3fb950', failed:'#f85149', cancelled:'#6e7681' };
-  const bgColors = { queued:'rgba(139,148,158,0.1)', running:'rgba(88,166,255,0.1)', completed:'rgba(63,185,80,0.1)', failed:'rgba(248,81,73,0.1)', cancelled:'rgba(110,118,129,0.1)' };
-  const sc = statusColors[task.status] || '#8b949e';
-  const bg = bgColors[task.status] || 'rgba(139,148,158,0.1)';
-  const target = getTaskTarget(task);
+  switch (progress.stage) {
+    case 'syncing':
+      return 5;
+    case 'preparing':
+      return 10;
+    case 'downloading':
+      return Math.round(10 + ratio * 70);
+    case 'retrying':
+      return Math.round(80 + ratio * 10);
+    case 'profile':
+      return total > 0 ? Math.round(90 + ratio * 9) : 90;
+    case 'profile_warning':
+      return 99;
+    case 'marking':
+      return total > 0 ? Math.round(10 + ratio * 85) : 10;
+    default:
+      return 0;
+  }
+}
+
+function getTaskTarget(task) {
+  const data = task.data || {};
+
+  if (data.screen_name) {
+    return `@${data.screen_name}`;
+  }
+  if (data.list_id) {
+    return `List ${data.list_id}`;
+  }
+
+  const parts = [];
+  if (Array.isArray(data.users) && data.users.length) {
+    parts.push(`${data.users.length} 用户`);
+  }
+  if (Array.isArray(data.lists) && data.lists.length) {
+    parts.push(`${data.lists.length} 列表`);
+  }
+  if (Array.isArray(data.following_names) && data.following_names.length) {
+    parts.push(`${data.following_names.length} 关注源`);
+  }
+
+  return parts.length ? parts.join(' · ') : 'Unknown';
+}
+
+function getOptionalTimestamp(inputId) {
+  const input = document.getElementById(inputId);
+  const value = input?.value?.trim() || '';
+  if (!value) return null;
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    throw new Error('请输入有效的标记时间');
+  }
+  return date.toISOString();
+}
+
+function renderTaskItem(task) {
+  const statusMap = {
+    queued: { tag: 'tag-queued', text: '排队' },
+    running: { tag: 'tag-running', text: '运行' },
+    completed: { tag: 'tag-completed', text: '完成' },
+    failed: { tag: 'tag-failed', text: '失败' },
+    cancelled: { tag: 'tag-cancelled', text: '取消' }
+  };
+  
+  const status = statusMap[task.status] || statusMap.queued;
   const pct = getTaskProgressPercent(task);
 
-  // Timeline
-  const fmt = (t) => t ? new Date(t).toLocaleString() : '-';
-  const started = task.started_at ? fmt(task.started_at) : null;
-  const ended = task.ended_at ? fmt(task.ended_at) : null;
-  const dur = (task.started_at && task.ended_at) ? formatDuration(task.started_at, task.ended_at) : null;
+  const stageText = task.progress?.stage ? escapeHtml(getStageText(task.progress.stage)) : '';
+  const currentText = task.progress?.current ? ` · ${escapeHtml(task.progress.current)}` : '';
 
-  // Result
-  let resultHtml = '';
-  const res = task.result;
-  if (res) {
-    const parts = [];
-    if (res.main) parts.push('<div><strong>Main:</strong> ' + (res.main.downloaded||0) + ' downloaded' + (res.main.failed ? ', ' + res.main.failed + ' failed' : '') + '</div>');
-    if (res.profile) parts.push('<div><strong>Profile:</strong> ' + (res.profile.downloaded||0) + ' downloaded' + (res.profile.failed ? ', ' + res.profile.failed + ' failed' : '') + (res.profile.versioned ? ', ' + res.profile.versioned + ' versioned' : '') + '</div>');
-    if (res.message) parts.push('<div class="text-sm text-muted">' + esc(res.message) + '</div>');
-    if (parts.length) resultHtml = '<div class="section-header mt-4"><h3>Result</h3></div><div class="card" style="padding:12px 16px">' + parts.join('') + '</div>';
-  }
+  const target = escapeHtml(getTaskTarget(task));
 
-  openModal(`
-    <div class="modal-header">
-      <h2>Task Detail</h2>
-      <button class="btn btn-ghost btn-sm" onclick="closeModal()"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+  return `
+    <div class="task-item" data-task-id="${escapeAttr(task.task_id)}">
+      <div class="task-info">
+        <div class="task-title">${escapeHtml(task.type)} - ${target}</div>
+        <div class="task-meta">
+          <span class="tag ${status.tag}">${status.text}</span>
+          <span>ID: ${escapeHtml(task.task_id)}</span>
+          <span>${task.created_at ? new Date(task.created_at).toLocaleString() : '-'}</span>
+        </div>
+      </div>
+      <div class="task-progress">
+        <div class="progress-bar">
+          <div class="progress-fill" style="width: ${pct}%"></div>
+        </div>
+        <div class="task-progress-text">${pct}%${stageText}${currentText}</div>
+      </div>
+	      <div class="task-actions">
+	        ${task.status === 'running' || task.status === 'queued' ?
+	          `<button class="btn btn-danger btn-sm" data-task-id="${escapeAttr(task.task_id)}" data-action="cancelTask">取消</button>` :
+	          `<button class="btn btn-ghost btn-sm" data-task-id="${escapeAttr(task.task_id)}" data-action="showTaskDetail">详情</button>`
+	        }
+	      </div>
     </div>
-    <div class="modal-body">
-      <div style="background:${bg};border-radius:var(--radius);padding:12px 16px;margin-bottom:16px">
-        <div style="font-weight:600;font-size:15px">${esc(target || task.task_id)}</div>
-        <div class="text-sm text-muted" style="margin-top:4px">${esc(task.task_id)}</div>
-        <div style="margin-top:8px"><span class="badge badge-${task.status}">${task.status}</span> <span class="text-sm text-muted">${taskTypeName(task.type)}</span></div>
+  `;
+}
+
+function renderTaskForm(type) {
+  const forms = {
+    user: `
+      <div class="form-group">
+        <label class="form-label">Screen Name</label>
+        <input type="text" class="form-input" id="userScreenName" placeholder="例如: elonmusk">
       </div>
-
-      <div class="section-header"><h3>Progress</h3></div>
-      <div class="progress-bar-wrap mb-2"><div class="progress-bar-fill" style="width:${pct}%"></div></div>
-      <div class="progress-detail"><span>${pct}%${getStageText(task.progress?.stage)}</span></div>
-
-      <div class="section-header mt-4"><h3>Timeline</h3></div>
-      <div class="card" style="padding:12px 16px">
-        <div class="text-sm">Created: ${fmt(task.created_at)}</div>
-        ${started ? '<div class="text-sm">Started: ' + started + '</div>' : ''}
-        ${ended ? '<div class="text-sm">Ended: ' + ended + '</div>' : ''}
-        ${dur ? '<div class="text-sm">Duration: ' + dur + '</div>' : ''}
+      <div class="form-group">
+        <label class="form-checkbox">
+          <input type="checkbox" id="userAutoFollow"> 自动申请受保护账号
+        </label>
+        <label class="form-checkbox">
+          <input type="checkbox" id="userFollowMembers"> 下载时关注目标/成员
+        </label>
+        <label class="form-checkbox">
+          <input type="checkbox" id="userSkipProfile"> SkipProfile
+        </label>
+        <label class="form-checkbox">
+          <input type="checkbox" id="userNoRetry"> NoRetry
+        </label>
       </div>
+      <div class="flex gap-3">
+        <button class="btn btn-primary" data-action="createUserTask">创建下载任务</button>
+        <button class="btn btn-secondary" data-action="createProfileTask">仅下载 Profile</button>
+      </div>
+    `,
+    list: `
+      <div class="form-group">
+        <label class="form-label">List ID</label>
+        <input type="text" inputmode="numeric" pattern="[0-9]*" class="form-input" id="listId" placeholder="例如: 123456789">
+      </div>
+      <div class="form-group">
+        <label class="form-checkbox">
+          <input type="checkbox" id="listAutoFollow"> 自动申请受保护账号
+        </label>
+        <label class="form-checkbox">
+          <input type="checkbox" id="listFollowMembers"> 下载时关注目标/成员
+        </label>
+        <label class="form-checkbox">
+          <input type="checkbox" id="listSkipProfile"> SkipProfile
+        </label>
+        <label class="form-checkbox">
+          <input type="checkbox" id="listNoRetry"> NoRetry
+        </label>
+      </div>
+      <div class="flex gap-3">
+        <button class="btn btn-primary" data-action="createListTask">创建下载任务</button>
+        <button class="btn btn-secondary" data-action="createListProfileTask">仅下载 Profile</button>
+      </div>
+    `,
+    following: `
+      <div class="form-group">
+        <label class="form-label">Screen Name</label>
+        <input type="text" class="form-input" id="followingScreenName" placeholder="例如: elonmusk">
+      </div>
+      <div class="form-group">
+        <label class="form-checkbox">
+          <input type="checkbox" id="followingAutoFollow"> 自动申请受保护账号
+        </label>
+        <label class="form-checkbox">
+          <input type="checkbox" id="followingFollowMembers"> 下载时关注目标/成员
+        </label>
+        <label class="form-checkbox">
+          <input type="checkbox" id="followingSkipProfile"> SkipProfile
+        </label>
+        <label class="form-checkbox">
+          <input type="checkbox" id="followingNoRetry"> NoRetry
+        </label>
+      </div>
+      <div class="flex gap-3">
+        <button class="btn btn-primary" data-action="createFollowingTask">创建关注下载任务</button>
+      </div>
+    `,
+    mark: `
+      <div class="form-group">
+        <label class="form-label">用户 Screen Name（每行一个）</label>
+        <textarea class="form-textarea" id="markUsers" placeholder="elonmusk\njack" rows="3"></textarea>
+      </div>
+      <div class="form-group">
+        <label class="form-label">List IDs（每行一个）</label>
+        <textarea class="form-textarea" id="markLists" placeholder="123456789\n987654321" rows="3"></textarea>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Following 用户（每行一个）</label>
+        <textarea class="form-textarea" id="markFollowingNames" placeholder="user_a\nuser_b" rows="3"></textarea>
+      </div>
+      <div class="form-group">
+        <label class="form-label">标记时间（可选）</label>
+        <input type="datetime-local" class="form-input" id="markTimestamp" placeholder="选择日期和时间">
+        <div class="text-sm text-tertiary mt-2">留空则使用服务器当前时间。每个输入目标会创建独立标记任务。</div>
+      </div>
+      <button class="btn btn-primary" data-action="createMarkTask">创建标记任务</button>
+    `,
+    batch: `
+      <div class="form-group">
+        <label class="form-label">用户列表（每行一个）</label>
+        <textarea class="form-textarea" id="batchUsers" placeholder="user1\nuser2\nuser3" rows="3"></textarea>
+      </div>
+      <div class="form-group">
+        <label class="form-label">List IDs（每行一个）</label>
+        <textarea class="form-textarea" id="batchLists" placeholder="123\n456\n789" rows="3"></textarea>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Following 用户（每行一个）</label>
+        <textarea class="form-textarea" id="batchFollowingNames" placeholder="user_a\nuser_b" rows="3"></textarea>
+        <div class="text-sm text-tertiary mt-2">将这些用户的 Following 加入批量下载目标</div>
+      </div>
+      <div class="form-group">
+        <label class="form-checkbox">
+          <input type="checkbox" id="batchAutoFollow"> 自动申请受保护账号
+        </label>
+        <label class="form-checkbox">
+          <input type="checkbox" id="batchFollowMembers"> 下载时关注目标/成员
+        </label>
+        <label class="form-checkbox">
+          <input type="checkbox" id="batchSkipProfile"> SkipProfile
+        </label>
+        <label class="form-checkbox">
+          <input type="checkbox" id="batchNoRetry"> NoRetry
+        </label>
+      </div>
+      <button class="btn btn-primary" data-action="createBatchTask">创建批量任务</button>
+    `,
+    jsonfile: `
+  <div class="form-group">
+    <label class="form-label">上传第三方工具导出的 JSON 文件</label>
+    <input type="file" class="form-input" id="jsonFileUpload" accept=".json,application/json" multiple>
+  </div>
+  <div class="text-sm text-tertiary mt-2">
+    支持多选 .json 文件。未选择文件时，可改用下面的服务端路径模式。
+  </div>
+  <div class="form-group mt-3">
+    <label class="form-label">高级：服务端 JSON 文件路径（每行一个）</label>
+    <textarea class="form-textarea" id="jsonFilePaths" placeholder="/path/to/twitter-followers-123.json\n/path/to/more.json" rows="3"></textarea>
+  </div>
+  <div class="text-sm text-tertiary mt-2">
+    支持格式: 第三方工具导出的Twitter推文搜索结果JSON（含推文列表、media数组、metadata字段）
+  </div>
+  <div class="form-group mt-3">
+    <label class="form-checkbox">
+      <input type="checkbox" id="jsonFileNoRetry"> NoRetry
+    </label>
+  </div>
+  <button class="btn btn-primary" data-action="createJsonFileTask">创建 JSON 文件任务</button>
+`,
+jsonfolder: `
+  <div class="form-group">
+    <label class="form-label">上传 LoongTweet JSON 文件</label>
+    <input type="file" class="form-input" id="jsonFolderUpload" accept=".json,application/json" multiple>
+  </div>
+  <div class="text-sm text-tertiary mt-2">
+    直接选择一个或多个 .loongtweet 生成的 JSON 文件。未选择文件时，可改用下面的服务端路径模式。
+  </div>
+  <div class="form-group mt-3">
+    <label class="form-label">高级：服务端 .loongtweet 文件夹路径（每行一个）</label>
+    <textarea class="form-textarea" id="jsonFolderPath" placeholder="/path/to/.loongtweet\n/path/to/another/.loongtweet" rows="3"></textarea>
+  </div>
+  <div class="text-sm text-tertiary mt-2">
+    从 TMD 生成的 .loongtweet 目录下载推文媒体文件（仅下载媒体，不保存元数据）
+  </div>
+  <div class="form-group mt-3">
+    <label class="form-checkbox">
+      <input type="checkbox" id="jsonFolderNoRetry"> NoRetry
+    </label>
+  </div>
+  <button class="btn btn-primary" data-action="createJsonFolderTask">创建 LoongTweet 任务</button>
+`
+  };
+  return forms[type] || forms.user;
+}
 
-      ${resultHtml}
+// Shared helpers for database table rendering
+function sortIcon(sort, field) {
+  if (sort.sortBy !== field) return '<span class="sort-icon">↕</span>';
+  return sort.sortOrder === 'asc'
+    ? '<span class="sort-icon sort-active">↑</span>'
+    : '<span class="sort-icon sort-active">↓</span>';
+}
 
-      ${task.error ? '<div class="section-header mt-4"><h3 style="color:var(--red)">Error</h3></div><div class="card" style="padding:12px 16px;color:var(--red)">' + esc(task.error) + '</div>' : ''}
+function sortableHeader(sort, field, label) {
+  return `
+    <th data-sort-field="${escapeAttr(field)}" class="${sort.sortBy === field ? 'sort-active' : ''}" data-action="sortDB">
+      ${label} ${sortIcon(sort, field)}
+    </th>
+  `;
+}
+
+function renderActionButtons(type, item) {
+  const idStr = String(item.id);
+  return `
+    <div class="flex gap-2">
+      <button class="btn btn-ghost btn-sm" data-db-type="${escapeAttr(type)}" data-db-id="${escapeAttr(idStr)}" data-action="editDBItem">✏️</button>
+      <button class="btn btn-danger btn-sm" data-db-type="${escapeAttr(type)}" data-db-id="${escapeAttr(idStr)}" data-action="deleteDBItem">🗑️</button>
     </div>
-    <div class="modal-footer">
-      <button class="btn btn-ghost" onclick="closeModal()">Close</button>
-      ${task.status === 'queued' || task.status === 'running' ? '<button class="btn btn-danger btn-sm" onclick="closeModal();doCancelTask(\'' + jsEsc(task.task_id) + '\')">Cancel</button>' : ''}
-      ${task.status === 'failed' || task.status === 'cancelled' ? '<button class="btn btn-primary btn-sm" onclick="closeModal();doRetryTask(\'' + jsEsc(task.task_id) + '\')">Retry</button>' : ''}
-      ${task.status === 'completed' || task.status === 'failed' || task.status === 'cancelled' ? '<button class="btn btn-danger btn-sm" onclick="closeModal();doDeleteTask(\'' + jsEsc(task.task_id) + '\')">Delete</button>' : ''}
-    </div>`);
+  `;
 }
 
-async function cancelAllQueued() {
-  try { const r = await ENDPOINTS.cancelQueued(); toast('Cancelled ' + (r.cancelled_count || 0) + ' tasks', 'info'); }
-  catch(e) { toast(e.message, 'error'); }
+function renderDBUsersTable(type, data, sort) {
+  const rows = data.map(item => `<tr>
+    <td>${escapeHtml(item.id)}</td>
+    <td>@${escapeHtml(item.screen_name)}</td>
+    <td>${escapeHtml(item.name)}</td>
+    <td>${item.protected ? '🔒' : '🔓'}</td>
+    <td>${item.is_accessible ? '✅' : '❌'}</td>
+    <td>${escapeHtml(item.friends_count)}</td>
+    <td>${renderActionButtons(type, item)}</td>
+  </tr>`).join('');
+  return `
+    <table class="data-table">
+      <thead>
+        <tr>
+          ${sortableHeader(sort, 'id', 'ID')}
+          ${sortableHeader(sort, 'screen_name', 'Screen Name')}
+          ${sortableHeader(sort, 'name', 'Name')}
+          <th>Protected</th>
+          <th>Accessible</th>
+          ${sortableHeader(sort, 'friends_count', 'Friends')}
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+  `;
 }
 
-// Quick download with Twitter URL parsing
-async function handleQuickDownload() {
-  const input = document.getElementById('quick-dl-input');
-  if (!input) return;
-  let value = input.value.trim();
-  if (!value) return toast('Enter a Twitter username or URL', 'warning');
-
-  // Parse list link: twitter.com/i/lists/123 or x.com/i/lists/123
-  const listMatch = value.match(/https?:\/\/(?:twitter\.com|x\.com)\/i\/lists\/(\d+)/);
-  if (listMatch) {
-    try {
-      await ENDPOINTS.listDownload(listMatch[1], { auto_follow: true });
-      toast('List download task created', 'success');
-      input.value = '';
-    } catch(e) { toast(e.message, 'error'); }
-    return;
-  }
-
-  // Parse user link: twitter.com/username or x.com/username
-  const userMatch = value.match(/https?:\/\/(?:twitter\.com|x\.com)\/([^/\s?]+)/);
-  if (userMatch) {
-    const pathPart = userMatch[1];
-    const reserved = ['i','search','status','home','explore','notifications','messages','settings','compose','bookmarks','lists'];
-    if (!reserved.includes(pathPart.toLowerCase())) {
-      value = pathPart;
-    }
-  }
-
-  // Strip @ prefix
-  if (value.startsWith('@')) value = value.slice(1);
-  if (!value) return toast('Could not extract username from URL', 'warning');
-
-  try {
-    await ENDPOINTS.userDownload(value, { auto_follow: true });
-    toast('Download task created for @' + value, 'success');
-    input.value = '';
-  } catch(e) { toast(e.message, 'error'); }
+function renderDBListsTable(type, data, sort) {
+  const rows = data.map(item => `<tr>
+    <td>${escapeHtml(item.id)}</td>
+    <td>${escapeHtml(item.name)}</td>
+    <td>${escapeHtml(item.owner_user_id)}</td>
+    <td>${renderActionButtons(type, item)}</td>
+  </tr>`).join('');
+  return `
+    <table class="data-table">
+      <thead>
+        <tr>
+          ${sortableHeader(sort, 'id', 'ID')}
+          ${sortableHeader(sort, 'name', 'Name')}
+          ${sortableHeader(sort, 'owner_id', 'Owner ID')}
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+  `;
 }
 
-/* ---- Data Page ---- */
-function renderDataPage(container) {
-  container.innerHTML = `
-    <div class="section">
-      <div class="section-header">
-        <h2>Database Browser</h2>
+function renderDBEntitiesTable(type, data, sort) {
+  const rows = data.map(item => `<tr>
+    <td>${escapeHtml(item.id)}</td>
+    <td>${escapeHtml(item.user_id)}</td>
+    <td>${escapeHtml(item.name)}</td>
+    <td>${escapeHtml(item.latest_release_time || '-')}</td>
+    <td>${escapeHtml(item.media_count || '-')}</td>
+    <td>${renderActionButtons(type, item)}</td>
+  </tr>`).join('');
+  return `
+    <table class="data-table">
+      <thead>
+        <tr>
+          ${sortableHeader(sort, 'id', 'ID')}
+          ${sortableHeader(sort, 'user_id', 'User ID')}
+          ${sortableHeader(sort, 'name', 'Name')}
+          ${sortableHeader(sort, 'latest_release_time', 'Latest Release')}
+          ${sortableHeader(sort, 'media_count', 'Media Count')}
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+  `;
+}
+
+function renderDBListEntitiesTable(type, data, sort) {
+  const rows = data.map(item => `<tr>
+    <td>${escapeHtml(item.id)}</td>
+    <td>${escapeHtml(item.lst_id)}</td>
+    <td>${escapeHtml(item.name)}</td>
+    <td>${escapeHtml(item.parent_dir)}</td>
+    <td>${renderActionButtons(type, item)}</td>
+  </tr>`).join('');
+  return `
+    <table class="data-table">
+      <thead>
+        <tr>
+          ${sortableHeader(sort, 'id', 'ID')}
+          ${sortableHeader(sort, 'lst_id', 'List ID')}
+          ${sortableHeader(sort, 'name', 'Name')}
+          <th>Parent Dir</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+  `;
+}
+
+function renderDBPreviousNamesTable(type, data, sort) {
+  const rows = data.map(item => {
+    const currentLabel = item.current_screen_name ? `@${escapeHtml(item.current_screen_name)}` : escapeHtml(item.user_id || '');
+    return `<tr>
+      <td><a href="javascript:void(0)" data-action="filterPreviousNamesByUser" data-user-id="${escapeAttr(item.user_id || '')}">${currentLabel}</a></td>
+      <td>@${escapeHtml(item.screen_name)}</td>
+      <td>${escapeHtml(item.name)}</td>
+      <td>${escapeHtml(item.record_date || '-')}</td>
+    </tr>`;
+  }).join('');
+  return `
+    <table class="data-table">
+      <thead>
+        <tr>
+          ${sortableHeader(sort, 'current_screen_name', 'Current User')}
+          ${sortableHeader(sort, 'screen_name', 'Previous @Handle')}
+          ${sortableHeader(sort, 'name', 'Previous Name')}
+          ${sortableHeader(sort, 'record_date', 'Date')}
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+  `;
+}
+
+function renderDBDefaultTable(type, data, sort) {
+  const rows = data.map(item => `<tr>
+    <td>${escapeHtml(item.id)}</td>
+    <td>${escapeHtml(item.user_id)}</td>
+    <td>${escapeHtml(item.name)}</td>
+    <td>${escapeHtml(item.parent_lst_entity_id)}</td>
+    <td>${renderActionButtons(type, item)}</td>
+  </tr>`).join('');
+  return `
+    <table class="data-table">
+      <thead>
+        <tr>
+          ${sortableHeader(sort, 'id', 'ID')}
+          ${sortableHeader(sort, 'user_id', 'User ID')}
+          ${sortableHeader(sort, 'name', 'Name')}
+          <th>Parent Entity</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+  `;
+}
+
+// Database Table Renderer with sorting and actions
+function renderDBTable(type, data, sort) {
+  if (!data || data.length === 0) {
+    return `
+      <div class="empty-state">
+        <div class="empty-icon">📊</div>
+        <div class="empty-title">暂无数据</div>
+        <div class="empty-desc">数据库中还没有记录</div>
       </div>
-      <div class="card">
-        <div class="card-header">
-          <div class="tabs" id="db-tabs">
-            <button class="tab active" data-dbtab="users">Users</button>
-            <button class="tab" data-dbtab="lists">Lists</button>
-            <button class="tab" data-dbtab="entities">User Entities</button>
-            <button class="tab" data-dbtab="list-entities">List Entities</button>
-            <button class="tab" data-dbtab="links">Links</button>
-            <button class="tab" data-dbtab="prevnames">Previous Names</button>
-            <button class="tab" data-dbtab="stats">Stats</button>
+    `;
+  }
+
+  switch (type) {
+    case 'users': return renderDBUsersTable(type, data, sort);
+    case 'lists': return renderDBListsTable(type, data, sort);
+    case 'entities': return renderDBEntitiesTable(type, data, sort);
+    case 'listEntities': return renderDBListEntitiesTable(type, data, sort);
+    case 'previousNames': return renderDBPreviousNamesTable(type, data, sort);
+    default: return renderDBDefaultTable(type, data, sort);
+  }
+}
+
+function renderDBMobileCards(type, data) {
+  if (!data || data.length === 0) return '';
+
+  const cards = data.map(item => {
+    if (type === 'users') {
+      return `
+        <div class="mobile-card">
+          <div style="font-weight: var(--font-semibold); margin-bottom: var(--space-2);">@${escapeHtml(item.screen_name)}</div>
+          <div style="color: var(--text-secondary); font-size: var(--text-sm); margin-bottom: var(--space-2);">${escapeHtml(item.name)}</div>
+          <div style="display: flex; gap: var(--space-4); font-size: var(--text-sm); margin-bottom: var(--space-2);">
+            <span>${item.protected ? '🔒 Protected' : '🔓 Public'}</span>
+            <span>${item.is_accessible ? '✅ Accessible' : '❌ Not Accessible'}</span>
+          </div>
+          <div style="font-size: var(--text-sm); margin-bottom: var(--space-2);">Friends: ${escapeHtml(item.friends_count)}</div>
+          <div>${renderActionButtons(type, item)}</div>
+        </div>
+      `;
+    } else if (type === 'lists') {
+      return `
+        <div class="mobile-card">
+          <div style="font-weight: var(--font-semibold); margin-bottom: var(--space-2);">${escapeHtml(item.name)}</div>
+          <div style="color: var(--text-secondary); font-size: var(--text-sm); margin-bottom: var(--space-2);">
+            <div>ID: ${escapeHtml(item.id)}</div>
+            <div>Owner: ${escapeHtml(item.owner_user_id)}</div>
+          </div>
+          <div>${renderActionButtons(type, item)}</div>
+        </div>
+      `;
+    } else if (type === 'entities') {
+      return `
+        <div class="mobile-card">
+          <div style="font-weight: var(--font-semibold); margin-bottom: var(--space-2);">${escapeHtml(item.name)}</div>
+          <div style="color: var(--text-secondary); font-size: var(--text-sm); margin-bottom: var(--space-2);">
+            <div>ID: ${escapeHtml(item.id)}</div>
+            <div>User ID: ${escapeHtml(item.user_id)}</div>
+            <div>Media: ${escapeHtml(item.media_count || 0)}</div>
+          </div>
+          <div>${renderActionButtons(type, item)}</div>
+        </div>
+      `;
+    } else if (type === 'listEntities') {
+      return `
+        <div class="mobile-card">
+          <div style="font-weight: var(--font-semibold); margin-bottom: var(--space-2);">${escapeHtml(item.name)}</div>
+          <div style="color: var(--text-secondary); font-size: var(--text-sm); margin-bottom: var(--space-2);">
+            <div>ID: ${escapeHtml(item.id)}</div>
+            <div>List ID: ${escapeHtml(item.lst_id)}</div>
+            <div>Dir: ${escapeHtml(item.parent_dir)}</div>
+          </div>
+          <div>${renderActionButtons(type, item)}</div>
+        </div>
+      `;
+    } else if (type === 'previousNames') {
+      const currentLabel = item.current_screen_name ? `@${item.current_screen_name}` : (item.user_id || '');
+      return `
+        <div class="mobile-card">
+          <div style="font-weight: var(--font-semibold); margin-bottom: var(--space-2);">${escapeHtml(currentLabel)}</div>
+          <div style="color: var(--text-secondary); font-size: var(--text-sm); margin-bottom: var(--space-2);">
+            <div>Previous: @${escapeHtml(item.screen_name || '')} (${escapeHtml(item.name || '')})</div>
+            <div>Date: ${escapeHtml(item.record_date || '-')}</div>
           </div>
         </div>
-        <div class="card-body" id="db-content">
-          <div class="loading"><div class="spinner"></div> Loading...</div>
+      `;
+    } else {
+      return `
+        <div class="mobile-card">
+          <div style="font-weight: var(--font-semibold); margin-bottom: var(--space-2);">${escapeHtml(item.name)}</div>
+          <div style="color: var(--text-secondary); font-size: var(--text-sm); margin-bottom: var(--space-2);">
+            <div>ID: ${escapeHtml(item.id)}</div>
+            <div>User ID: ${escapeHtml(item.user_id)}</div>
+            <div>Entity: ${escapeHtml(item.parent_lst_entity_id)}</div>
+          </div>
         </div>
-      </div>
-    </div>`;
-
-  pageRenderers.data = renderDataPage;
-  loadDBTab('users');
-
-  // Tab switching for Data page
-  const dbTabs = document.getElementById('db-tabs');
-  if (dbTabs) {
-    dbTabs.addEventListener('click', (e) => {
-      const tab = e.target.closest('[data-dbtab]');
-      if (!tab) return;
-      document.querySelectorAll('[data-dbtab]').forEach(t => t.classList.remove('active'));
-      tab.classList.add('active');
-      loadDBTab(tab.dataset.dbtab);
-    });
-  }
-}
-
-let dbPageState = { users:0, lists:0, entities:0, 'list-entities':0, links:0, prevnames:0 };
-let dbSearchState = { users:'', lists:'', entities:'', 'list-entities':'', links:'', prevnames:'' };
-const DB_PAGE_SIZE = 20;
-
-async function loadDBTab(tab, page) {
-  const content = document.getElementById('db-content');
-  if (!content) return;
-  if (page != null) dbPageState[tab] = page;
-  else dbPageState[tab] = 0;
-  const p = dbPageState[tab];
-  const q = dbSearchState[tab] || '';
-
-  content.innerHTML = '<div class="loading"><div class="spinner"></div> Loading...</div>';
-
-  try {
-    switch (tab) {
-      case 'users': await renderDBUsers(content, p, q); break;
-      case 'lists': await renderDBLists(content, p, q); break;
-      case 'entities': await renderDBEntities(content, p, q, 'user-entities', 'user_entities'); break;
-      case 'list-entities': await renderDBEntities(content, p, q, 'list-entities', 'list_entities'); break;
-      case 'links': await renderDBEntities(content, p, q, 'user-links', 'user_links'); break;
-      case 'prevnames': await renderDBPrevNames(content, p, q); break;
-      case 'stats': await renderDBStats(content); break;
+      `;
     }
-  } catch(e) {
-    content.innerHTML = '<div class="empty-state"><p>Error loading data: ' + esc(e.message) + '</p></div>';
-  }
-}
-
-async function renderDBUsers(content, page, search) {
-  const params = { page: page + 1, pageSize: DB_PAGE_SIZE };
-  if (search) params.search = search;
-  const r = await ENDPOINTS.dbUsers(params);
-  const users = r.data || r || [];
-  const total = r.total || users.length;
-  const totalPages = r.totalPages || 1;
-
-  content.innerHTML = `
-    <div class="filter-bar">
-      <input type="text" id="db-search-input" placeholder="Search screen name..." value="${esc(search)}">
-      <button class="btn btn-primary btn-sm" onclick="dbSearch('users')">Search</button>
-      <button class="btn btn-ghost btn-sm" onclick="dbSearchClear('users')">Clear</button>
-    </div>
-    <div class="table-wrap">
-      <table>
-        <thead><tr><th>ID</th><th>Screen Name</th><th>Display Name</th><th>Protected</th><th>Friends</th><th>Accessible</th><th>Actions</th></tr></thead>
-        <tbody>${users.map(u => `<tr>
-          <td><span class="mono">${esc(u.id||'')}</span></td>
-          <td>${esc(u.screen_name||'')}</td>
-          <td>${esc(u.name||'')}</td>
-          <td>${u.protected ? 'Yes' : 'No'}</td>
-          <td>${u.friends_count||0}</td>
-          <td>${u.is_accessible ? 'Yes' : 'No'}</td>
-          <td><button class="btn btn-xs btn-ghost" onclick="viewUserDetail('${jsEsc(u.id)}')">View</button></td>
-        </tr>`).join('')}</tbody>
-      </table>
-    </div>
-    ${renderPagination(page, totalPages, total, 'users')}`;
-}
-
-async function renderDBLists(content, page, search) {
-  const params = { page: page + 1, pageSize: DB_PAGE_SIZE };
-  if (search) params.search = search;
-  const r = await ENDPOINTS.dbLists(params);
-  const lists = r.data || r || [];
-  const total = r.total || lists.length;
-  const totalPages = r.totalPages || 1;
-
-  content.innerHTML = `
-    <div class="filter-bar">
-      <input type="text" id="db-search-input" placeholder="Search list name..." value="${esc(search)}">
-      <button class="btn btn-primary btn-sm" onclick="dbSearch('lists')">Search</button>
-      <button class="btn btn-ghost btn-sm" onclick="dbSearchClear('lists')">Clear</button>
-    </div>
-    <div class="table-wrap">
-      <table>
-        <thead><tr><th>ID</th><th>Name</th><th>Owner ID</th><th>Actions</th></tr></thead>
-        <tbody>${lists.map(l => `<tr>
-          <td><span class="mono">${esc(l.id||'')}</span></td>
-          <td>${esc(l.name||'')}</td>
-          <td>${esc(l.owner_user_id||'')}</td>
-          <td><button class="btn btn-xs btn-ghost" onclick="viewListDetail('${jsEsc(l.id)}')">View</button></td>
-        </tr>`).join('')}</tbody>
-      </table>
-    </div>
-    ${renderPagination(page, totalPages, total, 'lists')}`;
-}
-
-async function renderDBEntities(content, page, search, ep, label) {
-  const params = { page: page + 1, pageSize: DB_PAGE_SIZE };
-  if (search) params.search = search;
-  const r = await ENDPOINTS['db' + ep.charAt(0).toUpperCase() + ep.slice(1).replace(/-([a-z])/g, (_,c) => c.toUpperCase()) + 'All'](params);
-  const items = r.data || r || [];
-  const total = r.total || items.length;
-  const totalPages = r.totalPages || 1;
-
-  const cols = label === 'user_entities'
-    ? '<th>ID</th><th>User ID</th><th>Name</th><th>Parent Dir</th><th>Media</th><th>Latest Release</th>'
-    : label === 'list_entities'
-    ? '<th>ID</th><th>List ID</th><th>Name</th><th>Parent Dir</th><th>List Name</th>'
-    : '<th>ID</th><th>User ID</th><th>Name</th><th>Parent Entity</th>';
-
-  const rows = items.map(i => {
-    if (label === 'user_entities')
-      return `<tr><td><span class="mono">${esc(i.id||'')}</span></td><td>${esc(i.user_id||'')}</td><td>${esc(i.name||'')}</td><td>${esc(i.parent_dir||'')}</td><td>${i.media_count||0}</td><td class="text-sm">${esc(i.latest_release_time||'')}</td></tr>`;
-    else if (label === 'list_entities')
-      return `<tr><td><span class="mono">${esc(i.id||'')}</span></td><td>${esc(i.lst_id||'')}</td><td>${esc(i.name||'')}</td><td>${esc(i.parent_dir||'')}</td><td>${esc(i.list_name||'')}</td></tr>`;
-    else
-      return `<tr><td><span class="mono">${esc(i.id||'')}</span></td><td>${esc(i.user_id||'')}</td><td>${esc(i.name||'')}</td><td>${esc(i.parent_lst_entity_name||i.parent_lst_entity_id||'')}</td></tr>`;
   }).join('');
 
-  content.innerHTML = `
-    <div class="filter-bar">
-      <input type="text" id="db-search-input" placeholder="Search..." value="${esc(search)}">
-      <button class="btn btn-primary btn-sm" onclick="dbSearch('${ep}')">Search</button>
-      <button class="btn btn-ghost btn-sm" onclick="dbSearchClear('${ep}')">Clear</button>
-    </div>
-    <div class="table-wrap">
-      <table><thead><tr>${cols}</tr></thead><tbody>${rows || '<tr><td colspan="8"><div class="empty-state"><p>No records found</p></div></td></tr>'}</tbody></table>
-    </div>
-    ${renderPagination(page, totalPages, total, ep)}`;
+  return `<div class="mobile-card-list">${cards}</div>`;
 }
 
-async function renderDBPrevNames(content, page, search) {
-  const params = { page: page + 1, pageSize: DB_PAGE_SIZE };
-  if (search) params.search = search;
-  const r = await ENDPOINTS.dbPrevNamesAll(params);
-  const items = r.data || r || [];
-  const total = r.total || items.length;
-  const totalPages = r.totalPages || 1;
+function renderPageNumbers(currentPage, totalPages, onClickHandler = 'goToDBPage') {
+  if (totalPages <= 1) return `<button class="page-btn active">1</button>`;
 
-  content.innerHTML = `
-    <div class="filter-bar">
-      <input type="text" id="db-search-input" placeholder="Search..." value="${esc(search)}">
-      <button class="btn btn-primary btn-sm" onclick="dbSearch('prevnames')">Search</button>
-      <button class="btn btn-ghost btn-sm" onclick="dbSearchClear('prevnames')">Clear</button>
-    </div>
-    <div class="table-wrap">
-      <table>
-        <thead><tr><th>ID</th><th>User ID</th><th>Screen Name</th><th>Name</th><th>Record Date</th><th>Current</th></tr></thead>
-        <tbody>${items.map(i => `<tr><td><span class="mono">${esc(i.id||'')}</span></td><td>${esc(i.user_id||'')}</td><td>${esc(i.screen_name||'')}</td><td>${esc(i.name||'')}</td><td class="text-sm">${esc(i.record_date||'')}</td><td>${i.current_screen_name ? esc(i.current_screen_name) : '-'}</td></tr>`).join('')}</tbody>
-      </table>
-    </div>
-    ${renderPagination(page, totalPages, total, 'prevnames')}`;
-}
+  let pages = [];
+  const maxVisible = 5;
 
-async function renderDBStats(content) {
-  const s = await ENDPOINTS.dbStats();
-  const items = [
-    ['Total Users', s.users || 0],
-    ['Total Lists', s.lsts || 0],
-    ['User Entities', s.user_entities || 0],
-    ['List Entities', s.lst_entities || 0],
-    ['Links', s.user_links || 0],
-    ['Previous Names', s.user_previous_names || 0],
-  ];
-  content.innerHTML = `<div class="stats-grid">${items.map(([k,v]) => `<div class="stat-card total"><div class="stat-value">${v}</div><div class="stat-label">${k}</div></div>`).join('')}</div>`;
-}
-
-function renderPagination(page, totalPages, total, tabId) {
-  if (totalPages <= 1) return '';
-  let html = '<div class="pagination">';
-  html += `<button class="btn btn-xs btn-ghost" ${page === 0 ? 'disabled' : ''} onclick="loadDBTab('${tabId}', 0)">First</button>`;
-  html += `<button class="btn btn-xs btn-ghost" ${page === 0 ? 'disabled' : ''} onclick="loadDBTab('${tabId}', ${page - 1})">Prev</button>`;
-  // Page numbers with ellipsis
-  const pages = [];
-  if (totalPages <= 7) {
-    for (let i = 0; i < totalPages; i++) pages.push(i);
+  if (totalPages <= maxVisible) {
+    for (let i = 1; i <= totalPages; i++) {
+      pages.push(i);
+    }
   } else {
-    if (page < 4) {
-      pages.push(0, 1, 2, 3, -1, totalPages - 1);
-    } else if (page > totalPages - 5) {
-      pages.push(0, -1, totalPages - 4, totalPages - 3, totalPages - 2, totalPages - 1);
+    if (currentPage <= 3) {
+      pages = [1, 2, 3, 4, '...', totalPages];
+    } else if (currentPage >= totalPages - 2) {
+      pages = [1, '...', totalPages - 3, totalPages - 2, totalPages - 1, totalPages];
     } else {
-      pages.push(0, -1, page - 1, page, page + 1, -1, totalPages - 1);
+      pages = [1, '...', currentPage - 1, currentPage, currentPage + 1, '...', totalPages];
     }
   }
-  pages.forEach(p => {
-    if (p === -1) { html += '<span class="pagination-dots">...</span>'; return; }
-    html += `<button class="btn btn-xs ${p === page ? 'btn-primary' : 'btn-ghost'}" onclick="loadDBTab('${tabId}', ${p})">${p + 1}</button>`;
+
+  return pages.map(p => {
+    if (p === '...') return `<span class="page-btn" style="cursor: default;">...</span>`;
+    return `<button class="page-btn ${p === currentPage ? 'active' : ''}" data-action="${onClickHandler}" data-page="${p}">${p}</button>`;
+  }).join('');
+}
+
+// ============================================
+// Database Actions
+// ============================================
+async function refreshDBData() {
+  const { dataSubPage, dbPagination, dbSort, dbSearch } = store.state;
+  const pagination = dbPagination[dataSubPage];
+  const sort = dbSort[dataSubPage];
+  const search = dbSearch[dataSubPage];
+
+  const params = new URLSearchParams();
+  params.append('page', pagination.page);
+  params.append('pageSize', pagination.pageSize);
+  params.append('sortBy', sort.sortBy);
+  params.append('sortOrder', sort.sortOrder);
+  if (search) params.append('q', search);
+
+  try {
+    let response;
+    switch (dataSubPage) {
+      case 'users':
+        response = await api.getDBUsers(params.toString());
+        break;
+      case 'lists':
+        response = await api.getDBLists(params.toString());
+        break;
+      case 'entities':
+        response = await api.getDBUserEntities(params.toString());
+        break;
+      case 'listEntities':
+        response = await api.getDBListEntities(params.toString());
+        break;
+      case 'userLinks':
+        response = await api.getDBUserLinks(params.toString());
+        break;
+      case 'previousNames':
+        if (store.state._prevNameUserIdFilter) {
+          params.append('userId', store.state._prevNameUserIdFilter);
+        }
+        response = await api.getDBPreviousNames(params.toString());
+        break;
+    }
+
+    if (response) {
+      const data = response || {};
+      store.setState({
+        dbData: {
+          ...store.state.dbData,
+          [dataSubPage]: {
+            data: data.data || [],
+            total: data.total || 0,
+            page: data.page || 1,
+            pageSize: data.pageSize || 200
+          }
+        },
+        dbPagination: {
+          ...store.state.dbPagination,
+          [dataSubPage]: {
+            page: data.page || 1,
+            pageSize: data.pageSize || 200,
+            totalPages: data.totalPages || 1
+          }
+        }
+      });
+    } else {
+      toast.show('获取数据失败', 'error');
+    }
+  } catch (err) {
+    toast.show(err.message, 'error');
+  }
+}
+
+function changeDBPage(delta) {
+  const { dataSubPage, dbPagination } = store.state;
+  const current = dbPagination[dataSubPage];
+  const newPage = current.page + delta;
+
+  if (newPage >= 1 && newPage <= current.totalPages) {
+    store.setState({
+      dbPagination: {
+        ...dbPagination,
+        [dataSubPage]: { ...current, page: newPage }
+      }
+    });
+    refreshDBData();
+  }
+}
+
+function goToDBPage(page) {
+  const { dataSubPage, dbPagination } = store.state;
+  const pag = dbPagination[dataSubPage];
+  if (!pag) return;
+  if (page < 1) page = 1;
+  if (pag.totalPages && page > pag.totalPages) page = pag.totalPages;
+  store.setState({
+    dbPagination: {
+      ...dbPagination,
+      [dataSubPage]: { ...pag, page }
+    }
   });
-  html += `<button class="btn btn-xs btn-ghost" ${page >= totalPages - 1 ? 'disabled' : ''} onclick="loadDBTab('${tabId}', ${page + 1})">Next</button>`;
-  html += `<button class="btn btn-xs btn-ghost" ${page >= totalPages - 1 ? 'disabled' : ''} onclick="loadDBTab('${tabId}', ${totalPages - 1})">Last</button>`;
-  html += ` <span class="pagination-info">Page ${page + 1}/${totalPages} (${total})</span>`;
-  html += '</div>';
-  return html;
+  refreshDBData();
 }
 
-window.dbSearch = (tab) => {
-  const input = document.getElementById('db-search-input');
-  if (input) dbSearchState[tab] = input.value;
-  loadDBTab(tab, 0);
-};
-window.dbSearchClear = (tab) => {
-  dbSearchState[tab] = '';
-  loadDBTab(tab, 0);
-};
+function sortDB(field) {
+  const { dataSubPage, dbSort } = store.state;
+  const current = dbSort[dataSubPage];
 
-async function viewUserDetail(id) {
-  try {
-    const u = await ENDPOINTS.dbUser(id);
-    if (!u) return toast('User not found', 'error');
-    const prev = await ENDPOINTS.dbUserPrevNames(id);
-    const ents = await ENDPOINTS.dbUserEntities(id);
-    const links = await ENDPOINTS.dbUserLinks(id);
-
-    openModal(`
-      <div class="modal-header"><h2>User: ${esc(u.screen_name)}</h2><button class="btn btn-ghost btn-sm" onclick="closeModal()"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div>
-      <div class="modal-body">
-        <div class="form-row">
-          <div class="form-group"><label>ID</label><code>${esc(u.id)}</code></div>
-          <div class="form-group"><label>Screen Name</label><code>${esc(u.screen_name)}</code></div>
-        </div>
-        <div class="form-row">
-          <div class="form-group"><label>Name</label><code>${esc(u.name)}</code></div>
-          <div class="form-group"><label>Protected</label><code>${u.protected ? 'Yes' : 'No'}</code></div>
-        </div>
-        ${prev.length ? `<div class="section-header mt-4"><h3>Previous Names (${prev.length})</h3></div>
-        <table><thead><tr><th>Screen Name</th><th>Name</th><th>Date</th></tr></thead><tbody>${prev.map(p => `<tr><td>${esc(p.screen_name)}</td><td>${esc(p.name)}</td><td class="text-sm">${esc(p.record_date)}</td></tr>`).join('')}</tbody></table>` : ''}
-        ${ents.length ? `<div class="section-header mt-4"><h3>Entities (${ents.length})</h3></div>
-        <table><thead><tr><th>Name</th><th>Parent Dir</th><th>Media</th></tr></thead><tbody>${ents.map(e => `<tr><td>${esc(e.name)}</td><td>${esc(e.parent_dir)}</td><td>${e.media_count||0}</td></tr>`).join('')}</tbody></table>` : ''}
-        ${links.length ? `<div class="section-header mt-4"><h3>Links (${links.length})</h3></div>
-        <table><thead><tr><th>Name</th><th>Parent Entity</th></tr></thead><tbody>${links.map(l => `<tr><td>${esc(l.name)}</td><td>${esc(l.parent_lst_entity_name||l.parent_lst_entity_id||'-')}</td></tr>`).join('')}</tbody></table>` : ''}
-      </div>
-      <div class="modal-footer">
-        <button class="btn btn-ghost" onclick="closeModal()">Close</button>
-        <button class="btn btn-danger" onclick="if(confirm('Delete user ${jsEsc(u.screen_name)}?')){ENDPOINTS.dbUserDelete('${jsEsc(u.id)}').then(()=>{closeModal();loadDBTab('users');}).catch(e=>toast(e.message,'error'))}">Delete</button>
-      </div>`);
-  } catch(e) { toast(e.message, 'error'); }
-}
-
-async function viewListDetail(id) {
-  try {
-    const l = await ENDPOINTS.dbList(id);
-    const ents = await ENDPOINTS.dbListEntities(id);
-
-    openModal(`
-      <div class="modal-header"><h2>List: ${esc(l.name)}</h2><button class="btn btn-ghost btn-sm" onclick="closeModal()"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div>
-      <div class="modal-body">
-        <div class="form-row">
-          <div class="form-group"><label>ID</label><code>${esc(l.id)}</code></div>
-          <div class="form-group"><label>Owner ID</label><code>${esc(l.owner_user_id)}</code></div>
-        </div>
-        ${ents.length ? `<div class="section-header mt-4"><h3>Entities (${ents.length})</h3></div>
-        <table><thead><tr><th>Name</th><th>Parent Dir</th></tr></thead><tbody>${ents.map(e => `<tr><td>${esc(e.name)}</td><td>${esc(e.parent_dir)}</td></tr>`).join('')}</tbody></table>` : ''}
-      </div>
-      <div class="modal-footer">
-        <button class="btn btn-ghost" onclick="closeModal()">Close</button>
-      </div>`);
-  } catch(e) { toast(e.message, 'error'); }
-}
-
-/* ---- Schedules Page ---- */
-function renderSchedulesPage(container) {
-  container.innerHTML = `
-    <div class="section">
-      <div class="section-header">
-        <h2>Schedules</h2>
-        <div class="flex gap-2">
-          <button class="btn btn-primary btn-sm" onclick="showNewScheduleForm()">+ Add</button>
-          <button class="btn btn-ghost btn-sm" onclick="triggerAllSchedules()">Trigger All</button>
-          <button class="btn btn-ghost btn-sm" onclick="reloadSchedules()">Reload</button>
-        </div>
-      </div>
-      <div class="stats-grid" id="sched-stats"></div>
-      <div id="sched-warning" class="hidden"></div>
-      <div id="sched-list"></div>
-    </div>`;
-
-  pageRenderers.schedules = renderSchedulesPage;
-  updateSchedulesView();
-  loadSchedules();
-}
-
-async function loadSchedules() {
-  try {
-    const r = await ENDPOINTS.schedules();
-    window._lastSchedulesData = { scheduler_running: r.scheduler_running, entries: r.entries || [] };
-    updateSchedulesView();
-  } catch(e) { toast(e.message, 'error'); }
-}
-
-function updateSchedulesView() {
-  const d = window._lastSchedulesData;
-  if (!d) return;
-
-  const entries = d.entries || [];
-  const running = d.scheduler_running;
-
-  // ScheduleStatus wraps ScheduleEntry in .entry; flatten for templates
-  const flatEntries = entries.map(e => ({
-    ...(e.entry || e),
-    last_run_at: e.last_run_at || e.last_run,
-    next_run_at: e.next_run_at || e.next_run,
-    last_error: e.last_error,
-    consecutive_failures: e.consecutive_failures
-  }));
-
-  const stats = {
-    total: flatEntries.length,
-    enabled: flatEntries.filter(e => e.enabled).length,
-    disabled: flatEntries.filter(e => !e.enabled).length,
-    failures: entries.reduce((s, e) => s + (e.consecutive_failures || 0), 0)
-  };
-
-  const statsEl = document.getElementById('sched-stats');
-  if (statsEl) {
-    statsEl.innerHTML = [
-      ['Total', stats.total, 'total'],
-      ['Enabled', stats.enabled, 'completed'],
-      ['Disabled', stats.disabled, 'cancelled'],
-      ['Failures', stats.failures, 'failed']
-    ].map(([k, v, cls]) => `<div class="stat-card ${cls}"><div class="stat-value">${v}</div><div class="stat-label">${k}</div></div>`).join('');
+  let newOrder = 'asc';
+  if (current.sortBy === field && current.sortOrder === 'asc') {
+    newOrder = 'desc';
   }
 
-  // Warning when scheduler not running
-  const warnEl = document.getElementById('sched-warning');
-  if (warnEl) {
-    if (!running) {
-      warnEl.className = 'alert alert-warning';
-      warnEl.innerHTML = 'Scheduler is not running - scheduled downloads will not execute automatically.';
+  store.setState({
+    dbSort: {
+      ...dbSort,
+      [dataSubPage]: { sortBy: field, sortOrder: newOrder }
+    }
+  });
+  refreshDBData();
+}
+
+function searchDB() {
+  store.setState({
+    dbPagination: {
+      ...store.state.dbPagination,
+      [store.state.dataSubPage]: { ...store.state.dbPagination[store.state.dataSubPage], page: 1 }
+    },
+    _prevNameUserIdFilter: store.state.dataSubPage !== 'previousNames' ? '' : store.state._prevNameUserIdFilter,
+  });
+  refreshDBData();
+}
+
+function filterPreviousNamesByUser(userId) {
+  if (!userId) return;
+  store.setState({
+    dataSubPage: 'previousNames',
+    dbPagination: {
+      ...store.state.dbPagination,
+      previousNames: { ...store.state.dbPagination.previousNames, page: 1 }
+    },
+    _prevNameUserIdFilter: userId
+  });
+  refreshDBData();
+}
+
+async function editDBItem(type, id) {
+  try {
+    let item;
+    switch (type) {
+      case 'users':
+        item = await api.getDBUser(id);
+        break;
+      case 'lists':
+        item = await api.getDBList(id);
+        break;
+      case 'entities':
+        item = await api.getDBUserEntity(id);
+        break;
+      case 'listEntities':
+        item = await api.getDBListEntity(id);
+        break;
+      case 'userLinks':
+        item = await api.getDBUserLink(id);
+        break;
+      default:
+        throw new Error('Unknown type: ' + type);
+    }
+
+    if (!item) {
+      throw new Error('Failed to load item data');
+    }
+
+    // 根据类型构建表单内容
+    let content = `
+      <div class="form-group">
+        <label class="form-label">ID</label>
+        <div class="font-mono text-sm" style="background: var(--bg-primary); padding: var(--space-3); border-radius: var(--radius-md);">${escapeHtml(item.id)}</div>
+      </div>
+    `;
+
+    switch (type) {
+      case 'users':
+        content += `
+          <div class="form-group">
+            <label class="form-label">Screen Name</label>
+            <input type="text" class="form-input" id="editScreenName" value="${escapeAttr(item.screen_name || '')}">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Name</label>
+            <input type="text" class="form-input" id="editName" value="${escapeAttr(item.name || '')}">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Friends Count</label>
+            <input type="number" class="form-input" id="editFriendsCount" value="${escapeAttr(item.friends_count || 0)}" min="0" max="999999999">
+          </div>
+          <div class="form-group">
+            <label class="form-checkbox">
+              <input type="checkbox" id="editProtected" ${item.protected ? 'checked' : ''}> Protected
+            </label>
+          </div>
+          <div class="form-group">
+            <label class="form-checkbox">
+              <input type="checkbox" id="editAccessible" ${item.is_accessible ? 'checked' : ''}> Is Accessible
+            </label>
+          </div>
+        `;
+        break;
+      case 'lists':
+        content += `
+          <div class="form-group">
+            <label class="form-label">Name</label>
+            <input type="text" class="form-input" id="editListName" value="${escapeAttr(item.name || '')}">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Owner ID</label>
+            <input type="text" class="form-input" id="editListOwnerId" value="${escapeAttr(item.owner_user_id || '')}">
+          </div>
+        `;
+        break;
+      case 'entities':
+        content += `
+          <div class="form-group">
+            <label class="form-label">Name</label>
+            <input type="text" class="form-input" id="editEntityName" value="${escapeAttr(item.name || '')}">
+          </div>
+          <div class="form-group">
+            <label class="form-label">User ID</label>
+            <div class="font-mono text-sm" style="background: var(--bg-primary); padding: var(--space-3); border-radius: var(--radius-md);">${escapeHtml(item.user_id)}</div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Media Count</label>
+            <input type="number" class="form-input" id="editEntityMediaCount" value="${escapeAttr(item.media_count || 0)}">
+          </div>
+        `;
+        break;
+      case 'listEntities':
+        content += `
+          <div class="form-group">
+            <label class="form-label">Name</label>
+            <input type="text" class="form-input" id="editListEntityName" value="${escapeAttr(item.name || '')}">
+          </div>
+          <div class="form-group">
+            <label class="form-label">List ID</label>
+            <div class="font-mono text-sm" style="background: var(--bg-primary); padding: var(--space-3); border-radius: var(--radius-md);">${escapeHtml(item.lst_id)}</div>
+          </div>
+        `;
+        break;
+      case 'userLinks':
+        content += `
+          <div class="form-group">
+            <label class="form-label">Name</label>
+            <input type="text" class="form-input" id="editUserLinkName" value="${escapeAttr(item.name || '')}">
+          </div>
+          <div class="form-group">
+            <label class="form-label">User ID</label>
+            <div class="font-mono text-sm" style="background: var(--bg-primary); padding: var(--space-3); border-radius: var(--radius-md);">${escapeHtml(item.user_id)}</div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Parent Entity ID</label>
+            <div class="font-mono text-sm" style="background: var(--bg-primary); padding: var(--space-3); border-radius: var(--radius-md);">${escapeHtml(item.parent_lst_entity_id)}</div>
+          </div>
+        `;
+        break;
+    }
+
+    const footer = `
+      <button class="btn btn-secondary" data-action="closeDrawer">取消</button>
+      <button class="btn btn-primary" data-db-type="${escapeAttr(type)}" data-db-id="${escapeAttr(id)}" data-action="saveDBItem">保存</button>
+    `;
+
+    drawer.open('编辑 ' + type, content, footer);
+  } catch (err) {
+    toast.show(err.message, 'error');
+  }
+}
+
+async function saveDBItem(type, id) {
+  const data = {};
+
+  // 根据类型收集数据
+  switch (type) {
+    case 'users':
+      data.screen_name = document.getElementById('editScreenName').value.trim();
+      data.name = document.getElementById('editName').value.trim();
+      const fcVal = document.getElementById('editFriendsCount').value;
+      if (fcVal !== '') {
+        data.friends_count = parseInt(fcVal, 10) || 0;
+      }
+      data.protected = document.getElementById('editProtected').checked;
+      data.is_accessible = document.getElementById('editAccessible').checked;
+      if (!data.name) return toast.show('Name is required', 'error');
+      break;
+    case 'lists':
+      data.name = document.getElementById('editListName').value.trim();
+      data.owner_user_id = document.getElementById('editListOwnerId').value.trim();
+      if (!data.name) return toast.show('Name is required', 'error');
+      break;
+    case 'entities':
+      data.name = document.getElementById('editEntityName').value.trim();
+      const mcVal = document.getElementById('editEntityMediaCount').value;
+      if (mcVal !== '') {
+        data.media_count = parseInt(mcVal, 10) || 0;
+      }
+      if (!data.name) return toast.show('Name is required', 'error');
+      break;
+    case 'listEntities':
+      data.name = document.getElementById('editListEntityName').value.trim();
+      if (!data.name) return toast.show('Name is required', 'error');
+      break;
+    case 'userLinks':
+      data.name = document.getElementById('editUserLinkName').value.trim();
+      if (!data.name) return toast.show('Name is required', 'error');
+      break;
+  }
+
+  try {
+    switch (type) {
+      case 'users':
+        await api.updateDBUser(id, data);
+        break;
+      case 'lists':
+        await api.updateDBList(id, data);
+        break;
+      case 'entities':
+        await api.updateDBUserEntity(id, data);
+        break;
+      case 'listEntities':
+        await api.updateDBListEntity(id, data);
+        break;
+      case 'userLinks':
+        await api.updateDBUserLink(id, data);
+        break;
+      default:
+        throw new Error('Unknown type: ' + type);
+    }
+    drawer.close();
+    toast.show('保存成功');
+    refreshDBData();
+  } catch (err) {
+    toast.show(err.message, 'error');
+  }
+}
+
+async function deleteDBItem(type, id) {
+  if (!confirm(`确定要删除这个${type}记录吗？此操作不可恢复。`)) return;
+
+  try {
+    switch (type) {
+      case 'users':
+        await api.deleteDBUser(id);
+        break;
+      case 'lists':
+        await api.deleteDBList(id);
+        break;
+      case 'entities':
+        await api.deleteDBUserEntity(id);
+        break;
+      case 'listEntities':
+        await api.deleteDBListEntity(id);
+        break;
+      case 'userLinks':
+        await api.deleteDBUserLink(id);
+        break;
+      default:
+        throw new Error('Unknown type: ' + type);
+    }
+    toast.show('删除成功');
+    // 删除操作可能使当前页越界（删除最后一页的最后一条），
+    // 先请求一次获取最新数据再刷新
+    const { dataSubPage, dbPagination } = store.state;
+    const current = dbPagination[dataSubPage];
+    const checkParams = new URLSearchParams();
+    checkParams.append('page', '1');
+    checkParams.append('pageSize', current.pageSize);
+    const dataSubPageMap = {
+      users: api.getDBUsers,
+      lists: api.getDBLists,
+      entities: api.getDBUserEntities,
+      listEntities: api.getDBListEntities,
+      userLinks: api.getDBUserLinks,
+      previousNames: api.getDBPreviousNames,
+    };
+    const fetcher = dataSubPageMap[dataSubPage];
+    if (fetcher) {
+      const resp = await fetcher(checkParams.toString());
+      const total = (resp || {}).total || 0;
+      const totalPages = Math.max(1, Math.ceil(total / (current.pageSize || 200)));
+      // 当前页超出总页数时回到最后一页
+      if (current.page > totalPages) {
+        store.setState({
+          dbPagination: {
+            ...dbPagination,
+            [dataSubPage]: { ...current, page: totalPages, totalPages }
+          }
+        });
+      } else {
+        store.setState({
+          dbPagination: {
+            ...dbPagination,
+            [dataSubPage]: { ...current, totalPages }
+          }
+        });
+      }
+    }
+    refreshDBData();
+  } catch (err) {
+    toast.show(err.message, 'error');
+  }
+}
+
+// ============================================
+// Actions
+// ============================================
+async function handleQuickDownload() {
+  const input = document.getElementById('quickDownloadInput');
+  let value = input.value.trim();
+  
+  if (!value) {
+    if (!navigator.clipboard?.readText) {
+      return toast.show('当前环境不支持读取剪切板，请手动输入', 'error');
+    }
+    try {
+      value = await navigator.clipboard.readText();
+      value = value.trim();
+    } catch (err) {
+      return toast.show('请输入用户名或链接，或允许读取剪切板', 'error');
+    }
+    if (!value) {
+      return toast.show('剪切板为空，请输入用户名或链接', 'error');
+    }
+    // await 期间用户可能已手动输入，此时不应覆盖
+    const currentVal = input.value.trim();
+    if (currentVal && currentVal !== value) {
+      value = currentVal;
     } else {
-      warnEl.className = 'hidden';
+      input.value = value;
     }
   }
 
-  const listEl = document.getElementById('sched-list');
-  if (!listEl) return;
+  let username = value;
+  // 从粘贴文本中提取第一个 URL（支持行内混合粘贴），无 URL 时用原始输入
+  const firstUrl = (value.match(/https?:\/\/[^\s]+/) || [value])[0];
+  const listMatch = firstUrl.match(/https?:\/\/(?:twitter\.com|x\.com)\/i\/lists\/(\d+)/);
+  if (listMatch) {
+    try {
+      await api.createListDownload(listMatch[1], { auto_follow: true });
+      toast.show(`已创建列表下载任务: List ${listMatch[1]}`);
+      input.value = '';
+    } catch (err) {
+      toast.show(err.message, 'error');
+    }
+    return;
+  }
+  const userMatch = firstUrl.match(/https?:\/\/(?:twitter\.com|x\.com)\/([^/\s?]+)/);
+  if (userMatch) {
+    const pathPart = userMatch[1];
+    if (!['i', 'search', 'status', 'home', 'explore', 'notifications', 'messages', 'settings', 'compose', 'bookmarks', 'lists', 'communities'].includes(pathPart.toLowerCase())) {
+      username = pathPart;
+    }
+  }
+  if (username.startsWith('@')) username = username.slice(1);
 
-  if (!flatEntries.length) {
-    listEl.innerHTML = '<div class="empty-state"><p>No schedules configured.</p></div>';
+  try {
+    await api.createUserDownload(username, { auto_follow: true });
+    toast.show(`已创建用户下载任务: @${username}`);
+    input.value = '';
+  } catch (err) {
+    toast.show(err.message, 'error');
+  }
+}
+
+async function createUserTask() {
+  const screenName = document.getElementById('userScreenName').value.trim();
+  if (!screenName) return toast.show('请输入 Screen Name', 'error');
+  
+  try {
+    await api.createUserDownload(screenName, {
+      auto_follow: document.getElementById('userAutoFollow').checked,
+      follow_members: document.getElementById('userFollowMembers').checked,
+      skip_profile: document.getElementById('userSkipProfile').checked,
+      no_retry: document.getElementById('userNoRetry').checked
+    });
+    toast.show('用户下载任务已创建');
+    document.getElementById('userScreenName').value = '';
+  } catch (err) {
+    toast.show(err.message, 'error');
+  }
+}
+
+async function createProfileTask() {
+  const screenName = document.getElementById('userScreenName').value.trim();
+  if (!screenName) return toast.show('请输入 Screen Name', 'error');
+
+  try {
+    await api.createProfileDownload(screenName);
+    toast.show('Profile 下载任务已创建');
+    document.getElementById('userScreenName').value = '';
+  } catch (err) {
+    toast.show(err.message, 'error');
+  }
+}
+
+async function createListTask() {
+  const listId = document.getElementById('listId').value.trim();
+  if (!listId) return toast.show('请输入 List ID', 'error');
+
+  try {
+    await api.createListDownload(listId, {
+      auto_follow: document.getElementById('listAutoFollow').checked,
+      follow_members: document.getElementById('listFollowMembers').checked,
+      skip_profile: document.getElementById('listSkipProfile').checked,
+      no_retry: document.getElementById('listNoRetry').checked
+    });
+    toast.show('列表下载任务已创建');
+    document.getElementById('listId').value = '';
+  } catch (err) {
+    toast.show(err.message, 'error');
+  }
+}
+
+async function createListProfileTask() {
+  const listId = document.getElementById('listId').value.trim();
+  if (!listId) return toast.show('请输入 List ID', 'error');
+
+  try {
+    await api.createListProfile(listId);
+    toast.show('列表 Profile 任务已创建');
+    document.getElementById('listId').value = '';
+  } catch (err) {
+    toast.show(err.message, 'error');
+  }
+}
+
+async function createFollowingTask() {
+  const screenName = document.getElementById('followingScreenName').value.trim();
+  if (!screenName) return toast.show('请输入 Screen Name', 'error');
+
+  try {
+    await api.createFollowingDownload(screenName, {
+      auto_follow: document.getElementById('followingAutoFollow').checked,
+      follow_members: document.getElementById('followingFollowMembers').checked,
+      skip_profile: document.getElementById('followingSkipProfile').checked,
+      no_retry: document.getElementById('followingNoRetry').checked
+    });
+    toast.show('关注下载任务已创建');
+    document.getElementById('followingScreenName').value = '';
+  } catch (err) {
+    toast.show(err.message, 'error');
+  }
+}
+
+async function createMarkTask() {
+  const users = document.getElementById('markUsers').value.split('\n').map(s => s.trim()).filter(Boolean);
+  const listIDs = readListIDsFromTextarea('markLists');
+  const followingNames = document.getElementById('markFollowingNames').value.split('\n').map(s => s.trim()).filter(Boolean);
+
+  if (!users.length && !listIDs.length && !followingNames.length) {
+    return toast.show('请输入至少一个用户、列表或 Following 用户', 'error');
+  }
+
+  try {
+    const timestamp = getOptionalTimestamp('markTimestamp');
+    const data = {};
+    if (users.length) data.users = users;
+    if (listIDs.length) data.lists = listIDs;
+    if (followingNames.length) data.following_names = followingNames;
+    if (timestamp) data.timestamp = timestamp;
+
+    await api.createBatchMark(data);
+    document.getElementById('markUsers').value = '';
+    document.getElementById('markLists').value = '';
+    document.getElementById('markFollowingNames').value = '';
+    document.getElementById('markTimestamp').value = '';
+
+    const totalCount = users.length + listIDs.length + followingNames.length;
+    toast.show(`已创建批量标记任务（共 ${totalCount} 个目标）`);
+  } catch (err) {
+    toast.show(err.message, 'error');
+  }
+}
+
+async function createBatchTask() {
+  const users = document.getElementById('batchUsers').value.split('\n').map(s => s.trim()).filter(Boolean);
+  const lists = readListIDsFromTextarea('batchLists');
+  const followingNames = document.getElementById('batchFollowingNames').value.split('\n').map(s => s.trim()).filter(Boolean);
+  
+  if (!users.length && !lists.length && !followingNames.length) {
+    return toast.show('请输入至少一个用户、列表或 Following 用户', 'error');
+  }
+  
+  try {
+    await api.createBatchDownload({
+      users,
+      lists,
+      following_names: followingNames,
+      auto_follow: document.getElementById('batchAutoFollow').checked,
+      follow_members: document.getElementById('batchFollowMembers').checked,
+      skip_profile: document.getElementById('batchSkipProfile').checked,
+      no_retry: document.getElementById('batchNoRetry').checked
+    });
+    toast.show(`批量任务已创建 (${users.length} 用户, ${lists.length} 列表, ${followingNames.length} 关注源)`);
+    document.getElementById('batchUsers').value = '';
+    document.getElementById('batchLists').value = '';
+    document.getElementById('batchFollowingNames').value = '';
+  } catch (err) {
+    toast.show(err.message, 'error');
+  }
+}
+
+async function createJsonFileTask() {
+  const uploadInput = document.getElementById('jsonFileUpload');
+  const paths = readTextareaLines('jsonFilePaths');
+  const noRetry = document.getElementById('jsonFileNoRetry').checked;
+
+  if (uploadInput.files.length > 0) {
+    const formData = new FormData();
+    for (const file of uploadInput.files) formData.append('files', file);
+    formData.append('no_retry', String(noRetry));
+
+    try {
+      const result = await api.upload('/api/v1/json/file/download', formData);
+      toast.show(result.message || 'JSON 文件上传任务已创建');
+      uploadInput.value = '';
+      document.getElementById('jsonFilePaths').value = '';
+    } catch (err) {
+      toast.show(err.message, 'error');
+    }
     return;
   }
 
-  listEl.innerHTML = flatEntries.map(e => `
-    <div class="schedule-item${e.consecutive_failures > 0 ? ' has-failure' : ''}">
-      <div class="schedule-item-header">
-        <div class="schedule-item-title">
-          <span class="schedule-status-dot ${e.enabled ? 'enabled' : 'disabled'}"></span>
-          <strong>${esc(e.name || e.target || 'Unnamed')}</strong>
-          <span class="badge badge-${e.type === 'list' ? 'running' : 'queued'}">${esc(e.type)}</span>
-          ${e.consecutive_failures > 0 ? `<span class="badge badge-failed">${e.consecutive_failures} failures</span>` : ''}
-        </div>
-        <div class="flex gap-2">
-          <label class="toggle">
-            <input type="checkbox" name="sched-toggle-${esc(e.id)}" ${e.enabled ? 'checked' : ''} onchange="toggleSchedule('${jsEsc(e.id)}', this.checked)">
-            <span class="toggle-slider"></span>
-          </label>
-          <button class="btn btn-xs btn-ghost" onclick="triggerSchedule('${jsEsc(e.id)}')" title="Run now">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-          </button>
-          <button class="btn btn-xs btn-ghost" onclick="editSchedule('${jsEsc(e.id)}')" title="Edit">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-          </button>
-          <button class="btn btn-xs btn-ghost" onclick="deleteSchedule('${jsEsc(e.id)}')" title="Delete">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-          </button>
-        </div>
-      </div>
-      <div class="schedule-meta">
-        <span>Schedule: ${esc(e.schedule)}</span>
-        <span> &middot; ${e.type === 'mixed' ? ('Users: ' + (e.users||[]).length + ', Lists: ' + (e.lists||[]).length + ', Following: ' + (e.following_names||[]).length) : 'Target: ' + esc(e.target)}</span>
-        ${e.last_run_at ? '<span> &middot; Last: ' + relativeTime(e.last_run_at) + '</span>' : ''}
-        ${e.next_run_at ? '<span> &middot; Next: ' + relativeTime(e.next_run_at) + '</span>' : ''}
-        ${e.last_error ? '<span class="fail"> &middot; Error: ' + esc(e.last_error) + '</span>' : ''}
-      </div>
-    </div>`).join('');
+  if (!paths.length) return toast.show('请选择至少一个 JSON 文件，或填写服务端路径', 'error');
+
+  try {
+    const result = await api.createJsonFileDownload({
+      paths,
+      no_retry: noRetry
+    });
+    toast.show(result.message || 'JSON 文件任务已创建');
+    document.getElementById('jsonFilePaths').value = '';
+  } catch (err) {
+    toast.show(err.message, 'error');
+  }
 }
 
-function showNewScheduleForm() {
-  openModal(`
-    <div class="modal-header"><h2>Add Schedule</h2><button class="btn btn-ghost btn-sm" onclick="closeModal()"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div>
-    <div class="modal-body">
-      <div class="form-group">
-        <label>Type</label>
-        <select id="sched-type" onchange="toggleSchedTargetFields()">
-          <option value="user">User</option>
-          <option value="list">List</option>
-          <option value="following">Following</option>
-          <option value="mixed">Mixed</option>
+async function createJsonFolderTask() {
+  const uploadInput = document.getElementById('jsonFolderUpload');
+  const paths = readTextareaLines('jsonFolderPath');
+  const noRetry = document.getElementById('jsonFolderNoRetry').checked;
+
+  if (uploadInput.files.length > 0) {
+    const formData = new FormData();
+    for (const file of uploadInput.files) formData.append('files', file);
+    formData.append('no_retry', String(noRetry));
+
+    try {
+      const result = await api.upload('/api/v1/json/folder/download', formData);
+      toast.show(result.message || 'LoongTweet 上传任务已创建');
+      uploadInput.value = '';
+      document.getElementById('jsonFolderPath').value = '';
+    } catch (err) {
+      toast.show(err.message, 'error');
+    }
+    return;
+  }
+
+  if (!paths.length) return toast.show('请选择至少一个 JSON 文件，或填写 LoongTweet 文件夹路径', 'error');
+
+  try {
+    const result = await api.createJsonFolderDownload({
+      paths,
+      no_retry: noRetry
+    });
+    toast.show(result.message || 'LoongTweet 任务已创建');
+    document.getElementById('jsonFolderPath').value = '';
+  } catch (err) {
+    toast.show(err.message, 'error');
+  }
+}
+
+async function cancelTask(id) {
+  if (!confirm('确定要取消这个任务吗？')) return;
+  
+  try {
+    await api.cancelTask(id);
+    toast.show('任务已取消');
+  } catch (err) {
+    toast.show(err.message, 'error');
+  }
+}
+
+async function retryTask(id) {
+  try {
+    await api.retryTask(id);
+    toast.show('任务已重新创建');
+  } catch (err) {
+    toast.show(err.message, 'error');
+  }
+}
+
+async function deleteTask(id) {
+  if (!confirm('确定要删除这个任务吗？')) return;
+  
+  try {
+    await api.deleteTask(id);
+    toast.show('任务已删除');
+  } catch (err) {
+    toast.show(err.message, 'error');
+  }
+}
+
+async function cancelQueuedTasks() {
+  const queuedCount = store.state.tasks.filter(t => t.status === 'queued').length;
+  if (queuedCount === 0) return toast.show('没有排队中的任务', 'error');
+  if (!confirm(`确定要取消 ${queuedCount} 个排队中的任务吗？`)) return;
+  
+  try {
+    const result = await api.cancelQueuedTasks();
+    toast.show(`已取消 ${result.cancelled_count} 个排队中的任务`);
+  } catch (err) {
+    toast.show(err.message, 'error');
+  }
+}
+
+async function showTaskDetail(id) {
+  drawer._taskId = id;
+  drawer.open('任务详情', '<div class="text-sm text-secondary" style="text-align:center;padding:var(--space-8)">加载中...</div>');
+
+  let task;
+  try {
+    task = await api.getTask(id);
+  } catch (err) {
+    drawer.open('任务详情',
+      `<div class="task-detail-error">获取任务详情失败: ${escapeHtml(err.message)}</div>`,
+      `<button class="btn btn-secondary" data-action="closeDrawer">关闭</button>
+	       <button class="btn btn-primary" data-task-id="${escapeAttr(id)}" data-action="showTaskDetail">重试</button>`
+    );
+    return;
+  }
+
+  if (!task) {
+    drawer.open('任务详情',
+      '<div class="task-detail-error">未找到该任务</div>',
+      '<button class="btn btn-secondary" data-action="closeDrawer">关闭</button>'
+    );
+    return;
+  }
+
+  const statusMap = {
+    queued: '排队中',
+    running: '运行中',
+    completed: '已完成',
+    failed: '失败',
+    cancelled: '已取消'
+  };
+
+  const statusColors = {
+    queued: '#8b949e',
+    running: '#58a6ff',
+    completed: '#3fb950',
+    failed: '#f85149',
+    cancelled: '#6e7681'
+  };
+
+  const bgColors = {
+    queued: 'rgba(139,148,158,0.1)',
+    running: 'rgba(88,166,255,0.1)',
+    completed: 'rgba(63,185,80,0.1)',
+    failed: 'rgba(248,81,73,0.1)',
+    cancelled: 'rgba(110,118,129,0.1)'
+  };
+
+  const statusText = statusMap[task.status] || escapeHtml(task.status);
+  const statusColor = statusColors[task.status] || '#8b949e';
+  const bgColor = bgColors[task.status] || 'rgba(139,148,158,0.1)';
+  const pct = getTaskProgressPercent(task);
+  const stageText = task.progress?.stage ? escapeHtml(getStageText(task.progress.stage)) : '';
+  const currentText = task.progress?.current ? ` · ${escapeHtml(task.progress.current)}` : '';
+  const target = escapeHtml(getTaskTarget(task));
+
+  // Build target details
+  let targetDetails = '';
+  if (task.data?.screen_name) {
+    targetDetails = `<div class="task-detail-grid"><div class="task-detail-label">用户</div><div class="task-detail-value">@${escapeHtml(task.data.screen_name)}</div></div>`;
+  } else if (task.data?.list_id) {
+    targetDetails = `<div class="task-detail-grid"><div class="task-detail-label">列表</div><div class="task-detail-value">${escapeHtml(String(task.data.list_id))}</div></div>`;
+  } else {
+    const parts = [];
+    if (task.data?.users?.length) parts.push(`<div class="task-detail-label">用户</div><div class="task-detail-value">${task.data.users.map(u => '@' + escapeHtml(u)).join(', ')}</div>`);
+    if (task.data?.lists?.length) parts.push(`<div class="task-detail-label">列表</div><div class="task-detail-value">${task.data.lists.map(l => escapeHtml(String(l))).join(', ')}</div>`);
+    if (task.data?.following_names?.length) parts.push(`<div class="task-detail-label">关注</div><div class="task-detail-value">${task.data.following_names.map(f => '@' + escapeHtml(f)).join(', ')}</div>`);
+    if (parts.length) targetDetails = `<div class="task-detail-grid">${parts.join('')}</div>`;
+  }
+
+  // Build time timeline
+  const createdTime = task.created_at ? new Date(task.created_at).toLocaleString() : '-';
+  const startedTime = task.started_at ? new Date(task.started_at).toLocaleString() : null;
+  const endedTime = task.ended_at ? new Date(task.ended_at).toLocaleString() : null;
+
+  let durationText = '';
+  if (task.started_at && task.ended_at) {
+    const dur = new Date(task.ended_at) - new Date(task.started_at);
+    const mins = Math.floor(dur / 60000);
+    const secs = Math.round((dur % 60000) / 1000);
+    if (mins > 0) durationText = `${mins}分${secs}秒`;
+    else durationText = `${secs}秒`;
+  }
+
+  let timeHtml = `
+    <div class="task-detail-time-row">
+      <div class="task-detail-time-dot" style="background:var(--info)"></div>
+      <div class="task-detail-time-label">创建</div>
+      <div class="task-detail-time-value">${createdTime}</div>
+    </div>`;
+  if (startedTime) {
+    timeHtml += `
+    <div class="task-detail-time-line"></div>
+    <div class="task-detail-time-row">
+      <div class="task-detail-time-dot" style="background:var(--warning)"></div>
+      <div class="task-detail-time-label">开始</div>
+      <div class="task-detail-time-value">${startedTime}</div>
+    </div>`;
+  }
+  if (endedTime) {
+    timeHtml += `
+    <div class="task-detail-time-line"></div>
+    <div class="task-detail-time-row">
+      <div class="task-detail-time-dot" style="background:var(--success)"></div>
+      <div class="task-detail-time-label">结束</div>
+      <div class="task-detail-time-value">${endedTime}</div>
+    </div>`;
+  }
+  if (durationText) {
+    timeHtml += `
+    <div class="task-detail-time-line"></div>
+    <div class="task-detail-time-row">
+      <div class="task-detail-time-dot" style="background:var(--text-secondary)"></div>
+      <div class="task-detail-time-label">耗时</div>
+      <div class="task-detail-time-value" style="color:var(--text-primary)">${durationText}</div>
+    </div>`;
+  }
+
+  // Build result
+  let resultHtml = '';
+  const result = task.result;
+  if (result) {
+    let mainHtml = '';
+    if (result.main) {
+      const parts = [`<span class="task-detail-stat"><span class="task-detail-stat-val success">${result.main.downloaded || 0}</span><span class="task-detail-stat-lbl">已下载</span></span>`];
+      if (result.main.failed) {
+        parts.push(`<span class="task-detail-stat"><span class="task-detail-stat-val danger">${result.main.failed}</span><span class="task-detail-stat-lbl">失败</span></span>`);
+      }
+      mainHtml = `<div class="task-detail-section-title-sm">主下载</div><div class="task-detail-stats">${parts.join('')}</div>`;
+    }
+    let profileHtml = '';
+    if (result.profile) {
+      const parts = [`<span class="task-detail-stat"><span class="task-detail-stat-val success">${result.profile.downloaded || 0}</span><span class="task-detail-stat-lbl">已下载</span></span>`];
+      if (result.profile.failed) {
+        parts.push(`<span class="task-detail-stat"><span class="task-detail-stat-val danger">${result.profile.failed}</span><span class="task-detail-stat-lbl">失败</span></span>`);
+      }
+      if (result.profile.versioned) {
+        parts.push(`<span class="task-detail-stat"><span class="task-detail-stat-val info">${result.profile.versioned}</span><span class="task-detail-stat-lbl">已更新</span></span>`);
+      }
+      profileHtml = `<div class="task-detail-section-title-sm">Profile</div><div class="task-detail-stats">${parts.join('')}</div>`;
+    }
+    const msgHtml = result.message ? `<div class="task-detail-msg">${escapeHtml(result.message)}</div>` : '';
+
+    if (mainHtml || profileHtml || msgHtml) {
+      resultHtml = `
+        <div class="task-detail-section">
+          <div class="task-detail-section-title">结果</div>
+          <div class="task-detail-card">
+            ${mainHtml}${mainHtml && (profileHtml || msgHtml) ? '<div style="height:1px;background:var(--border-secondary);margin:var(--space-2) 0"></div>' : ''}
+            ${profileHtml}${profileHtml && msgHtml ? '<div style="height:1px;background:var(--border-secondary);margin:var(--space-2) 0"></div>' : ''}
+            ${msgHtml}
+          </div>
+        </div>`;
+    }
+  }
+
+  // Build content
+  const content = `
+    <div class="task-detail-header" style="background:${bgColor}">
+      <div class="task-detail-header-info">
+        <div class="task-detail-header-title">${target || '未知目标'}</div>
+        <div class="task-detail-header-sub">${escapeHtml(task.task_id)}</div>
+      </div>
+      <span class="tag tag-${task.status}" style="font-size:var(--text-base)">${statusText}</span>
+    </div>
+
+    <div class="task-detail-section">
+      <div class="task-detail-section-title">概览</div>
+      <div class="task-detail-card">
+        <div class="task-detail-grid">
+          <div class="task-detail-label">类型</div>
+          <div class="task-detail-value">${escapeHtml(task.type)}</div>
+          <div class="task-detail-label">状态</div>
+          <div class="task-detail-value" style="color:${statusColor}">${statusText}</div>
+        </div>
+      </div>
+    </div>
+
+    ${targetDetails ? `
+    <div class="task-detail-section">
+      <div class="task-detail-section-title">目标</div>
+      <div class="task-detail-card">${targetDetails}</div>
+    </div>` : ''}
+
+    <div class="task-detail-section">
+      <div class="task-detail-section-title">进度</div>
+      <div class="task-detail-card">
+        <div class="progress-bar" style="margin-bottom: var(--space-2);">
+          <div class="progress-fill" style="width: ${pct}%"></div>
+        </div>
+        <div class="text-sm" style="display:flex;justify-content:space-between;color:var(--text-secondary);">
+          <span>${task.progress?.completed || 0} / ${task.progress?.total || 0} (${pct}%)</span>
+          <span>${stageText}${currentText}</span>
+        </div>
+        ${task.progress?.failed ? `<div class="text-sm" style="color: var(--danger); margin-top: 6px;">失败推文: ${escapeHtml(task.progress.failed)}</div>` : ''}
+      </div>
+    </div>
+
+    <div class="task-detail-section">
+      <div class="task-detail-section-title">时间</div>
+      <div class="task-detail-card">${timeHtml}</div>
+    </div>
+
+    ${resultHtml}
+
+    ${task.error ? `
+    <div class="task-detail-section">
+      <div class="task-detail-section-title" style="color:var(--danger);border-bottom-color:rgba(248,81,73,0.3);">错误</div>
+      <div class="task-detail-error">${escapeHtml(task.error)}</div>
+    </div>` : ''}
+  `;
+
+  const footer = task.status === 'running' || task.status === 'queued' ?
+    `<button class="btn btn-danger" data-task-id="${escapeAttr(task.task_id)}" data-action="cancelTask">取消任务</button>` :
+    `<button class="btn btn-primary" data-task-id="${escapeAttr(task.task_id)}" data-action="retryTask">重试</button>
+     <button class="btn btn-danger" data-task-id="${escapeAttr(task.task_id)}" data-action="deleteTask">删除</button>
+     <button class="btn btn-secondary" data-action="closeDrawer">关闭</button>`;
+
+  drawer.open('任务详情', content, footer);
+}
+
+async function refreshTasks() {
+  try {
+    const data = await api.getTasks();
+    store.setState({ tasks: data.tasks || [] });
+    toast.show('任务列表已刷新');
+  } catch (err) {
+    toast.show(err.message, 'error');
+  }
+}
+
+function refreshLogs() { loadLogs(); restartLogStreamIfNeeded(); }
+
+function escapeHtml(str) {
+  if (str == null) return '';
+  const d = document.createElement('div');
+  d.textContent = str;
+  return d.innerHTML;
+}
+
+function escapeAttr(str) {
+  return String(str).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/`/g, '&#96;');
+}
+
+function stripAnsi(str) { return str.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, ''); }
+
+function getLineColor(line) {
+  if (line.startsWith('ERRO[')) return 'var(--danger)';
+  if (line.startsWith('WARN[')) return 'var(--warning)';
+  if (line.startsWith('INFO[')) return 'var(--info)';
+  if (line.startsWith('DEBU[')) return 'var(--text-tertiary)';
+  const levelColors = {
+    DEBUG: 'var(--text-tertiary)',
+    INFO: 'var(--info)',
+    WARNING: 'var(--warning)',
+    WARN: 'var(--warning)',
+    ERROR: 'var(--danger)'
+  };
+  for (const [key, level] of [['debug', 'DEBUG'], ['info', 'INFO'], ['warn', 'WARN'], ['warning', 'WARNING'], ['error', 'ERROR']]) {
+    if (line.includes('level=' + key)) return levelColors[level];
+  }
+  return 'var(--text-secondary)';
+}
+
+function highlightLogTimestamp(line) {
+  // logrus 格式: time="..." → escapeHtml 后 time=&quot;...&quot;
+  line = line.replace(
+    /time=(&quot;)(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[-+]\d{2}:\d{2})(&quot;)/g,
+    'time=<span class="log-timestamp">$2</span>'
+  );
+  // text 格式: LEVEL[TIMESTAMP]
+  line = line.replace(
+    /(ERRO|WARN|INFO|DEBU)\[(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})\]/g,
+    '$1[<span class="log-timestamp">$2</span>]'
+  );
+  return line;
+}
+
+function renderLine(line) {
+  return `<div class="log-line" style="color:${getLineColor(line)}">${highlightLogTimestamp(escapeHtml(stripAnsi(line)))}</div>`;
+}
+
+function renderLogFilterButtons(level, stats) {
+  return `<div class="log-level-filters">
+    ${['all','debug','info','warn','error'].map(l => {
+      const count = l === 'all' ? stats.total : (stats[l] || 0);
+      return `<button class="btn btn-sm ${level===l?'btn-primary':'btn-ghost'}" data-action="setLogLevel" data-level="${l}">${l.toUpperCase()}${count > 0 ? ` (${count})` : ''}</button>`;
+    }).join('')}
+  </div>`;
+}
+
+function renderConfigEditor() {
+  const { configMode, configFields, configSaving, configExists, configRaw, configFieldsLoading } = store.state;
+
+  const modeTabs = `
+    <div class="config-mode-tabs">
+      <button class="mode-tab ${configMode === 'form' ? 'active' : ''}" data-action="setConfigMode" data-mode="form">📝 简易模式</button>
+      <button class="mode-tab ${configMode === 'raw' ? 'active' : ''}" data-action="setConfigMode" data-mode="raw">🔧 高级 (YAML)</button>
+    </div>
+  `;
+
+  if (configMode === 'raw') return `<div style="display:flex;flex-direction:column;height:100%">${modeTabs}${renderConfigRawEditor(configRaw, configSaving, configExists)}</div>`;
+  return `<div style="display:flex;flex-direction:column;height:100%">${modeTabs}${renderConfigForm(configFields, configSaving, configExists, configFieldsLoading)}</div>`;
+}
+
+function renderConfigForm(fields, saving, exists, loading = false) {
+  if (loading || !fields || fields.length === 0) {
+    return `
+      <div class="card">
+        <div class="card-header">
+          <div><div class="card-title">配置编辑</div><div class="card-subtitle">加载中...</div></div>
+          <button class="btn btn-primary btn-sm" disabled>⏳ 加载中...</button>
+        </div>
+        <div class="card-body"><div class="empty-state"><div class="empty-icon">⏳</div><div class="empty-title">加载中...</div></div></div>
+      </div>
+    `;
+  }
+
+  const groups = { basic: [], cookie: [], advanced: [] };
+  fields.forEach(f => { if (groups[f.group]) groups[f.group].push(f); });
+  const groupLabels = { basic: '📁 基础设置', cookie: '🍪 Cookie 认证', advanced: '⚙️ 高级选项' };
+
+  const renderField = f => {
+    const inputType = f.type === 'password' ? 'password' : (f.type === 'number' ? 'number' : 'text');
+    const placeholder = f.type === 'password' && f.value
+      ? `当前值: ${escapeHtml(f.value)}`
+      : escapeAttr(f.placeholder || f.prompt);
+    return `
+      <div class="config-field">
+        <label class="config-label">${escapeHtml(f.label)}</label>
+        <input type="${inputType}" class="form-input config-input" id="cf_${escapeAttr(f.name)}"
+          name="${escapeAttr(f.name)}" value="${escapeAttr(f.type === 'password' ? '' : f.value)}"
+          placeholder="${placeholder}"
+          ${f.type === 'number' ? `min="1" max="${f.name.includes('routine') ? '100' : '245'}"` : ''}>
+      </div>
+    `;
+  };
+
+  return `
+    <div class="card">
+      <div class="card-header">
+        <div>
+          <div class="card-title">配置编辑</div>
+          <div class="card-subtitle">${exists ? '✅ 配置文件存在' : '⚠️ 将创建新配置'} · 共 ${fields.length} 个可编辑项</div>
+        </div>
+        <button class="btn btn-primary btn-sm" data-action="saveConfigForm" ${saving ? 'disabled' : ''}>
+          ${saving ? '<span class="loading-spinner"></span> 保存中...' : '💾 保存配置'}
+        </button>
+      </div>
+      <div class="card-body">
+        ${Object.entries(groups).map(([key, items]) => items.length ? `
+          <div class="config-group">
+            <div class="config-group-title">${groupLabels[key]}</div>
+            ${items.map(renderField).join('')}
+          </div>
+        ` : '').join('')}
+      </div>
+    </div>
+  `;
+}
+
+function renderConfigRawEditor(raw, saving, exists) {
+  if (raw === null) {
+    return `
+      <div class="card">
+        <div class="card-header">
+          <div><div class="card-title">conf.yaml 原始编辑器</div><div class="card-subtitle">加载中...</div></div>
+          <div class="flex gap-2">
+            <button class="btn btn-primary btn-sm" disabled>⏳ 加载中...</button>
+          </div>
+        </div>
+        <div class="card-body">
+          <div class="empty-state">
+            <div class="skeleton" style="width:64px;height:64px;border-radius:12px;margin-bottom:16px"></div>
+            <div class="empty-title">加载中...</div>
+            <div class="empty-desc">正在加载配置文件</div>
+          </div>
+        </div>
+      </div>`;
+  }
+  return `
+    <div class="card">
+      <div class="card-header">
+        <div><div class="card-title">conf.yaml 原始编辑器</div><div class="card-subtitle">${exists ? '✅ 文件存在' : '⚠️ 将创建新配置'}</div></div>
+        <div class="flex gap-2">
+          <button class="btn btn-primary btn-sm" data-action="saveConfig" ${saving ? 'disabled' : ''}>
+            ${saving ? '<span class="loading-spinner"></span> 保存中...' : '💾 保存配置'}
+          </button>
+        </div>
+      </div>
+      <div class="card-body" style="padding:0;display:flex;flex-direction:column;overflow:hidden">
+        <div id="configEditorContainer" style="flex:1;min-height:0"></div>
+        <div class="config-hint text-sm text-tertiary p-3 mt-3" style="flex-shrink:0">
+          ⚠️ 直接编辑 YAML 需要了解语法格式。建议使用简易模式。
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderCookiesEditor() {
+  const { cookiesMode, cookieItems, cookiesSaving, cookiesExists, cookiesRaw, _cookiesLoading } = store.state;
+
+  const modeTabs = `
+    <div class="config-mode-tabs">
+      <button class="mode-tab ${cookiesMode === 'form' ? 'active' : ''}" data-action="setCookiesMode" data-mode="form">📝 简易模式</button>
+      <button class="mode-tab ${cookiesMode === 'raw' ? 'active' : ''}" data-action="setCookiesMode" data-mode="raw">🔧 高级 (YAML)</button>
+    </div>
+  `;
+
+  if (cookiesMode === 'raw') return `<div style="display:flex;flex-direction:column;height:100%">${modeTabs}${renderCookiesRawEditor(cookiesRaw, cookiesSaving, cookiesExists)}</div>`;
+  return `<div style="display:flex;flex-direction:column;height:100%">${modeTabs}${renderCookiesForm(cookieItems, cookiesSaving, cookiesExists, _cookiesLoading)}</div>`;
+}
+
+function renderCookiesForm(items, saving, exists, loading = false) {
+  if (loading) {
+    return `
+      <div class="card">
+        <div class="card-header">
+          <div><div class="card-title">额外账户管理</div><div class="card-subtitle">加载中...</div></div>
+          <div class="flex gap-2">
+            <button class="btn btn-ghost btn-sm" disabled>➕ 添加账户</button>
+            <button class="btn btn-primary btn-sm" disabled>⏳ 加载中...</button>
+          </div>
+        </div>
+        <div class="card-body">
+          <div class="empty-state">
+            <div class="skeleton" style="width:64px;height:64px;border-radius:12px;margin-bottom:16px"></div>
+            <div class="empty-title">加载中...</div>
+            <div class="empty-desc">正在加载额外账户配置</div>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+  if (!items || items.length === 0) {
+    return `
+      <div class="card">
+        <div class="card-header">
+          <div><div class="card-title">额外账户管理</div><div class="card-subtitle">${exists ? '✅ 文件存在 · 0 个账户' : '⚠️ 将创建新文件'}</div></div>
+          <div class="flex gap-2">
+            <button class="btn btn-ghost btn-sm" data-action="addCookieAccount">➕ 添加账户</button>
+            <button class="btn btn-primary btn-sm" data-action="saveCookiesForm" ${saving ? 'disabled' : ''}>
+              ${saving ? '<span class="loading-spinner"></span> 保存中...' : '💾 保存配置'}
+            </button>
+          </div>
+        </div>
+        <div class="card-body">
+          <div class="empty-state">
+            <div class="empty-icon">🍪</div>
+            <div class="empty-title">暂无额外账户</div>
+            <div class="empty-desc">点击「添加账户」添加额外的 Twitter 账号</div>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  const renderItem = (item, idx) => `
+    <div class="config-group">
+      <div class="config-group-title">
+        <span>🏷️ 账户 #${idx + 1}</span>
+        <button class="btn btn-danger btn-sm" data-action="removeCookieAccount" data-index="${idx}">删除</button>
+      </div>
+      <div class="config-field">
+        <label class="config-label">Auth Token</label>
+        <input type="password" class="form-input config-input cookie-input" id="cookie_auth_${idx}"
+          name="auth_token_${idx}" value="" placeholder="${item.auth_token ? '当前值: ' + escapeHtml(item.auth_token) : '请输入 auth_token'}">
+      </div>
+      <div class="config-field">
+        <label class="config-label">CT0</label>
+        <input type="password" class="form-input config-input cookie-input" id="cookie_ct0_${idx}"
+          name="ct0_${idx}" value="" placeholder="${item.ct0 ? '当前值: ' + escapeHtml(item.ct0) : '请输入 ct0'}">
+      </div>
+    </div>
+  `;
+
+  return `
+    <div class="card">
+      <div class="card-header">
+        <div><div class="card-title">额外账户管理</div><div class="card-subtitle">${exists ? '✅ 文件存在' : '⚠️ 将创建新文件'} · 共 ${items.length} 个账户</div></div>
+        <div class="flex gap-2">
+          <button class="btn btn-ghost btn-sm" data-action="addCookieAccount">➕ 添加账户</button>
+          <button class="btn btn-primary btn-sm" data-action="saveCookiesForm" ${saving ? 'disabled' : ''}>
+            ${saving ? '<span class="loading-spinner"></span> 保存中...' : '💾 保存配置'}
+          </button>
+        </div>
+      </div>
+      <div class="card-body">
+        ${items.map(renderItem).join('<div class="config-divider"></div>')}
+      </div>
+    </div>
+  `;
+}
+
+function renderCookiesRawEditor(raw, saving, exists) {
+  if (raw === null) {
+    return `
+      <div class="card">
+        <div class="card-header">
+          <div><div class="card-title">additional_cookies.yaml 原始编辑器</div><div class="card-subtitle">加载中...</div></div>
+          <div class="flex gap-2">
+            <button class="btn btn-primary btn-sm" disabled>⏳ 加载中...</button>
+          </div>
+        </div>
+        <div class="card-body">
+          <div class="empty-state">
+            <div class="skeleton" style="width:64px;height:64px;border-radius:12px;margin-bottom:16px"></div>
+            <div class="empty-title">加载中...</div>
+            <div class="empty-desc">正在加载额外账户配置</div>
+          </div>
+        </div>
+      </div>`;
+  }
+  return `
+    <div class="card">
+      <div class="card-header">
+        <div><div class="card-title">additional_cookies.yaml 原始编辑器</div><div class="card-subtitle">${exists ? '✅ 文件存在' : '⚠️ 将创建新文件'}</div></div>
+        <div class="flex gap-2">
+          <button class="btn btn-primary btn-sm" data-action="saveCookies" ${saving ? 'disabled' : ''}>
+            ${saving ? '<span class="loading-spinner"></span> 保存中...' : '💾 保存配置'}
+          </button>
+        </div>
+      </div>
+      <div class="card-body" style="padding:0;display:flex;flex-direction:column;overflow:hidden">
+        <div id="cookiesEditorContainer" style="flex:1;min-height:0"></div>
+        <div class="config-hint text-sm text-tertiary p-3 mt-3" style="flex-shrink:0">
+          ⚠️ 直接编辑 YAML 需要了解语法格式。建议使用简易模式。
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderLogViewer() {
+  const { logs, logLevel, logSearch, logPagination, logAutoRefresh, logStats, _logsLoading } = store.state;
+
+  return `
+    <div class="card card-page" id="logViewerCard">
+      <div class="card-header">
+        <div><div class="card-title">系统日志</div><div class="card-subtitle">共 ${logPagination.total} 条记录</div></div>
+        <div id="logFilterArea" class="flex gap-2 items-center flex-wrap">
+          <input type="text" class="form-input search-input" id="logSearchInput"
+            placeholder="🔍 搜索..."
+            data-binding="logSearch">
+          ${renderLogFilterButtons(logLevel, logStats)}
+          <button class="btn btn-ghost btn-sm ${logAutoRefresh?'active':''}" data-action="toggleLogAutoRefresh">${logAutoRefresh?'⏸️':'▶️'} 实时</button>
+          <button class="btn btn-ghost btn-sm" data-action="downloadLogExport" title="导出完整日志文件">📥 导出</button>
+        </div>
+      </div>
+      <div class="card-body card-body-scroll" style="position:relative">
+        <div class="log-container" id="logContainer">
+          <div id="logLines">${renderLogLines(logs, _logsLoading)}</div>
+        </div>
+        <button class="log-scroll-to-top-btn" id="logScrollToTopBtn"
+          data-action="scrollLogToTop" aria-label="滚动到日志顶部"
+          style="display:${store.state._logNewArrived ? 'flex' : 'none'}">
+          📌 新日志已到达
+        </button>
+      </div>
+      <div class="pagination" id="logPagination">
+        <div class="pagination-info">显示 ${logs.length} / ${logPagination.total} 条 (第 ${logPagination.page}/${logPagination.totalPages} 页)</div>
+        <div class="pagination-controls">
+          <button class="page-btn" data-action="changeLogPage" data-delta="-1" ${logPagination.page <= 1 ? 'disabled' : ''}>←</button>
+          ${renderPageNumbers(logPagination.page, logPagination.totalPages, 'goToLogPage')}
+          <button class="page-btn" data-action="changeLogPage" data-delta="1" ${logPagination.page >= logPagination.totalPages ? 'disabled' : ''}>→</button>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderLogLines(logs, loading) {
+  if (loading && logs.length === 0) {
+    return `<div class="empty-state"><div class="skeleton" style="width:64px;height:64px;border-radius:12px;margin-bottom:16px"></div><div class="empty-title">加载中...</div><div class="empty-desc">正在加载系统日志</div></div>`;
+  }
+  if (logs.length === 0) {
+    return `<div class="empty-state"><div class="empty-icon">📋</div><div class="empty-title">暂无日志</div><div class="empty-desc">选择日志级别或调整筛选条件</div></div>`;
+  }
+  return logs.map(renderLine).join('');
+}
+
+async function loadConfigFields() {
+  if (store.state.configFieldsLoading) return;
+  store.setState({ configFieldsLoading: true });
+  try {
+    const d = await api.getConfigFields();
+    store.setState({ configFields: d.fields || [], configExists: d.exists || false, configFieldsLoading: false });
+  } catch (e) {
+    toast.show('加载配置失败: ' + e.message, 'error');
+    store.setState({ configFieldsLoading: false });
+  }
+}
+
+async function loadConfigRaw() {
+  try {
+    const d = await api.getConfigRaw();
+    store.setState({ configRaw: d.content || '', configExists: d.exists || false });
+  } catch (e) { toast.show('加载配置失败: ' + e.message, 'error'); }
+}
+
+function isPanelInputFocused(panelId) {
+  const panel = document.getElementById(panelId);
+  if (!panel || !document.activeElement || !panel.contains(document.activeElement)) return false;
+  return document.activeElement.matches('input, textarea, select');
+}
+
+function isConfigFormDirty() {
+  if (store.state.configMode !== 'form') return false;
+  return (store.state.configFields || []).some(field => {
+    const input = document.getElementById(`cf_${field.name}`);
+    if (!input) return false;
+    if (field.type === 'password') return input.value.trim() !== '';
+    return input.value !== String(field.value ?? '');
+  });
+}
+
+function isConfigRawDirty() {
+  return store.state.configMode === 'raw' && _state.configCodeMirror && getEditorValue(_state.configCodeMirror, store.state.configRaw) !== (store.state.configRaw || '');
+}
+
+function refreshConfigAfterReconnect() {
+  if (isPanelInputFocused('systemConfigPanel') || isConfigFormDirty() || isConfigRawDirty()) return;
+  if (store.state.configMode === 'raw') loadConfigRaw();
+  else loadConfigFields();
+}
+
+function showManualRestartNotice(subject) {
+  toast.show(`✅ ${subject}已保存，需要手动重启服务后生效`, 'success');
+}
+
+function renderScheduleViewer() {
+  const { _scheduleTab, _schedules, _scheduleRaw, _scheduleExists, _scheduleSaving, _scheduleFormItems, _schedulerRunning } = store.state;
+
+  const schedulerBanner = !_schedulerRunning
+    ? `<div class="alert alert-warning" style="margin-bottom:var(--space-3)">⚠️ 调度器未启动，定时任务不会自动执行。请添加并启用规则后重载配置。</div>`
+    : '';
+
+  const modeTabs = `
+    <div class="config-mode-tabs">
+      <button class="mode-tab ${_scheduleTab === 'form' ? 'active' : ''}" data-action="setScheduleTab" data-tab="form">📝 简易模式</button>
+      <button class="mode-tab ${_scheduleTab === 'edit' ? 'active' : ''}" data-action="setScheduleTab" data-tab="edit">🔧 高级 (YAML)</button>
+    </div>
+  `;
+
+  if (_scheduleTab === 'edit') return `<div style="display:flex;flex-direction:column;height:100%">${schedulerBanner}${modeTabs}${renderScheduleRawEditor(_scheduleRaw, _scheduleSaving, _scheduleExists)}</div>`;
+  return `<div style="display:flex;flex-direction:column;height:100%">${schedulerBanner}${modeTabs}${renderScheduleForm(_scheduleFormItems, _scheduleSaving, _scheduleExists, _schedules === null)}</div>`;
+}
+
+function renderScheduleFormField(item, idx) {
+  const typeOptions = (selected) => ['list', 'user', 'following', 'mixed'].map(t =>
+    `<option value="${t}" ${t === selected ? 'selected' : ''}>${t === 'list' ? '📋 列表' : t === 'user' ? '👤 用户' : t === 'following' ? '👥 关注' : '🔀 混合'}</option>`
+  ).join('');
+
+  const scheduleModeOptions = (selected) => ['interval', 'daily'].map(m =>
+    `<option value="${m}" ${m === selected ? 'selected' : ''}>${m === 'interval' ? '⏱️ 间隔执行' : '🕐 每日定时'}</option>`
+  ).join('');
+
+  return `
+    <div class="config-group">
+      <div class="config-group-title">
+        <span>📋 任务 #${idx + 1}${item.name ? ' · ' + escapeHtml(item.name) : ''}</span>
+        <button class="btn btn-danger btn-sm" data-action="removeScheduleItem" data-index="${idx}">删除</button>
+      </div>
+      <div class="config-field">
+        <label class="config-label" for="sf_type_${idx}">类型</label>
+        <select class="form-input config-input" id="sf_type_${idx}" data-binding="sf_type" data-idx="${idx}">
+          ${typeOptions(item.type)}
         </select>
       </div>
-      <div id="sched-target-fields">
-        <div class="form-group" id="sched-target-single">
-          <label>Target</label>
-          <input type="text" id="sched-target" placeholder="screen_name or list_id">
-        </div>
-        <div class="form-group hidden" id="sched-target-mixed">
-          <label>Users (one per line)</label>
-          <textarea id="sched-mixed-users" rows="2" placeholder="elonmusk"></textarea>
-        </div>
-        <div class="form-group hidden" id="sched-target-mixed-lists">
-          <label>Lists (one per line)</label>
-          <textarea id="sched-mixed-lists" rows="2" placeholder="1234567890"></textarea>
-        </div>
-        <div class="form-group hidden" id="sched-target-mixed-foll">
-          <label>Following (one per line)</label>
-          <textarea id="sched-mixed-foll" rows="2" placeholder="jack"></textarea>
-        </div>
+      ${item.type === 'mixed' ? `
+      <div class="config-field">
+        <label class="config-label" for="sf_users_${idx}">用户名 <span style="font-size:11px;color:var(--text-tertiary)">每行一个</span></label>
+        <textarea class="form-textarea config-input" id="sf_users_${idx}" rows="3"
+          aria-describedby="sf_schedule_hint_${idx}"
+          placeholder="elonmusk&#10;openai" data-binding="sf_field" data-idx="${idx}">${escapeHtml((item.users || []).join('\n'))}</textarea>
       </div>
-      <div class="form-group">
-        <label>Name</label>
-        <input type="text" id="sched-name" placeholder="My Schedule">
+      <div class="config-field">
+        <label class="config-label" for="sf_lists_${idx}">列表 ID <span style="font-size:11px;color:var(--text-tertiary)">每行一个</span></label>
+        <textarea class="form-textarea config-input" id="sf_lists_${idx}" rows="3"
+          aria-describedby="sf_schedule_hint_${idx}"
+          placeholder="123456789&#10;987654321" data-binding="sf_field" data-idx="${idx}">${escapeHtml((item.lists || []).join('\n'))}</textarea>
       </div>
-      <div class="form-group">
-        <label>Schedule</label>
-        <input type="text" id="sched-schedule" placeholder="daily 08:00,20:00 or interval 4h">
-        <div class="hint">Format: "daily HH:MM" or "interval 1h30m"</div>
+      <div class="config-field">
+        <label class="config-label" for="sf_following_${idx}">关注用户名 <span style="font-size:11px;color:var(--text-tertiary)">每行一个</span></label>
+        <textarea class="form-textarea config-input" id="sf_following_${idx}" rows="3"
+          aria-describedby="sf_schedule_hint_${idx}"
+          placeholder="someuser" data-binding="sf_field" data-idx="${idx}">${escapeHtml((item.following_names || []).join('\n'))}</textarea>
+      </div>` : `
+      <div class="config-field">
+        <label class="config-label" for="sf_target_${idx}">${item.type === 'list' ? '列表 ID' : '用户名 (Screen Name)'}</label>
+        <input type="text" class="form-input config-input" id="sf_target_${idx}"
+          value="${escapeAttr(item.target || '')}"
+          aria-describedby="sf_schedule_hint_${idx}"
+          placeholder="${item.type === 'list' ? '例如: 123456789' : '例如: elonmusk'}"
+          data-binding="sf_field" data-idx="${idx}">
+      </div>`}
+      <div class="config-field">
+        <label class="config-label">名称（可选）</label>
+        <input type="text" class="form-input config-input" id="sf_name_${idx}"
+          value="${escapeAttr(item.name || '')}"
+          placeholder="给这条规则起个名字">
       </div>
-      <label class="checkbox-label"><input type="checkbox" id="sched-runonstart"> Run on start</label>
+      <div class="config-field">
+        <label class="config-label">调度方式</label>
+        <select class="form-input config-input" id="sf_schedule_mode_${idx}" data-binding="sf_type" data-idx="${idx}">
+          ${scheduleModeOptions(item.scheduleMode || 'interval')}
+        </select>
+      </div>
+      <div class="config-field">
+        <label class="config-label" for="sf_schedule_value_${idx}">${(item.scheduleMode || 'interval') === 'interval' ? '执行间隔' : '执行时间'}</label>
+        <input type="text" class="form-input config-input" id="sf_schedule_value_${idx}"
+          value="${escapeAttr(item.scheduleValue || '')}"
+          aria-describedby="sf_schedule_hint_${idx}"
+          placeholder="${(item.scheduleMode || 'interval') === 'interval' ? '例如: 2h, 30m, 6h30m, 24h' : '例如: 07:00,21:00 或 02:30'}"
+          data-binding="sf_field" data-idx="${idx}">
+      </div>
+      <div class="config-field" style="display:flex;gap:16px;flex-wrap:wrap;">
+        <label class="config-label" style="display:inline-flex;align-items:center;gap:4px">
+          <input type="checkbox" id="sf_enabled_${idx}" ${item.enabled ? 'checked' : ''} style="margin:0">
+          启用
+        </label>
+        <label class="config-label" style="display:inline-flex;align-items:center;gap:4px">
+          <input type="checkbox" id="sf_auto_follow_${idx}" ${item.auto_follow ? 'checked' : ''} style="margin:0">
+          自动申请受保护账号
+        </label>
+        <label class="config-label" style="display:inline-flex;align-items:center;gap:4px">
+          <input type="checkbox" id="sf_follow_members_${idx}" ${item.follow_members ? 'checked' : ''} style="margin:0">
+          下载时关注目标/成员
+        </label>
+        <label class="config-label" style="display:inline-flex;align-items:center;gap:4px">
+          <input type="checkbox" id="sf_skip_profile_${idx}" ${item.skip_profile ? 'checked' : ''} style="margin:0">
+          跳过 Profile
+        </label>
+        <label class="config-label" style="display:inline-flex;align-items:center;gap:4px">
+          <input type="checkbox" id="sf_no_retry_${idx}" ${item.no_retry ? 'checked' : ''} style="margin:0">
+          不重试
+        </label>
+        <label class="config-label" style="display:inline-flex;align-items:center;gap:4px">
+          <input type="checkbox" id="sf_run_on_start_${idx}" ${item.run_on_start ? 'checked' : ''} style="margin:0">
+          首次启动时立即运行
+        </label>
+      </div>
+      <div id="sf_schedule_hint_${idx}" class="config-hint" aria-live="polite" style="font-size:12px;margin-top:8px;min-height:0"></div>
     </div>
-    <div class="modal-footer">
-      <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
-      <button class="btn btn-primary" onclick="saveNewSchedule()">Create</button>
-    </div>`);
+  `;
 }
 
-function toggleSchedTargetFields() {
-  const type = document.getElementById('sched-type').value;
-  document.getElementById('sched-target-single').classList.toggle('hidden', type === 'mixed');
-  document.getElementById('sched-target-mixed').classList.toggle('hidden', type !== 'mixed');
-  document.getElementById('sched-target-mixed-lists').classList.toggle('hidden', type !== 'mixed');
-  document.getElementById('sched-target-mixed-foll').classList.toggle('hidden', type !== 'mixed');
+function renderScheduleForm(items, saving, exists, loading = false) {
+  if (loading) {
+    return `
+      <div class="card">
+        <div class="card-header">
+          <div><div class="card-title">定时下载任务</div><div class="card-subtitle">加载中...</div></div>
+          <div class="flex gap-2">
+            <button class="btn btn-ghost btn-sm" disabled>➕ 添加规则</button>
+            <button class="btn btn-primary btn-sm" disabled>⏳ 加载中...</button>
+          </div>
+        </div>
+        <div class="card-body">
+          <div class="empty-state">
+            <div class="skeleton" style="width:64px;height:64px;border-radius:12px;margin-bottom:16px"></div>
+            <div class="empty-title">加载中...</div>
+            <div class="empty-desc">正在加载定时任务配置</div>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+  if (!items || items.length === 0) {
+    return `
+      <div class="card">
+        <div class="card-header">
+          <div><div class="card-title">定时下载任务</div><div class="card-subtitle">${exists ? '✅ 文件存在 · 0 条规则' : '⚠️ 配置文件不存在'}</div></div>
+          <div class="flex gap-2">
+            <button class="btn btn-ghost btn-sm" data-action="addScheduleItem">➕ 添加规则</button>
+          </div>
+        </div>
+        <div class="card-body">
+          <div class="empty-state">
+            <div class="empty-icon">⏰</div>
+            <div class="empty-title">暂无定时任务</div>
+            <div class="empty-desc">点击「添加规则」创建定时下载任务</div>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  return `
+    <div class="card">
+      <div class="card-header">
+        <div><div class="card-title">定时下载任务</div><div class="card-subtitle">${exists ? '✅ 文件存在' : '⚠️ 将创建新文件'} · 共 ${items.length} 条规则</div></div>
+        <div class="flex gap-2">
+          <button class="btn btn-ghost btn-sm" data-action="addScheduleItem">➕ 添加规则</button>
+          <button class="btn btn-primary btn-sm" data-action="saveScheduleForm" ${saving ? 'disabled' : ''}>
+            ${saving ? '<span class="loading-spinner"></span> 保存中...' : '💾 保存并重载'}
+          </button>
+        </div>
+      </div>
+      <div class="card-body">
+        ${items.map((item, idx) => renderScheduleFormField(item, idx)).join('<div class="config-divider"></div>')}
+      </div>
+    </div>
+  `;
 }
 
-async function saveNewSchedule() {
-  const type = document.getElementById('sched-type').value;
-  const schedule = document.getElementById('sched-schedule').value.trim();
-  if (!schedule) return toast('Schedule pattern required', 'warning');
-  const name = document.getElementById('sched-name').value.trim();
-  const runOnStart = document.getElementById('sched-runonstart').checked;
-  closeModal();
+// Shared helpers for schedule table rendering
+function typeTag(type) {
+  const map = { list: ['List', 'tag-info'], user: ['User', 'tag-success'], following: ['Following', 'tag-warning'], mixed: ['Mixed', 'tag-primary'] };
+  const [label, cls] = map[type] || [escapeHtml(type), ''];
+  return `<span class="tag ${escapeHtml(cls)}">${escapeHtml(label)}</span>`;
+}
+
+function failureTag(count) {
+  if (!count || count === 0) return '';
+  if (count >= 3) return `<span class="tag tag-danger">⚠ ${count}次失败</span>`;
+  return `<span class="tag tag-warning">${count}次失败</span>`;
+}
+
+function getLastTask(s) {
+  const taskId = s ? s.last_task_id : null;
+  if (!taskId) return null;
+  return (store.state.tasks || []).find(t => t.task_id === taskId);
+}
+
+function taskStatusTag(task) {
+  if (!task) return '';
+  const statusMap = {
+    completed: { tag: 'tag-completed', text: '完成' },
+    failed: { tag: 'tag-failed', text: '失败' },
+    running: { tag: 'tag-running', text: '运行中' },
+    queued: { tag: 'tag-queued', text: '排队' },
+    cancelled: { tag: 'tag-cancelled', text: '已取消' }
+  };
+  const st = statusMap[task.status];
+  if (!st) return '';
+  return `<span class="tag ${st.tag}" style="font-size:10px;padding:1px 6px">${st.text}</span>`;
+}
+
+function fmtTime(t) {
+  return t ? new Date(t).toLocaleString() : '-';
+}
+
+function renderScheduleItem(s) {
+  const entry = normalizeScheduleEntry(s.entry);
+  const failures = s.consecutive_failures || 0;
+  let displayName = entry.name || entry.target;
+  if (entry.type === 'mixed' && !displayName) {
+    const parts = [];
+    if ((entry.users || []).length) parts.push(`${entry.users.length} 用户`);
+    if ((entry.lists || []).length) parts.push(`${entry.lists.length} 列表`);
+    if ((entry.following_names || []).length) parts.push(`${entry.following_names.length} 关注`);
+    displayName = parts.join(' · ') || '混合任务';
+  } else if (!displayName) {
+    displayName = entry.type === 'following'
+      ? '关注任务'
+      : entry.type === 'user'
+        ? '用户任务'
+        : entry.type === 'list'
+          ? '列表任务'
+          : '定时任务';
+  }
+  const metaParts = [escapeHtml(s.schedule_display), `执行 ${s.run_count} 次`];
+  if (entry.type === 'mixed') {
+    const targetParts = [];
+    if ((entry.users || []).length) targetParts.push(`${entry.users.length}用户`);
+    if ((entry.lists || []).length) targetParts.push(`${entry.lists.length}列表`);
+    if ((entry.following_names || []).length) targetParts.push(`${entry.following_names.length}关注`);
+    if (targetParts.length) metaParts.unshift(targetParts.join('+'));
+  }
+  const fTag = failureTag(failures);
+  if (fTag) metaParts.push(fTag);
+
+  const lastTask = getLastTask(s);
+  const tTag = taskStatusTag(lastTask);
+  if (tTag) metaParts.push(tTag);
+
+  const entryId = escapeAttr(entry.id);
+
+  return `
+    <div class="schedule-item${failures >= 3 ? ' has-failure' : ''}">
+      <div class="schedule-type">${typeTag(entry.type)}</div>
+      <div class="schedule-info">
+        <div class="schedule-title">${escapeHtml(displayName)}</div>
+        <div class="schedule-meta">${metaParts.join('<span style="color:var(--border-secondary)">·</span>')}</div>
+      </div>
+      <div class="schedule-status">
+        <span class="tag ${entry.enabled ? 'tag-success' : 'tag-danger'}" style="cursor:pointer" data-schedule-id="${escapeAttr(entry.id)}" data-enabled="${entry.enabled}" data-action="toggleScheduleEnabled">${entry.enabled ? '启用' : '禁用'}</span>
+	      </div>
+	      <div class="schedule-time">
+	        <div>上次 ${fmtTime(s.last_run_at)}</div>
+	        <div>下次 ${fmtTime(s.next_run_at)}</div>
+	      </div>
+	      <div class="schedule-actions">
+	        <button class="btn btn-primary btn-sm" data-schedule-id="${escapeAttr(entry.id)}" data-action="triggerSchedule" ${!entry.enabled ? 'disabled title="规则已禁用"' : ''}>▶ 执行</button>
+      </div>
+    </div>
+  `;
+}
+
+function renderScheduleTable(schedules, exists) {
+  schedules = schedules || [];
+  const active = schedules.filter(s => readScheduleEntryField(s.entry, 'enabled', 'Enabled')).length;
+  const total = schedules.length;
+  const failures = schedules.filter(s => (s.consecutive_failures || 0) > 0).length;
+
+  if (schedules.length === 0) {
+    return `
+      <div class="card">
+        <div class="card-header">
+          <div><div class="card-title">定时下载任务</div><div class="card-subtitle">${exists ? '✅ 文件存在 · 0 条规则' : '⚠️ 配置文件不存在'}</div></div>
+        </div>
+        <div class="card-body">
+          <div class="empty-state">
+            <div class="empty-icon">⏰</div>
+            <div class="empty-title">暂无定时任务</div>
+            <div class="empty-desc">点击「添加规则」创建定时下载任务</div>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  return `
+    <div class="card card-fill">
+      <div class="card-header">
+        <div><div class="card-title">定时下载任务</div><div class="card-subtitle">共 ${total} 条规则 · ${active} 个启用${failures > 0 ? ` · ${failures} 个异常` : ''}</div></div>
+        <div class="flex gap-2">
+          <button class="btn btn-primary btn-sm" id="btnTriggerAll" data-action="triggerAllSchedules">⬇️ 下载全部</button>
+          <button class="btn btn-ghost btn-sm" data-action="navigateToSystemSchedules">📝 编辑任务</button>
+        </div>
+      </div>
+      <div class="card-body card-body-scroll">
+        ${schedules.length === 0 ? `
+          <div class="empty-state">
+            <div class="empty-icon">⏰</div>
+            <div class="empty-title">暂无定时任务</div>
+            <div class="empty-desc">点击上方「编辑任务」按钮创建定时下载规则</div>
+          </div>
+        ` : `
+          <div class="schedule-list">
+            ${schedules.map(renderScheduleItem).join('')}
+          </div>
+        `}
+      </div>
+    </div>
+  `;
+}
+
+function renderScheduleRawEditor(raw, saving, exists) {
+  if (raw === null) {
+    return `
+      <div class="card">
+        <div class="card-header">
+          <div><div class="card-title">schedules.yaml 原始编辑器</div><div class="card-subtitle">加载中...</div></div>
+          <div class="flex gap-2">
+            <button class="btn btn-primary btn-sm" disabled>⏳ 加载中...</button>
+          </div>
+        </div>
+        <div class="card-body">
+          <div class="empty-state">
+            <div class="skeleton" style="width:64px;height:64px;border-radius:12px;margin-bottom:16px"></div>
+            <div class="empty-title">加载中...</div>
+            <div class="empty-desc">正在加载定时任务配置</div>
+          </div>
+        </div>
+      </div>`;
+  }
+  return `
+    <div class="card">
+      <div class="card-header">
+        <div><div class="card-title">schedules.yaml 原始编辑器</div><div class="card-subtitle">${exists ? '✅ 文件存在' : '⚠️ 将创建新文件'}</div></div>
+        <div class="flex gap-2">
+          <button class="btn btn-primary btn-sm" data-action="saveScheduleRaw" ${saving ? 'disabled' : ''}>
+            ${saving ? '<span class="loading-spinner"></span> 保存中...' : '💾 保存并重载'}
+          </button>
+        </div>
+      </div>
+      <div class="card-body" style="padding:0;display:flex;flex-direction:column;overflow:hidden">
+        <div id="scheduleEditorContainer" style="flex:1;min-height:0"></div>
+        <div class="config-hint text-sm text-tertiary p-3 mt-3" style="flex-shrink:0">
+          ⚠️ 保存后将自动重载调度配置，无需重启服务。
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function isScheduleFormEditing() {
+  if (store.state.currentPage !== 'system' || store.state._systemTab !== 'schedules' || store.state._scheduleTab !== 'form') {
+    return false;
+  }
+  const panel = document.getElementById('systemSchedulesPanel');
+  if (!panel || !document.activeElement || !panel.contains(document.activeElement)) {
+    return false;
+  }
+  return document.activeElement.matches('input, textarea, select');
+}
+
+async function loadSchedules(options = {}) {
   try {
-    const base = { type, name, schedule, enabled: true, run_on_start: runOnStart };
-    if (type === 'mixed') {
-      const users = document.getElementById('sched-mixed-users').value.trim().split('\n').map(s => s.trim()).filter(Boolean);
-      const lists = document.getElementById('sched-mixed-lists').value.trim().split('\n').map(s => s.trim()).filter(Boolean);
-      const foll = document.getElementById('sched-mixed-foll').value.trim().split('\n').map(s => s.trim()).filter(Boolean);
-      if (!users.length && !lists.length && !foll.length) return toast('Enter at least one target', 'warning');
-      await ENDPOINTS.createSchedule({ ...base, users, lists, following_names: foll });
-    } else {
-      const target = document.getElementById('sched-target').value.trim();
-      if (!target) return toast('Target required', 'warning');
-      await ENDPOINTS.createSchedule({ ...base, target });
+    const data = await api.getSchedules();
+    const entries = data.entries || [];
+    const update = {
+      _schedules: entries,
+      _schedulerRunning: !!data.scheduler_running,
+    };
+    if (options.updateFormItems !== false) {
+      update._scheduleFormItems = entries.map(s => scheduleStatusToFormItem(s));
+      update._scheduleFormDirty = false;
     }
-    toast('Schedule created', 'success');
-    loadSchedules();
-  } catch(e) { toast(e.message, 'error'); }
+    store.setState(update);
+  } catch (e) {
+    console.warn('loadSchedules failed:', e);
+    toast.show('加载定时任务失败: ' + e.message, 'error');
+  }
 }
 
-async function toggleSchedule(id, enabled) {
-  try { await ENDPOINTS.setScheduleEnabled(id, enabled); loadSchedules(); }
-  catch(e) { toast(e.message, 'error'); }
+function scheduleStatusToFormItem(status) {
+  const e = normalizeScheduleEntry(status.entry);
+  const raw = e.schedule || '';
+  let scheduleMode = 'interval';
+  let scheduleValue = '';
+  if (raw.startsWith('daily:')) {
+    scheduleMode = 'daily';
+    scheduleValue = raw.replace('daily:', '');
+  } else if (raw.startsWith('interval:')) {
+    scheduleMode = 'interval';
+    scheduleValue = raw.replace('interval:', '');
+  } else if (raw) {
+    // 未知格式，尝试按 interval 解析，保留原值以便用户修正
+    scheduleMode = 'interval';
+    scheduleValue = raw;
+  }
+  return {
+    id: e.id || '',
+    type: e.type || 'list',
+    target: e.target || '',
+    users: e.users || [],
+    lists: e.lists || [],
+    following_names: e.following_names || [],
+    name: e.name || '',
+    scheduleMode,
+    scheduleValue,
+    enabled: e.enabled !== false,
+    run_on_start: !!e.run_on_start,
+    auto_follow: !!e.auto_follow,
+    follow_members: !!e.follow_members,
+    skip_profile: !!e.skip_profile,
+    no_retry: !!e.no_retry,
+  };
+}
+
+function normalizeScheduleEntry(entry) {
+  return {
+    id: readScheduleEntryField(entry, 'id', 'ID') || '',
+    type: readScheduleEntryField(entry, 'type', 'Type') || '',
+    target: readScheduleEntryField(entry, 'target', 'Target') || '',
+    users: readScheduleEntryField(entry, 'users', 'Users') || [],
+    lists: readScheduleEntryField(entry, 'lists', 'Lists') || [],
+    following_names: readScheduleEntryField(entry, 'following_names', 'FollowingNames') || [],
+    name: readScheduleEntryField(entry, 'name', 'Name') || '',
+    schedule: readScheduleEntryField(entry, 'schedule', 'Schedule') || '',
+    enabled: readScheduleEntryField(entry, 'enabled', 'Enabled') !== false,
+    run_on_start: !!readScheduleEntryField(entry, 'run_on_start', 'RunOnStart'),
+    auto_follow: !!readScheduleEntryField(entry, 'auto_follow', 'AutoFollow'),
+    follow_members: !!readScheduleEntryField(entry, 'follow_members', 'FollowMembers'),
+    skip_profile: !!readScheduleEntryField(entry, 'skip_profile', 'SkipProfile'),
+    no_retry: !!readScheduleEntryField(entry, 'no_retry', 'NoRetry'),
+  };
+}
+
+function readScheduleEntryField(entry, jsonName, legacyName) {
+  if (!entry) return undefined;
+  return entry[jsonName] !== undefined ? entry[jsonName] : entry[legacyName];
+}
+
+async function loadScheduleRaw() {
+  try {
+    const data = await api.getSchedulesRaw();
+    store.setState({ _scheduleRaw: data.content || '', _scheduleExists: data.exists || false });
+  } catch (e) {
+    console.warn('loadScheduleRaw failed:', e);
+    toast.show('加载调度原始配置失败: ' + e.message, 'error');
+  }
+}
+
+async function saveScheduleRaw() {
+  const content = getEditorValue(_state.scheduleCodeMirror, store.state._scheduleRaw);
+  store.setState({ _scheduleRaw: content, _scheduleSaving: true });
+  try {
+    const validateResult = await api.validateSchedule({ raw: content });
+    if (!validateResult.valid) {
+      const msg = (validateResult.errors || []).join('; ');
+      toast.show('校验失败: ' + msg, 'error');
+      store.setState({ _scheduleSaving: false });
+      return;
+    }
+    await api.updateSchedulesRaw(content);
+    toast.show('调度配置已保存并重载');
+    await loadSchedules({ updateFormItems: false });
+    const rawData = await api.getSchedulesRaw();
+    store.setState({
+      _scheduleRaw: rawData.content || '',
+      _scheduleExists: rawData.exists || false,
+      _scheduleSaving: false,
+    });
+    setEditorValue(_state.scheduleCodeMirror, store.state._scheduleRaw || '');
+  } catch (e) {
+    toast.show('保存失败: ' + e.message, 'error');
+    store.setState({ _scheduleSaving: false });
+  }
 }
 
 async function triggerSchedule(id) {
-  try { const r = await ENDPOINTS.triggerSchedule(id); toast('Triggered: ' + r.task_id, 'success'); }
-  catch(e) { toast(e.message, 'error'); }
+  try {
+    const data = await api.triggerSchedule(id);
+    toast.show('已触发定时任务: ' + data.task_id);
+  } catch (e) {
+    toast.show('触发失败: ' + e.message, 'error');
+  }
 }
 
 async function triggerAllSchedules() {
-  if (!confirm('Trigger all enabled schedules?')) return;
-  const btn = document.querySelector('[onclick="triggerAllSchedules()"]');
-  if (btn) { btn.disabled = true; btn.textContent = 'Triggering...'; }
+  const btn = document.getElementById('btnTriggerAll');
+  if (!btn) return;
+  const schedules = (store.state._schedules || []).filter(s => readScheduleEntryField(s.entry, 'enabled', 'Enabled'));
+  if (schedules.length === 0) {
+    toast.show('没有已启用的调度任务', 'error');
+    return;
+  }
+  if (!confirm(`确定要触发全部 ${schedules.length} 个已启用的调度任务吗？`)) return;
+
+  // 禁用按钮，显示 loading
+  btn.disabled = true;
+  btn.innerHTML = '<span class="loading-spinner"></span> 触发中...';
+
   try {
-    const r = await ENDPOINTS.triggerAll();
-    if (r.failed > 0) {
-      const errMsgs = (r.results || []).filter(x => x.error).map(x => x.entry_id + ': ' + x.error).join('; ');
-      toast('Triggered ' + r.succeeded + '/' + r.total + ' schedules (' + r.failed + ' failed): ' + errMsgs, 'warning');
+    const data = await api.triggerAllSchedules();
+    if (data.failed > 0) {
+      const errMsgs = (data.results || []).filter(r => r.error).map(r => `${r.entry_id}: ${r.error}`).join('; ');
+      toast.show(`${data.succeeded} 成功, ${data.failed} 失败: ${errMsgs}`, 'error');
     } else {
-      toast('All ' + r.succeeded + ' schedules triggered successfully', 'success');
+      toast.show(`已全部触发成功 (${data.succeeded})`);
     }
-  } catch(e) { toast(e.message, 'error'); }
-  finally { if (btn) { btn.disabled = false; btn.textContent = 'Trigger All'; } }
-}
-
-async function reloadSchedules() {
-  try { await ENDPOINTS.reloadSchedules(); toast('Schedules reloaded', 'success'); loadSchedules(); }
-  catch(e) { toast(e.message, 'error'); }
-}
-
-async function editSchedule(id) {
-  const d = window._lastSchedulesData;
-  const entry = d && d.entries ? d.entries.find(e => (e.entry && e.entry.id === id) || e.id === id) : null;
-  if (!entry) return toast('Schedule not found', 'error');
-  const ent = entry.entry || entry;
-
-  openModal(`
-    <div class="modal-header"><h2>Edit Schedule</h2><button class="btn btn-ghost btn-sm" onclick="closeModal()"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div>
-    <div class="modal-body">
-      <div class="form-group">
-        <label>Type</label>
-        <select id="sched-edit-type" onchange="toggleEditSchedTargetFields()">
-          <option value="user" ${ent.type === 'user' ? 'selected' : ''}>User</option>
-          <option value="list" ${ent.type === 'list' ? 'selected' : ''}>List</option>
-          <option value="following" ${ent.type === 'following' ? 'selected' : ''}>Following</option>
-          <option value="mixed" ${ent.type === 'mixed' ? 'selected' : ''}>Mixed</option>
-        </select>
-      </div>
-      <div id="sched-edit-target-fields">
-        <div class="form-group" id="sched-edit-target-single" ${ent.type === 'mixed' ? 'style="display:none"' : ''}>
-          <label>Target</label>
-          <input type="text" id="sched-edit-target" value="${esc(ent.target||'')}">
-        </div>
-        <div class="form-group" id="sched-edit-target-mixed" ${ent.type !== 'mixed' ? 'style="display:none"' : ''}>
-          <label>Users (one per line)</label>
-          <textarea id="sched-edit-mixed-users" rows="2">${esc((ent.users||[]).join('\n'))}</textarea>
-        </div>
-        <div class="form-group" id="sched-edit-mixed-lists" ${ent.type !== 'mixed' ? 'style="display:none"' : ''}>
-          <label>Lists (one per line)</label>
-          <textarea id="sched-edit-mixed-lists" rows="2">${esc((ent.lists||[]).join('\n'))}</textarea>
-        </div>
-        <div class="form-group" id="sched-edit-mixed-foll" ${ent.type !== 'mixed' ? 'style="display:none"' : ''}>
-          <label>Following (one per line)</label>
-          <textarea id="sched-edit-mixed-foll" rows="2">${esc((ent.following_names||[]).join('\n'))}</textarea>
-        </div>
-      </div>
-      <div class="form-group">
-        <label>Name</label>
-        <input type="text" id="sched-edit-name" value="${esc(ent.name||'')}">
-      </div>
-      <div class="form-group">
-        <label>Schedule</label>
-        <input type="text" id="sched-edit-schedule" value="${esc(ent.schedule||'')}">
-      </div>
-      <label class="checkbox-label"><input type="checkbox" id="sched-edit-runonstart" ${ent.run_on_start ? 'checked' : ''}> Run on start</label>
-    </div>
-    <div class="modal-footer">
-      <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
-      <button class="btn btn-primary" onclick="saveScheduleEdit('${jsEsc(id)}')">Save</button>
-    </div>`);
-}
-
-async function saveScheduleEdit(id) {
-  const type = document.getElementById('sched-edit-type').value;
-  const name = document.getElementById('sched-edit-name').value.trim();
-  const schedule = document.getElementById('sched-edit-schedule').value.trim();
-  if (!schedule) return toast('Schedule pattern required', 'warning');
-  const runOnStart = document.getElementById('sched-edit-runonstart').checked;
-  closeModal();
-  try {
-    const base = { type, name, schedule, run_on_start: runOnStart };
-    if (type === 'mixed') {
-      const users = document.getElementById('sched-edit-mixed-users').value.trim().split('\n').map(s => s.trim()).filter(Boolean);
-      const lists = document.getElementById('sched-edit-mixed-lists').value.trim().split('\n').map(s => s.trim()).filter(Boolean);
-      const foll = document.getElementById('sched-edit-mixed-foll').value.trim().split('\n').map(s => s.trim()).filter(Boolean);
-      await ENDPOINTS.updateSchedule(id, { ...base, users, lists, following_names: foll });
-    } else {
-      const target = document.getElementById('sched-edit-target').value.trim();
-      if (!target) return toast('Target required', 'warning');
-      await ENDPOINTS.updateSchedule(id, { ...base, target });
-    }
-    toast('Schedule updated', 'success');
-    loadSchedules();
-  } catch(e) { toast(e.message, 'error'); }
-}
-
-function toggleEditSchedTargetFields() {
-  const type = document.getElementById('sched-edit-type').value;
-  document.getElementById('sched-edit-target-single').style.display = type === 'mixed' ? 'none' : '';
-  document.getElementById('sched-edit-target-mixed').style.display = type !== 'mixed' ? 'none' : '';
-  document.getElementById('sched-edit-mixed-lists').style.display = type !== 'mixed' ? 'none' : '';
-  document.getElementById('sched-edit-mixed-foll').style.display = type !== 'mixed' ? 'none' : '';
-}
-
-async function deleteSchedule(id) {
-  if (!confirm('Delete this schedule?')) return;
-  try { await ENDPOINTS.deleteSchedule(id); toast('Schedule deleted', 'info'); loadSchedules(); }
-  catch(e) { toast(e.message, 'error'); }
-}
-
-/* ---- System Page ---- */
-function renderSystemPage(container) {
-  container.innerHTML = `
-    <div class="section">
-      <div class="section-header"><h2>System</h2></div>
-      <div class="stats-grid" id="sys-queue"></div>
-      <div class="section-header" style="margin-top:8px">
-        <div></div>
-        <button class="btn btn-danger btn-sm" onclick="if(confirm('Shut down the server?')){ENDPOINTS.shutdown().then(r=>toast(r.message||'Shutting down...','warning')).catch(e=>toast(e.message,'error'))}">Shut Down Server</button>
-      </div>
-    </div>
-
-    <div class="section">
-      <div class="section-header"><h2>Configuration</h2></div>
-      <div class="card">
-        <div class="card-header">
-          <div class="tabs" id="config-tabs">
-            <button class="tab active" data-configtab="fields">Fields</button>
-            <button class="tab" data-configtab="raw">Raw YAML</button>
-            <button class="tab" data-configtab="cookies">Cookies</button>
-            <button class="tab" data-configtab="cookies-raw">Raw Cookies</button>
-          </div>
-        </div>
-        <div class="card-body" id="config-content">
-          <div class="loading"><div class="spinner"></div> Loading...</div>
-        </div>
-      </div>
-    </div>
-
-    <div class="section">
-      <div class="section-header"><h2>Errors</h2></div>
-      <div class="card">
-        <div class="card-body" id="errors-content">
-          <div class="loading"><div class="spinner"></div> Loading...</div>
-        </div>
-      </div>
-    </div>`;
-
-  pageRenderers.system = renderSystemPage;
-  loadSystemData();
-  loadConfigTab('fields');
-  loadErrors();
-
-  // Tab switching for System page
-  const configTabs = document.getElementById('config-tabs');
-  if (configTabs) {
-    configTabs.addEventListener('click', (e) => {
-      const tab = e.target.closest('[data-configtab]');
-      if (!tab) return;
-      document.querySelectorAll('[data-configtab]').forEach(t => t.classList.remove('active'));
-      tab.classList.add('active');
-      loadConfigTab(tab.dataset.configtab);
-    });
+  } catch (e) {
+    toast.show('触发失败: ' + e.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '⬇️ 下载全部';
   }
 }
 
-async function loadSystemData() {
+async function toggleScheduleEnabled(id, currentEnabled) {
   try {
-    const [health, queue] = await Promise.all([ENDPOINTS.health(), ENDPOINTS.queueStatus()]);
-    const qEl = document.getElementById('sys-queue');
-    if (qEl) {
-      qEl.innerHTML = [
-        ['Status', health.status || 'ok', health.status === 'ok' ? 'completed' : 'failed'],
-        ['Queue Depth', queue.queue_depth || 0, 'total'],
-        ['Active Jobs', queue.active_jobs || 0, 'running'],
-        ['Pending', queue.pending_jobs || 0, 'queued'],
-        ['Detached', queue.detached_jobs || 0, 'cancelled'],
-      ].map(([k, v, cls]) => `<div class="stat-card ${cls}"><div class="stat-value">${v}</div><div class="stat-label">${k}</div></div>`).join('');
-    }
-  } catch(e) { /* ignore */ }
-}
-
-async function loadConfigTab(tab) {
-  const content = document.getElementById('config-content');
-  if (!content) return;
-  content.innerHTML = '<div class="loading"><div class="spinner"></div> Loading...</div>';
-
-  try {
-    switch (tab) {
-      case 'fields': await renderConfigFields(content); break;
-      case 'raw': await renderConfigRaw(content); break;
-      case 'cookies': await renderCookies(content); break;
-      case 'cookies-raw': await renderCookiesRaw(content); break;
-    }
-  } catch(e) {
-    content.innerHTML = '<div class="empty-state"><p>Error: ' + esc(e.message) + '</p></div>';
+    await api.setScheduleEnabled(id, !currentEnabled);
+    toast.show(currentEnabled ? '已禁用定时任务' : '已启用定时任务');
+  } catch (e) {
+    toast.show('操作失败: ' + e.message, 'error');
   }
 }
 
-async function renderConfigFields(content) {
-  const r = await ENDPOINTS.configFields();
-  const fields = r.fields || [];
-  content.innerHTML = `
-    <div id="config-fields-form">
-      ${fields.map(f => `
-        <div class="form-group">
-          <label>${esc(f.label || f.name)}</label>
-          ${f.type === 'number'
-            ? `<input type="number" id="cf-${esc(f.name)}" value="${esc(f.value||f.default||'')}" placeholder="${esc(f.placeholder||'')}">`
-            : `<input type="text" id="cf-${esc(f.name)}" value="${esc(f.value||f.default||'')}" placeholder="${esc(f.placeholder||'')}">`
-          }
-          ${f.prompt ? '<div class="hint">' + esc(f.prompt) + '</div>' : ''}
-        </div>`).join('')}
-      <div class="form-actions">
-        <button class="btn btn-primary" onclick="saveConfigFields()">Save</button>
-      </div>
-    </div>`;
+function navigateToSystemSchedules() {
+  if (_state.lastPage === 'system') {
+    store.setState({ _systemTab: 'schedules' });
+  } else {
+    store.setState({ currentPage: 'system', _systemTab: 'schedules' });
+    updateURL('system');
+    updateNavigationUI('system');
+    if (store.state.isMobile) {
+      document.getElementById('sidebar').classList.remove('open');
+      document.getElementById('sidebarOverlay').classList.remove('open');
+    }
+  }
 }
 
-async function saveConfigFields() {
+function setScheduleTab(tab) {
+  if (tab !== 'edit' && _state.scheduleCodeMirror) {
+    _state.scheduleCodeMirror = destroyCodeMirror(_state.scheduleCodeMirror);
+    _state._scheduleCmInitializing = false;
+  }
+  store.setState({ _scheduleTab: tab });
+  if (tab === 'edit' && store.state._scheduleRaw === null) loadScheduleRaw();
+  if (tab === 'form' && store.state._scheduleFormItems.length === 0 && (store.state._schedules || []).length === 0) loadSchedules();
+  if (tab === 'edit' && store.state._scheduleRaw !== null) {
+    _state._scheduleCmInitializing = false;
+    _state._schedulePanelSkipNextRebuild = true;
+    const panel = document.getElementById('systemSchedulesPanel');
+    if (panel) {
+      panel.innerHTML = renderScheduleViewer();
+      requestAnimationFrame(() => requestAnimationFrame(initScheduleCodeMirror));
+    }
+  } else {
+    _state._schedulePanelSkipNextRebuild = false;
+  }
+}
+
+_state._addScheduleItemPending = false;
+
+function addScheduleItem() {
+  if (_state._addScheduleItemPending) return;
+  // 先保存当前 DOM 中的未保存编辑内容，再添加新条目
+  const currentItems = readScheduleFormItemsFromDOM();
+  const items = [{
+    id: '',
+    type: 'list',
+    target: '',
+    users: [],
+    lists: [],
+    following_names: [],
+    name: '',
+    scheduleMode: 'interval',
+    scheduleValue: '8h',
+    enabled: true,
+    run_on_start: false,
+    auto_follow: false,
+    follow_members: false,
+    skip_profile: false,
+    no_retry: false,
+  }, ...currentItems];
+  store.setState({ _scheduleFormItems: items, _scheduleFormDirty: true });
+  glowNewFirstItem('systemSchedulesPanel');
+  _state._addScheduleItemPending = true;
+  setTimeout(() => { _state._addScheduleItemPending = false; }, 0);
+}
+
+function clearAllScheduleValidationTimers() {
+  Object.keys(_state._scheduleValidateTimers).forEach(k => {
+    clearTimeout(_state._scheduleValidateTimers[k]);
+    delete _state._scheduleValidateTimers[k];
+  });
+  Object.keys(_state._scheduleValidateRequests).forEach(k => {
+    delete _state._scheduleValidateRequests[k];
+  });
+}
+
+function removeScheduleItem(index) {
+  clearAllScheduleValidationTimers();
+  const items = readScheduleFormItemsFromDOM().filter((_, i) => i !== index);
+  store.setState({ _scheduleFormItems: items, _scheduleFormDirty: true });
+}
+
+function readScheduleFormItemsFromDOM() {
+  return store.state._scheduleFormItems.map((fallback, idx) => {
+    const type = document.getElementById(`sf_type_${idx}`)?.value || fallback.type || 'list';
+    const scheduleMode = document.getElementById(`sf_schedule_mode_${idx}`)?.value || fallback.scheduleMode || 'interval';
+    const readLines = (id) => (document.getElementById(id)?.value || '').split('\n').map(s => s.trim()).filter(Boolean);
+    return {
+      id: fallback.id || '',
+      type,
+      target: type !== 'mixed' ? (document.getElementById(`sf_target_${idx}`)?.value || '') : '',
+      name: document.getElementById(`sf_name_${idx}`)?.value || '',
+      scheduleMode,
+      scheduleValue: document.getElementById(`sf_schedule_value_${idx}`)?.value || '',
+      enabled: document.getElementById(`sf_enabled_${idx}`)?.checked ?? fallback.enabled !== false,
+      run_on_start: document.getElementById(`sf_run_on_start_${idx}`)?.checked ?? !!fallback.run_on_start,
+      auto_follow: document.getElementById(`sf_auto_follow_${idx}`)?.checked ?? !!fallback.auto_follow,
+      follow_members: document.getElementById(`sf_follow_members_${idx}`)?.checked ?? !!fallback.follow_members,
+      skip_profile: document.getElementById(`sf_skip_profile_${idx}`)?.checked ?? !!fallback.skip_profile,
+      no_retry: document.getElementById(`sf_no_retry_${idx}`)?.checked ?? !!fallback.no_retry,
+      users: type === 'mixed' ? readLines(`sf_users_${idx}`) : [],
+      lists: type === 'mixed' ? readLines(`sf_lists_${idx}`) : [],
+      following_names: type === 'mixed' ? readLines(`sf_following_${idx}`) : [],
+    };
+  });
+}
+
+function clearScheduleValidationState(index) {
+  clearTimeout(_state._scheduleValidateTimers[index]);
+  delete _state._scheduleValidateTimers[index];
+  delete _state._scheduleValidateRequests[index];
+  setScheduleValidationAriaState(index, false);
+  const clearHint = () => {
+    const hint = document.getElementById(`sf_schedule_hint_${index}`);
+    if (hint) hint.innerHTML = '';
+  };
+  clearHint();
+  setTimeout(clearHint, 0);
+}
+
+function setScheduleValidationAriaState(index, invalid) {
+  const fieldIds = [
+    `sf_target_${index}`,
+    `sf_users_${index}`,
+    `sf_lists_${index}`,
+    `sf_following_${index}`,
+    `sf_schedule_value_${index}`,
+  ];
+  fieldIds.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.setAttribute('aria-invalid', invalid ? 'true' : 'false');
+  });
+}
+
+function updateScheduleFormItem(index, field, value) {
+  const items = readScheduleFormItemsFromDOM();
+  if (field === 'type') {
+    clearScheduleValidationState(index);
+    const prevType = items[index].type;
+    items[index].type = value;
+    if (value === 'mixed') {
+      items[index].target = '';
+    } else {
+      items[index].users = [];
+      items[index].lists = [];
+      items[index].following_names = [];
+      if (prevType === 'mixed') {
+        items[index].target = '';
+      }
+    }
+  }
+  if (field === 'scheduleMode') {
+    clearScheduleValidationState(index);
+    items[index].scheduleMode = value;
+    items[index].scheduleValue = '';
+    const scheduleValue = document.getElementById(`sf_schedule_value_${index}`);
+    if (scheduleValue) {
+      scheduleValue.value = '';
+      const label = scheduleValue.closest('.config-field')?.querySelector('.config-label');
+      if (label) label.textContent = value === 'interval' ? '执行间隔' : '执行时间';
+      scheduleValue.placeholder = value === 'interval' ? '例如: 2h, 30m, 6h30m, 24h' : '例如: 07:00,21:00 或 02:30';
+    }
+  }
+  store.setState({ _scheduleFormItems: items, _scheduleFormDirty: true });
+}
+
+_state._scheduleValidateTimers = {};
+_state._scheduleValidateRequests = {};
+_state._scheduleValidateRequestSeq = 0;
+
+function scheduleFieldChanged(idx) {
+  clearTimeout(_state._scheduleValidateTimers[idx]);
+  _state._scheduleValidateTimers[idx] = setTimeout(() => validateScheduleField(idx), 600);
+}
+
+async function validateScheduleField(idx) {
+  const hint = document.getElementById(`sf_schedule_hint_${idx}`);
+  if (!hint) return;
+
+  const type = document.getElementById(`sf_type_${idx}`)?.value || 'list';
+  const mode = document.getElementById(`sf_schedule_mode_${idx}`)?.value || 'interval';
+  const scheduleValue = document.getElementById(`sf_schedule_value_${idx}`)?.value?.trim() || '';
+  if (!scheduleValue) {
+    hint.innerHTML = '';
+    setScheduleValidationAriaState(idx, false);
+    // schedule 为空时仍继续验证 target 等其他字段
+  }
+
+  const entry = { type, schedule: scheduleValue ? `${mode}:${scheduleValue}` : '' };
+
+  if (type === 'mixed') {
+    const usersRaw = document.getElementById(`sf_users_${idx}`)?.value || '';
+    const listsRaw = document.getElementById(`sf_lists_${idx}`)?.value || '';
+    const followingRaw = document.getElementById(`sf_following_${idx}`)?.value || '';
+    entry.users = usersRaw.split('\n').map(s => s.trim()).filter(Boolean);
+    entry.lists = listsRaw.split('\n').map(s => s.trim()).filter(Boolean);
+    entry.following_names = followingRaw.split('\n').map(s => s.trim()).filter(Boolean);
+  } else {
+    entry.target = document.getElementById(`sf_target_${idx}`)?.value?.trim() || '';
+  }
+
+  // schedule 为空时也发送请求，让后端验证 target 等其他字段
+  const requestSeq = ++_state._scheduleValidateRequestSeq;
+  _state._scheduleValidateRequests[idx] = requestSeq;
   try {
-    const r = await ENDPOINTS.configFields();
-    const fields = r.fields || [];
-    const data = {};
-    fields.forEach(f => {
-      const el = document.getElementById('cf-' + f.name);
-      if (el) data[f.name] = el.value;
+    const result = await api.validateSchedule({ entries: [entry] });
+    if (_state._scheduleValidateRequests[idx] !== requestSeq) return;
+    if (result.valid) {
+      hint.innerHTML = '';
+      setScheduleValidationAriaState(idx, false);
+    } else {
+      const msg = (result.errors || []).join('; ');
+      hint.innerHTML = `<span style="color:var(--danger, #ef4444)">✗ ${escapeHtml(msg)}</span>`;
+      setScheduleValidationAriaState(idx, true);
+    }
+  } catch (e) {
+    if (_state._scheduleValidateRequests[idx] !== requestSeq) return;
+    hint.innerHTML = '';
+    setScheduleValidationAriaState(idx, false);
+  }
+}
+
+async function validateScheduleForm() {
+  const items = readScheduleFormItemsFromDOM();
+  const entries = items.map(item => ({
+    type: item.type,
+    target: item.type === 'mixed' ? '' : item.target.trim(),
+    schedule: `${item.scheduleMode}:${item.scheduleValue.trim()}`,
+    ...(item.type === 'mixed' ? {
+      users: item.users || [],
+      lists: item.lists || [],
+      following_names: item.following_names || [],
+    } : {}),
+  }));
+  try {
+    const result = await api.validateSchedule({ entries });
+    if (!result.valid) {
+      const msg = (result.errors || []).join('; ');
+      toast.show(msg, 'error');
+      return false;
+    }
+  } catch (e) {
+    toast.show('校验请求失败: ' + e.message, 'error');
+    return false;
+  }
+  return true;
+}
+
+async function saveScheduleForm() {
+  const items = readScheduleFormItemsFromDOM();
+
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i];
+    if (item.type !== 'mixed' && !item.target.trim()) {
+      toast.show(`规则 #${i + 1}: 目标不能为空`, 'error');
+      return;
+    }
+    if (item.type === 'mixed' && !item.users.length && !item.lists.length && !item.following_names.length) {
+      toast.show(`规则 #${i + 1}: 混合任务至少需要一个目标`, 'error');
+      return;
+    }
+    if (!item.scheduleValue.trim()) {
+      toast.show(`规则 #${i + 1}: 调度值不能为空`, 'error');
+      return;
+    }
+  }
+
+  if (!(await validateScheduleForm())) return;
+
+  const schedules = items.map(item => ({
+    id: item.id || '',
+    type: item.type,
+    target: item.type === 'mixed' ? '' : item.target.trim(),
+    users: item.type === 'mixed' ? (item.users || []) : [],
+    lists: item.type === 'mixed' ? (item.lists || []) : [],
+    following_names: item.type === 'mixed' ? (item.following_names || []) : [],
+    name: item.name.trim(),
+    schedule: `${item.scheduleMode}:${item.scheduleValue.trim()}`,
+    enabled: item.enabled,
+    run_on_start: item.run_on_start,
+    auto_follow: item.auto_follow,
+    follow_members: item.follow_members,
+    skip_profile: item.skip_profile,
+    no_retry: item.no_retry,
+  }));
+
+  store.setState({ _scheduleFormItems: items, _scheduleSaving: true });
+  try {
+    const saved = await api.replaceSchedules(schedules);
+    if (saved?.entries) {
+      store.setState({
+        _scheduleFormItems: saved.entries.map(entry => scheduleStatusToFormItem({ entry })),
+        _scheduleFormDirty: false,
+      });
+    }
+    await loadSchedules({ updateFormItems: false });
+    toast.show('调度配置已保存并重载');
+    const rawData = await api.getSchedulesRaw();
+    store.setState({
+      _scheduleRaw: rawData.content || '',
+      _scheduleExists: rawData.exists || false,
+      _scheduleSaving: false,
     });
-    await ENDPOINTS.saveConfigFields(data);
-    toast('Configuration saved (restart to apply)', 'success');
-  } catch(e) { toast(e.message, 'error'); }
+  } catch (e) {
+    toast.show('保存失败: ' + e.message, 'error');
+    store.setState({ _scheduleSaving: false });
+  }
 }
 
-async function renderConfigRaw(content) {
-  const r = await ENDPOINTS.configRaw();
-  content.innerHTML = `
-    <div class="form-group">
-      <label>Raw YAML Configuration</label>
-      <textarea id="config-raw-text" rows="15">${esc(r.content||'')}</textarea>
-      <div class="hint">Path: ${esc(r.path)}</div>
+_state.scheduleCodeMirror = null;
+_state._scheduleCmInitializing = false;
+
+async function initScheduleCodeMirror() {
+  if (_state._scheduleCmInitializing || _state.scheduleCodeMirror) return;
+  _state._scheduleCmInitializing = true;
+  const versionAtStart = _state._cmDestroyVersion;
+  await waitForCodeMirror(3000);
+  if (_state._cmDestroyVersion !== versionAtStart) { _state._scheduleCmInitializing = false; return; }
+  if (document.getElementById('scheduleEditorContainer')) {
+    _state.scheduleCodeMirror = initCodeMirror('scheduleEditorContainer', store.state._scheduleRaw, 'yaml');
+  }
+  _state._scheduleCmInitializing = false;
+}
+
+function syncScheduleTabView() {
+  if (store.state._schedules === null && !store.state.sseConnected) loadSchedules();
+  // 提前加载原始数据，切换高级模式时无需等待异步请求
+  if (store.state._scheduleRaw === null) loadScheduleRaw();
+  if (store.state._scheduleTab === 'edit' && !_state.scheduleCodeMirror) requestAnimationFrame(() => requestAnimationFrame(initScheduleCodeMirror));
+}
+
+function renderServerClosedState() {
+  const el = document.getElementById('contentContainer');
+  if (!el) return;
+  el.innerHTML = `
+    <div class="empty-state" style="padding: 80px 20px;">
+      <div style="font-size: 48px; margin-bottom: 20px;">👋</div>
+      <div class="empty-title">服务器已关闭</div>
+      <div class="empty-desc">如需重新启动，请运行 tmd -server</div>
     </div>
-    <div class="form-actions">
-      <button class="btn btn-primary" onclick="saveConfigRaw()">Save</button>
-    </div>`;
+  `;
 }
 
-async function saveConfigRaw() {
-  const el = document.getElementById('config-raw-text');
-  if (!el) return toast('Configuration form not found', 'error');
-  const text = el.value;
-  try { await ENDPOINTS.saveConfigRaw(text); toast('Configuration saved (restart to apply)', 'success'); }
-  catch(e) { toast(e.message, 'error'); }
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-async function renderCookies(content) {
-  let cookies;
-  try { cookies = await ENDPOINTS.cookies(); } catch(e) { cookies = []; }
-  const cArr = cookies && Array.isArray(cookies) ? cookies : (cookies && cookies.items) || [];
-  content.innerHTML = `
-    <div id="cookies-form">
-      ${cArr.length === 0 ? '<p class="text-muted">No additional cookies configured.</p>' : ''}
-      ${cArr.map((c, i) => `
-        <div class="form-row" style="margin-bottom:8px">
-          <input type="text" id="cookie-at-${i}" value="${esc(c.auth_token||'')}" placeholder="auth_token" style="font-family:var(--font-mono);font-size:12px">
-          <input type="text" id="cookie-ct0-${i}" value="${esc(c.ct0||'')}" placeholder="ct0" style="font-family:var(--font-mono);font-size:12px">
-        </div>`).join('')}
-      <div class="form-actions">
-        <button class="btn btn-ghost btn-sm" onclick="addCookieRow()">+ Add Account</button>
-        <button class="btn btn-primary" onclick="saveCookies()">Save</button>
-      </div>
-    </div>`;
+async function saveConfigForm() {
+  const inputs = document.querySelectorAll('.config-input:not(.cookie-input)[name]');
+  const fields = {};
+  for (const el of inputs) {
+    if (el.type === 'password' && el.value.trim() === '') { fields[el.name] = '__KEEP_OLD__'; continue; }
+    if (el.type === 'number') {
+      const val = parseInt(el.value, 10);
+      const min = el.min !== '' ? parseInt(el.min, 10) : 1;
+      const max = el.max !== '' ? parseInt(el.max, 10) : (el.name.includes('routine') ? 100 : 245);
+      if (isNaN(val) || val < min || val > max) {
+        toast.show(`${el.name} 必须在 ${min}-${max} 之间`, 'error');
+        return;
+      }
+    }
+    fields[el.name] = el.value;
+  }
+
+  store.setState({ configSaving: true });
+  try {
+    const data = await api.saveConfigFields(fields);
+    store.setState({
+      configSaving: false,
+      configFields: data.fields || store.state.configFields,
+      configRaw: data.yaml_preview || store.state.configRaw
+    });
+    showManualRestartNotice('配置');
+  } catch (e) {
+    toast.show('❌ 保存失败: ' + e.message, 'error');
+    store.setState({ configSaving: false });
+  }
+}
+
+async function saveConfig() {
+  const content = getEditorValue(_state.configCodeMirror, store.state.configRaw);
+  if (!content.trim()) return toast.show('配置不能为空', 'error');
+  store.setState({ configRaw: content, configSaving: true });
+  try {
+    const data = await api.updateConfigRaw(content);
+    store.setState({
+      configSaving: false,
+      configRaw: data.yaml_preview || content
+    });
+    showManualRestartNotice('配置');
+  } catch (e) {
+    toast.show('❌ 保存失败: ' + e.message, 'error');
+    store.setState({ configSaving: false });
+  }
+}
+
+async function loadCookiesItems() {
+  store.setState({ _cookiesLoading: true });
+  try {
+    const d = await api.getCookies();
+    store.setState({ cookieItems: d.items || [], cookiesExists: d.exists || false, _cookiesLoading: false });
+  } catch (e) {
+    store.setState({ _cookiesLoading: false });
+    toast.show('加载额外账户失败: ' + e.message, 'error');
+  }
+}
+
+async function loadCookiesRaw() {
+  try {
+    const d = await api.getCookiesRaw();
+    store.setState({ cookiesRaw: d.content || '', cookiesExists: d.exists || false });
+  } catch (e) { toast.show('加载额外账户失败: ' + e.message, 'error'); }
+}
+
+function isCookiesFormDirty() {
+  if (store.state.cookiesMode !== 'form') return false;
+  const inputs = document.querySelectorAll('#systemCookiesPanel input.cookie-input');
+  return Array.from(inputs).some(input => input.value.trim() !== '');
+}
+
+function isCookiesRawDirty() {
+  return store.state.cookiesMode === 'raw' && _state.cookiesCodeMirror && getEditorValue(_state.cookiesCodeMirror, store.state.cookiesRaw) !== (store.state.cookiesRaw || '');
+}
+
+function refreshCookiesAfterReconnect() {
+  if (isPanelInputFocused('systemCookiesPanel') || isCookiesFormDirty() || isCookiesRawDirty()) return;
+  if (store.state.cookiesMode === 'raw') loadCookiesRaw();
+  else loadCookiesItems();
+}
+
+async function saveCookiesForm() {
+  const cookies = [];
+  const items = store.state.cookieItems;
+
+  for (let i = 0; i < items.length; i++) {
+    const authInput = document.getElementById(`cookie_auth_${i}`);
+    const ct0Input = document.getElementById(`cookie_ct0_${i}`);
+    const authVal = authInput ? authInput.value.trim() : '';
+    const ct0Val = ct0Input ? ct0Input.value.trim() : '';
+    const originalIndex = Number.isInteger(items[i].index) ? items[i].index : null;
+    const isNewAccount = originalIndex === null;
+
+    if (isNewAccount && !authVal && !ct0Val) {
+      toast.show(`账户 #${i + 1} 的 Auth Token 和 CT0 不能同时为空`, 'error');
+      return;
+    }
+
+    cookies.push({
+      index: originalIndex,
+      auth_token: (isNewAccount || authVal) ? authVal : '__KEEP_OLD__',
+      ct0: (isNewAccount || ct0Val) ? ct0Val : '__KEEP_OLD__',
+    });
+  }
+
+  store.setState({ cookiesSaving: true });
+  try {
+    await api.saveCookies(cookies);
+    store.setState({ cookiesSaving: false });
+    showManualRestartNotice('额外账户');
+    // 保存后重载数据，刷新脱敏显示
+    loadCookiesItems();
+    loadCookiesRaw();
+  } catch (e) {
+    toast.show('❌ 保存失败: ' + e.message, 'error');
+    store.setState({ cookiesSaving: false });
+  }
 }
 
 async function saveCookies() {
-  const cArr = document.querySelectorAll('[id^="cookie-at-"]');
-  const cookies = Array.from(cArr).map((el, i) => ({
-    auth_token: el.value,
-    ct0: document.getElementById('cookie-ct0-' + i) ? document.getElementById('cookie-ct0-' + i).value : ''
-  }));
-  try { await ENDPOINTS.saveCookies(cookies); toast('Cookies saved', 'success'); }
-  catch(e) { toast(e.message, 'error'); }
-}
+  const content = getEditorValue(_state.cookiesCodeMirror, store.state.cookiesRaw);
+  if (!content.trim()) return toast.show('内容不能为空', 'error');
 
-function addCookieRow() {
-  const form = document.getElementById('cookies-form');
-  if (!form) return;
-  const existing = form.querySelectorAll('[id^="cookie-at-"]');
-  const idx = existing.length;
-  const row = document.createElement('div');
-  row.className = 'form-row';
-  row.style.marginBottom = '8px';
-  row.innerHTML = '<input type="text" id="cookie-at-' + idx + '" value="" placeholder="auth_token" style="font-family:var(--font-mono);font-size:12px">' +
-    '<input type="text" id="cookie-ct0-' + idx + '" value="" placeholder="ct0" style="font-family:var(--font-mono);font-size:12px">';
-  const actions = form.querySelector('.form-actions');
-  if (actions) form.insertBefore(row, actions);
-}
-
-async function renderCookiesRaw(content) {
-  const r = await ENDPOINTS.cookiesRaw();
-  content.innerHTML = `
-    <div class="form-group">
-      <label>Raw Cookies YAML</label>
-      <textarea id="cookies-raw-text" rows="12">${esc(r.content||'')}</textarea>
-      <div class="hint">Path: ${esc(r.path)}</div>
-    </div>
-    <div class="form-actions">
-      <button class="btn btn-primary" onclick="saveCookiesRaw()">Save</button>
-    </div>`;
-}
-
-async function saveCookiesRaw() {
-  const el = document.getElementById('cookies-raw-text');
-  if (!el) return toast('Cookies form not found', 'error');
-  const text = el.value;
-  try { await ENDPOINTS.saveCookiesRaw(text); toast('Cookies saved', 'success'); }
-  catch(e) { toast(e.message, 'error'); }
-}
-
-async function loadErrors() {
-  const content = document.getElementById('errors-content');
-  if (!content) return;
+  store.setState({ cookiesRaw: content, cookiesSaving: true });
   try {
-    const r = await ENDPOINTS.errors();
-    const regular = r.regular || {};
-    const json = r.json || [];
-    const regKeys = Object.keys(regular);
-
-    content.innerHTML = `
-      ${regKeys.length || json.length ? `<div class="form-actions"><button class="btn btn-primary btn-sm" onclick="retryAllErrors()">Retry All Failed</button><button class="btn btn-danger btn-sm" onclick="clearAllErrors()">Clear Errors</button></div>` : ''}
-      ${regKeys.length ? `<div class="section-header mt-2"><h3>Regular errors (${regKeys.length} entities)</h3></div>
-      <table><thead><tr><th>Entity ID</th><th>Failed Tweets</th></tr></thead><tbody>${regKeys.map(k => `<tr><td>${esc(k)}</td><td>${regular[k]}</td></tr>`).join('')}</tbody></table>` : ''}
-      ${json.length ? `<div class="section-header mt-2"><h3>JSON errors (${json.length} sources)</h3></div>
-      <table><thead><tr><th>Source</th><th>Count</th></tr></thead><tbody>${json.map(j => `<tr><td class="mono">${esc(j.source_path||'')}</td><td>${j.count||0}</td></tr>`).join('')}</tbody></table>` : ''}
-      ${!regKeys.length && !json.length ? '<p class="text-muted">No errors recorded.</p>' : ''}`;
-  } catch(e) {
-    content.innerHTML = '<div class="empty-state"><p>Error loading errors: ' + esc(e.message) + '</p></div>';
+    await api.updateCookiesRaw(content);
+    store.setState({ cookiesSaving: false, cookiesRaw: content });
+    showManualRestartNotice('额外账户');
+    loadCookiesItems(); // 同步刷新表单模式数据
+  } catch (e) {
+    toast.show('❌ 保存失败: ' + e.message, 'error');
+    store.setState({ cookiesSaving: false });
   }
 }
 
-async function retryAllErrors() {
-  try { const r = await ENDPOINTS.retryErrors(); toast('Retry task: ' + r.task_id, 'success'); }
-  catch(e) { toast(e.message, 'error'); }
-}
-
-async function clearAllErrors() {
-  if (!confirm('Clear all error records?')) return;
-  try { await ENDPOINTS.clearErrors(); toast('Errors cleared', 'info'); loadErrors(); }
-  catch(e) { toast(e.message, 'error'); }
-}
-
-/* ---- Logs Page ---- */
-function renderLogsPage(container) {
-  container.innerHTML = `
-    <div class="section">
-      <div class="section-header">
-        <h2>Logs</h2>
-        <div class="flex gap-2">
-          <button class="btn btn-ghost btn-sm" onclick="refreshLogs()">Refresh</button>
-          <button class="btn btn-ghost btn-sm" onclick="exportLogs()">Export</button>
-          <label class="checkbox-label" style="font-size:12px"><input type="checkbox" id="log-live-toggle" checked onchange="toggleLogLive()"> Live</label>
-        </div>
-      </div>
-      <div class="card">
-        <div class="card-header">
-          <div class="flex gap-2 items-center" style="flex-wrap:wrap">
-            <input type="text" id="log-level" placeholder="level (info/warn/error)" style="width:160px">
-            <button class="btn btn-primary btn-sm" onclick="refreshLogs()">Search</button>
-            <span id="log-stats-inline" class="text-sm text-muted" style="margin-left:8px"></span>
-          </div>
-        </div>
-        <div class="card-body" style="padding:0">
-          <div class="log-stream" id="log-stream">
-            <div class="loading"><div class="spinner"></div> Loading logs...</div>
-          </div>
-        </div>
-      </div>
-    </div>`;
-
-  pageRenderers.logs = renderLogsPage;
-  refreshLogs();
-  loadLogStats();
-  connectLogSSE();
-}
-
-let logSSESource = null;
-let logStreamEl = null;
-let logLive = true;
-
-function toggleLogLive() {
-  logLive = document.getElementById('log-live-toggle').checked;
-}
-function exportLogs() { window.open(apiBase() + '/api/v1/logs/export'); }
-
-async function refreshLogs() {
-  const stream = document.getElementById('log-stream');
-  if (!stream) return;
-  const level = document.getElementById('log-level') ? document.getElementById('log-level').value.trim() : '';
-  try {
-    const r = await ENDPOINTS.logs({ page:1, pageSize:200, level: level || undefined });
-    const lines = r.logs || [];
-    stream.innerHTML = lines.map(l => {
-      const clean = stripAnsi(l);
-      const color = getLogLineColor(clean);
-      return '<div class="log-entry" style="color:' + color + '">' + highlightLogTimestamp(esc(clean)) + '</div>';
-    }).join('');
-    stream.scrollTop = stream.scrollHeight;
-  } catch(e) {
-    stream.innerHTML = '<div class="log-entry">Error loading logs: ' + esc(e.message) + '</div>';
+function setCookiesMode(mode) {
+  if (mode !== 'raw' && _state.cookiesCodeMirror) {
+    _state.cookiesCodeMirror = destroyCodeMirror(_state.cookiesCodeMirror);
+  }
+  store.setState({ cookiesMode: mode });
+  if (mode === 'raw' && store.state.cookiesRaw === null) loadCookiesRaw();
+  if (mode === 'raw' && store.state.cookiesRaw !== null) {
+    _state._cookiesCmInitializing = false;
+    _state._cookiesPanelSkipNextRebuild = true;
+    const panel = document.getElementById('systemCookiesPanel');
+    if (panel) {
+      panel.innerHTML = renderCookiesEditor();
+      requestAnimationFrame(() => requestAnimationFrame(initCookiesCodeMirror));
+    }
+  } else {
+    _state._cookiesPanelSkipNextRebuild = false;
   }
 }
 
-async function loadLogStats() {
-  try {
-    const s = await ENDPOINTS.logStats();
-    const el = document.getElementById('log-stats-inline');
-    if (el) el.textContent = (s.total || 0) + ' lines' + (s.level ? ', level: ' + s.level : '');
-  } catch(e) { /* optional stat, ignore silently */ }
+function addCookieAccount() {
+  const items = [{ index: null, auth_token: '', ct0: '' }, ...store.state.cookieItems];
+  store.setState({ cookieItems: items });
+  glowNewFirstItem('systemCookiesPanel');
 }
 
-function connectLogSSE() {
-  if (logSSESource) { logSSESource.close(); logSSESource = null; }
-  if (window._logSSETimer) { clearTimeout(window._logSSETimer); window._logSSETimer = null; }
-  logSSESource = new EventSource(apiBase() + '/api/v1/logs/stream');
+function removeCookieAccount(index) {
+  const items = store.state.cookieItems.filter((_, i) => i !== index);
+  store.setState({ cookieItems: items });
+}
 
-  logSSESource.addEventListener('log', (e) => {
-    if (!logLive) return;
-    const stream = document.getElementById('log-stream');
-    if (!stream) return;
-    const autoScroll = stream.scrollTop + stream.clientHeight >= stream.scrollHeight - 20;
-    const el = document.createElement('div');
-    el.className = 'log-entry';
-    const clean = stripAnsi(e.data);
-    const color = getLogLineColor(clean);
-    el.innerHTML = highlightLogTimestamp(esc(clean));
-    el.style.color = color;
-    stream.appendChild(el);
-    if (autoScroll) stream.scrollTop = stream.scrollHeight;
-    // Keep last 5000 lines
-    while (stream.children.length > 5000) stream.removeChild(stream.firstChild);
+async function shutdownServer() {
+  if (!confirm('确定要关闭服务器吗？\n\n关闭后需要手动重新启动 TMD 服务。')) {
+    return;
+  }
+
+  toast.show('正在关闭服务器...', 'warning');
+  cleanupSystemTimers();
+
+  try {
+    await api.shutdownServer();
+  } catch (err) {
+    // HTTP 请求异常时服务端可能也已关闭，继续走同一套清理
+  }
+  handleServerShutdown('服务器已关闭');
+}
+
+function handleServerShutdown(message) {
+  cleanupSystemTimers();
+  api.abortAll();
+  sseManager.disconnect();
+  destroyAllEditors();
+  renderServerClosedState();
+}
+
+function setConfigMode(mode) {
+  if (mode !== 'raw' && _state.configCodeMirror) {
+    _state.configCodeMirror = destroyCodeMirror(_state.configCodeMirror);
+  }
+  store.setState({ configMode: mode });
+  if (mode === 'raw' && store.state.configRaw === null) loadConfigRaw();
+  // configRaw 已存在时直接同步重建面板，设置标志位防止订阅重复重建
+  if (mode === 'raw' && store.state.configRaw !== null) {
+    _state._configCmInitializing = false;
+    _state._configPanelSkipNextRebuild = true;
+    const panel = document.getElementById('systemConfigPanel');
+    if (panel) {
+      panel.innerHTML = renderConfigEditor();
+      requestAnimationFrame(() => requestAnimationFrame(initConfigCodeMirror));
+    }
+  } else {
+    // 切回简易模式时清除标志位，确保订阅能正常重建
+    _state._configPanelSkipNextRebuild = false;
+  }
+}
+
+async function loadLogs() {
+  const { logLevel, logSearch, logPagination } = store.state;
+  const p = new URLSearchParams();
+  if (logLevel !== 'all') p.append('level', logLevel);
+  if (logSearch) p.append('q', logSearch);
+  p.append('page', logPagination.page);
+  p.append('pageSize', logPagination.pageSize);
+  store.setState({ _logsLoading: true });
+  try {
+    const d = await api.getLogs('?' + p.toString());
+    store.setState({ logs: d.logs || [], logPagination: { page: d.page, pageSize: d.pageSize, total: d.total, totalPages: d.totalPages }, _logsLoading: false });
+  } catch (e) {
+    store.setState({ _logsLoading: false });
+    toast.show('加载日志失败: ' + e.message, 'error');
+  }
+
+  // 异步获取统计（不阻塞日志加载）
+  api.getLogStats()
+    .then(s => store.setState({ logStats: { debug: s.debug || 0, info: s.info || 0, warn: s.warn || 0, error: s.error || 0, total: s.total || 0 } }))
+    .catch(() => { console.warn('[Logs] 获取日志统计失败'); });
+}
+
+function setLogLevel(level) {
+  store.setState({ logLevel: level, logPagination: { ...store.state.logPagination, page: 1 } });
+  loadLogs();
+  restartLogStreamIfNeeded();
+}
+
+_state._logSearchTimer = null;
+function onLogSearchInput(value) {
+  store.setState({ logSearch: value, logPagination: { ...store.state.logPagination, page: 1 } });
+  clearTimeout(_state._logSearchTimer);
+  _state._logSearchTimer = setTimeout(() => {
+    loadLogs();
+    restartLogStreamIfNeeded();
+  }, 300);
+}
+
+function changeLogPage(delta) {
+  const p = store.state.logPagination;
+  const np = p.page + delta;
+  if (np >= 1 && np <= p.totalPages) { store.setState({ logPagination: { ...p, page: np } }); loadLogs(); }
+}
+
+function goToLogPage(page) {
+  const p = store.state.logPagination;
+  if (page >= 1 && page <= p.totalPages) { store.setState({ logPagination: { ...p, page } }); loadLogs(); }
+}
+
+_state.logAutoRefreshTimer = null;
+_state.logStreamConn = null;
+_state.configCodeMirror = null;
+_state.cookiesCodeMirror = null;
+_state._configCmInitializing = false;
+_state._cookiesCmInitializing = false;
+
+_state._cmWaitCancelled = false;
+
+function waitForCodeMirror(maxWait) {
+  _state._cmWaitCancelled = false;
+  if (typeof CodeMirror !== 'undefined') return Promise.resolve(true);
+  // Dynamically load CodeMirror CSS and JS only when first needed
+  return loadCodeMirrorAssets().then(() => {
+    if (typeof CodeMirror !== 'undefined') return true;
+    return new Promise(resolve => {
+      const start = Date.now();
+      const check = () => {
+        if (_state._cmWaitCancelled || typeof CodeMirror !== 'undefined' || Date.now() - start > maxWait) {
+          resolve(!_state._cmWaitCancelled && typeof CodeMirror !== 'undefined');
+        } else {
+          setTimeout(check, 100);
+        }
+      };
+      check();
+    });
+  });
+}
+
+function loadCodeMirrorAssets() {
+  return new Promise((resolve) => {
+    // Check if already loaded
+    if (document.querySelector('link[href*="codemirror.min.css"]')) {
+      resolve();
+      return;
+    }
+    // Load CSS files
+    const cssUrls = [
+      'https://cdn.jsdelivr.net/npm/codemirror@5.65.18/lib/codemirror.min.css',
+      'https://cdn.jsdelivr.net/npm/codemirror@5.65.18/theme/material-darker.min.css'
+    ];
+    let loaded = 0;
+    cssUrls.forEach(url => {
+      const link = document.createElement('link');
+      link.rel = 'stylesheet';
+      link.href = url;
+      link.onload = () => { loaded++; if (loaded === cssUrls.length) loadScripts(); };
+      link.onerror = () => { loaded++; console.warn('[CodeMirror] CSS 加载失败:', url); if (loaded === cssUrls.length) loadScripts(); };
+      document.head.appendChild(link);
+    });
+    function loadScripts() {
+      const scripts = [
+        'https://cdn.jsdelivr.net/npm/codemirror@5.65.18/lib/codemirror.min.js',
+        'https://cdn.jsdelivr.net/npm/codemirror@5.65.18/mode/yaml/yaml.min.js'
+      ];
+      let scriptLoaded = 0;
+      scripts.forEach(src => {
+        const script = document.createElement('script');
+        script.src = src;
+        script.onload = () => { scriptLoaded++; if (scriptLoaded === scripts.length) { setTimeout(resolve, 50); } };
+        script.onerror = () => { scriptLoaded++; console.warn('[CodeMirror] JS 加载失败:', src); if (scriptLoaded === scripts.length) { setTimeout(resolve, 50); } };
+        document.body.appendChild(script);
+      });
+    }
+  });
+}
+
+function initCodeMirror(containerId, content, mode) {
+  const container = document.getElementById(containerId);
+  if (!container) return null;
+
+  if (typeof CodeMirror === 'undefined') {
+    container.innerHTML = '';
+    const textarea = document.createElement('textarea');
+    textarea.className = 'form-textarea config-editor';
+    textarea.spellcheck = false;
+    textarea.value = content;
+    container.appendChild(textarea);
+    return textarea;
+  }
+
+  container.innerHTML = '';
+
+  const cm = CodeMirror(container, {
+    value: content,
+    mode: mode || 'yaml',
+    theme: 'material-darker',
+    lineNumbers: true,
+    lineWrapping: true,
+    tabSize: 2,
+    indentWithTabs: false,
+    matchBrackets: true,
+    autoCloseBrackets: true,
   });
 
-  logSSESource.onerror = () => {
-    if (logSSESource) { logSSESource.close(); logSSESource = null; }
-    window._logSSETimer = setTimeout(connectLogSSE, 5000);
+  cm.setSize('100%', '100%');
+  return cm;
+}
+
+function destroyCodeMirror(editor) {
+  if (!editor) return null;
+  if (typeof editor.toTextArea === 'function') editor.toTextArea();
+  return null;
+}
+
+function getEditorValue(editor, fallback = '') {
+  if (!editor) return fallback || '';
+  if (typeof editor.getValue === 'function') return editor.getValue();
+  return editor.value || fallback || '';
+}
+
+function setEditorValue(editor, value) {
+  if (!editor) return;
+  if (typeof editor.setValue === 'function') {
+    editor.setValue(value);
+  } else {
+    editor.value = value;
+  }
+}
+
+async function initConfigCodeMirror() {
+  if (_state._configCmInitializing || _state.configCodeMirror) return;
+  _state._configCmInitializing = true;
+  const versionAtStart = _state._cmDestroyVersion;
+  await waitForCodeMirror(3000);
+  if (_state._cmDestroyVersion !== versionAtStart) { _state._configCmInitializing = false; return; }
+  if (document.getElementById('configEditorContainer')) {
+    _state.configCodeMirror = initCodeMirror('configEditorContainer', store.state.configRaw, 'yaml');
+  }
+  _state._configCmInitializing = false;
+}
+
+async function initCookiesCodeMirror() {
+  if (_state._cookiesCmInitializing || _state.cookiesCodeMirror) return;
+  _state._cookiesCmInitializing = true;
+  const versionAtStart = _state._cmDestroyVersion;
+  await waitForCodeMirror(3000);
+  if (_state._cmDestroyVersion !== versionAtStart) { _state._cookiesCmInitializing = false; return; }
+  if (document.getElementById('cookiesEditorContainer')) {
+    _state.cookiesCodeMirror = initCodeMirror('cookiesEditorContainer', store.state.cookiesRaw, 'yaml');
+  }
+  _state._cookiesCmInitializing = false;
+}
+
+function toggleLogAutoRefresh() {
+  const ns = !store.state.logAutoRefresh;
+  store.setState({ logAutoRefresh: ns });
+  if (ns) {
+    store.setState({ _logAutoScrollPaused: false, _logNewArrived: false });
+    _state._logScrollListenerAttached = false;
+    startLogStream();
+  }
+  else stopLogStream();
+}
+
+function cleanupSystemTimers() {
+  _state._cmWaitCancelled = true;
+  _state._logsPageLoaded = false;
+  if (_state._logSearchTimer) {
+    clearTimeout(_state._logSearchTimer);
+    _state._logSearchTimer = null;
+  }
+  if (_state.logAutoRefreshTimer) {
+    clearTimeout(_state.logAutoRefreshTimer);
+    _state.logAutoRefreshTimer = null;
+  }
+  clearAllScheduleValidationTimers();
+  stopLogStream();
+}
+
+function destroyAllEditors() {
+  _state._cmDestroyVersion++;
+  _state.configCodeMirror = destroyCodeMirror(_state.configCodeMirror);
+  _state._configCmInitializing = false;
+  _state.cookiesCodeMirror = destroyCodeMirror(_state.cookiesCodeMirror);
+  _state._cookiesCmInitializing = false;
+  _state.scheduleCodeMirror = destroyCodeMirror(_state.scheduleCodeMirror);
+  _state._scheduleCmInitializing = false;
+}
+
+function buildLogStreamURL() {
+  const { logLevel, logSearch } = store.state;
+  const p = new URLSearchParams();
+  if (logLevel !== 'all') p.append('level', logLevel);
+  if (logSearch) p.append('q', logSearch);
+  const qs = p.toString();
+  return `/api/v1/logs/stream${qs ? '?' + qs : ''}`;
+}
+
+_state._logStreamConnecting = false;
+_state._pendingLogStreamConn = null;
+_state._logsPageLoaded = false;
+_state._logReconnectAttempts = 0;
+
+function startLogStream() {
+  if (_state.logStreamConn || _state._logStreamConnecting || store.state.currentPage !== 'logs') return;
+  _state._logScrollListenerAttached = false;
+  _state._logStreamConnecting = true;
+  const conn = new EventSource(buildLogStreamURL());
+  _state._pendingLogStreamConn = conn;
+  conn.onopen = () => {
+    _state._pendingLogStreamConn = null;
+    _state.logStreamConn = conn;
+    _state._logStreamConnecting = false;
+    _state._logReconnectAttempts = 0;
+    // 挂载日志容器的滚动监听
+    attachLogScrollListener();
+  };
+  conn.addEventListener('log', (e) => {
+    const line = e.data || '';
+    if (!line) return;
+    const logs = [line, ...store.state.logs].slice(0, 1000);
+    store.setState({ logs });
+    setTimeout(() => {
+      const el = document.getElementById('logContainer');
+      if (!el) return;
+      if (store.state._logAutoScrollPaused) {
+        store.setState({ _logNewArrived: true });
+      } else {
+        el.scrollTop = 0;
+      }
+    }, 0);
+  });
+  conn.onerror = () => {
+    _state._pendingLogStreamConn = null;
+    _state._logStreamConnecting = false;
+    if (conn === _state.logStreamConn) {
+      _state.logStreamConn.close();
+      _state.logStreamConn = null;
+    } else {
+      conn.close();
+    }
+    if (store.state.logAutoRefresh && store.state.currentPage === 'logs') {
+      _state._logReconnectAttempts++;
+      if (_state._logReconnectAttempts > 30) {
+        store.setState({ logAutoRefresh: false });
+        toast.show('日志流重连失败次数过多，已停止自动重连，请手动刷新', 'warning');
+        return;
+      }
+      const delay = Math.min(2000 * Math.pow(2, _state._logReconnectAttempts - 1), 30000);
+      _state.logAutoRefreshTimer = setTimeout(() => { _state.logAutoRefreshTimer = null; startLogStream(); }, delay);
+    }
   };
 }
 
-/* ---- Sidebar ---- */
-function toggleSidebar() {
-  document.getElementById('sidebar').classList.toggle('open');
+function stopLogStream() {
+  _state._logStreamConnecting = false;
+  if (_state._pendingLogStreamConn) {
+    _state._pendingLogStreamConn.close();
+    _state._pendingLogStreamConn = null;
+  }
+  if (_state.logAutoRefreshTimer) {
+    clearTimeout(_state.logAutoRefreshTimer);
+    _state.logAutoRefreshTimer = null;
+  }
+  if (_state.logStreamConn) {
+    _state.logStreamConn.close();
+    _state.logStreamConn = null;
+  }
 }
 
-/* ---- Init ---- */
-document.addEventListener('DOMContentLoaded', () => {
-  // Determine initial page
-  const path = location.pathname.replace(/^\//, '') || 'tasks';
-  currentPage = path;
+_state._logScrollHandler = null;
 
-  // Highlight sidebar
-  document.querySelectorAll('.nav-item').forEach(el => {
-    el.addEventListener('click', () => navigateTo(el.dataset.page));
-    el.classList.toggle('active', el.dataset.page === currentPage);
+function detachLogScrollListener() {
+  const el = document.getElementById('logContainer');
+  if (_state._logScrollHandler) {
+    el?.removeEventListener('scroll', _state._logScrollHandler);
+    _state._logScrollHandler = null;
+  }
+}
+
+function attachLogScrollListener() {
+  // 先移除旧的监听器，防止多次调用累积
+  detachLogScrollListener();
+  const el = document.getElementById('logContainer');
+  if (!el) return;
+  _state._logScrollHandler = () => {
+    if (el.scrollTop > 50) {
+      if (!store.state._logAutoScrollPaused) {
+        store.setState({ _logAutoScrollPaused: true });
+      }
+    } else {
+      if (store.state._logAutoScrollPaused || store.state._logNewArrived) {
+        store.setState({ _logAutoScrollPaused: false, _logNewArrived: false });
+      }
+    }
+  };
+  el.addEventListener('scroll', _state._logScrollHandler);
+}
+
+function scrollLogToTop() {
+  const el = document.getElementById('logContainer');
+  if (el) el.scrollTop = 0;
+  store.setState({ _logAutoScrollPaused: false, _logNewArrived: false });
+}
+
+function restartLogStreamIfNeeded() {
+  if (!store.state.logAutoRefresh) return;
+  _state._logScrollListenerAttached = false;
+  store.setState({ _logAutoScrollPaused: false, _logNewArrived: false });
+  stopLogStream();
+  startLogStream();
+}
+
+function syncConfigTabView() {
+  if (store.state.configMode === 'form' && (!store.state.configFields || store.state.configFields.length === 0)) {
+    loadConfigFields();
+  }
+  // 提前加载原始数据，切换高级模式时无需等待异步请求
+  if (store.state.configRaw === null) loadConfigRaw();
+  if (store.state.configMode === 'raw' && !_state.configCodeMirror) {
+    requestAnimationFrame(() => requestAnimationFrame(initConfigCodeMirror));
+  }
+}
+
+function syncCookiesTabView() {
+  if (store.state.cookiesMode === 'form' && (!store.state.cookieItems || store.state.cookieItems.length === 0)) {
+    loadCookiesItems();
+  }
+  // 提前加载原始数据，切换高级模式时无需等待异步请求
+  if (store.state.cookiesRaw === null) loadCookiesRaw();
+  if (store.state.cookiesMode === 'raw' && !_state.cookiesCodeMirror) {
+    requestAnimationFrame(() => requestAnimationFrame(initCookiesCodeMirror));
+  }
+}
+
+function syncLogsPageView() {
+  if (!_state._logsPageLoaded) {
+    _state._logsPageLoaded = true;
+    loadLogs();
+  }
+  if (store.state.logAutoRefresh) startLogStream();
+}
+
+function syncSystemTabView() {
+  if (store.state.currentPage !== 'system') return;
+
+  if (store.state._systemTab === 'config') syncConfigTabView();
+  if (store.state._systemTab === 'cookies') syncCookiesTabView();
+  if (store.state._systemTab === 'schedules') syncScheduleTabView();
+}
+
+function rerenderSystemPanel(panelId, renderFn, resetEditor = null, initEditor = null, saveFn = null, restoreFn = null) {
+  const saved = saveFn ? saveFn() : null;
+  const panel = document.getElementById(panelId);
+  const savedScrollTop = panel ? panel.scrollTop : 0;
+  if (resetEditor) resetEditor();
+  if (panel) panel.innerHTML = renderFn();
+  if (panel) panel.scrollTop = savedScrollTop;
+  if (initEditor) requestAnimationFrame(() => requestAnimationFrame(() => {
+    initEditor();
+    // 仅在旧编辑器有实际内容时恢复，避免空内容覆盖新加载的数据
+    if (restoreFn && saved !== null && saved !== '') restoreFn(saved);
+  }));
+}
+
+function setSystemTab(tab) {
+  // 切换 tab 时清除所有 Skip 标志，防止残留阻挡后续重建
+  _state._configPanelSkipNextRebuild = false;
+  _state._cookiesPanelSkipNextRebuild = false;
+  _state._schedulePanelSkipNextRebuild = false;
+  store.setState({ _systemTab: tab });
+  setTimeout(syncSystemTabView, 0);
+}
+
+// ============================================
+// Navigation & Routing
+// ============================================
+
+// Shared route mappings (single source of truth)
+const ROUTE_TO_PAGE = { '/': 'overview', '/tasks': 'tasks', '/data': 'data', '/schedules': 'schedules', '/system': 'system', '/logs': 'logs' };
+const PAGE_TO_ROUTE = { overview: '/', tasks: '/tasks', data: '/data', schedules: '/schedules', system: '/system', logs: '/logs' };
+const HASH_TO_SUB = { 'users': 'users', 'lists': 'lists', 'entities': 'entities', 'list-entities': 'listEntities', 'user-links': 'userLinks', 'previous-names': 'previousNames' };
+const SUB_TO_HASH = { 'users': '', 'lists': '#lists', 'entities': '#entities', 'listEntities': '#list-entities', 'userLinks': '#user-links', 'previousNames': '#previous-names' };
+const PAGE_TITLES = { overview: '概览', tasks: '任务中心', data: '数据管理', schedules: '定时任务', system: '应用配置', logs: '系统日志' };
+
+function updateNavigationUI(page) {
+  document.querySelectorAll('.nav-item').forEach(el => el.classList.toggle('active', el.dataset.page === page));
+  document.querySelectorAll('.mobile-nav-item').forEach(el => el.classList.toggle('active', el.dataset.page === page));
+  document.getElementById('pageTitle').textContent = PAGE_TITLES[page] || '概览';
+}
+
+// Parse URL to determine current page
+function parseRoute() {
+  const path = window.location.pathname;
+  const hash = window.location.hash.slice(1); // Remove #
+  
+  const page = ROUTE_TO_PAGE[path] || 'overview';
+  const dataSubPage = HASH_TO_SUB[hash] || 'users';
+  
+  return { page, dataSubPage };
+}
+
+// Update URL based on current page
+function updateURL(page, dataSubPage = null) {
+  const path = PAGE_TO_ROUTE[page] || '/';
+  const hash = (page === 'data' && dataSubPage) ? SUB_TO_HASH[dataSubPage] : '';
+  
+  // Use history API to update URL without reloading
+  const newUrl = path + hash;
+  if (window.location.pathname + window.location.hash !== newUrl) {
+    window.history.pushState({ page, dataSubPage }, '', newUrl);
+  }
+}
+
+function navigateTo(page) {
+  drawer.close();
+  api.abortAll();
+  if ((_state.lastPage === 'system' || _state.lastPage === 'logs') && page !== _state.lastPage) {
+    cleanupSystemTimers();
+    destroyAllEditors();
+  }
+  store.setState({ currentPage: page });
+  
+  // Update URL
+  updateURL(page, store.state.dataSubPage);
+  
+  // Update sidebar, mobile nav, and title
+  updateNavigationUI(page);
+  
+  // Close sidebar on mobile
+  if (store.state.isMobile) {
+    document.getElementById('sidebar').classList.remove('open');
+    document.getElementById('sidebarOverlay').classList.remove('open');
+  }
+  
+  // Note: render() is called by subscribe callback when page changes
+}
+
+// Handle browser back/forward buttons
+window.onpopstate = (event) => {
+  const { page, dataSubPage } = parseRoute();
+  if ((_state.lastPage === 'system' || _state.lastPage === 'logs') && page !== _state.lastPage) {
+    cleanupSystemTimers();
+    destroyAllEditors();
+  }
+  
+  if (page === 'data' && dataSubPage !== store.state.dataSubPage) {
+    store.setState({ 
+      currentPage: page,
+      dataSubPage: dataSubPage 
+    });
+  } else {
+    store.setState({ currentPage: page });
+  }
+  
+  // Update sidebar, mobile nav, and title
+  updateNavigationUI(page);
+};
+
+function setDataSubPage(subPage) {
+  store.setState({
+    dataSubPage: subPage,
+    dbPagination: {
+      ...store.state.dbPagination,
+      [subPage]: { page: 1, pageSize: 200, totalPages: 1 }
+    },
+    dbSearch: {
+      ...store.state.dbSearch,
+      [subPage]: ''
+    },
+    _prevNameUserIdFilter: subPage === 'previousNames' ? store.state._prevNameUserIdFilter : ''
   });
+  
+  // Update URL when changing data sub-page
+  updateURL('data', subPage);
+  
+  // Note: render() is called by subscribe callback for data page
+  refreshDBData();
+}
 
-  // Set page title
-  const titles = {tasks:'Tasks', data:'Data', schedules:'Schedules', system:'System', logs:'Logs'};
-  document.getElementById('page-title').textContent = titles[currentPage] || 'Tasks';
+function render() {
+  const container = document.getElementById('contentContainer');
+  const page = store.state.currentPage;
 
-  // Connect SSE first
-  connectSSE();
+  if (pages[page]) {
+    container.innerHTML = pages[page]();
 
-  // Initial health check
-  checkHealth();
-  setInterval(checkHealth, 30000);
+    if (page === 'system') {
+      // Defer to avoid re-entering store subscription via loadConfigFields() -> setState
+      setTimeout(() => syncSystemTabView(), 0);
+    } else if (page === 'logs') {
+      syncLogsPageView();
+    }
+    
+    // Restore filter and search values
+      restoreSearchValue('taskFilter', 'taskFilter');
+      restoreSearchValue('taskSearch', 'taskSearch');
 
-  // Render initial page
-  renderPage(currentPage);
+    // Restore search value for data page
+    if (page === 'data') {
+      restoreSearchValue('dbSearchInput', 'dbSearch', store.state.dataSubPage);
+    }
+
+    if (page === 'schedules') {
+      if (store.state._schedules === null) loadSchedules();
+    }
+    
+    // Restore search value for logs
+    if (page === 'logs') {
+      restoreSearchValue('logSearchInput', 'logSearch');
+    }
+  }
+}
+
+// Filter tasks based on status and search
+function filterTasks() {
+  // Reuse updateTaskListUI to render filtered tasks
+  updateTaskListUI(store.state.tasks);
+}
+
+// ============================================
+// Global Error Boundary
+// ============================================
+
+window.onerror = function (msg, url, line, col, error) {
+  console.error('[Global] 未捕获的异常:', msg, 'at', url + ':' + line + ':' + col, error);
+  return true;
+};
+
+window.addEventListener('unhandledrejection', function (e) {
+  console.error('[Global] 未处理的 Promise 拒绝:', e.reason);
+  e.preventDefault();
 });
 
-// Export functions for inline onclick
-window.ENDPOINTS = ENDPOINTS;
-window.apiBase = apiBase;
+// ============================================
+// Initialization
+// ============================================
+
+async function init() {
+  const { page, dataSubPage } = parseRoute();
+  updateNavigationUI(page);
+
+  sseManager.connect();
+
+  try {
+    const [health, tasks] = await Promise.all([
+      api.getHealth(),
+      api.getTasks()
+    ]);
+
+    store.setState({
+      currentPage: page,
+      dataSubPage: dataSubPage,
+      health,
+      tasks: tasks.tasks || [],
+    });
+
+    _initComplete = true;
+
+    await refreshDBData();
+
+  } catch (err) {
+    _initComplete = true;
+    store.setState({
+      currentPage: page,
+      dataSubPage: dataSubPage
+    });
+    toast.show('加载数据失败: ' + err.message, 'error');
+  }
+
+  render();
+}
+
+// Event Listeners
+document.getElementById('menuToggle').onclick = () => {
+  const sb = document.getElementById('sidebar');
+  const ov = document.getElementById('sidebarOverlay');
+  sb.classList.toggle('open');
+  ov.classList.toggle('open', sb.classList.contains('open'));
+  document.getElementById('menuToggle').setAttribute('aria-expanded', sb.classList.contains('open'));
+};
+
+document.getElementById('sidebarOverlay').onclick = () => {
+  document.getElementById('sidebar').classList.remove('open');
+  document.getElementById('sidebarOverlay').classList.remove('open');
+};
+
+document.querySelectorAll('.nav-item').forEach(el => {
+  el.onclick = () => navigateTo(el.dataset.page);
+});
+
+document.querySelectorAll('.mobile-nav-item').forEach(el => {
+  el.onclick = () => navigateTo(el.dataset.page);
+});
+
+document.getElementById('sseIndicator').onclick = () => {
+  const page = store.state.currentPage;
+  if (page === 'tasks') refreshTasks();
+  else if (page === 'data') refreshDBData();
+  else if (page === 'schedules') loadSchedules();
+  else if (page === 'logs') loadLogs();
+  else init();
+};
+
+// Handle window resize
+window.addEventListener('resize', () => {
+  const isMobile = window.innerWidth < 768;
+  if (isMobile !== store.state.isMobile) {
+    store.setState({ isMobile });
+  }
+});
+
+// Subscribe to state changes
+const dataDetector = makeChangeDetector(['dataSubPage', 'dbData', 'dbPagination', 'dbSort']);
+const scheduleDetector = makeChangeDetector(['_schedules', '_scheduleRaw', '_scheduleExists', '_scheduleSaving', '_scheduleTab', '_scheduleFormItems', '_schedulerRunning']);
+const logDetector = makeChangeDetector(['logs', 'logLevel', 'logPagination', '_logNewArrived']);
+const overviewDetector = makeChangeDetector(['tasks', 'health']);
+
+// ============================================
+// Page-specific state sync functions
+// ============================================
+
+function syncDataPage(state) {
+  const { hasAny, changed } = dataDetector.detect(state);
+  if (!hasAny) return;
+
+  // 子页面切换（如 Users→Lists）：全量重建（tab 切换需要重新渲染标题）
+  if (changed.dataSubPage) { render(); return; }
+
+  // 仅数据/排序/分页变化：局部更新表格 + 分页栏，保留标签页和搜索状态
+  const subPage = state.dataSubPage;
+  const current = state.dbData[subPage] || { data: [], total: 0 };
+  const pagination = state.dbPagination[subPage] || { page: 1, pageSize: 200, totalPages: 1 };
+  const sort = state.dbSort[subPage] || { sortBy: 'id', sortOrder: 'desc' };
+
+  const tableEl = document.getElementById('dataTableContainer');
+  if (tableEl) tableEl.innerHTML = renderDBTable(subPage, current.data, sort);
+
+  const mobileEl = document.getElementById('dataMobileCards');
+  if (mobileEl) mobileEl.innerHTML = renderDBMobileCards(subPage, current.data);
+
+  const pagEl = document.getElementById('dataPagination');
+  if (pagEl) {
+    const infoEl = pagEl.querySelector('#dataPaginationInfo');
+    if (infoEl) {
+      infoEl.textContent = `显示 ${current.data.length || 0} / ${current.total || 0} 条记录 (第 ${pagination.page} / ${pagination.totalPages} 页)`;
+    }
+    const controlsEl = pagEl.querySelector('.pagination-controls');
+    if (controlsEl) {
+      controlsEl.innerHTML = `
+        <button class="page-btn" data-action="changeDBPage" data-delta="-1" ${pagination.page <= 1 ? 'disabled' : ''}>←</button>
+        ${renderPageNumbers(pagination.page, pagination.totalPages)}
+        <button class="page-btn" data-action="changeDBPage" data-delta="1" ${pagination.page >= pagination.totalPages ? 'disabled' : ''}>→</button>
+      `;
+    }
+  }
+}
+
+function syncSystemPage(state) {
+  const tabChanged = state._systemTab !== _state.lastSystemTab;
+  const configRawChanged = state.configRaw !== _state.lastConfigRaw;
+  const configSavingChanged = state.configSaving !== _state.lastConfigSaving;
+  const configFieldsChanged = JSON.stringify(state.configFields) !== _state.lastConfigFieldsJson;
+  const configFieldsLoadingChanged = state.configFieldsLoading !== _state.lastConfigFieldsLoading;
+  const configModeChanged = state.configMode !== _state.lastConfigMode;
+  const cookiesChanged = JSON.stringify(state.cookieItems) !== _state.lastCookieItemsJson;
+  const cookiesModeChanged = state.cookiesMode !== _state.lastCookiesMode;
+  const cookiesRawChanged = state.cookiesRaw !== _state.lastCookiesRaw;
+  const cookiesSavingChanged = state.cookiesSaving !== _state.lastCookiesSaving;
+  const schedulesChanged = JSON.stringify(state._schedules) !== _state.lastSchedulesJson;
+  const scheduleRawChanged = state._scheduleRaw !== _state.lastScheduleRaw;
+  const scheduleExistsChanged = state._scheduleExists !== _state.lastScheduleExists;
+  const scheduleSavingChanged = state._scheduleSaving !== _state.lastScheduleSaving;
+  const scheduleTabChanged = state._scheduleTab !== _state.lastScheduleTab;
+  const scheduleFormItemsChanged = JSON.stringify(state._scheduleFormItems) !== _state.lastScheduleFormItemsJson;
+
+  if (tabChanged) {
+    _state.lastSystemTab = state._systemTab;
+    document.querySelectorAll('.system-tabs .tab').forEach(t => {
+      t.classList.toggle('active', t.dataset.tab === state._systemTab);
+    });
+    document.getElementById('systemConfigPanel').style.display = state._systemTab === 'config' ? '' : 'none';
+    document.getElementById('systemCookiesPanel').style.display = state._systemTab === 'cookies' ? '' : 'none';
+    document.getElementById('systemSchedulesPanel').style.display = state._systemTab === 'schedules' ? '' : 'none';
+  }
+
+  const configRawRebuildNeeded = configRawChanged && _state.lastConfigRaw === null && state.configRaw !== null;
+  let configPanelShouldRebuild = state.configMode === 'raw'
+    ? (configModeChanged || configSavingChanged || configRawRebuildNeeded)
+    : (configRawChanged || configFieldsChanged || configFieldsLoadingChanged || configSavingChanged || configModeChanged);
+  if (state.currentPage === 'system' && _state._configPanelSkipNextRebuild && configPanelShouldRebuild && configModeChanged && state.configMode === 'raw') {
+    _state._configPanelSkipNextRebuild = false;
+    // setConfigMode 已同步重建面板，此处跳过 Config 重建（继续处理 cookies/schedules）
+    configPanelShouldRebuild = false;
+    // 但需要同步 _state last* 避免后续反复重建
+    _state.lastConfigRaw = state.configRaw;
+    _state.lastConfigSaving = state.configSaving;
+    _state.lastConfigFieldsJson = JSON.stringify(state.configFields);
+    _state.lastConfigFieldsLoading = state.configFieldsLoading;
+    _state.lastConfigMode = state.configMode;
+  }
+  if (configPanelShouldRebuild) {
+    _state.lastConfigRaw = state.configRaw;
+    _state.lastConfigSaving = state.configSaving;
+    _state.lastConfigFieldsJson = JSON.stringify(state.configFields);
+    _state.lastConfigFieldsLoading = state.configFieldsLoading;
+    _state.lastConfigMode = state.configMode;
+    rerenderSystemPanel(
+      'systemConfigPanel',
+      renderConfigEditor,
+      () => { _state.configCodeMirror = destroyCodeMirror(_state.configCodeMirror); _state._configCmInitializing = false; },
+      state.configMode === 'raw' ? initConfigCodeMirror : null,
+      () => state.configMode === 'raw' ? getEditorValue(_state.configCodeMirror, null) : null,
+      (val) => { if (val !== null && _state.configCodeMirror) setEditorValue(_state.configCodeMirror, val); }
+    );
+  } else if (configRawChanged && state.configMode === 'raw' && _state.configCodeMirror) {
+    _state.lastConfigRaw = state.configRaw;
+    setEditorValue(_state.configCodeMirror, state.configRaw);
+  }
+
+  const cookiesRawRebuildNeeded = cookiesRawChanged && _state.lastCookiesRaw === null && state.cookiesRaw !== null;
+  let cookiesPanelShouldRebuild = state.cookiesMode === 'raw'
+    ? (cookiesModeChanged || cookiesSavingChanged || cookiesRawRebuildNeeded)
+    : (cookiesChanged || cookiesModeChanged || cookiesRawChanged || cookiesSavingChanged);
+  if (_state._cookiesPanelSkipNextRebuild && cookiesPanelShouldRebuild && cookiesModeChanged && state.cookiesMode === 'raw') {
+    _state._cookiesPanelSkipNextRebuild = false;
+    cookiesPanelShouldRebuild = false;
+    _state.lastCookieItemsJson = JSON.stringify(state.cookieItems);
+    _state.lastCookiesMode = state.cookiesMode;
+    _state.lastCookiesRaw = state.cookiesRaw;
+    _state.lastCookiesSaving = state.cookiesSaving;
+  }
+  if (cookiesPanelShouldRebuild) {
+    _state.lastCookieItemsJson = JSON.stringify(state.cookieItems);
+    _state.lastCookiesMode = state.cookiesMode;
+    _state.lastCookiesRaw = state.cookiesRaw;
+    _state.lastCookiesSaving = state.cookiesSaving;
+    rerenderSystemPanel(
+      'systemCookiesPanel',
+      renderCookiesEditor,
+      () => { _state.cookiesCodeMirror = destroyCodeMirror(_state.cookiesCodeMirror); _state._cookiesCmInitializing = false; },
+      state.cookiesMode === 'raw' ? initCookiesCodeMirror : null,
+      () => state.cookiesMode === 'raw' ? getEditorValue(_state.cookiesCodeMirror, null) : null,
+      (val) => { if (val !== null && _state.cookiesCodeMirror) setEditorValue(_state.cookiesCodeMirror, val); }
+    );
+  } else if (cookiesRawChanged && state.cookiesMode === 'raw' && _state.cookiesCodeMirror) {
+    _state.lastCookiesRaw = state.cookiesRaw;
+    setEditorValue(_state.cookiesCodeMirror, state.cookiesRaw);
+  }
+
+  const schedulePanelSchedulesChanged = state._scheduleTab !== 'form' && schedulesChanged;
+  if (schedulesChanged && !schedulePanelSchedulesChanged) {
+    _state.lastSchedulesJson = JSON.stringify(state._schedules);
+  }
+  const scheduleRawRebuildNeeded = scheduleRawChanged && _state.lastScheduleRaw === null && state._scheduleRaw !== null;
+  let schedulePanelShouldRebuild = state._scheduleTab === 'edit'
+    ? (scheduleTabChanged || scheduleSavingChanged || scheduleExistsChanged || scheduleRawRebuildNeeded || schedulePanelSchedulesChanged || scheduleFormItemsChanged)
+    : (schedulePanelSchedulesChanged || scheduleRawChanged || scheduleExistsChanged || scheduleSavingChanged || scheduleTabChanged || scheduleFormItemsChanged);
+  if (_state._schedulePanelSkipNextRebuild && schedulePanelShouldRebuild && scheduleTabChanged && state._scheduleTab === 'edit') {
+    _state._schedulePanelSkipNextRebuild = false;
+    schedulePanelShouldRebuild = false;
+    _state.lastSchedulesJson = JSON.stringify(state._schedules);
+    _state.lastTasksJson = JSON.stringify(state.tasks);
+    _state.lastScheduleRaw = state._scheduleRaw;
+    _state.lastScheduleExists = state._scheduleExists;
+    _state.lastScheduleSaving = state._scheduleSaving;
+    _state.lastScheduleTab = state._scheduleTab;
+    _state.lastScheduleFormItemsJson = JSON.stringify(state._scheduleFormItems);
+  }
+  if (schedulePanelShouldRebuild) {
+    _state.lastSchedulesJson = JSON.stringify(state._schedules);
+    _state.lastTasksJson = JSON.stringify(state.tasks);
+    _state.lastScheduleRaw = state._scheduleRaw;
+    _state.lastScheduleExists = state._scheduleExists;
+    _state.lastScheduleSaving = state._scheduleSaving;
+    _state.lastScheduleTab = state._scheduleTab;
+    _state.lastScheduleFormItemsJson = JSON.stringify(state._scheduleFormItems);
+    rerenderSystemPanel(
+      'systemSchedulesPanel',
+      renderScheduleViewer,
+      () => { _state.scheduleCodeMirror = destroyCodeMirror(_state.scheduleCodeMirror); _state._scheduleCmInitializing = false; },
+      state._scheduleTab === 'edit' ? initScheduleCodeMirror : null,
+      () => state._scheduleTab === 'edit' ? getEditorValue(_state.scheduleCodeMirror, null) : null,
+      (val) => { if (val !== null && _state.scheduleCodeMirror) setEditorValue(_state.scheduleCodeMirror, val); }
+    );
+  } else if (scheduleRawChanged && state._scheduleTab === 'edit' && _state.scheduleCodeMirror) {
+    _state.lastScheduleRaw = state._scheduleRaw;
+    setEditorValue(_state.scheduleCodeMirror, state._scheduleRaw);
+  }
+}
+
+function syncSchedulesPage(state) {
+  const { hasAny, changed } = scheduleDetector.detect(state);
+  if (!hasAny) return;
+
+  // 手术刀更新：banner → 只改 #scheduleBanner，保留列表 DOM 和滚动位置
+  if (changed._schedulerRunning) {
+    const bannerEl = document.getElementById('scheduleBanner');
+    if (bannerEl) {
+      bannerEl.innerHTML = state._schedulerRunning
+        ? '' : '<div class="alert alert-warning" style="margin-bottom:var(--space-3)">⚠️ 调度器未启动，定时任务不会自动执行。请在「定时任务」页面中添加并启用规则后重载配置。</div>';
+    }
+  }
+
+  // 手术刀更新：列表 → 只改 #scheduleTable，保留页面容器和滚动位置
+  if (changed._schedules || changed._scheduleExists) {
+    const tableEl = document.getElementById('scheduleTable');
+    if (!tableEl) return;
+    // 保存当前滚动位置（card-body-scroll 是实际滚动容器）
+    const scrollBody = tableEl.querySelector('.card-body-scroll');
+    const scrollPos = scrollBody ? scrollBody.scrollTop : 0;
+    tableEl.innerHTML = renderScheduleTable(state._schedules, state._scheduleExists);
+    // 恢复滚动位置
+    if (scrollPos > 0) {
+      requestAnimationFrame(() => {
+        const newScroll = tableEl.querySelector('.card-body-scroll');
+        if (newScroll) newScroll.scrollTop = scrollPos;
+      });
+    }
+  }
+}
+
+function syncLogsPage(state) {
+  const { hasAny, changed } = logDetector.detect(state);
+  if (!hasAny) return;
+
+  // 手术刀：滚动到顶按钮显示/隐藏
+  if (changed._logNewArrived) {
+    const btn = document.getElementById('logScrollToTopBtn');
+    if (btn) btn.style.display = state._logNewArrived ? 'flex' : 'none';
+  }
+
+  // 手术刀：日志行 — 只改 #logLines，保留容器和滚动位置
+  if (changed.logs) {
+    const linesEl = document.getElementById('logLines');
+    if (linesEl) linesEl.innerHTML = renderLogLines(state.logs, state._logsLoading !== false);
+  }
+
+  // 手术刀：筛选按钮 — 只改 #logFilterArea，保留搜索输入框状态
+  if (changed.logLevel) {
+    const filterEl = document.getElementById('logFilterArea');
+    if (filterEl) {
+      const levelBtns = renderLogFilterButtons(state.logLevel, state.logStats);
+      const oldBtns = filterEl.querySelector('.log-level-filters');
+      if (oldBtns) oldBtns.outerHTML = levelBtns;
+    }
+  }
+
+  // 手术刀：分页栏 — 只改 #logPagination
+  if (changed.logPagination) {
+    const pagEl = document.getElementById('logPagination');
+    if (pagEl) {
+      pagEl.innerHTML = `
+        <div class="pagination-info">显示 ${state.logs.length} / ${state.logPagination.total} 条 (第 ${state.logPagination.page}/${state.logPagination.totalPages} 页)</div>
+        <div class="pagination-controls">
+          <button class="page-btn" data-action="changeLogPage" data-delta="-1" ${state.logPagination.page <= 1 ? 'disabled' : ''}>←</button>
+          ${renderPageNumbers(state.logPagination.page, state.logPagination.totalPages, 'goToLogPage')}
+          <button class="page-btn" data-action="changeLogPage" data-delta="1" ${state.logPagination.page >= state.logPagination.totalPages ? 'disabled' : ''}>→</button>
+        </div>`;
+    }
+  }
+}
+
+function syncOverviewPage(state) {
+  const { hasAny, changed } = overviewDetector.detect(state);
+  if (!hasAny) return;
+
+  if (changed.tasks) {
+    updateOverviewTasksUI(state.tasks);
+  }
+  if (changed.health) {
+    updateOverviewHealthUI(state.health);
+  }
+}
+
+function updateOverviewHealthUI(health) {
+  const el = document.querySelector('[data-overview-stat="health"]');
+  if (el) el.textContent = health ? (health.status === 'ok' ? '健康' : '异常') : '检查中';
+  const labelEl = document.querySelector('.stat-card:first-child .stat-label');
+  if (labelEl) labelEl.textContent = '系统状态 ' + (health ? health.version : '');
+}
+
+store.subscribe((state) => {
+  // 首次渲染由 init() 的 render() 控制，订阅只处理页面切换和手术刀更新
+  if (state.currentPage === null) return;
+
+  if (state.currentPage !== _state.lastPage) {
+    _state.lastPage = state.currentPage;
+    render();
+    return;
+  }
+
+  if (state.currentPage === 'tasks') {
+    const { hasAny: tasksChanged } = overviewDetector.detect(state);
+    if (tasksChanged) { updateTaskListUI(state.tasks); }
+  }
+
+  if (state.currentPage === 'data') syncDataPage(state);
+  else if (state.currentPage === 'system') syncSystemPage(state);
+  else if (state.currentPage === 'schedules') syncSchedulesPage(state);
+  else if (state.currentPage === 'logs') syncLogsPage(state);
+  else if (state.currentPage === 'overview') syncOverviewPage(state);
+});
+
+function getTaskStats(tasks) {
+  const taskStats = { queued: 0, running: 0, completed: 0, failed: 0, cancelled: 0 };
+  tasks.forEach(t => { if (taskStats[t.status] !== undefined) taskStats[t.status]++; });
+  return taskStats;
+}
+
+function updateOverviewStatsUI(tasks) {
+  const taskStats = getTaskStats(tasks);
+
+  const runningStat = document.querySelector('[data-overview-stat="running"]');
+  if (runningStat) runningStat.textContent = taskStats.running;
+
+  const completedStat = document.querySelector('[data-overview-stat="completed"]');
+  if (completedStat) completedStat.textContent = taskStats.completed;
+}
+
+// Update overview page recent tasks without full re-render
+function updateOverviewTasksUI(tasks) {
+  const recentTasks = tasks.slice(0, 5);
+  const taskList = document.querySelector('.overview-tasks-list');
+  if (!taskList) return;
+
+  updateOverviewStatsUI(tasks);
+  
+  if (recentTasks.length === 0) {
+    taskList.className = 'empty-state overview-tasks-list';
+    taskList.innerHTML = `
+      <div class="empty-icon">📋</div>
+      <div class="empty-title">暂无任务</div>
+      <div class="empty-desc">创建一个新任务开始下载 Twitter 媒体文件</div>
+    `;
+  } else {
+    taskList.className = 'task-list overview-tasks-list';
+    taskList.innerHTML = recentTasks.map(t => renderTaskItem(t)).join('');
+  }
+}
+
+// Update only the task list part of the UI without full re-render
+function updateTaskListUI(tasks) {
+  const taskList = document.getElementById('taskListContainer');
+  if (!taskList) return;
+  
+  const filter = store.state.taskFilter;
+  const search = store.state.taskSearch.toLowerCase();
+  
+  let filtered = tasks;
+  
+  if (filter !== 'all') {
+    filtered = filtered.filter(t => t.status === filter);
+  }
+  
+  if (search) {
+    filtered = filtered.filter(t => {
+      const target = (t.data?.screen_name || t.data?.list_id || '').toString().toLowerCase();
+      const batchTargets = [
+        ...(t.data?.users || []),
+        ...(t.data?.lists || []),
+        ...(t.data?.following_names || [])
+      ].join(' ').toLowerCase();
+      return target.includes(search) || batchTargets.includes(search) || t.task_id.toLowerCase().includes(search);
+    });
+  }
+  
+  if (filtered.length === 0) {
+    taskList.className = 'empty-state';
+    taskList.innerHTML = `
+      <div class="empty-icon">🔍</div>
+      <div class="empty-title">没有找到匹配的任务</div>
+      <div class="empty-desc">尝试调整筛选条件或搜索关键词</div>
+    `;
+  } else {
+    taskList.className = 'task-list';
+    taskList.innerHTML = filtered.map(t => renderTaskItem(t)).join('');
+  }
+  
+  // Update task count subtitle
+  const subtitle = document.querySelector('[data-task-count-subtitle]');
+  if (subtitle) {
+    subtitle.textContent = `共 ${tasks.length} 个任务`;
+  }
+}
+
+// Register global event listeners once (event delegation on content container)
+document.getElementById('contentContainer').addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter') return;
+  const id = e.target.id;
+  if (id === 'quickDownloadInput') handleQuickDownload();
+  else if (id === 'dbSearchInput') searchDB();
+  else if (id === 'logSearchInput') refreshLogs();
+});
+
+// Delegated input/change/blur for data-binding elements (replaces inline on* handlers)
+document.getElementById('contentContainer').addEventListener('input', (e) => {
+  const el = e.target.closest('[data-binding]');
+  if (!el) return;
+  const binding = el.dataset.binding;
+  const idx = el.dataset.idx;
+  if (binding === 'taskSearch') {
+    updateSearchState('taskSearch', null, el.value);
+    filterTasks();
+  } else if (binding === 'dbSearch') {
+    updateSearchState('dbSearch', store.state.dataSubPage, el.value);
+  } else if (binding === 'logSearch') {
+    onLogSearchInput(el.value);
+  } else if (binding === 'sf_field' && idx !== undefined) {
+    scheduleFieldChanged(Number(idx));
+  }
+});
+
+document.getElementById('contentContainer').addEventListener('change', (e) => {
+  const el = e.target.closest('[data-binding]');
+  if (!el) return;
+  const binding = el.dataset.binding;
+  const idx = el.dataset.idx;
+  if (binding === 'taskFilter') {
+    updateSearchState('taskFilter', null, el.value);
+    filterTasks();
+  } else if (binding === 'sf_type' && idx !== undefined) {
+    updateScheduleFormItem(Number(idx), el.id.includes('mode') ? 'scheduleMode' : 'type', el.value);
+  }
+});
+
+document.getElementById('contentContainer').addEventListener('focusout', (e) => {
+  const el = e.target.closest('[data-binding]');
+  if (!el) return;
+  const idx = el.dataset.idx;
+  if (el.dataset.binding === 'sf_field' && idx !== undefined) {
+    validateScheduleField(Number(idx));
+  }
+});
+
+document.getElementById('contentContainer').addEventListener('click', (e) => {
+  const tab = e.target.closest('[data-task-tab]');
+  if (tab) {
+    saveTaskFormState();
+    document.querySelectorAll('[data-task-tab]').forEach(t => t.classList.remove('active'));
+    tab.classList.add('active');
+    document.getElementById('taskFormContainer').innerHTML = renderTaskForm(tab.dataset.taskTab);
+    restoreTaskFormState(tab.dataset.taskTab);
+    return;
+  }
+
+  const taskItem = e.target.closest('.task-item[data-task-id]');
+  if (taskItem) {
+    // 如果点击的是 data-action 按钮（如取消/重试），
+    // 该按钮已由 Universal action dispatch 处理，此处不应再打开详情
+    if (e.target.closest('[data-action]')) return;
+    showTaskDetail(taskItem.dataset.taskId);
+  }
+});
+
+// ============================================
+// Universal action dispatch (replaces inline onclick)
+// ============================================
+document.getElementById('app').addEventListener('click', (e) => {
+  const el = e.target.closest('[data-action]');
+  if (!el) return;
+
+  const action = el.dataset.action;
+  const inDrawer = !!el.closest('#drawer');
+
+  switch (action) {
+    // Navigation
+    case 'navigateTo':            navigateTo(el.dataset.page); break;
+    case 'setSystemTab':          setSystemTab(el.dataset.tab); break;
+    case 'setDataSubPage':        setDataSubPage(el.dataset.subpage); break;
+    case 'navigateToSystemSchedules': navigateToSystemSchedules(); break;
+    case 'navigateToTasks':       navigateTo('tasks'); break;
+
+    // Task creation
+    case 'createUserTask':        createUserTask(); break;
+    case 'createProfileTask':     createProfileTask(); break;
+    case 'createListTask':        createListTask(); break;
+    case 'createListProfileTask': createListProfileTask(); break;
+    case 'createFollowingTask':   createFollowingTask(); break;
+    case 'createMarkTask':        createMarkTask(); break;
+    case 'createBatchTask':       createBatchTask(); break;
+    case 'createJsonFileTask':    createJsonFileTask(); break;
+    case 'createJsonFolderTask':  createJsonFolderTask(); break;
+    case 'handleQuickDownload':   handleQuickDownload(); break;
+    case 'cancelQueuedTasks':     cancelQueuedTasks(); break;
+
+    // Config
+    case 'setConfigMode':         setConfigMode(el.dataset.mode); break;
+    case 'saveConfigForm':        saveConfigForm(); break;
+    case 'saveConfig':            saveConfig(); break;
+
+    // Cookies
+    case 'setCookiesMode':        setCookiesMode(el.dataset.mode); break;
+    case 'addCookieAccount':      addCookieAccount(); break;
+    case 'saveCookiesForm':       saveCookiesForm(); break;
+    case 'removeCookieAccount':   removeCookieAccount(Number(el.dataset.index)); break;
+    case 'saveCookies':           saveCookies(); break;
+
+    // Schedules
+    case 'setScheduleTab':        setScheduleTab(el.dataset.tab); break;
+    case 'addScheduleItem':       addScheduleItem(); break;
+    case 'removeScheduleItem':    removeScheduleItem(Number(el.dataset.index)); break;
+    case 'saveScheduleForm':      saveScheduleForm(); break;
+    case 'saveScheduleRaw':       saveScheduleRaw(); break;
+    case 'triggerSchedule':       triggerSchedule(el.dataset.scheduleId); break;
+    case 'triggerAllSchedules':   triggerAllSchedules(); break;
+    case 'toggleScheduleEnabled': toggleScheduleEnabled(el.dataset.scheduleId, el.dataset.enabled === 'true'); break;
+
+    // DB page
+    case 'changeDBPage':          changeDBPage(Number(el.dataset.delta)); break;
+    case 'goToDBPage':            goToDBPage(Number(el.dataset.page)); break;
+    case 'goToLogPage':           goToLogPage(Number(el.dataset.page)); break;
+    case 'sortDB':                sortDB(el.dataset.sortField); break;
+    case 'searchDB':              searchDB(); break;
+    case 'editDBItem':            editDBItem(el.dataset.dbType, el.dataset.dbId); break;
+    case 'deleteDBItem':          deleteDBItem(el.dataset.dbType, el.dataset.dbId); break;
+    case 'saveDBItem':            saveDBItem(el.dataset.dbType, el.dataset.dbId); break;
+    case 'filterPreviousNamesByUser': filterPreviousNamesByUser(el.dataset.userId); break;
+
+    // Logs
+    case 'setLogLevel':           setLogLevel(el.dataset.level); break;
+    case 'changeLogPage':         changeLogPage(Number(el.dataset.delta)); break;
+    case 'toggleLogAutoRefresh':  toggleLogAutoRefresh(); break;
+    case 'scrollLogToTop':        scrollLogToTop(); break;
+    case 'downloadLogExport':     api.downloadLogExport(); break;
+
+    // Server
+    case 'shutdownServer':        shutdownServer(); break;
+
+    // Drawer
+    case 'closeDrawer':           drawer.close(); return;
+
+    // Tasks in list/drawer
+    case 'cancelTask':            cancelTask(el.dataset.taskId); break;
+    case 'retryTask':             retryTask(el.dataset.taskId); break;
+    case 'deleteTask':            deleteTask(el.dataset.taskId); break;
+    case 'showTaskDetail':        showTaskDetail(el.dataset.taskId); break;
+
+    default: return;
+  }
+
+  // Actions triggered from inside the drawer close it afterwards
+  if (inDrawer) drawer.close();
+});
+
+// Start
+init();
