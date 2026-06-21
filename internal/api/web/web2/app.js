@@ -1598,10 +1598,6 @@ function renderSystemPage(container) {
     <div class="section">
       <div class="section-header"><h2>System</h2></div>
       <div class="stats-grid" id="sys-queue"></div>
-      <div class="section-header" style="margin-top:8px">
-        <div></div>
-        <button class="btn btn-danger btn-sm" onclick="if(confirm('Shut down the server?')){ENDPOINTS.shutdown().then(r=>toast(r.message||'Shutting down...','warning')).catch(e=>toast(e.message,'error'))}">Shut Down Server</button>
-      </div>
     </div>
 
     <div class="section">
@@ -1614,6 +1610,7 @@ function renderSystemPage(container) {
             <button class="tab" data-configtab="cookies">Cookies</button>
             <button class="tab" data-configtab="cookies-raw">Raw Cookies</button>
           </div>
+          <button class="btn btn-danger btn-sm" style="flex-shrink:0" onclick="if(confirm('Shut down the server?')){ENDPOINTS.shutdown().then(r=>toast(r.message||'Shutting down...','warning')).catch(e=>toast(e.message,'error'))}">Shut Down Server</button>
         </div>
         <div class="card-body" id="config-content">
           <div class="loading"><div class="spinner"></div> Loading...</div>
