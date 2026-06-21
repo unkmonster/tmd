@@ -214,7 +214,7 @@ list.appendChild(b);
 async function switchTheme(t){
 var r=await fetch('/api/v1/config/theme',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({theme:t})});
 var d=await r.json();
-if(d.success)window.location.reload()}
+if(d.success)window.location.href=window.location.pathname+'?_ts='+Date.now()}
 </script>
 </div>`
 }
