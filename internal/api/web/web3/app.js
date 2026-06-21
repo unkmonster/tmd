@@ -1,1544 +1,676 @@
 /* ============================================================
    TMD Web v3 - app.js
-   Twitter Media Downloader management UI
-   SPA with 6 pages, SSE real-time updates
+   Apple-inspired management UI for Twitter Media Downloader
    ============================================================ */
 
 /* ---- Constants ---- */
 const API_BASE = '';
 const PAGES = ['dashboard', 'tasks', 'data', 'schedules', 'config', 'logs'];
 const PAGE_TITLES = {
-  dashboard: 'Dashboard',
-  tasks: 'Tasks',
-  data: 'Data',
-  schedules: 'Schedules',
-  config: 'Configuration',
-  logs: 'Logs'
+  dashboard: 'Dashboard', tasks: 'Tasks', data: 'Data',
+  schedules: 'Schedules', config: 'Settings', logs: 'Logs'
 };
 const TASK_TYPE_LABELS = {
-  user_download: 'User Download',
-  list_download: 'List Download',
-  following_download: 'Following Download',
-  profile_download: 'Profile Download',
-  mark_downloaded: 'Mark Downloaded',
-  json_file_download: 'JSON File Import',
-  json_folder_download: 'Folder Import',
-  batch_download: 'Batch Download',
-  list_profile: 'List Profile',
-  retry_all_failed: 'Retry All Failed'
+  user_download: 'User Download', list_download: 'List Download',
+  following_download: 'Following Download', profile_download: 'Profile Download',
+  mark_downloaded: 'Mark Downloaded', json_file_download: 'JSON File Import',
+  json_folder_download: 'Folder Import', batch_download: 'Batch Download',
+  list_profile: 'List Profile', retry_all_failed: 'Retry All Failed'
 };
 const SCHEDULE_LABELS = { list: 'List', user: 'User', following: 'Following', mixed: 'Mixed' };
-const STATUS_TAG_CLASS = {
-  completed: 'tag-success',
-  running: 'tag-running',
-  queued: 'tag-queued',
-  failed: 'tag-failed',
-  cancelled: 'tag-cancelled'
-};
+const STATUS_CLASS = { completed: 'badge-completed', running: 'badge-running', queued: 'badge-queued', failed: 'badge-failed', cancelled: 'badge-cancelled' };
 
 /* ---- State ---- */
 const state = {
-  currentPage: 'dashboard',
-  tasks: [],
+  currentPage: 'dashboard', tasks: [],
   taskStats: { queued: 0, running: 0, completed: 0, failed: 0, cancelled: 0, total: 0 },
-  health: null,
-  sseConnected: false,
-  dataActiveTab: 'users',
-  dataPage: {},
-  dataSearch: {},
-  schedules: [],
-  schedulerRunning: false,
+  health: null, sseConnected: false,
+  dataActiveTab: 'users', schedules: [], schedulerRunning: false
 };
 
 /* ---- API Client ---- */
 const API = {
-  _abortControllers: new Map(),
   async _fetch(url, opts) {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 30000);
     try {
       const r = await fetch(url, { ...opts, signal: ctrl.signal });
-      if (!r.ok && r.headers.get('content-type')?.includes('json')) {
-        const j = await r.json();
-        throw new Error(j.error || j.message || `HTTP ${r.status}`);
-      }
+      if (!r.ok && r.headers.get('content-type')?.includes('json')) { const j = await r.json(); throw new Error(j.error || `HTTP ${r.status}`); }
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       return r;
-    } catch (e) {
-      if (e.name === 'AbortError') throw new Error('Request timed out');
-      throw e;
-    } finally { clearTimeout(timer); }
+    } catch (e) { if (e.name === 'AbortError') throw new Error('Request timed out'); throw e; }
+    finally { clearTimeout(timer); }
   },
-  async _json(url, opts) {
-    const r = await this._fetch(url, opts);
-    const j = await r.json();
-    if (!j.success) throw new Error(j.error || 'Request failed');
-    return j.data;
-  },
-  get: (url) => API._json(API_BASE + url),
-  post: (url, body) => API._json(API_BASE + url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: body ? JSON.stringify(body) : undefined
-  }),
-  put: (url, body) => API._json(API_BASE + url, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: body ? JSON.stringify(body) : undefined
-  }),
-  patch: (url, body) => API._json(API_BASE + url, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: body ? JSON.stringify(body) : undefined
-  }),
-  del: (url) => API._json(API_BASE + url, { method: 'DELETE' }),
-  text: async (url) => {
-    const r = await API._fetch(API_BASE + url);
-    return r.text();
-  },
-  rawResponse: async (url, opts) => {
-    const r = await API._fetch(API_BASE + url, opts);
-    const j = await r.json();
-    return j;
-  }
+  async _json(url, opts) { const r = await this._fetch(url, opts); const j = await r.json(); if (!j.success) throw new Error(j.error || 'Request failed'); return j.data; },
+  get: url => API._json(API_BASE + url),
+  post: (url, body) => API._json(API_BASE + url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined }),
+  put: (url, body) => API._json(API_BASE + url, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined }),
+  patch: (url, body) => API._json(API_BASE + url, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined }),
+  del: url => API._json(API_BASE + url, { method: 'DELETE' }),
 };
 
-/* ---- Utility Functions ---- */
-const $ = (id) => document.getElementById(id);
-const esc = (s) => { if (s == null) return ''; const d = document.createElement('div'); d.appendChild(document.createTextNode(String(s))); return d.innerHTML; };
+/* ---- Utilities ---- */
+const $ = id => document.getElementById(id);
+const esc = s => { if (s == null) return ''; const d = document.createElement('div'); d.appendChild(document.createTextNode(String(s))); return d.innerHTML; };
 const plural = (n, s) => n + ' ' + (n === 1 ? s : s + 's');
-
-function relativeTime(iso) {
-  if (!iso) return '-';
-  const d = new Date(iso);
-  if (isNaN(d.getTime())) return '-';
-  const diff = Date.now() - d.getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return 'just now';
-  if (mins < 60) return plural(mins, 'min') + ' ago';
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return plural(hrs, 'hr') + ' ago';
-  const days = Math.floor(hrs / 24);
-  if (days < 30) return plural(days, 'day') + ' ago';
-  return d.toLocaleDateString();
-}
-
-function formatTime(iso) {
-  if (!iso) return '-';
-  const d = new Date(iso);
-  if (isNaN(d.getTime())) return '-';
-  return d.toLocaleString();
-}
-
-function formatDuration(startIso, endIso) {
-  if (!startIso) return '-';
-  const start = new Date(startIso);
-  const end = endIso ? new Date(endIso) : new Date();
-  const secs = Math.max(0, Math.floor((end - start) / 1000));
-  if (secs < 60) return secs + 's';
-  const mins = Math.floor(secs / 60);
-  const rem = secs % 60;
-  return mins + 'm ' + rem + 's';
-}
-
-function stripAnsi(str) {
-  return str.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '');
-}
-
-function logLevel(line) {
-  if (/ERRO\[|level=e(rror)?/.test(line)) return 'error';
-  if (/WARN\[|level=w(arn)?/.test(line)) return 'warn';
-  if (/INFO\[|level=i(nfo)?/.test(line)) return 'info';
-  if (/DEBU\[|level=d(ebug)?/.test(line)) return 'debug';
-  return '';
-}
-
-function taskTypeLabel(t) { return TASK_TYPE_LABELS[t] || t; }
-
-function durationSeconds(start, end) {
-  if (!start) return 0;
-  return Math.max(0, Math.floor(((end ? new Date(end) : new Date()) - new Date(start)) / 1000));
-}
+const relTime = iso => {
+  if (!iso) return '-'; const d = new Date(iso); if (isNaN(d.getTime())) return '-';
+  const diff = Date.now() - d.getTime(); const mins = Math.floor(diff / 60000);
+  if (mins < 1) return 'just now'; if (mins < 60) return plural(mins, 'min') + ' ago';
+  const hrs = Math.floor(mins / 60); if (hrs < 24) return plural(hrs, 'hr') + ' ago';
+  return plural(Math.floor(hrs / 24), 'day') + ' ago';
+};
+const fmtTime = iso => { if (!iso) return '-'; const d = new Date(iso); return isNaN(d.getTime()) ? '-' : d.toLocaleString(); };
+const fmtDur = (s, e) => {
+  if (!s) return '-'; const secs = Math.max(0, Math.floor(((e ? new Date(e) : new Date()) - new Date(s)) / 1000));
+  if (secs < 60) return secs + 's'; return Math.floor(secs / 60) + 'm ' + (secs % 60) + 's';
+};
+const stripAnsi = s => s.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '');
+const logLevel = l => { if (/ERRO\[|level=e(rror)?/.test(l)) return 'error'; if (/WARN\[|level=w(arn)?/.test(l)) return 'warn'; if (/INFO\[|level=i(nfo)?/.test(l)) return 'info'; if (/DEBU\[|level=d(ebug)?/.test(l)) return 'debug'; return ''; };
+const tLabel = t => TASK_TYPE_LABELS[t] || t;
 
 /* ---- Toast ---- */
-function toast(message, type) {
-  const container = $('toastContainer');
-  const el = document.createElement('div');
+function toast(msg, type) {
+  const c = $('toastContainer'); const el = document.createElement('div');
   el.className = 'toast ' + (type || 'info');
-  el.innerHTML = '<div class="toast-message">' + esc(message) + '</div><button class="toast-close" onclick="this.parentElement.classList.add(\'out\');setTimeout(()=>this.parentElement.remove(),200)" type="button"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>';
-  container.appendChild(el);
-  setTimeout(() => { el.classList.add('out'); setTimeout(() => el.remove(), 200); }, 4000);
+  el.innerHTML = '<span class="toast-message">' + esc(msg) + '</span><button class="toast-close" onclick="this.parentElement.classList.add(\'out\');setTimeout(()=>this.parentElement.remove(),200)"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>';
+  c.appendChild(el);
+  setTimeout(() => { el.classList.add('out'); setTimeout(() => el.remove(), 200); }, 3500);
 }
 
 /* ---- Modal ---- */
 function openModal(title, bodyHTML, footHTML) {
-  $('modalTitle').textContent = title;
-  $('modalBody').innerHTML = bodyHTML;
-  $('modalFoot').innerHTML = footHTML || '';
-  $('modalOverlay').classList.add('open');
-  $('modal').classList.add('open');
-  $('modal').setAttribute('aria-hidden', 'false');
-  $('modalOverlay').setAttribute('aria-hidden', 'false');
+  $('modalTitle').textContent = title; $('modalBody').innerHTML = bodyHTML; $('modalFoot').innerHTML = footHTML || '';
+  $('modalMask').classList.add('open'); $('modalSheet').classList.add('open');
+  $('modalSheet').setAttribute('aria-hidden', 'false'); $('modalMask').setAttribute('aria-hidden', 'false');
 }
+function closeModal() { $('modalMask').classList.remove('open'); $('modalSheet').classList.remove('open'); $('modalSheet').setAttribute('aria-hidden', 'true'); $('modalMask').setAttribute('aria-hidden', 'true'); }
+$('modalClose').onclick = closeModal; $('modalMask').onclick = closeModal;
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
 
-function closeModal() {
-  $('modalOverlay').classList.remove('open');
-  $('modal').classList.remove('open');
-  $('modal').setAttribute('aria-hidden', 'true');
-  $('modalOverlay').setAttribute('aria-hidden', 'true');
-}
-
-$('modalClose').onclick = closeModal;
-$('modalOverlay').onclick = closeModal;
-document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeModal(); });
-
-/* ---- Navigation / Router ---- */
+/* ---- Navigation ---- */
 function navigate(page) {
   if (!PAGES.includes(page)) page = 'dashboard';
   state.currentPage = page;
   history.pushState(null, '', page === 'dashboard' ? '/' : '/' + page);
-  updateNavigation();
+  updateNav();
   renderPage(page);
 }
-
-function updateNavigation() {
+function updateNav() {
   document.querySelectorAll('.nav-item').forEach(el => {
     el.classList.toggle('active', el.dataset.page === state.currentPage);
-    if (el.dataset.page === state.currentPage) {
-      el.setAttribute('aria-current', 'page');
-    } else {
-      el.removeAttribute('aria-current');
-    }
+    if (el.dataset.page === state.currentPage) el.setAttribute('aria-current', 'page');
+    else el.removeAttribute('aria-current');
   });
-  $('pageTitle').textContent = PAGE_TITLES[state.currentPage] || 'Dashboard';
-  document.title = 'TMD - ' + (PAGE_TITLES[state.currentPage] || 'Dashboard');
+  $('pageTitle').textContent = PAGE_TITLES[state.currentPage] || '';
+  document.title = 'TMD - ' + (PAGE_TITLES[state.currentPage] || '');
 }
-
 function renderPage(page) {
-  const content = $('content');
-  content.innerHTML = '<div class="page-loading"><div class="spinner"></div></div>';
-  switch (page) {
-    case 'dashboard': renderDashboard(); break;
-    case 'tasks': renderTasks(); break;
-    case 'data': renderData(); break;
-    case 'schedules': renderSchedules(); break;
-    case 'config': renderConfig(); break;
-    case 'logs': renderLogs(); break;
-  }
+  $('pageContent').innerHTML = '<div class="page-loader"><div class="spinner"></div></div>';
+  const fns = { dashboard: renderDashboard, tasks: renderTasks, data: renderData, schedules: renderSchedules, config: renderConfig, logs: renderLogs };
+  if (fns[page]) fns[page]();
 }
+document.querySelectorAll('.nav-item').forEach(el => { el.addEventListener('click', () => navigate(el.dataset.page)); el.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); navigate(el.dataset.page); } }); });
+$('menuBtn').addEventListener('click', () => $('sidebar').classList.toggle('open'));
+$('sidebarOverlay').addEventListener('click', () => $('sidebar').classList.remove('open'));
+window.addEventListener('popstate', () => { const p = (location.pathname.replace(/^\//, '') || 'dashboard'); const page = PAGES.includes(p) ? p : 'dashboard'; state.currentPage = page; updateNav(); renderPage(page); });
 
-/* ---- Navigation Events ---- */
-document.querySelectorAll('.nav-item').forEach(el => {
-  el.addEventListener('click', () => navigate(el.dataset.page));
-  el.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); navigate(el.dataset.page); } });
-});
-
-$('menuBtn').addEventListener('click', () => {
-  $('sidebar').classList.toggle('open');
-});
-$('sidebarOverlay').addEventListener('click', () => {
-  $('sidebar').classList.remove('open');
-});
-
-/* ---- Theme Toggle ---- */
+/* ---- Theme ---- */
 $('themeBtn').addEventListener('click', () => {
-  const html = document.documentElement;
-  const current = html.getAttribute('data-theme') || 'dark';
-  const next = current === 'dark' ? 'light' : 'dark';
-  html.setAttribute('data-theme', next);
-  localStorage.setItem('tmd-theme', next);
+  const h = document.documentElement; const n = h.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+  h.setAttribute('data-theme', n); localStorage.setItem('tmd-theme', n);
 });
-const savedTheme = localStorage.getItem('tmd-theme');
-if (savedTheme) document.documentElement.setAttribute('data-theme', savedTheme);
+if (localStorage.getItem('tmd-theme')) document.documentElement.setAttribute('data-theme', localStorage.getItem('tmd-theme'));
 
-/* ---- Page: Dashboard ---- */
+/* ============================================================
+   PAGE: Dashboard
+   ============================================================ */
 async function renderDashboard() {
-  const content = $('content');
   try {
     const [health, stats] = await Promise.all([
       API.get('/api/v1/health').catch(() => null),
       API.get('/api/v1/tasks/stats').catch(() => null),
     ]);
-    state.health = health;
-    if (stats) state.taskStats = stats;
-    updateSidebarHealth();
-
+    state.health = health; if (stats) state.taskStats = stats;
+    updateHealth();
     const queue = await API.get('/api/v1/queue/status').catch(() => null);
-    const tasksList = await API.get('/api/v1/tasks').catch(() => null);
-    const recent = Array.isArray(tasksList?.tasks) ? tasksList.tasks.slice(0, 8) : [];
+    const tasksData = await API.get('/api/v1/tasks').catch(() => null);
+    const recent = Array.isArray(tasksData?.tasks) ? tasksData.tasks.slice(0, 8) : [];
+    const s = stats || {};
 
-    content.innerHTML = `
-      <div class="stats-grid">
-        <div class="stat-card">
-          <div class="stat-icon accent"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg></div>
-          <div class="stat-content"><div class="stat-value">${stats ? stats.total : '-'}</div><div class="stat-label">Total Tasks</div></div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-icon accent"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg></div>
-          <div class="stat-content"><div class="stat-value">${stats ? stats.completed : '-'}</div><div class="stat-label">Completed</div></div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-icon ${stats?.running > 0 ? 'accent' : 'success'}">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+    $('pageContent').innerHTML = `
+      <div class="stat-grid">
+        <div class="stat-tile"><div class="stat-tile-icon accent"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg></div><div class="stat-tile-content"><div class="stat-tile-value">${s.total ?? '-'}</div><div class="stat-tile-label">Total Tasks</div></div></div>
+        <div class="stat-tile"><div class="stat-tile-icon success"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg></div><div class="stat-tile-content"><div class="stat-tile-value">${s.completed ?? '-'}</div><div class="stat-tile-label">Completed</div></div></div>
+        <div class="stat-tile"><div class="stat-tile-icon ${s.running > 0 ? 'accent' : 'success'}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></div><div class="stat-tile-content"><div class="stat-tile-value">${s.running ?? '-'}</div><div class="stat-tile-label">Running${s.queued > 0 ? ' (' + s.queued + ' queued)' : ''}</div></div></div>
+        <div class="stat-tile"><div class="stat-tile-icon ${s.failed > 0 ? 'danger' : 'success'}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg></div><div class="stat-tile-content"><div class="stat-tile-value">${s.failed ?? '-'}</div><div class="stat-tile-label">Failed</div></div></div>
+      </div>
+      <div class="dash-cols">
+        <div class="panel">
+          <div class="panel-head"><span class="panel-title">System</span></div>
+          <div class="panel-body padded" style="display:grid;grid-template-columns:auto 1fr;gap:6px 16px;font-size:12.5px">
+            <span style="color:var(--text-tertiary)">Status</span><span>${health ? '<span class="badge badge-completed">Online</span>' : '<span class="badge badge-failed">Offline</span>'}</span>
+            <span style="color:var(--text-tertiary)">Version</span><span class="text-mono">${health?.version || '-'}</span>
+            <span style="color:var(--text-tertiary)">SSE</span><span id="dashSseStatus"><span class="badge ${state.sseConnected ? 'badge-completed' : 'badge-failed'}">${state.sseConnected ? 'Connected' : 'Disconnected'}</span></span>
           </div>
-          <div class="stat-content"><div class="stat-value">${stats ? stats.running : '-'}</div><div class="stat-label">Running${stats?.queued > 0 ? ' (+' + stats.queued + ' queued)' : ''}</div></div>
         </div>
-        <div class="stat-card">
-          <div class="stat-icon ${stats?.failed > 0 ? 'danger' : 'success'}">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
-          </div>
-          <div class="stat-content"><div class="stat-value">${stats ? stats.failed : '-'}</div><div class="stat-label">Failed</div></div>
+        <div class="panel">
+          <div class="panel-head"><span class="panel-title">Queue</span></div>
+          <div class="panel-body padded">${queue ? `<div class="queue-grid">
+            <div class="queue-stat"><div class="queue-stat-value">${queue.queue_depth}</div><div class="queue-stat-label">Depth</div></div>
+            <div class="queue-stat"><div class="queue-stat-value">${queue.active_jobs}</div><div class="queue-stat-label">Active</div></div>
+            <div class="queue-stat"><div class="queue-stat-value">${queue.pending_jobs}</div><div class="queue-stat-label">Pending</div></div>
+            <div class="queue-stat"><div class="queue-stat-value">${queue.detached_jobs}</div><div class="queue-stat-label">Detached</div></div>
+          </div>` : '<div class="empty-state"><div class="empty-desc">Unavailable</div></div>'}</div>
         </div>
       </div>
-
-      <div class="dashboard-grid">
-        <div class="card">
-          <div class="card-header"><span class="card-title">System Status</span></div>
-          <div class="card-body">
-            <div style="display:grid;grid-template-columns:auto 1fr;gap:8px 16px;font-size:13px">
-              <span style="color:var(--text-muted)">Status</span>
-              <span>${health ? '<span class="tag tag-success">Online</span>' : '<span class="tag tag-failed">Offline</span>'}</span>
-              <span style="color:var(--text-muted)">Version</span>
-              <span class="text-mono">${health?.version || '-'}</span>
-              <span style="color:var(--text-muted)">Database</span>
-              <span>${health ? '<span class="tag tag-success">Connected</span>' : '<span class="tag tag-failed">Disconnected</span>'}</span>
-              <span style="color:var(--text-muted)">SSE</span>
-              <span id="dashSseStatus"><span class="tag ${state.sseConnected ? 'tag-success' : 'tag-failed'}">${state.sseConnected ? 'Connected' : 'Disconnected'}</span></span>
-            </div>
-          </div>
-        </div>
-
-        <div class="card">
-          <div class="card-header"><span class="card-title">Queue Status</span></div>
-          <div class="card-body">
-            ${queue ? `
-            <div class="queue-status">
-              <div class="queue-stat"><div class="queue-stat-value">${queue.queue_depth}</div><div class="queue-stat-label">Depth</div></div>
-              <div class="queue-stat"><div class="queue-stat-value">${queue.active_jobs}</div><div class="queue-stat-label">Active</div></div>
-              <div class="queue-stat"><div class="queue-stat-value">${queue.pending_jobs}</div><div class="queue-stat-label">Pending</div></div>
-              <div class="queue-stat"><div class="queue-stat-value">${queue.detached_jobs}</div><div class="queue-stat-label">Detached</div></div>
-            </div>` : '<div class="empty-state"><div class="empty-desc">Unable to fetch queue status</div></div>'}
-          </div>
-        </div>
-
-        <div class="card" style="grid-column:1/-1">
-          <div class="card-header">
-            <span class="card-title">Recent Tasks</span>
-            <div class="card-actions">
-              <button class="btn btn-sm btn-ghost" onclick="navigate('tasks')">View All</button>
-            </div>
-          </div>
-          ${recent.length ? renderTaskList(recent) : `<div class="empty-state"><div class="empty-icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg></div><div class="empty-title">No tasks yet</div><div class="empty-desc">Start a download from the Tasks page</div></div>`}
-        </div>
-      </div>
+      ${recent.length ? `<div class="section"><div class="section-header"><span class="section-title">Recent Tasks</span><div class="section-actions"><button class="btn btn-sm btn-ghost" onclick="navigate('tasks')">View All</button></div></div><div class="panel">${renderTaskList(recent)}</div></div>`
+        : `<div class="section"><div class="section-header"><span class="section-title">Tasks</span></div><div class="panel"><div class="empty-state"><div class="empty-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg></div><div class="empty-title">No tasks yet</div><div class="empty-desc">Start a download from the Tasks page</div></div></div>`}
     `;
   } catch (e) {
-    content.innerHTML = `<div class="empty-state"><div class="empty-icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg></div><div class="empty-title">Failed to load dashboard</div><div class="empty-desc">${esc(e.message)}</div></div>`;
+    $('pageContent').innerHTML = `<div class="empty-state"><div class="empty-title">Unable to load dashboard</div><div class="empty-desc">${esc(e.message)}</div></div>`;
   }
 }
 
-/* ---- Page: Tasks ---- */
+/* ============================================================
+   PAGE: Tasks
+   ============================================================ */
 async function renderTasks() {
-  const content = $('content');
   try {
-    const [tasksData, stats] = await Promise.all([
-      API.get('/api/v1/tasks'),
-      API.get('/api/v1/tasks/stats').catch(() => null),
+    const [td, stats] = await Promise.all([
+      API.get('/api/v1/tasks'), API.get('/api/v1/tasks/stats').catch(() => null)
     ]);
-    const tasks = Array.isArray(tasksData?.tasks) ? tasksData.tasks : [];
-    if (stats) state.taskStats = stats;
-    state.tasks = tasks;
-    updateTaskBadge();
+    const tasks = Array.isArray(td?.tasks) ? td.tasks : [];
+    if (stats) state.taskStats = stats; state.tasks = tasks; updateBadge();
 
-    content.innerHTML = `
-      <div class="toolbar">
-        <div class="toolbar-left">
-          <button class="btn btn-sm btn-primary" onclick="showNewTaskModal()">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-            New Task
-          </button>
-          <button class="btn btn-sm btn-secondary" onclick="cancelAllQueued()">Cancel Queued</button>
-          <button class="btn btn-sm btn-ghost" onclick="retryAllFailed()">Retry Failed</button>
+    $('pageContent').innerHTML = `
+      <div class="section">
+        <div class="section-header">
+          <span class="section-title">${plural(tasks.length, 'task')}</span>
+          <div class="section-actions">
+            <button class="btn btn-sm btn-primary" onclick="showNewTaskModal()"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> New</button>
+            <button class="btn btn-sm btn-secondary" onclick="cancelAllQueued()">Cancel Queued</button>
+            <button class="btn btn-sm btn-ghost" onclick="retryAllFailed()">Retry Failed</button>
+          </div>
         </div>
-        <div class="toolbar-right">
-          <span class="text-sm text-muted">${plural(tasks.length, 'task')}${stats ? ' &middot; ' + stats.running + ' running' : ''}</span>
-        </div>
-      </div>
-      <div class="card">
-        ${tasks.length ? renderTaskList(tasks) : `<div class="empty-state"><div class="empty-icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg></div><div class="empty-title">No tasks</div><div class="empty-desc">Create a new download task to get started</div></div>`}
-      </div>
-    `;
+        <div class="panel">${tasks.length ? renderTaskList(tasks) : `<div class="empty-state"><div class="empty-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg></div><div class="empty-title">No tasks</div><div class="empty-desc">Create a new download task to get started</div></div></div>}
+      </div>`;
     attachTaskEvents();
-  } catch (e) {
-    content.innerHTML = `<div class="empty-state"><div class="empty-title">Failed to load tasks</div><div class="empty-desc">${esc(e.message)}</div></div>`;
-  }
+  } catch (e) { $('pageContent').innerHTML = `<div class="empty-state"><div class="empty-title">Failed to load tasks</div><div class="empty-desc">${esc(e.message)}</div></div>`; }
 }
 
 function renderTaskList(tasks) {
-  return '<div class="task-list">' + tasks.map(t => {
-    const p = t.progress || {};
-    const pct = p.total > 0 ? Math.min(100, Math.round((p.completed || 0) / p.total * 100)) : 0;
-    const tagClass = STATUS_TAG_CLASS[t.status] || 'tag-queued';
-    return `<div class="task-item" data-task-id="${esc(t.task_id)}">
-      <div class="task-tag"><span class="tag ${tagClass}">${t.status}</span></div>
-      <div class="task-info">
-        <div class="task-title">${esc(taskTypeLabel(t.type))}${t.data?.screen_name ? ': ' + esc(t.data.screen_name) : ''}${t.data?.list_id ? ' (list)' : ''}</div>
-        <div class="task-meta">
-          <span>${esc(t.task_id)}</span>
-          ${t.created_at ? '<span>&middot; ' + relativeTime(t.created_at) + '</span>' : ''}
-          ${t.started_at && t.status === 'running' ? '<span>&middot; ' + formatDuration(t.started_at) + '</span>' : ''}
-          ${t.started_at && t.ended_at ? '<span>&middot; ' + formatDuration(t.started_at, t.ended_at) + '</span>' : ''}
-          ${p.stage ? '<span>&middot; ' + esc(p.stage) + '</span>' : ''}
-          ${p.current ? '<span>&middot; ' + esc(p.current) + '</span>' : ''}
+  return '<div class="list">' + tasks.map(t => {
+    const p = t.progress || {}; const pct = p.total > 0 ? Math.min(100, Math.round((p.completed||0)/p.total*100)) : 0;
+    return `<div class="list-item" data-id="${esc(t.task_id)}">
+      <span class="badge ${STATUS_CLASS[t.status]||'badge-queued'}" style="flex-shrink:0">${t.status}</span>
+      <div class="list-item-content">
+        <div class="list-item-title">${esc(tLabel(t.type))}${t.data?.screen_name ? ': ' + esc(t.data.screen_name) : ''}${t.data?.list_id ? ' (list)' : ''}</div>
+        <div class="list-item-meta">
+          <span class="text-mono">${esc(t.task_id.substring(0,20))}</span>
+          ${t.created_at ? '<span>' + relTime(t.created_at) + '</span>' : ''}
+          ${p.stage ? '<span>' + esc(p.stage) + '</span>' : ''}
+          ${p.current ? '<span>' + esc(p.current) + '</span>' : ''}
+          ${t.started_at && t.ended_at ? '<span>' + fmtDur(t.started_at, t.ended_at) + '</span>' : ''}
         </div>
+        ${(t.status === 'running' || t.status === 'queued') && p.total > 0 ? `<div class="mt-2"><div class="progress-track"><div class="progress-fill" style="width:${pct}%"></div></div><div style="font-size:10px;color:var(--text-tertiary);margin-top:2px">${p.completed||0}/${p.total}${p.failed ? ' (' + p.failed + ' failed)' : ''}</div></div>` : ''}
       </div>
-      ${(t.status === 'running' || t.status === 'queued') && p.total > 0 ? `
-      <div class="task-progress-wrap">
-        <div class="progress-bar"><div class="progress-fill" style="width:${pct}%"></div></div>
-        <div class="task-progress-text">${p.completed || 0}/${p.total}${p.failed ? ' (' + p.failed + ' failed)' : ''}</div>
-      </div>` : ''}
-      <div class="task-actions">
-        ${t.status === 'running' || t.status === 'queued' ? `<button class="btn btn-xs btn-ghost task-cancel" title="Cancel"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>` : ''}
-        ${t.status === 'failed' || t.status === 'cancelled' ? `<button class="btn btn-xs btn-ghost task-retry" title="Retry"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></button>` : ''}
-        ${t.status === 'completed' || t.status === 'failed' || t.status === 'cancelled' ? `<button class="btn btn-xs btn-ghost task-delete" title="Delete"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>` : ''}
-        <button class="btn btn-xs btn-ghost task-detail" title="Details"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg></button>
+      <div class="list-item-actions">
+        ${t.status === 'running' || t.status === 'queued' ? `<button class="btn btn-xs btn-ghost task-cancel" title="Cancel"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>` : ''}
+        ${t.status === 'failed' || t.status === 'cancelled' ? `<button class="btn btn-xs btn-ghost task-retry" title="Retry"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></button>` : ''}
+        ${['completed','failed','cancelled'].includes(t.status) ? `<button class="btn btn-xs btn-ghost task-delete" title="Delete"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>` : ''}
+        <button class="btn btn-xs btn-ghost task-detail" title="Info"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg></button>
       </div>
     </div>`;
   }).join('') + '</div>';
 }
 
 function attachTaskEvents() {
-  document.querySelectorAll('.task-cancel').forEach(el => {
-    el.addEventListener('click', async (e) => {
-      e.stopPropagation();
-      const id = el.closest('.task-item')?.dataset.taskId;
-      if (id) { try { await API.post('/api/v1/tasks/' + id + '/cancel'); toast('Task cancelled', 'warning'); renderTasks(); } catch (ex) { toast(ex.message, 'error'); } }
-    });
-  });
-  document.querySelectorAll('.task-retry').forEach(el => {
-    el.addEventListener('click', async (e) => {
-      e.stopPropagation();
-      const id = el.closest('.task-item')?.dataset.taskId;
-      if (id) { try { await API.post('/api/v1/tasks/' + id + '/retry'); toast('Task queued for retry', 'success'); renderTasks(); } catch (ex) { toast(ex.message, 'error'); } }
-    });
-  });
-  document.querySelectorAll('.task-delete').forEach(el => {
-    el.addEventListener('click', async (e) => {
-      e.stopPropagation();
-      const id = el.closest('.task-item')?.dataset.taskId;
-      if (id && confirm('Delete task ' + id + '?')) { try { await API.del('/api/v1/tasks/' + id); toast('Task deleted', 'info'); renderTasks(); } catch (ex) { toast(ex.message, 'error'); } }
-    });
-  });
-  document.querySelectorAll('.task-detail').forEach(el => {
-    el.addEventListener('click', async (e) => {
-      e.stopPropagation();
-      const id = el.closest('.task-item')?.dataset.taskId;
-      if (id) showTaskDetail(id);
-    });
-  });
+  document.querySelectorAll('.task-cancel').forEach(el => { el.addEventListener('click', async e => { e.stopPropagation(); const id = el.closest('.list-item')?.dataset.id; if (id) try { await API.post('/api/v1/tasks/' + id + '/cancel'); toast('Cancelled', 'warning'); renderTasks(); } catch (ex) { toast(ex.message, 'error'); } }); });
+  document.querySelectorAll('.task-retry').forEach(el => { el.addEventListener('click', async e => { e.stopPropagation(); const id = el.closest('.list-item')?.dataset.id; if (id) try { await API.post('/api/v1/tasks/' + id + '/retry'); toast('Retry queued', 'success'); renderTasks(); } catch (ex) { toast(ex.message, 'error'); } }); });
+  document.querySelectorAll('.task-delete').forEach(el => { el.addEventListener('click', async e => { e.stopPropagation(); const id = el.closest('.list-item')?.dataset.id; if (id && confirm('Delete?')) try { await API.del('/api/v1/tasks/' + id); toast('Deleted', 'info'); renderTasks(); } catch (ex) { toast(ex.message, 'error'); } }); });
+  document.querySelectorAll('.task-detail').forEach(el => { el.addEventListener('click', async e => { e.stopPropagation(); const id = el.closest('.list-item')?.dataset.id; if (id) showTaskDetail(id); }); });
 }
 
-async function showTaskDetail(taskId) {
+async function showTaskDetail(id) {
   try {
-    const task = await API.get('/api/v1/tasks/' + taskId);
-    const p = task.progress || {};
-    const r = task.result || {};
-    const pct = p.total > 0 ? Math.min(100, Math.round((p.completed || 0) / p.total * 100)) : 0;
-    openModal('Task: ' + esc(task.task_id), `
-      <div style="display:grid;grid-template-columns:auto 1fr;gap:8px 16px;font-size:13px">
-        <span style="color:var(--text-muted)">ID</span><span class="text-mono">${esc(task.task_id)}</span>
-        <span style="color:var(--text-muted)">Type</span><span>${esc(taskTypeLabel(task.type))}</span>
-        <span style="color:var(--text-muted)">Status</span><span><span class="tag ${STATUS_TAG_CLASS[task.status] || 'tag-queued'}">${task.status}</span></span>
-        <span style="color:var(--text-muted)">Created</span><span>${formatTime(task.created_at)}</span>
-        ${task.started_at ? '<span style="color:var(--text-muted)">Started</span><span>' + formatTime(task.started_at) + '</span>' : ''}
-        ${task.ended_at ? '<span style="color:var(--text-muted)">Ended</span><span>' + formatTime(task.ended_at) + '</span>' : ''}
-        ${task.started_at ? '<span style="color:var(--text-muted)">Duration</span><span>' + formatDuration(task.started_at, task.ended_at) + '</span>' : ''}
-        ${p.stage ? '<span style="color:var(--text-muted)">Stage</span><span>' + esc(p.stage) + '</span>' : ''}
-        ${p.current ? '<span style="color:var(--text-muted)">Current</span><span>' + esc(p.current) + '</span>' : ''}
+    const t = await API.get('/api/v1/tasks/' + id); const p = t.progress || {}; const r = t.result || {};
+    const pct = p.total > 0 ? Math.min(100, Math.round((p.completed||0)/p.total*100)) : 0;
+    openModal('Task: ' + esc(t.task_id), `
+      <div class="detail-grid">
+        <span class="detail-label">ID</span><span class="detail-value text-mono">${esc(t.task_id)}</span>
+        <span class="detail-label">Type</span><span class="detail-value">${esc(tLabel(t.type))}</span>
+        <span class="detail-label">Status</span><span class="detail-value"><span class="badge ${STATUS_CLASS[t.status]}">${t.status}</span></span>
+        <span class="detail-label">Created</span><span class="detail-value">${fmtTime(t.created_at)}</span>
+        ${t.started_at ? '<span class="detail-label">Started</span><span class="detail-value">' + fmtTime(t.started_at) + '</span>' : ''}
+        ${t.ended_at ? '<span class="detail-label">Ended</span><span class="detail-value">' + fmtTime(t.ended_at) + '</span>' : ''}
+        ${t.started_at ? '<span class="detail-label">Duration</span><span class="detail-value">' + fmtDur(t.started_at, t.ended_at) + '</span>' : ''}
+        ${p.stage ? '<span class="detail-label">Stage</span><span class="detail-value">' + esc(p.stage) + '</span>' : ''}
       </div>
-      ${p.total > 0 ? `
-      <div class="mt-3">
-        <div class="progress-bar"><div class="progress-fill" style="width:${pct}%"></div></div>
-        <div class="text-sm text-muted mt-2">${p.completed || 0} / ${p.total} completed${p.failed ? ' (' + p.failed + ' failed)' : ''}</div>
+      ${p.total > 0 ? `<div class="mt-3"><div class="progress-track"><div class="progress-fill" style="width:${pct}%"></div></div><div class="text-sm text-muted mt-2">${p.completed||0}/${p.total}${p.failed ? ' (' + p.failed + ' failed)' : ''}</div></div>` : ''}
+      ${r.main || r.profile ? `<div class="mt-3" style="padding:12px;background:var(--bg-secondary);border-radius:var(--radius);font-size:12px;display:grid;grid-template-columns:auto 1fr;gap:4px 16px">
+        ${r.main ? '<span class="text-muted">Downloaded</span><span>' + (r.main.downloaded||0) + ' files</span>' : ''}
+        ${r.main?.failed ? '<span class="text-muted">Failed</span><span style="color:var(--danger-text)">' + r.main.failed + '</span>' : ''}
+        ${r.profile ? '<span class="text-muted">Profile</span><span>' + (r.profile.downloaded||0) + ' dl' + (r.profile.failed?', '+r.profile.failed+' fail':'') + (r.profile.versioned?', '+r.profile.versioned+' ver':'') + '</span>' : ''}
+        ${r.message ? '<span class="text-muted">Note</span><span>' + esc(r.message) + '</span>' : ''}
       </div>` : ''}
-      ${r.main || r.profile ? `
-      <div class="mt-3" style="display:grid;grid-template-columns:auto 1fr;gap:6px 16px;font-size:13px;padding:12px;background:var(--bg-raised);border-radius:var(--radius)">
-        ${r.main ? '<span style="color:var(--text-muted)">Downloaded</span><span>' + (r.main.downloaded || 0) + ' files</span>' : ''}
-        ${r.main && r.main.failed ? '<span style="color:var(--text-muted)">Failed</span><span style="color:var(--danger-text)">' + r.main.failed + ' files</span>' : ''}
-        ${r.profile ? '<span style="color:var(--text-muted)">Profile</span><span>' + (r.profile.downloaded || 0) + ' downloaded' + (r.profile.failed ? ', ' + r.profile.failed + ' failed' : '') + (r.profile.versioned ? ', ' + r.profile.versioned + ' versioned' : '') + '</span>' : ''}
-        ${r.message ? '<span style="color:var(--text-muted)">Message</span><span>' + esc(r.message) + '</span>' : ''}
-      </div>` : ''}
-      ${task.error ? '<div class="mt-3" style="padding:10px 12px;background:var(--danger-bg);border-radius:var(--radius);font-size:12px;font-family:var(--font-mono);color:var(--danger-text)">' + esc(task.error) + '</div>' : ''}
+      ${t.error ? '<div class="mt-3" style="padding:10px 12px;background:var(--danger-bg);border-radius:var(--radius);font-size:11.5px;font-family:var(--font-mono);color:var(--danger-text)">' + esc(t.error) + '</div>' : ''}
     `, `
-      ${task.status === 'running' || task.status === 'queued' ? '<button class="btn btn-sm btn-danger" onclick="closeModal();cancelTask(\'' + esc(task.task_id) + '\')">Cancel</button>' : ''}
-      ${task.status === 'failed' || task.status === 'cancelled' ? '<button class="btn btn-sm btn-primary" onclick="closeModal();retryTask(\'' + esc(task.task_id) + '\')">Retry</button>' : ''}
+      ${t.status === 'running' || t.status === 'queued' ? '<button class="btn btn-sm btn-danger" onclick="closeModal();cancelTask(\'' + esc(t.task_id) + '\')">Cancel</button>' : ''}
+      ${t.status === 'failed' || t.status === 'cancelled' ? '<button class="btn btn-sm btn-primary" onclick="closeModal();retryTask(\'' + esc(t.task_id) + '\')">Retry</button>' : ''}
       <button class="btn btn-sm btn-ghost" onclick="closeModal()">Close</button>
     `);
-  } catch (e) {
-    toast(e.message, 'error');
-  }
+  } catch (e) { toast(e.message, 'error'); }
 }
-
-async function cancelTask(id) { try { await API.post('/api/v1/tasks/' + id + '/cancel'); toast('Task cancelled', 'warning'); renderTasks(); } catch (e) { toast(e.message, 'error'); } }
-async function retryTask(id) { try { await API.post('/api/v1/tasks/' + id + '/retry'); toast('Task queued for retry', 'success'); renderTasks(); } catch (e) { toast(e.message, 'error'); } }
+async function cancelTask(id) { try { await API.post('/api/v1/tasks/' + id + '/cancel'); toast('Cancelled', 'warning'); renderTasks(); } catch (e) { toast(e.message, 'error'); } }
+async function retryTask(id) { try { await API.post('/api/v1/tasks/' + id + '/retry'); toast('Retry queued', 'success'); renderTasks(); } catch (e) { toast(e.message, 'error'); } }
 async function cancelAllQueued() { try { await API.post('/api/v1/tasks/cancel-queued'); toast('Queued tasks cancelled', 'warning'); renderTasks(); } catch (e) { toast(e.message, 'error'); } }
-async function retryAllFailed() { try { await API.post('/api/v1/errors/retry'); toast('Retrying all failed items', 'info'); renderTasks(); } catch (e) { toast(e.message, 'error'); } }
+async function retryAllFailed() { try { await API.post('/api/v1/errors/retry'); toast('Retrying failed items', 'info'); renderTasks(); } catch (e) { toast(e.message, 'error'); } }
 
 /* ---- New Task Modal ---- */
 function showNewTaskModal() {
-  openModal('Create New Task', `
-    <div class="tabs" id="newTaskTabs">
-      <div class="tab active" data-tab="user" onclick="switchTaskTab('user')">User</div>
-      <div class="tab" data-tab="list" onclick="switchTaskTab('list')">List</div>
-      <div class="tab" data-tab="following" onclick="switchTaskTab('following')">Following</div>
-      <div class="tab" data-tab="batch" onclick="switchTaskTab('batch')">Batch</div>
-      <div class="tab" data-tab="profile" onclick="switchTaskTab('profile')">Profile</div>
-      <div class="tab" data-tab="json" onclick="switchTaskTab('json')">JSON Import</div>
+  openModal('New Task', `
+    <div class="segmented" style="margin-bottom:16px">
+      <button class="segmented-item active" data-stab="user" onclick="switchTaskTab('user')">User</button>
+      <button class="segmented-item" data-stab="list" onclick="switchTaskTab('list')">List</button>
+      <button class="segmented-item" data-stab="following" onclick="switchTaskTab('following')">Following</button>
+      <button class="segmented-item" data-stab="batch" onclick="switchTaskTab('batch')">Batch</button>
+      <button class="segmented-item" data-stab="profile" onclick="switchTaskTab('profile')">Profile</button>
+      <button class="segmented-item" data-stab="json" onclick="switchTaskTab('json')">JSON</button>
+      <button class="segmented-item" data-stab="mark" onclick="switchTaskTab('mark')">Mark</button>
     </div>
-    <div id="newTaskForm">
-      ${renderNewUserTaskForm()}
-    </div>
-  `, `
-    <button class="btn btn-sm btn-ghost" onclick="closeModal()">Cancel</button>
-    <button class="btn btn-sm btn-primary" id="submitNewTask" onclick="submitNewTask()">Create Task</button>
-  `);
-  window._newTaskType = 'user';
+    <div id="newTaskForm">${ntForm('user')}</div>
+  `, '<button class="btn btn-sm btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-sm btn-primary" onclick="submitNewTask()">Create</button>');
+  window._nt = 'user';
 }
-
-function switchTaskTab(tab) {
-  window._newTaskType = tab;
-  document.querySelectorAll('#newTaskTabs .tab').forEach(el => el.classList.toggle('active', el.dataset.tab === tab));
-  const forms = {
-    user: renderNewUserTaskForm,
-    list: renderNewListTaskForm,
-    following: renderNewFollowingTaskForm,
-    batch: renderNewBatchTaskForm,
-    profile: renderNewProfileTaskForm,
-    json: renderNewJsonTaskForm
+function switchTaskTab(t) {
+  window._nt = t;
+  document.querySelectorAll('[data-stab]').forEach(el => el.classList.toggle('active', el.dataset.stab === t));
+  $('newTaskForm').innerHTML = ntForm(t);
+}
+function ntForm(t) {
+  const m = {
+    user: '<div class="field"><label class="field-label">Screen Name</label><input class="field-input" id="ntSn" placeholder="elonmusk"></div><div class="field-row"><label class="field-checkbox"><input type="checkbox" id="ntAf"> Auto-follow protected</label><label class="field-checkbox"><input type="checkbox" id="ntSp"> Skip profile</label></div><label class="field-checkbox"><input type="checkbox" id="ntNr"> No retry</label>',
+    list: '<div class="field"><label class="field-label">List ID</label><input class="field-input" id="ntLid" placeholder="1234567890"></div><div class="field-row"><label class="field-checkbox"><input type="checkbox" id="ntAf"> Auto-follow</label><label class="field-checkbox"><input type="checkbox" id="ntFm"> Follow members</label></div><div class="field-row"><label class="field-checkbox"><input type="checkbox" id="ntSp"> Skip profile</label><label class="field-checkbox"><input type="checkbox" id="ntNr"> No retry</label></div>',
+    following: '<div class="field"><label class="field-label">Screen Name</label><input class="field-input" id="ntSn" placeholder="elonmusk"></div><div class="field-row"><label class="field-checkbox"><input type="checkbox" id="ntAf"> Auto-follow</label><label class="field-checkbox"><input type="checkbox" id="ntSp"> Skip profile</label></div><label class="field-checkbox"><input type="checkbox" id="ntNr"> No retry</label>',
+    batch: '<div class="field"><label class="field-label">Users (comma separated)</label><input class="field-input" id="ntBu" placeholder="user1, user2"></div><div class="field-row"><div class="field"><label class="field-label">List IDs</label><input class="field-input" id="ntBl" placeholder="123, 456"></div><div class="field"><label class="field-label">Following</label><input class="field-input" id="ntBf" placeholder="elonmusk"></div></div><div class="field-row"><label class="field-checkbox"><input type="checkbox" id="ntAf"> Auto-follow</label><label class="field-checkbox"><input type="checkbox" id="ntFm"> Follow members</label></div><div class="field-row"><label class="field-checkbox"><input type="checkbox" id="ntSp"> Skip profile</label><label class="field-checkbox"><input type="checkbox" id="ntNr"> No retry</label></div>',
+    profile: '<div class="field"><label class="field-label">Screen Names (comma separated)</label><input class="field-input" id="ntPu" placeholder="user1, user2"></div><div class="field"><label class="field-label">List ID (optional)</label><input class="field-input" id="ntPl" placeholder="1234567890"></div>',
+    json: '<div class="field"><label class="field-label">Paths (one per line)</label><textarea class="field-textarea" id="ntJp" placeholder="/path/to/file.json" rows="3"></textarea></div><div class="field-hint">JSON files or .loongtweet folders</div><label class="field-checkbox"><input type="checkbox" id="ntNr"> No retry</label>',
+    mark: '<div class="field"><label class="field-label">Users (comma separated)</label><input class="field-input" id="ntMu" placeholder="user1, user2"></div><div class="field"><label class="field-label">Lists (comma separated ID)</label><input class="field-input" id="ntMl" placeholder="123, 456"></div><div class="field"><label class="field-label">Following (comma separated)</label><input class="field-input" id="ntMf" placeholder="elonmusk"></div><div class="field"><label class="field-label">Mark Timestamp (optional)</label><input class="field-input" id="ntMt" placeholder="2024-01-01T00:00:00Z"></div><div class="field-hint">Leave timestamp empty to mark as "now"</div>'
   };
-  $('newTaskForm').innerHTML = forms[tab] ? forms[tab]() : '<div class="empty-desc">Unknown task type</div>';
+  return m[t] || '';
 }
-
-function renderNewUserTaskForm() {
-  return `
-    <div class="form-group"><label class="form-label">Screen Name</label><input class="form-input" id="ntScreenName" placeholder="elonmusk" required></div>
-    <div class="form-row">
-      <label class="form-checkbox"><input type="checkbox" id="ntAutoFollow"> Auto-follow protected</label>
-      <label class="form-checkbox"><input type="checkbox" id="ntSkipProfile"> Skip profile</label>
-    </div>
-    <div class="form-row">
-      <label class="form-checkbox"><input type="checkbox" id="ntNoRetry"> No retry</label>
-    </div>
-  `;
-}
-function renderNewListTaskForm() {
-  return `
-    <div class="form-group"><label class="form-label">List ID</label><input class="form-input" id="ntListId" placeholder="1234567890" required></div>
-    <div class="form-row">
-      <label class="form-checkbox"><input type="checkbox" id="ntAutoFollow"> Auto-follow protected</label>
-      <label class="form-checkbox"><input type="checkbox" id="ntFollowMembers"> Follow members</label>
-    </div>
-    <div class="form-row">
-      <label class="form-checkbox"><input type="checkbox" id="ntSkipProfile"> Skip profile</label>
-      <label class="form-checkbox"><input type="checkbox" id="ntNoRetry"> No retry</label>
-    </div>
-  `;
-}
-function renderNewFollowingTaskForm() {
-  return `
-    <div class="form-group"><label class="form-label">Screen Name</label><input class="form-input" id="ntScreenName" placeholder="elonmusk" required></div>
-    <div class="form-row">
-      <label class="form-checkbox"><input type="checkbox" id="ntAutoFollow"> Auto-follow protected</label>
-      <label class="form-checkbox"><input type="checkbox" id="ntSkipProfile"> Skip profile</label>
-    </div>
-    <div class="form-row">
-      <label class="form-checkbox"><input type="checkbox" id="ntNoRetry"> No retry</label>
-    </div>
-  `;
-}
-function renderNewBatchTaskForm() {
-  return `
-    <div class="form-group"><label class="form-label">Users (comma-separated)</label><input class="form-input" id="ntBatchUsers" placeholder="user1, user2"></div>
-    <div class="form-group"><label class="form-label">List IDs (comma-separated)</label><input class="form-input" id="ntBatchLists" placeholder="123, 456"></div>
-    <div class="form-group"><label class="form-label">Following (comma-separated)</label><input class="form-input" id="ntBatchFollowing" placeholder="elonmusk"></div>
-    <div class="form-row">
-      <label class="form-checkbox"><input type="checkbox" id="ntAutoFollow"> Auto-follow protected</label>
-      <label class="form-checkbox"><input type="checkbox" id="ntFollowMembers"> Follow members</label>
-    </div>
-    <div class="form-row">
-      <label class="form-checkbox"><input type="checkbox" id="ntSkipProfile"> Skip profile</label>
-      <label class="form-checkbox"><input type="checkbox" id="ntNoRetry"> No retry</label>
-    </div>
-  `;
-}
-function renderNewProfileTaskForm() {
-  return `
-    <div class="form-group"><label class="form-label">Screen Names (comma-separated)</label><input class="form-input" id="ntProfileUsers" placeholder="user1, user2" required></div>
-    <div class="form-group"><label class="form-label">List ID (optional)</label><input class="form-input" id="ntProfileList" placeholder="1234567890"></div>
-  `;
-}
-function renderNewJsonTaskForm() {
-  return `
-    <div class="form-group"><label class="form-label">File / Folder Paths (one per line)</label><textarea class="form-textarea" id="ntJsonPaths" placeholder="/path/to/file.json" rows="3"></textarea></div>
-    <div class="form-hint">JSON files from third-party tools or .loongtweet folders</div>
-    <label class="form-checkbox mt-2"><input type="checkbox" id="ntNoRetry"> No retry</label>
-  `;
-}
-
 async function submitNewTask() {
-  const type = window._newTaskType;
-  let url, body;
-  const getVal = (id) => $(id)?.value?.trim();
-  const getChecked = (id) => $(id)?.checked || false;
-
+  const t = window._nt; let url, body;
+  const v = id => $(id)?.value?.trim();
+  const c = id => $(id)?.checked || false;
   try {
-    switch (type) {
+    switch (t) {
       case 'user': {
-        const sn = getVal('ntScreenName');
-        if (!sn) { toast('Screen name is required', 'error'); return; }
-        url = '/api/v1/users/' + encodeURIComponent(sn) + '/download';
-        body = { auto_follow: getChecked('ntAutoFollow'), skip_profile: getChecked('ntSkipProfile'), no_retry: getChecked('ntNoRetry'), follow_members: false };
-        break;
+        const sn = v('ntSn'); if (!sn) { toast('Screen name required', 'error'); return; }
+        url = '/api/v1/users/' + encodeURIComponent(sn) + '/download'; body = { auto_follow: c('ntAf'), skip_profile: c('ntSp'), no_retry: c('ntNr'), follow_members: false }; break;
       }
       case 'list': {
-        const lid = getVal('ntListId');
-        if (!lid) { toast('List ID is required', 'error'); return; }
-        url = '/api/v1/lists/' + lid + '/download';
-        body = { auto_follow: getChecked('ntAutoFollow'), follow_members: getChecked('ntFollowMembers'), skip_profile: getChecked('ntSkipProfile'), no_retry: getChecked('ntNoRetry') };
-        break;
+        const lid = v('ntLid'); if (!lid) { toast('List ID required', 'error'); return; }
+        url = '/api/v1/lists/' + lid + '/download'; body = { auto_follow: c('ntAf'), follow_members: c('ntFm'), skip_profile: c('ntSp'), no_retry: c('ntNr') }; break;
       }
       case 'following': {
-        const sn = getVal('ntScreenName');
-        if (!sn) { toast('Screen name is required', 'error'); return; }
-        url = '/api/v1/users/' + encodeURIComponent(sn) + '/following/download';
-        body = { auto_follow: getChecked('ntAutoFollow'), skip_profile: getChecked('ntSkipProfile'), no_retry: getChecked('ntNoRetry'), follow_members: false };
-        break;
+        const sn = v('ntSn'); if (!sn) { toast('Screen name required', 'error'); return; }
+        url = '/api/v1/users/' + encodeURIComponent(sn) + '/following/download'; body = { auto_follow: c('ntAf'), skip_profile: c('ntSp'), no_retry: c('ntNr'), follow_members: false }; break;
       }
       case 'batch': {
-        const users = getVal('ntBatchUsers')?.split(',').map(s => s.trim()).filter(Boolean) || [];
-        const lists = getVal('ntBatchLists')?.split(',').map(s => s.trim()).filter(Boolean) || [];
-        const following = getVal('ntBatchFollowing')?.split(',').map(s => s.trim()).filter(Boolean) || [];
-        if (!users.length && !lists.length && !following.length) { toast('Enter at least one user, list ID, or following name', 'error'); return; }
-        url = '/api/v1/batch/download';
-        body = { users, lists, following_names: following, auto_follow: getChecked('ntAutoFollow'), follow_members: getChecked('ntFollowMembers'), skip_profile: getChecked('ntSkipProfile'), no_retry: getChecked('ntNoRetry') };
-        break;
+        const users = (v('ntBu')||'').split(',').map(s=>s.trim()).filter(Boolean);
+        const lists = (v('ntBl')||'').split(',').map(s=>s.trim()).filter(Boolean);
+        const following = (v('ntBf')||'').split(',').map(s=>s.trim()).filter(Boolean);
+        if (!users.length && !lists.length && !following.length) { toast('Enter at least one target', 'error'); return; }
+        url = '/api/v1/batch/download'; body = { users, lists, following_names: following, auto_follow: c('ntAf'), follow_members: c('ntFm'), skip_profile: c('ntSp'), no_retry: c('ntNr') }; break;
       }
       case 'profile': {
-        const users = getVal('ntProfileUsers')?.split(',').map(s => s.trim()).filter(Boolean) || [];
-        const listId = getVal('ntProfileList');
-        if (!users.length && !listId) { toast('Enter screen names or a list ID', 'error'); return; }
-        if (listId) {
-          url = '/api/v1/lists/' + listId + '/profile';
-        } else {
-          url = '/api/v1/users/' + encodeURIComponent(users[0]) + '/profile';
-          if (users.length > 1) { toast('Profile download supports one user at a time via this form. Use batch for multiple.', 'warning'); }
-        }
-        body = { screen_name: users[0] };
+        const users = (v('ntPu')||'').split(',').map(s=>s.trim()).filter(Boolean);
+        const listId = v('ntPl');
+        if (!users.length && !listId) { toast('Enter names or a list ID', 'error'); return; }
+        if (listId) { url = '/api/v1/lists/' + listId + '/profile'; body = {}; }
+        else { url = '/api/v1/users/' + encodeURIComponent(users[0]) + '/profile'; body = { screen_name: users[0] }; }
         break;
       }
       case 'json': {
-        const paths = getVal('ntJsonPaths')?.split('\n').map(s => s.trim()).filter(Boolean) || [];
+        const paths = (v('ntJp')||'').split('\n').map(s=>s.trim()).filter(Boolean);
         if (!paths.length) { toast('Enter at least one path', 'error'); return; }
-        const isFolder = paths[0].includes('.loongtweet') || paths.every(p => !p.endsWith('.json'));
-        url = isFolder ? '/api/v1/json/folder/download' : '/api/v1/json/file/download';
-        body = { paths, no_retry: getChecked('ntNoRetry') };
+        const isFolder = paths.some(p => p.includes('.loongtweet'));
+        url = isFolder ? '/api/v1/json/folder/download' : '/api/v1/json/file/download'; body = { paths, no_retry: c('ntNr') }; break;
+      }
+      case 'mark': {
+        const users = (v('ntMu')||'').split(',').map(s=>s.trim()).filter(Boolean);
+        const lists = (v('ntMl')||'').split(',').map(s=>s.trim()).filter(Boolean);
+        const following = (v('ntMf')||'').split(',').map(s=>s.trim()).filter(Boolean);
+        if (!users.length && !lists.length && !following.length) { toast('Enter at least one target', 'error'); return; }
+        const ts = v('ntMt');
+        url = '/api/v1/batch/mark'; body = { users, lists, following_names: following };
+        if (ts) body.timestamp = ts;
         break;
       }
     }
-
-    const data = await API.post(url, body);
-    closeModal();
-    toast('Task created: ' + (data?.task_id || ''), 'success');
+    const data = await API.post(url, body); closeModal(); toast('Task created', 'success');
     if (state.currentPage === 'tasks') renderTasks();
-  } catch (e) {
-    toast(e.message, 'error');
-  }
+  } catch (e) { toast(e.message, 'error'); }
 }
 
-/* ---- Page: Data ---- */
+/* ============================================================
+   PAGE: Data
+   ============================================================ */
 async function renderData() {
-  const content = $('content');
-  content.innerHTML = `
-    <div class="tabs" id="dataTabs">
-      <div class="tab active" data-tab="users" onclick="switchDataTab('users')">Users</div>
-      <div class="tab" data-tab="lists" onclick="switchDataTab('lists')">Lists</div>
-      <div class="tab" data-tab="entities" onclick="switchDataTab('entities')">User Entities</div>
-      <div class="tab" data-tab="list-entities" onclick="switchDataTab('list-entities')">List Entities</div>
-      <div class="tab" data-tab="links" onclick="switchDataTab('links')">User Links</div>
-      <div class="tab" data-tab="stats" onclick="switchDataTab('stats')">Stats</div>
-    </div>
-    <div id="dataContent"><div class="page-loading"><div class="spinner"></div></div></div>
-  `;
-  state.dataActiveTab = 'users';
-  switchDataTab('users');
+  $('pageContent').innerHTML = `<div class="segmented" style="margin-bottom:16px">
+    <button class="segmented-item active" data-dtab="users" onclick="switchDataTab('users')">Users</button>
+    <button class="segmented-item" data-dtab="lists" onclick="switchDataTab('lists')">Lists</button>
+    <button class="segmented-item" data-dtab="entities" onclick="switchDataTab('entities')">User Entities</button>
+    <button class="segmented-item" data-dtab="list-entities" onclick="switchDataTab('list-entities')">List Entities</button>
+    <button class="segmented-item" data-dtab="links" onclick="switchDataTab('links')">Links</button>
+    <button class="segmented-item" data-dtab="stats" onclick="switchDataTab('stats')">Stats</button>
+  </div><div id="dataContent"><div class="page-loader"><div class="spinner"></div></div></div>`;
+  state.dataActiveTab = 'users'; switchDataTab('users');
 }
-
 async function switchDataTab(tab) {
-  state.dataActiveTab = tab;
-  document.querySelectorAll('#dataTabs .tab').forEach(el => el.classList.toggle('active', el.dataset.tab === tab));
-  const container = $('dataContent');
-  container.innerHTML = '<div class="page-loading"><div class="spinner"></div></div>';
+  state.dataActiveTab = tab; document.querySelectorAll('[data-dtab]').forEach(el => el.classList.toggle('active', el.dataset.dtab === tab));
+  const c = $('dataContent'); c.innerHTML = '<div class="page-loader"><div class="spinner"></div></div>';
   try {
-    switch (tab) {
-      case 'users': await renderDataUsers(container); break;
-      case 'lists': await renderDataLists(container); break;
-      case 'entities': await renderDataEntities(container); break;
-      case 'list-entities': await renderDataListEntities(container); break;
-      case 'links': await renderDataLinks(container); break;
-      case 'stats': await renderDataStats(container); break;
-    }
-  } catch (e) {
-    container.innerHTML = `<div class="empty-state"><div class="empty-title">Failed to load data</div><div class="empty-desc">${esc(e.message)}</div></div>`;
-  }
+    const fns = { users: renderDU, lists: renderDL, entities: renderDE, 'list-entities': renderDLE, links: renderDLink, stats: renderDStats };
+    if (fns[tab]) await fns[tab](c);
+  } catch (e) { c.innerHTML = `<div class="empty-state"><div class="empty-title">Failed to load</div><div class="empty-desc">${esc(e.message)}</div></div>`; }
 }
-
-async function renderDataUsers(container) {
-  const data = await API.get('/api/v1/db/users');
-  const items = Array.isArray(data) ? data : data?.users || data?.data || [];
-  container.innerHTML = `
-    <div class="card">
-      <div class="card-header"><span class="card-title">Users (${items.length})</span></div>
-      ${items.length ? `<div class="table-wrap"><table><thead><tr><th>ID</th><th>Screen Name</th><th>Name</th><th>Protected</th><th>Accessible</th><th class="table-cell-right">Actions</th></tr></thead><tbody>${items.map(u => `<tr>
-        <td class="table-cell-mono">${esc(u.id)}</td>
-        <td><strong>${esc(u.screen_name)}</strong></td>
-        <td class="table-cell-muted">${esc(u.name || '-')}</td>
-        <td>${u.protected ? '<span class="tag tag-warning">Yes</span>' : '<span class="tag tag-success">No</span>'}</td>
-        <td>${u.is_accessible ? '<span class="tag tag-success">Yes</span>' : '<span class="tag tag-failed">No</span>'}</td>
-        <td class="table-cell-right"><button class="btn btn-xs btn-ghost" onclick="showUserDetail('${esc(u.id)}')">View</button></td>
-      </tr>`).join('')}</tbody></table></div>` : '<div class="empty-state"><div class="empty-desc">No users in database</div></div>'}
-    </div>`;
+async function renderDU(c) {
+  const data = await API.get('/api/v1/db/users'); const items = Array.isArray(data) ? data : [];
+  c.innerHTML = `<div class="panel"><div class="panel-head"><span class="panel-title">${plural(items.length, 'user')}</span></div>${items.length ? `<div class="table-wrap"><table><thead><tr><th>ID</th><th>Screen Name</th><th>Name</th><th>Protected</th><th>Access</th><th class="table-right"></th></tr></thead><tbody>${items.map(u => `<tr><td class="table-mono">${esc(u.id)}</td><td><strong>${esc(u.screen_name)}</strong></td><td class="table-muted">${esc(u.name||'-')}</td><td>${u.protected ? '<span class="badge badge-cancelled">Yes</span>' : '<span class="badge badge-completed">No</span>'}</td><td>${u.is_accessible ? '<span class="badge badge-completed">Yes</span>' : '<span class="badge badge-failed">No</span>'}</td><td class="table-right"><button class="btn btn-xs btn-ghost" onclick="showUserDetail('${esc(u.id)}')">View</button></td></tr>`).join('')}</tbody></table></div>` : '<div class="empty-state"><div class="empty-desc">No users</div></div>'}</div>`;
 }
-
 async function showUserDetail(id) {
   try {
-    const user = await API.get('/api/v1/db/users/' + id);
-    const entities = await API.get('/api/v1/db/users/' + id + '/entities').catch(() => []);
-    const links = await API.get('/api/v1/db/users/' + id + '/links').catch(() => []);
-    const prevNames = await API.get('/api/v1/db/users/' + id + '/previous-names').catch(() => []);
-    const ents = Array.isArray(entities) ? entities : [];
-    const lks = Array.isArray(links) ? links : [];
-    const prev = Array.isArray(prevNames) ? prevNames : [];
-
-    openModal('User: ' + esc(user.screen_name), `
-      <div class="data-detail-grid">
-        <span class="data-detail-label">ID</span><span class="data-detail-value text-mono">${esc(user.id)}</span>
-        <span class="data-detail-label">Screen Name</span><span class="data-detail-value"><strong>${esc(user.screen_name)}</strong></span>
-        <span class="data-detail-label">Display Name</span><span class="data-detail-value">${esc(user.name || '-')}</span>
-        <span class="data-detail-label">Protected</span><span class="data-detail-value">${user.protected ? 'Yes' : 'No'}</span>
-        <span class="data-detail-label">Accessible</span><span class="data-detail-value">${user.is_accessible ? 'Yes' : 'No'}</span>
-        <span class="data-detail-label">Friends</span><span class="data-detail-value">${user.friends_count ?? '-'}</span>
+    const u = await API.get('/api/v1/db/users/' + id);
+    const ents = Array.isArray(await API.get('/api/v1/db/users/' + id + '/entities').catch(() => [])) || [];
+    const links = Array.isArray(await API.get('/api/v1/db/users/' + id + '/links').catch(() => [])) || [];
+    const prev = Array.isArray(await API.get('/api/v1/db/users/' + id + '/previous-names').catch(() => [])) || [];
+    openModal('User: ' + esc(u.screen_name), `
+      <div class="detail-grid">
+        <span class="detail-label">ID</span><span class="detail-value text-mono">${esc(u.id)}</span>
+        <span class="detail-label">Screen Name</span><span class="detail-value"><strong>${esc(u.screen_name)}</strong></span>
+        <span class="detail-label">Name</span><span class="detail-value">${esc(u.name||'-')}</span>
+        <span class="detail-label">Protected</span><span class="detail-value">${u.protected ? 'Yes' : 'No'}</span>
+        <span class="detail-label">Accessible</span><span class="detail-value">${u.is_accessible ? 'Yes' : 'No'}</span>
       </div>
-      ${ents.length ? `<div class="mt-3"><div class="text-sm text-muted mb-2">Entities (${ents.length})</div><div class="table-wrap"><table><thead><tr><th>Name</th><th>Parent Dir</th><th>Media</th><th>Latest</th></tr></thead><tbody>${ents.map(e => `<tr><td class="text-mono">${esc(e.name)}</td><td class="table-cell-muted">${esc(e.parent_dir || '-')}</td><td>${e.media_count != null ? e.media_count : '-'}</td><td class="table-cell-muted">${e.latest_release_time || '-'}</td></tr>`).join('')}</tbody></table></div></div>` : ''}
-      ${lks.length ? `<div class="mt-3"><div class="text-sm text-muted mb-2">Linked Lists (${lks.length})</div>${lks.map(l => '<div class="text-sm" style="padding:4px 0">' + esc(l.name) + ' <span class="text-muted">→ ' + esc(l.parent_lst_entity_name || '-') + '</span></div>').join('')}</div>` : ''}
-      ${prev.length ? `<div class="mt-3"><div class="text-sm text-muted mb-2">Previous Names</div>${prev.map(p => '<div class="text-sm" style="padding:2px 0"><span class="text-mono">' + esc(p.screen_name) + '</span> <span class="text-muted">(' + esc(p.record_date) + ')</span></div>').join('')}</div>` : ''}
-    `, `
-      <button class="btn btn-sm btn-danger" onclick="deleteUser('${esc(user.id)}')">Delete User</button>
-      <button class="btn btn-sm btn-ghost" onclick="closeModal()">Close</button>
-    `);
+      ${ents.length ? `<div class="mt-3"><div class="text-sm" style="color:var(--text-tertiary);margin-bottom:6px">Entities (${ents.length})</div>${ents.map(e => '<div class="text-sm" style="padding:3px 0"><span class="text-mono">' + esc(e.name) + '</span> <span class="text-muted">' + esc(e.parent_dir||'') + '</span></div>').join('')}</div>` : ''}
+      ${links.length ? `<div class="mt-3"><div class="text-sm" style="color:var(--text-tertiary);margin-bottom:6px">Linked Lists (${links.length})</div>${links.map(l => '<div class="text-sm" style="padding:3px 0">' + esc(l.name) + ' <span class="text-muted">' + esc(l.parent_lst_entity_name||'') + '</span></div>').join('')}</div>` : ''}
+      ${prev.length ? `<div class="mt-3"><div class="text-sm" style="color:var(--text-tertiary);margin-bottom:6px">Previous Names</div>${prev.map(p => '<div class="text-sm" style="padding:2px 0"><span class="text-mono">' + esc(p.screen_name) + '</span> <span class="text-muted">' + esc(p.record_date) + '</span></div>').join('')}</div>` : ''}
+    `, `<button class="btn btn-sm btn-danger" onclick="deleteUser('${esc(u.id)}')">Delete</button><button class="btn btn-sm btn-ghost" onclick="closeModal()">Close</button>`);
   } catch (e) { toast(e.message, 'error'); }
 }
-
-async function deleteUser(id) {
-  if (!confirm('Delete user ' + id + ' and all associated data?')) return;
-  try { await API.del('/api/v1/db/users/' + id); toast('User deleted', 'info'); closeModal(); switchDataTab('users'); } catch (e) { toast(e.message, 'error'); }
+async function deleteUser(id) { if (!confirm('Delete user ' + id + '?')) return; try { await API.del('/api/v1/db/users/' + id); toast('Deleted', 'info'); closeModal(); switchDataTab('users'); } catch (e) { toast(e.message, 'error'); } }
+async function renderDL(c) {
+  const data = await API.get('/api/v1/db/lists'); const items = Array.isArray(data) ? data : [];
+  c.innerHTML = `<div class="panel"><div class="panel-head"><span class="panel-title">${plural(items.length, 'list')}</span></div>${items.length ? `<div class="table-wrap"><table><thead><tr><th>ID</th><th>Name</th><th>Owner</th><th class="table-right"></th></tr></thead><tbody>${items.map(l => `<tr><td class="table-mono">${esc(l.id)}</td><td><strong>${esc(l.name)}</strong></td><td class="table-mono">${esc(l.owner_user_id||'-')}</td><td class="table-right"><button class="btn btn-xs btn-ghost" onclick="showListDetail('${esc(l.id)}')">View</button></td></tr>`).join('')}</tbody></table></div>` : '<div class="empty-state"><div class="empty-desc">No lists</div></div>'}</div>`;
 }
-
-async function renderDataLists(container) {
-  const data = await API.get('/api/v1/db/lists');
-  const items = Array.isArray(data) ? data : [];
-  container.innerHTML = `
-    <div class="card">
-      <div class="card-header"><span class="card-title">Lists (${items.length})</span></div>
-      ${items.length ? `<div class="table-wrap"><table><thead><tr><th>ID</th><th>Name</th><th>Owner ID</th><th class="table-cell-right">Actions</th></tr></thead><tbody>${items.map(l => `<tr>
-        <td class="table-cell-mono">${esc(l.id)}</td>
-        <td><strong>${esc(l.name)}</strong></td>
-        <td class="table-cell-mono">${esc(l.owner_user_id || '-')}</td>
-        <td class="table-cell-right"><button class="btn btn-xs btn-ghost" onclick="showListDetail('${esc(l.id)}')">View</button></td>
-      </tr>`).join('')}</tbody></table></div>` : '<div class="empty-state"><div class="empty-desc">No lists in database</div></div>'}
-    </div>`;
-}
-
 async function showListDetail(id) {
-  try {
-    const list = await API.get('/api/v1/db/lists/' + id);
-    const entities = await API.get('/api/v1/db/lists/' + id + '/entities').catch(() => []);
-    const ents = Array.isArray(entities) ? entities : [];
-    openModal('List: ' + esc(list.name), `
-      <div class="data-detail-grid">
-        <span class="data-detail-label">ID</span><span class="data-detail-value text-mono">${esc(list.id)}</span>
-        <span class="data-detail-label">Name</span><span class="data-detail-value"><strong>${esc(list.name)}</strong></span>
-        <span class="data-detail-label">Owner</span><span class="data-detail-value text-mono">${esc(list.owner_user_id || '-')}</span>
-      </div>
-      ${ents.length ? `<div class="mt-3"><div class="text-sm text-muted mb-2">Entities (${ents.length})</div>${ents.map(e => '<div class="text-sm" style="padding:4px 0"><span class="text-mono">' + esc(e.name) + '</span> <span class="text-muted">' + esc(e.parent_dir || '') + '</span></div>').join('')}</div>` : ''}
-    `, `
-      <button class="btn btn-sm btn-danger" onclick="deleteList('${esc(list.id)}')">Delete List</button>
-      <button class="btn btn-sm btn-ghost" onclick="closeModal()">Close</button>
-    `);
+  try { const l = await API.get('/api/v1/db/lists/' + id); const ents = Array.isArray(await API.get('/api/v1/db/lists/' + id + '/entities').catch(() => [])) || [];
+    openModal('List: ' + esc(l.name), `<div class="detail-grid"><span class="detail-label">ID</span><span class="detail-value text-mono">${esc(l.id)}</span><span class="detail-label">Name</span><span class="detail-value"><strong>${esc(l.name)}</strong></span><span class="detail-label">Owner</span><span class="detail-value text-mono">${esc(l.owner_user_id||'-')}</span></div>${ents.length ? `<div class="mt-3"><div class="text-sm" style="color:var(--text-tertiary);margin-bottom:6px">Entities (${ents.length})</div>${ents.map(e => '<div class="text-sm" style="padding:3px 0"><span class="text-mono">' + esc(e.name) + '</span> <span class="text-muted">' + esc(e.parent_dir||'') + '</span></div>').join('')}</div>` : ''}`,
+    `<button class="btn btn-sm btn-danger" onclick="deleteList('${esc(l.id)}')">Delete</button><button class="btn btn-sm btn-ghost" onclick="closeModal()">Close</button>`);
   } catch (e) { toast(e.message, 'error'); }
 }
-
-async function deleteList(id) {
-  if (!confirm('Delete list ' + id + ' and all associated data?')) return;
-  try { await API.del('/api/v1/db/lists/' + id); toast('List deleted', 'info'); closeModal(); switchDataTab('lists'); } catch (e) { toast(e.message, 'error'); }
+async function deleteList(id) { if (!confirm('Delete list ' + id + '?')) return; try { await API.del('/api/v1/db/lists/' + id); toast('Deleted', 'info'); closeModal(); switchDataTab('lists'); } catch (e) { toast(e.message, 'error'); } }
+async function renderDE(c) {
+  const data = await API.get('/api/v1/db/user-entities'); const items = Array.isArray(data) ? data : [];
+  c.innerHTML = `<div class="panel"><div class="panel-head"><span class="panel-title">${plural(items.length, 'entity')}</span></div>${items.length ? `<div class="table-wrap"><table><thead><tr><th>ID</th><th>User ID</th><th>Name</th><th>Dir</th><th>Media</th><th>Latest</th></tr></thead><tbody>${items.map(e => `<tr><td class="table-mono">${esc(e.id)}</td><td class="table-mono">${esc(e.user_id)}</td><td>${esc(e.name)}</td><td class="table-muted">${esc(e.parent_dir||'-')}</td><td>${e.media_count != null ? e.media_count : '-'}</td><td class="table-muted">${e.latest_release_time||'-'}</td></tr>`).join('')}</tbody></table></div>` : '<div class="empty-state"><div class="empty-desc">No entities</div></div>'}</div>`;
+}
+async function renderDLE(c) {
+  const data = await API.get('/api/v1/db/list-entities'); const items = Array.isArray(data) ? data : [];
+  c.innerHTML = `<div class="panel"><div class="panel-head"><span class="panel-title">${plural(items.length, 'entity')}</span></div>${items.length ? `<div class="table-wrap"><table><thead><tr><th>ID</th><th>List ID</th><th>Name</th><th>Dir</th><th>List Name</th></tr></thead><tbody>${items.map(e => `<tr><td class="table-mono">${esc(e.id)}</td><td class="table-mono">${esc(e.lst_id)}</td><td>${esc(e.name)}</td><td class="table-muted">${esc(e.parent_dir||'-')}</td><td class="table-muted">${esc(e.list_name||'-')}</td></tr>`).join('')}</tbody></table></div>` : '<div class="empty-state"><div class="empty-desc">No entities</div></div>'}</div>`;
+}
+async function renderDLink(c) {
+  const data = await API.get('/api/v1/db/user-links'); const items = Array.isArray(data) ? data : [];
+  c.innerHTML = `<div class="panel"><div class="panel-head"><span class="panel-title">${plural(items.length, 'link')}</span></div>${items.length ? `<div class="table-wrap"><table><thead><tr><th>ID</th><th>User ID</th><th>Name</th><th>Parent Entity</th></tr></thead><tbody>${items.map(l => `<tr><td class="table-mono">${esc(l.id)}</td><td class="table-mono">${esc(l.user_id)}</td><td>${esc(l.name)}</td><td class="table-muted">${esc(l.parent_lst_entity_name||l.parent_lst_entity_id||'-')}</td></tr>`).join('')}</tbody></table></div>` : '<div class="empty-state"><div class="empty-desc">No links</div></div>'}</div>`;
+}
+async function renderDStats(c) {
+  const s = await API.get('/api/v1/db/stats');
+  c.innerHTML = `<div class="data-stats">${['users','lists','user_entities','list_entities','user_links','user_previous_names'].map(k => `<div class="data-stat"><div class="data-stat-value">${s[k]??'-'}</div><div class="data-stat-label">${k.replace(/_/g,' ')}</div></div>`).join('')}</div>`;
 }
 
-async function renderDataEntities(container) {
-  const data = await API.get('/api/v1/db/user-entities');
-  const items = Array.isArray(data) ? data : [];
-  container.innerHTML = `
-    <div class="card">
-      <div class="card-header"><span class="card-title">User Entities (${items.length})</span></div>
-      ${items.length ? `<div class="table-wrap"><table><thead><tr><th>ID</th><th>User ID</th><th>Name</th><th>Parent Dir</th><th>Media</th><th>Latest Release</th></tr></thead><tbody>${items.map(e => `<tr>
-        <td class="table-cell-mono">${esc(e.id)}</td>
-        <td class="table-cell-mono">${esc(e.user_id)}</td>
-        <td>${esc(e.name)}</td>
-        <td class="table-cell-muted">${esc(e.parent_dir || '-')}</td>
-        <td>${e.media_count != null ? e.media_count : '-'}</td>
-        <td class="table-cell-muted">${e.latest_release_time || '-'}</td>
-      </tr>`).join('')}</tbody></table></div>` : '<div class="empty-state"><div class="empty-desc">No user entities</div></div>'}
-    </div>`;
-}
-
-async function renderDataListEntities(container) {
-  const data = await API.get('/api/v1/db/list-entities');
-  const items = Array.isArray(data) ? data : [];
-  container.innerHTML = `
-    <div class="card">
-      <div class="card-header"><span class="card-title">List Entities (${items.length})</span></div>
-      ${items.length ? `<div class="table-wrap"><table><thead><tr><th>ID</th><th>List ID</th><th>Name</th><th>Parent Dir</th><th>List Name</th></tr></thead><tbody>${items.map(e => `<tr>
-        <td class="table-cell-mono">${esc(e.id)}</td>
-        <td class="table-cell-mono">${esc(e.lst_id)}</td>
-        <td>${esc(e.name)}</td>
-        <td class="table-cell-muted">${esc(e.parent_dir || '-')}</td>
-        <td class="table-cell-muted">${esc(e.list_name || '-')}</td>
-      </tr>`).join('')}</tbody></table></div>` : '<div class="empty-state"><div class="empty-desc">No list entities</div></div>'}
-    </div>`;
-}
-
-async function renderDataLinks(container) {
-  const data = await API.get('/api/v1/db/user-links');
-  const items = Array.isArray(data) ? data : [];
-  container.innerHTML = `
-    <div class="card">
-      <div class="card-header"><span class="card-title">User Links (${items.length})</span></div>
-      ${items.length ? `<div class="table-wrap"><table><thead><tr><th>ID</th><th>User ID</th><th>Name</th><th>Parent Entity ID</th><th>List Entity</th></tr></thead><tbody>${items.map(l => `<tr>
-        <td class="table-cell-mono">${esc(l.id)}</td>
-        <td class="table-cell-mono">${esc(l.user_id)}</td>
-        <td>${esc(l.name)}</td>
-        <td class="table-cell-mono">${esc(l.parent_lst_entity_id || '-')}</td>
-        <td class="table-cell-muted">${esc(l.parent_lst_entity_name || '-')}</td>
-      </tr>`).join('')}</tbody></table></div>` : '<div class="empty-state"><div class="empty-desc">No user links</div></div>'}
-    </div>`;
-}
-
-async function renderDataStats(container) {
-  const stats = await API.get('/api/v1/db/stats');
-  container.innerHTML = `
-    <div class="stats-grid">
-      <div class="stat-card"><div class="stat-icon accent"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></div><div class="stat-content"><div class="stat-value">${stats.users ?? '-'}</div><div class="stat-label">Users</div></div></div>
-      <div class="stat-card"><div class="stat-icon accent"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/></svg></div><div class="stat-content"><div class="stat-value">${stats.lists ?? '-'}</div><div class="stat-label">Lists</div></div></div>
-      <div class="stat-card"><div class="stat-icon accent"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg></div><div class="stat-content"><div class="stat-value">${stats.user_entities ?? '-'}</div><div class="stat-label">User Entities</div></div></div>
-      <div class="stat-card"><div class="stat-icon accent"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg></div><div class="stat-content"><div class="stat-value">${stats.list_entities ?? '-'}</div><div class="stat-label">List Entities</div></div></div>
-      <div class="stat-card"><div class="stat-icon accent"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="17" y1="10" x2="3" y2="10"/><line x1="21" y1="6" x2="3" y2="6"/><line x1="17" y1="14" x2="3" y2="14"/><line x1="21" y1="18" x2="3" y2="18"/></svg></div><div class="stat-content"><div class="stat-value">${stats.user_links ?? '-'}</div><div class="stat-label">User Links</div></div></div>
-      <div class="stat-card"><div class="stat-icon accent"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></div><div class="stat-content"><div class="stat-value">${stats.user_previous_names ?? '-'}</div><div class="stat-label">Previous Names</div></div></div>
-    </div>`;
-}
-
-/* ---- Page: Schedules ---- */
+/* ============================================================
+   PAGE: Schedules
+   ============================================================ */
 async function renderSchedules() {
-  const content = $('content');
   try {
-    const [schedulesData, statsData, rawData] = await Promise.all([
-      API.get('/api/v1/schedules').catch(() => ({ entries: [] })),
-      API.get('/api/v1/schedules/stats').catch(() => null),
-      API.get('/api/v1/schedules/raw').catch(() => null),
-    ]);
-    const entries = Array.isArray(schedulesData) ? schedulesData : schedulesData?.entries || [];
-    state.schedules = entries;
-
-    content.innerHTML = `
-      <div class="toolbar">
-        <div class="toolbar-left">
-          <button class="btn btn-sm btn-primary" onclick="showNewScheduleModal()">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-            New Schedule
-          </button>
+    const sd = await API.get('/api/v1/schedules').catch(() => ({ entries: [] }));
+    const entries = Array.isArray(sd) ? sd : sd?.entries || []; state.schedules = entries;
+    $('pageContent').innerHTML = `
+      <div class="section-header" style="margin-bottom:12px">
+        <span class="section-title">${plural(entries.length, 'schedule')}</span>
+        <div class="section-actions">
+          <button class="btn btn-sm btn-primary" onclick="showNewScheduleModal()"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> New</button>
           <button class="btn btn-sm btn-secondary" onclick="showScheduleRawEditor()">Edit Raw</button>
           <button class="btn btn-sm btn-ghost" onclick="triggerAllSchedules()">Trigger All</button>
         </div>
-        <div class="toolbar-right">
-          <span class="text-sm text-muted">${plural(entries.length, 'schedule')}${statsData ? ' &middot; ' + statsData.enabled + ' enabled' : ''}</span>
-        </div>
       </div>
-      <div class="card">
-        ${entries.length ? entries.map(s => {
-          const typeLabel = SCHEDULE_LABELS[s.type] || s.type;
-          const statusClass = s.enabled ? 'tag-success' : 'tag-queued';
-          const hasFailures = s.consecutive_failures > 0;
-          return `<div class="schedule-item ${hasFailures ? 'has-failure' : ''}">
-            <div class="schedule-type"><span class="tag tag-mono ${statusClass}">${typeLabel}</span></div>
-            <div class="schedule-info">
-              <div class="schedule-title">${esc(s.name || s.target || 'Unnamed')}</div>
-              <div class="schedule-meta">
-                <span>${s.target ? esc(s.target) : ''}</span>
-                ${s.schedule ? '<span>&middot; ' + esc(s.schedule) + '</span>' : ''}
-                ${s.next_run ? '<span>&middot; Next: ' + relativeTime(s.next_run) + '</span>' : ''}
-                ${s.last_run ? '<span>&middot; Last: ' + relativeTime(s.last_run) + '</span>' : ''}
-                ${hasFailures ? '<span class="tag tag-failed">' + s.consecutive_failures + ' failures</span>' : ''}
-              </div>
+      <div class="panel">${entries.length ? entries.map(s => {
+        const hf = s.consecutive_failures > 0;
+        return `<div class="schedule ${hf?'schedule-failure':''}">
+          <div class="schedule-type"><span class="badge badge-mono ${s.enabled?'badge-completed':'badge-queued'}">${SCHEDULE_LABELS[s.type]||s.type}</span></div>
+          <div class="schedule-body">
+            <div class="schedule-title">${esc(s.name||s.target||'Unnamed')}</div>
+            <div class="schedule-meta">
+              ${s.target ? '<span>' + esc(s.target) + '</span>' : ''}
+              ${s.schedule ? '<span>' + esc(s.schedule) + '</span>' : ''}
+              ${s.next_run ? '<span>Next ' + relTime(s.next_run) + '</span>' : ''}
+              ${s.last_run ? '<span>Last ' + relTime(s.last_run) + '</span>' : ''}
+              ${hf ? '<span class="badge badge-failed">' + s.consecutive_failures + ' failures</span>' : ''}
             </div>
-            <div class="schedule-toggle">
-              <label class="toggle"><input type="checkbox" ${s.enabled ? 'checked' : ''} onchange="toggleSchedule('${esc(s.id || '')}', this.checked)"><span class="toggle-slider"></span></label>
-            </div>
-            <div class="schedule-actions">
-              <button class="btn btn-xs btn-ghost" onclick="triggerSchedule('${esc(s.id || '')}')" title="Trigger now">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-              </button>
-              <button class="btn btn-xs btn-ghost" onclick="deleteSchedule('${esc(s.id || '')}')" title="Delete">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-              </button>
-            </div>
-          </div>`;
-        }).join('') : '<div class="empty-state"><div class="empty-icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></div><div class="empty-title">No schedules</div><div class="empty-desc">Create a scheduled download task</div></div>'}
-      </div>
-    `;
-  } catch (e) {
-    content.innerHTML = `<div class="empty-state"><div class="empty-title">Failed to load schedules</div><div class="empty-desc">${esc(e.message)}</div></div>`;
-  }
+          </div>
+          <div style="flex-shrink:0"><label class="toggle"><input type="checkbox" ${s.enabled?'checked':''} onchange="toggleSched('${esc(s.id||'')}',this.checked)"><span class="toggle-track"></span></label></div>
+          <div class="schedule-actions">
+            <button class="btn btn-xs btn-ghost" onclick="triggerSched('${esc(s.id||'')}')" title="Trigger"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="5 3 19 12 5 21 5 3"/></svg></button>
+            <button class="btn btn-xs btn-ghost" onclick="deleteSched('${esc(s.id||'')}')" title="Delete"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>
+          </div>
+        </div>`;
+      }).join('') : '<div class="empty-state"><div class="empty-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></div><div class="empty-title">No schedules</div><div class="empty-desc">Create a scheduled download</div></div>'}</div>`;
+  } catch (e) { $('pageContent').innerHTML = `<div class="empty-state"><div class="empty-title">Failed to load</div><div class="empty-desc">${esc(e.message)}</div></div>`; }
 }
-
-async function toggleSchedule(id, enabled) {
-  if (!id) return;
-  try { await API.patch('/api/v1/schedules/' + id + '/enabled', { enabled }); toast(enabled ? 'Schedule enabled' : 'Schedule disabled', 'info'); renderSchedules(); } catch (e) { toast(e.message, 'error'); }
-}
-async function triggerSchedule(id) {
-  if (!id) return;
-  try { await API.post('/api/v1/schedules/' + id + '/trigger'); toast('Schedule triggered', 'success'); } catch (e) { toast(e.message, 'error'); }
-}
-async function triggerAllSchedules() {
-  try { const r = await API.post('/api/v1/schedules/trigger-all'); toast('Triggered ' + (r.succeeded || 0) + ' schedules', 'info'); renderSchedules(); } catch (e) { toast(e.message, 'error'); }
-}
-async function deleteSchedule(id) {
-  if (!id || !confirm('Delete this schedule?')) return;
-  try { await API.del('/api/v1/schedules/' + id); toast('Schedule deleted', 'info'); renderSchedules(); } catch (e) { toast(e.message, 'error'); }
-}
+async function toggleSched(id, en) { if (!id) return; try { await API.patch('/api/v1/schedules/' + id + '/enabled', { enabled: en }); toast(en ? 'Enabled' : 'Disabled', 'info'); renderSchedules(); } catch (e) { toast(e.message, 'error'); } }
+async function triggerSched(id) { if (!id) return; try { await API.post('/api/v1/schedules/' + id + '/trigger'); toast('Triggered', 'success'); } catch (e) { toast(e.message, 'error'); } }
+async function triggerAllSchedules() { try { const r = await API.post('/api/v1/schedules/trigger-all'); toast('Triggered ' + (r.succeeded||0) + ' schedules', 'info'); renderSchedules(); } catch (e) { toast(e.message, 'error'); } }
+async function deleteSched(id) { if (!id || !confirm('Delete?')) return; try { await API.del('/api/v1/schedules/' + id); toast('Deleted', 'info'); renderSchedules(); } catch (e) { toast(e.message, 'error'); } }
 
 function showNewScheduleModal() {
   openModal('New Schedule', `
-    <div class="form-group">
-      <label class="form-label">Type</label>
-      <select class="form-select" id="nsType">
-        <option value="user">User</option>
-        <option value="list">List</option>
-        <option value="following">Following</option>
-        <option value="mixed">Mixed</option>
-      </select>
-    </div>
-    <div class="form-group">
-      <label class="form-label">Target</label>
-      <input class="form-input" id="nsTarget" placeholder="screen_name or list_id">
-      <div class="form-hint">Screen name for user/following, list ID for list, or comma-separated for mixed</div>
-    </div>
-    <div class="form-group">
-      <label class="form-label">Name</label>
-      <input class="form-input" id="nsName" placeholder="My Schedule">
-    </div>
-    <div class="form-group">
-      <label class="form-label">Schedule</label>
-      <input class="form-input" id="nsSchedule" placeholder='daily 08:00,20:00 or interval 4h'>
-      <div class="form-hint">Format: "daily HH:MM" or "interval DURATION" (e.g. "daily 08:00,20:00" or "interval 4h30m")</div>
-    </div>
-    <label class="form-checkbox"><input type="checkbox" id="nsEnabled" checked> Enabled</label>
-    <label class="form-checkbox"><input type="checkbox" id="nsRunOnStart"> Run on start</label>
-  `, `
-    <button class="btn btn-sm btn-ghost" onclick="closeModal()">Cancel</button>
-    <button class="btn btn-sm btn-primary" onclick="submitNewSchedule()">Create</button>
-  `);
+    <div class="field"><label class="field-label">Type</label><select class="field-select" id="nsType"><option value="user">User</option><option value="list">List</option><option value="following">Following</option><option value="mixed">Mixed</option></select></div>
+    <div class="field"><label class="field-label">Target</label><input class="field-input" id="nsTarget" placeholder="screen_name or list_id"><div class="field-hint">Screen name for user/following, list ID for list</div></div>
+    <div class="field"><label class="field-label">Name</label><input class="field-input" id="nsName" placeholder="My Schedule"></div>
+    <div class="field"><label class="field-label">Schedule</label><input class="field-input" id="nsSchedule" placeholder='daily 08:00,20:00 or interval 4h'><div class="field-hint">Format: "daily HH:MM" or "interval DURATION"</div></div>
+    <div class="field-row"><label class="field-checkbox"><input type="checkbox" id="nsEnabled" checked> Enabled</label><label class="field-checkbox"><input type="checkbox" id="nsRunOnStart"> Run on start</label></div>
+  `, '<button class="btn btn-sm btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-sm btn-primary" onclick="submitNewSchedule()">Create</button>');
 }
-
 async function submitNewSchedule() {
-  const type = $('nsType')?.value;
-  const target = $('nsTarget')?.value?.trim();
-  const name = $('nsName')?.value?.trim();
-  const schedule = $('nsSchedule')?.value?.trim();
-  if (!target || !schedule) { toast('Target and schedule are required', 'error'); return; }
+  const t = $('nsType')?.value, target = $('nsTarget')?.value?.trim(), name = $('nsName')?.value?.trim(), sched = $('nsSchedule')?.value?.trim();
+  if (!target || !sched) { toast('Target and schedule required', 'error'); return; }
   try {
-    const entry = { type, target, name: name || target, schedule, enabled: $('nsEnabled')?.checked || false, run_on_start: $('nsRunOnStart')?.checked || false };
-    await API.post('/api/v1/schedules', { entries: [entry] });
-    closeModal();
-    toast('Schedule created', 'success');
-    renderSchedules();
+    await API.post('/api/v1/schedules', { entries: [{ type: t, target, name: name||target, schedule: sched, enabled: $('nsEnabled')?.checked||false, run_on_start: $('nsRunOnStart')?.checked||false }] });
+    closeModal(); toast('Schedule created', 'success'); renderSchedules();
   } catch (e) { toast(e.message, 'error'); }
 }
-
 async function showScheduleRawEditor() {
-  try {
-    const raw = await API.get('/api/v1/schedules/raw');
-    openModal('Schedule Configuration (Raw)', `
-      <div class="form-hint mb-3">Edit schedules.yaml contents directly. Use caution - invalid YAML will break scheduling.</div>
-      <div class="code-editor" id="schedulesEditor" contenteditable="true">${esc(raw.content || '# No schedules')}</div>
-    `, `
-      <button class="btn btn-sm btn-ghost" onclick="closeModal()">Cancel</button>
-      <button class="btn btn-sm btn-primary" onclick="saveScheduleRaw()">Save & Reload</button>
-    `);
+  try { const raw = await API.get('/api/v1/schedules/raw');
+    openModal('Schedule Config (Raw)', '<div class="field-hint mb-3">Edit schedules.yaml directly.</div><div class="code-block" id="schedulesEditor" contenteditable="true">' + esc(raw.content||'') + '</div>',
+      '<button class="btn btn-sm btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-sm btn-primary" onclick="saveScheduleRaw()">Save & Reload</button>');
   } catch (e) { toast(e.message, 'error'); }
 }
-
 async function saveScheduleRaw() {
-  const editor = $('schedulesEditor');
-  const content = editor?.textContent || '';
+  const content = $('schedulesEditor')?.textContent||'';
   try {
-    await API.put('/api/v1/schedules/raw', { content });
-    closeModal();
-    toast('Schedules updated and reloaded', 'success');
-    renderSchedules();
+    const validation = await API.post('/api/v1/schedules/validate', { raw: content });
+    if (validation?.valid === false) {
+      toast('Validation failed: ' + (validation.errors||['Invalid syntax']).join(', '), 'error');
+      return;
+    }
+    await API.put('/api/v1/schedules/raw', { content }); closeModal(); toast('Schedules reloaded', 'success'); renderSchedules();
   } catch (e) { toast(e.message, 'error'); }
 }
 
-/* ---- Page: Config ---- */
+/* ============================================================
+   PAGE: Config / Settings
+   ============================================================ */
 async function renderConfig() {
-  const content = $('content');
-  content.innerHTML = `
-    <div class="tabs" id="configTabs">
-      <div class="tab active" data-tab="settings" onclick="switchConfigTab('settings')">Settings</div>
-      <div class="tab" data-tab="cookies" onclick="switchConfigTab('cookies')">Cookies</div>
-      <div class="tab" data-tab="raw" onclick="switchConfigTab('raw')">Raw Config</div>
-    </div>
-    <div id="configContent"><div class="page-loading"><div class="spinner"></div></div></div>
-  `;
+  $('pageContent').innerHTML = `<div class="segmented" style="margin-bottom:16px">
+    <button class="segmented-item active" data-ctab="settings" onclick="switchConfigTab('settings')">Settings</button>
+    <button class="segmented-item" data-ctab="cookies" onclick="switchConfigTab('cookies')">Cookies</button>
+    <button class="segmented-item" data-ctab="raw" onclick="switchConfigTab('raw')">Raw Config</button>
+  </div><div id="configContent"><div class="page-loader"><div class="spinner"></div></div></div>`;
   switchConfigTab('settings');
 }
-
 async function switchConfigTab(tab) {
-  document.querySelectorAll('#configTabs .tab').forEach(el => el.classList.toggle('active', el.dataset.tab === tab));
-  const container = $('configContent');
-  container.innerHTML = '<div class="page-loading"><div class="spinner"></div></div>';
+  document.querySelectorAll('[data-ctab]').forEach(el => el.classList.toggle('active', el.dataset.ctab === tab));
+  const c = $('configContent'); c.innerHTML = '<div class="page-loader"><div class="spinner"></div></div>';
   try {
-    switch (tab) {
-      case 'settings': await renderConfigSettings(container); break;
-      case 'cookies': await renderConfigCookies(container); break;
-      case 'raw': await renderConfigRaw(container); break;
-    }
-  } catch (e) {
-    container.innerHTML = `<div class="empty-state"><div class="empty-title">Failed to load</div><div class="empty-desc">${esc(e.message)}</div></div>`;
-  }
+    if (tab === 'settings') await renderCSettings(c);
+    else if (tab === 'cookies') await renderCCookies(c);
+    else await renderCRaw(c);
+  } catch (e) { c.innerHTML = `<div class="empty-state"><div class="empty-title">Failed to load</div><div class="empty-desc">${esc(e.message)}</div></div>`; }
 }
-
-async function renderConfigSettings(container) {
-  let fields, config;
-  try {
-    [fields, config] = await Promise.all([
-      API.get('/api/v1/config/fields'),
-      API.get('/api/v1/config').catch(() => null)
-    ]);
-  } catch (e) {
-    container.innerHTML = `<div class="empty-state"><div class="empty-title">Failed to load config</div><div class="empty-desc">${esc(e.message)}</div></div>`;
-    return;
-  }
-
-  const fieldList = Array.isArray(fields?.fields) ? fields.fields : [];
-
-  container.innerHTML = `
-    <div class="card">
-      <div class="card-header">
-        <span class="card-title">Configuration</span>
-        <div class="card-actions"><button class="btn btn-sm btn-primary" onclick="saveConfigSettings()">Save Settings</button></div>
-      </div>
-      <div class="card-body" id="configSettingsForm">
-        ${fieldList.length ? fieldList.map(f => `
-          <div class="form-group">
-            <label class="form-label">${esc(f.label || f.name)}</label>
-            ${f.type === 'number' ?
-              `<input class="form-input" id="cfg_${esc(f.name)}" type="number" value="${esc(f.value || f.default || '')}" placeholder="${esc(f.placeholder || '')}" ${f.required ? 'required' : ''}>`
-              : f.type === 'boolean' ?
-              `<label class="form-checkbox"><input type="checkbox" id="cfg_${esc(f.name)}" ${f.value === 'true' ? 'checked' : ''}> ${esc(f.prompt || '')}</label>`
-              : f.name === 'auth_token' || f.name === 'ct0' ?
-              `<input class="form-input" id="cfg_${esc(f.name)}" type="password" value="${esc(f.value || '')}" placeholder="${esc(f.placeholder || '')}" ${f.required ? 'required' : ''}>`
-              : `<input class="form-input" id="cfg_${esc(f.name)}" value="${esc(f.value || '')}" placeholder="${esc(f.placeholder || '')}" ${f.required ? 'required' : ''}>`
-            }
-            <div class="form-hint">${esc(f.prompt || '')}</div>
-          </div>
-        `).join('') : '<div class="empty-desc">No configuration fields available</div>'}
-      </div>
-    </div>
-    ${config ? `
-    <div class="card mt-3">
-      <div class="card-header"><span class="card-title">Current Settings</span></div>
-      <div class="card-body">
-        <div style="display:grid;grid-template-columns:auto 1fr;gap:6px 16px;font-size:13px">
-          <span style="color:var(--text-muted)">Root Path</span><span class="text-mono">${esc(config.root_path || '-')}</span>
-          <span style="color:var(--text-muted)">Max Download Routine</span><span>${config.max_download_routine ?? '-'}</span>
-          <span style="color:var(--text-muted)">Max File Name Length</span><span>${config.max_file_name_len ?? '-'}</span>
-        </div>
-      </div>
-    </div>` : ''}
-  `;
+async function renderCSettings(c) {
+  const fields = await API.get('/api/v1/config/fields').catch(() => ({ fields: [] }));
+  const config = await API.get('/api/v1/config').catch(() => null);
+  const fl = Array.isArray(fields?.fields) ? fields.fields : [];
+  c.innerHTML = `<div class="panel"><div class="panel-head"><span class="panel-title">Configuration</span><div class="section-actions"><button class="btn btn-sm btn-primary" onclick="saveConfig()">Save</button></div></div><div class="panel-body padded">${fl.length ? fl.map(f => {
+    const id = 'cfg_' + f.name;
+    const val = f.value || f.default || '';
+    if (f.type === 'number') return '<div class="field"><label class="field-label">' + esc(f.label||f.name) + '</label><input class="field-input" id="' + id + '" type="number" value="' + esc(val) + '" placeholder="' + esc(f.placeholder||'') + '"><div class="field-hint">' + esc(f.prompt||'') + '</div></div>';
+    if (f.type === 'boolean') return '<div class="field"><label class="field-checkbox"><input type="checkbox" id="' + id + '" ' + (val==='true'?'checked':'') + '> ' + esc(f.label||f.name) + '</label></div>';
+    return '<div class="field"><label class="field-label">' + esc(f.label||f.name) + '</label><input class="field-input" id="' + id + '" type="' + (f.name==='auth_token'||f.name==='ct0'?'password':'text') + '" value="' + esc(val) + '" placeholder="' + esc(f.placeholder||'') + '"><div class="field-hint">' + esc(f.prompt||'') + '</div></div>';
+  }).join('') : '<div class="empty-desc">No fields available</div>'}</div></div>${config ? '<div class="panel mt-3"><div class="panel-head"><span class="panel-title">Current Settings</span></div><div class="panel-body padded"><div class="detail-grid"><span class="detail-label">Root Path</span><span class="detail-value text-mono">' + esc(config.root_path||'-') + '</span><span class="detail-label">Max Routine</span><span class="detail-value">' + (config.max_download_routine??'-') + '</span><span class="detail-label">Max Filename</span><span class="detail-value">' + (config.max_file_name_len??'-') + '</span></div></div></div><div class="panel mt-3"><div class="panel-head"><span class="panel-title" style="color:var(--danger)">Danger Zone</span></div><div class="panel-body padded"><button class="btn btn-sm btn-danger" onclick="shutdownServer()">Shutdown Server</button><div class="field-hint mt-2">Gracefully stops the TMD server</div></div></div>' : ''}`;
 }
-
-async function saveConfigSettings() {
-  const fields = {};
-  document.querySelectorAll('[id^="cfg_"]').forEach(el => {
-    const name = el.id.replace('cfg_', '');
-    if (el.type === 'checkbox') fields[name] = el.checked ? 'true' : 'false';
-    else fields[name] = el.value;
-  });
-  try {
-    await API.put('/api/v1/config/fields', { fields });
-    toast('Configuration saved. Some changes may require a restart.', 'success');
-    renderConfigSettings($('configContent'));
-  } catch (e) { toast(e.message, 'error'); }
+async function saveConfig() {
+  const fields = {}; document.querySelectorAll('[id^="cfg_"]').forEach(el => { fields[el.id.replace('cfg_','')] = el.type === 'checkbox' ? (el.checked ? 'true' : 'false') : el.value; });
+  try { await API.put('/api/v1/config/fields', { fields }); toast('Saved. Restart may be required.', 'success'); renderCSettings($('configContent')); } catch (e) { toast(e.message, 'error'); }
 }
-
-async function renderConfigCookies(container) {
-  let cookies, raw;
-  try {
-    [cookies, raw] = await Promise.all([
-      API.get('/api/v1/cookies').catch(() => null),
-      API.get('/api/v1/cookies/raw').catch(() => null)
-    ]);
-  } catch (e) {
-    container.innerHTML = `<div class="empty-state"><div class="empty-title">Failed to load cookies</div><div class="empty-desc">${esc(e.message)}</div></div>`;
-    return;
-  }
-
-  const cookieList = Array.isArray(cookies?.cookies) ? cookies.cookies : [];
-  container.innerHTML = `
-    <div class="card">
-      <div class="card-header">
-        <span class="card-title">Twitter Cookies</span>
-        <div class="card-actions">
-          <button class="btn btn-sm btn-secondary" onclick="showCookiesRawEditor()">Edit Raw</button>
-          <button class="btn btn-sm btn-primary" onclick="saveCookiesForm()">Save Cookies</button>
-        </div>
-      </div>
-      <div class="card-body" id="cookiesForm">
-        <div class="form-group">
-          <label class="form-label">Main Account - Auth Token</label>
-          <input class="form-input" id="cookieMainAuth" type="password" placeholder="auth_token...">
-          <div class="form-hint">Leave empty to keep current value</div>
-        </div>
-        <div class="form-group">
-          <label class="form-label">Main Account - ct0</label>
-          <input class="form-input" id="cookieMainCt0" type="password" placeholder="ct0...">
-          <div class="form-hint">Leave empty to keep current value</div>
-        </div>
-        ${cookieList.length ? `
-        <div class="text-sm text-muted mb-3 mt-3" style="border-top:1px solid var(--border);padding-top:16px">Additional Accounts (${cookieList.length})</div>
-        ${cookieList.map((c, i) => `
-          <div class="form-row mb-3">
-            <div class="form-group">
-              <label class="form-label">Account ${i + 1} - Auth Token</label>
-              <input class="form-input" id="cookieExtraAuth_${i}" type="password" placeholder="auth_token..." value="${esc(c.auth_token || '')}">
-            </div>
-            <div class="form-group">
-              <label class="form-label">Account ${i + 1} - ct0</label>
-              <input class="form-input" id="cookieExtraCt0_${i}" type="password" placeholder="ct0..." value="${esc(c.ct0 || '')}">
-            </div>
-          </div>
-        `).join('')}` : '<div class="text-sm text-muted mt-3">No additional accounts configured</div>'}
-      </div>
-    </div>
-  `;
+async function renderCCookies(c) {
+  const [ck, raw] = await Promise.all([API.get('/api/v1/cookies').catch(()=>null), API.get('/api/v1/cookies/raw').catch(()=>null)]);
+  const list = Array.isArray(ck?.cookies) ? ck.cookies : [];
+  c.innerHTML = `<div class="panel"><div class="panel-head"><span class="panel-title">Cookies</span><div class="section-actions"><button class="btn btn-sm btn-secondary" onclick="showCookiesRaw()">Edit Raw</button><button class="btn btn-sm btn-primary" onclick="saveCookies()">Save</button></div></div><div class="panel-body padded"><div class="field"><label class="field-label">Main Auth Token</label><input class="field-input" id="ckMainAuth" type="password" placeholder="Leave empty to keep current"></div><div class="field"><label class="field-label">Main ct0</label><input class="field-input" id="ckMainCt0" type="password" placeholder="Leave empty to keep current"></div>${list.length ? '<div class="text-sm text-muted" style="border-top:1px solid var(--separator);padding-top:16px;margin-top:16px">Additional Accounts (' + list.length + ')</div>' + list.map((c,i) => `<div class="field-row mt-2"><div class="field"><label class="field-label">Account ${i+1} Auth</label><input class="field-input" id="ckExAuth_${i}" type="password" value="${esc(c.auth_token||'')}"></div><div class="field"><label class="field-label">Account ${i+1} ct0</label><input class="field-input" id="ckExCt0_${i}" type="password" value="${esc(c.ct0||'')}"></div></div>`).join('') : ''}</div></div>`;
 }
-
-async function saveCookiesForm() {
+async function saveCookies() {
   const cookies = [];
-  const mainAuth = $('cookieMainAuth')?.value?.trim();
-  const mainCt0 = $('cookieMainCt0')?.value?.trim();
-
-  if (mainAuth && mainCt0) {
-    cookies.push({ auth_token: mainAuth, ct0: mainCt0 });
-  }
-
-  let i = 0;
-  while ($('cookieExtraAuth_' + i)) {
-    const auth = $('cookieExtraAuth_' + i)?.value?.trim();
-    const ct0 = $('cookieExtraCt0_' + i)?.value?.trim();
-    if (auth || ct0) {
-      if (auth && ct0) cookies.push({ auth_token: auth, ct0: ct0, index: i });
-      else toast('Account ' + (i + 1) + ': both auth_token and ct0 are required', 'error');
-    }
-    i++;
-  }
-
-  try {
-    await API.put('/api/v1/cookies', { cookies });
-    toast('Cookies saved', 'success');
-    renderConfigCookies($('configContent'));
-  } catch (e) { toast(e.message, 'error'); }
+  const ma = $('ckMainAuth')?.value?.trim(), mc = $('ckMainCt0')?.value?.trim();
+  if (ma && mc) cookies.push({ auth_token: ma, ct0: mc });
+  let i = 0; while ($('ckExAuth_' + i)) { const a = $('ckExAuth_' + i)?.value?.trim(), c = $('ckExCt0_' + i)?.value?.trim(); if (a||c) { if (a&&c) cookies.push({ auth_token: a, ct0: c, index: i }); else toast('Account '+(i+1)+': both fields required', 'error'); } i++; }
+  try { await API.put('/api/v1/cookies', { cookies }); toast('Cookies saved', 'success'); renderCCookies($('configContent')); } catch (e) { toast(e.message, 'error'); }
+}
+async function showCookiesRaw() {
+  try { const raw = await API.get('/api/v1/cookies/raw'); openModal('Cookies (Raw)', '<div class="code-block" id="cookiesEditor" contenteditable="true">' + esc(raw.content||'') + '</div>', '<button class="btn btn-sm btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-sm btn-primary" onclick="saveCookiesRaw()">Save</button>'); } catch (e) { toast(e.message, 'error'); }
+}
+async function saveCookiesRaw() { try { await API.put('/api/v1/cookies/raw', { content: $('cookiesEditor')?.textContent||'' }); closeModal(); toast('Cookies updated', 'success'); renderCCookies($('configContent')); } catch (e) { toast(e.message, 'error'); } }
+async function renderCRaw(c) {
+  const [conf, cookies, sched] = await Promise.all([API.get('/api/v1/config/raw').catch(()=>null), API.get('/api/v1/cookies/raw').catch(()=>null), API.get('/api/v1/schedules/raw').catch(()=>null)]);
+  c.innerHTML = `
+    <div class="panel"><div class="panel-head"><span class="panel-title">conf.yaml</span><div class="section-actions"><button class="btn btn-sm btn-primary" onclick="saveRawFile('config')">Save</button></div></div><div class="code-block" id="rawConfig" contenteditable="true">${esc(conf?.content||'# No file')}</div></div>
+    <div class="panel mt-3"><div class="panel-head"><span class="panel-title">additional_cookies.yaml</span><div class="section-actions"><button class="btn btn-sm btn-primary" onclick="saveRawFile('cookies')">Save</button></div></div><div class="code-block" id="rawCookies" contenteditable="true">${esc(cookies?.content||'# No file')}</div></div>
+    <div class="panel mt-3"><div class="panel-head"><span class="panel-title">schedules.yaml</span><div class="section-actions"><button class="btn btn-sm btn-primary" onclick="saveRawFile('schedules')">Save</button></div></div><div class="code-block" id="rawSched" contenteditable="true">${esc(sched?.content||'# No file')}</div></div>`;
+}
+async function saveRawFile(which) {
+  const editors = { config: 'rawConfig', cookies: 'rawCookies', schedules: 'rawSched' };
+  const apis = { config: '/api/v1/config/raw', cookies: '/api/v1/cookies/raw', schedules: '/api/v1/schedules/raw' };
+  const msgs = { config: 'Config saved. Restart to apply.', cookies: 'Cookies saved.', schedules: 'Schedules reloaded.' };
+  try { await API.put(apis[which], { content: $(editors[which])?.textContent||'' }); toast(msgs[which], 'success'); } catch (e) { toast(e.message, 'error'); }
+}
+async function shutdownServer() {
+  if (!confirm('Shutdown TMD server? This will stop all running tasks.')) return;
+  try { await API.post('/api/v1/server/shutdown'); toast('Server shutting down...', 'warning'); } catch (e) { toast(e.message, 'error'); }
 }
 
-async function showCookiesRawEditor() {
-  try {
-    const raw = await API.get('/api/v1/cookies/raw');
-    openModal('Cookies Configuration (Raw)', `
-      <div class="form-hint mb-3">Edit additional_cookies.yaml contents directly.</div>
-      <div class="code-editor" id="cookiesEditor" contenteditable="true">${esc(raw.content || '# No cookies')}</div>
-    `, `
-      <button class="btn btn-sm btn-ghost" onclick="closeModal()">Cancel</button>
-      <button class="btn btn-sm btn-primary" onclick="saveCookiesRaw()">Save</button>
-    `);
-  } catch (e) { toast(e.message, 'error'); }
-}
-
-async function saveCookiesRaw() {
-  const editor = $('cookiesEditor');
-  const content = editor?.textContent || '';
-  try {
-    await API.put('/api/v1/cookies/raw', { content });
-    closeModal();
-    toast('Cookies updated', 'success');
-    renderConfigCookies($('configContent'));
-  } catch (e) { toast(e.message, 'error'); }
-}
-
-async function renderConfigRaw(container) {
-  try {
-    const [configRaw, cookiesRaw, schedulesRaw] = await Promise.all([
-      API.get('/api/v1/config/raw').catch(() => null),
-      API.get('/api/v1/cookies/raw').catch(() => null),
-      API.get('/api/v1/schedules/raw').catch(() => null),
-    ]);
-
-    container.innerHTML = `
-      <div class="card">
-        <div class="card-header">
-          <span class="card-title">conf.yaml</span>
-          <div class="card-actions"><button class="btn btn-sm btn-primary" onclick="saveRawConfigFile()">Save</button></div>
-        </div>
-        <div class="code-editor" id="rawConfigEditor" contenteditable="true">${esc(configRaw?.content || '# No configuration file')}</div>
-      </div>
-      <div class="card mt-3">
-        <div class="card-header">
-          <span class="card-title">additional_cookies.yaml</span>
-          <div class="card-actions"><button class="btn btn-sm btn-primary" onclick="saveRawCookiesFile()">Save</button></div>
-        </div>
-        <div class="code-editor" id="rawCookiesEditor" contenteditable="true">${esc(cookiesRaw?.content || '# No cookies file')}</div>
-      </div>
-      <div class="card mt-3">
-        <div class="card-header">
-          <span class="card-title">schedules.yaml</span>
-          <div class="card-actions"><button class="btn btn-sm btn-primary" onclick="saveRawSchedulesFile()">Save</button></div>
-        </div>
-        <div class="code-editor" id="rawSchedulesEditor" contenteditable="true">${esc(schedulesRaw?.content || '# No schedules file')}</div>
-      </div>
-    `;
-  } catch (e) {
-    container.innerHTML = `<div class="empty-state"><div class="empty-title">Failed to load raw config</div><div class="empty-desc">${esc(e.message)}</div></div>`;
-  }
-}
-
-async function saveRawConfigFile() {
-  const content = $('rawConfigEditor')?.textContent || '';
-  try { await API.put('/api/v1/config/raw', { content }); toast('Configuration saved. Restart server to apply.', 'success'); } catch (e) { toast(e.message, 'error'); }
-}
-async function saveRawCookiesFile() {
-  const content = $('rawCookiesEditor')?.textContent || '';
-  try { await API.put('/api/v1/cookies/raw', { content }); toast('Cookies saved', 'success'); } catch (e) { toast(e.message, 'error'); }
-}
-async function saveRawSchedulesFile() {
-  const content = $('rawSchedulesEditor')?.textContent || '';
-  try { await API.put('/api/v1/schedules/raw', { content }); toast('Schedules saved and reloaded', 'success'); } catch (e) { toast(e.message, 'error'); }
-}
-
-/* ---- Page: Logs ---- */
-let logStreamActive = false;
-let logStreamReader = null;
-let logAutoScroll = true;
-
+/* ============================================================
+   PAGE: Logs
+   ============================================================ */
+let logStream = false, logReader = null, logScroll = true;
 async function renderLogs() {
-  const content = $('content');
   try {
-    const [logsData, statsData] = await Promise.all([
-      API.get('/api/v1/logs').catch(() => ({ logs: [] })),
-      API.get('/api/v1/logs/stats').catch(() => null),
-    ]);
-    const logs = Array.isArray(logsData?.logs) ? logsData.logs : [];
-    const total = logsData?.total || logs.length;
-
-    content.innerHTML = `
-      <div class="card">
+    const ld = await API.get('/api/v1/logs').catch(() => ({ logs: [] }));
+    const logs = Array.isArray(ld?.logs) ? ld.logs : [];
+    $('pageContent').innerHTML = `
+      <div class="panel">
         <div class="log-bar">
-          <div class="log-status">
-            <span class="sse-dot ${logStreamActive ? 'connected' : 'disconnected'}" id="logStreamDot"></span>
-            <span id="logStreamText">${logStreamActive ? 'Streaming' : 'Paused'}</span>
-            <span class="text-muted">&middot; ${total} entries</span>
-            ${statsData ? '<span class="text-muted">&middot; ' + esc(statsData.file || '') + '</span>' : ''}
-            ${statsData ? '<span class="text-muted">&middot; ' + (statsData.size || '') + '</span>' : ''}
+          <div class="log-bar-status">
+            <span class="sse-dot ${logStream?'connected':'disconnected'}" id="logDot" style="width:6px;height:6px;display:inline-block"></span>
+            <span id="logStatusText">${logStream?'Streaming':'Paused'}</span>
+            <span class="text-muted">&middot; ${ld.total||logs.length} entries</span>
           </div>
-          <div class="log-actions">
-            <label class="form-checkbox" style="font-size:11px"><input type="checkbox" id="logAutoScroll" checked onchange="logAutoScroll=this.checked"> Auto-scroll</label>
-            <button class="btn btn-xs btn-ghost" onclick="clearLogDisplay()">Clear</button>
-            <button class="btn btn-xs btn-secondary" onclick="exportLogs()">Export</button>
-            <button class="btn btn-xs ${logStreamActive ? 'btn-danger' : 'btn-primary'}" id="logToggleBtn" onclick="toggleLogStream()">${logStreamActive ? 'Stop' : 'Stream'}</button>
+          <div class="log-bar-actions">
+            <label class="field-checkbox" style="font-size:10px"><input type="checkbox" checked onchange="logScroll=this.checked"> Auto-scroll</label>
+            <button class="btn btn-xs btn-ghost" onclick="clearLogs()">Clear</button>
+            <button class="btn btn-xs btn-ghost" onclick="exportLogs()">Export</button>
+            <button class="btn btn-xs ${logStream?'btn-danger':'btn-primary'}" id="logToggle" onclick="toggleLogs()">${logStream?'Stop':'Stream'}</button>
           </div>
         </div>
-        <div class="log-container" id="logContainer">${logs.map(l => formatLogLine(l)).join('\n')}</div>
-      </div>
-    `;
-
-    if (logStreamActive) {
-      startLogStream();
-    }
-  } catch (e) {
-    content.innerHTML = `<div class="empty-state"><div class="empty-title">Failed to load logs</div><div class="empty-desc">${esc(e.message)}</div></div>`;
-  }
+        <div class="log-viewer" id="logContainer">${logs.map(l => '<div class="log-line' + (logLevel(l)?' '+logLevel(l):'') + '">' + esc(stripAnsi(l)) + '</div>').join('\n')}</div>
+      </div>`;
+    if (logStream) startLogStream();
+  } catch (e) { $('pageContent').innerHTML = `<div class="empty-state"><div class="empty-title">Failed to load logs</div><div class="empty-desc">${esc(e.message)}</div></div>`; }
 }
-
-function formatLogLine(line) {
-  const clean = esc(stripAnsi(line));
-  const level = logLevel(line);
-  return '<div class="log-line' + (level ? ' ' + level : '') + '">' + clean + '</div>';
-}
-
-function appendLogLine(line) {
-  const container = $('logContainer');
-  if (!container) return;
-  const div = document.createElement('div');
-  div.className = 'log-line' + (logLevel(line) ? ' ' + logLevel(line) : '');
-  div.textContent = stripAnsi(line);
-  container.appendChild(div);
-  if (logAutoScroll) container.scrollTop = container.scrollHeight;
-}
-
-function clearLogDisplay() {
-  const container = $('logContainer');
-  if (container) container.innerHTML = '';
-  toast('Log display cleared', 'info');
-}
-
-async function toggleLogStream() {
-  if (logStreamActive) {
-    stopLogStream();
-  } else {
-    startLogStream();
-  }
-}
-
-function stopLogStream() {
-  if (logStreamReader) {
-    logStreamReader.cancel();
-    logStreamReader = null;
-  }
-  logStreamActive = false;
-  const dot = $('logStreamDot');
-  const text = $('logStreamText');
-  const btn = $('logToggleBtn');
-  if (dot) dot.className = 'sse-dot disconnected';
-  if (text) text.textContent = 'Paused';
-  if (btn) { btn.textContent = 'Stream'; btn.className = 'btn btn-xs btn-primary'; }
-  toast('Log stream stopped', 'info');
-}
-
+function clearLogs() { const c = $('logContainer'); if (c) c.innerHTML = ''; toast('Cleared', 'info'); }
+function toggleLogs() { logStream ? stopLogs() : startLogStream(); }
+function stopLogs() { if (logReader) { logReader.cancel(); logReader = null; } logStream = false; const d = $('logDot'), t = $('logStatusText'), b = $('logToggle'); if(d) d.className='sse-dot disconnected'; if(t) t.textContent='Paused'; if(b) {b.textContent='Stream';b.className='btn btn-xs btn-primary';} }
 async function startLogStream() {
-  if (logStreamReader) return;
-  logStreamActive = true;
-  const dot = $('logStreamDot');
-  const text = $('logStreamText');
-  const btn = $('logToggleBtn');
-  if (dot) dot.className = 'sse-dot connecting';
-  if (text) text.textContent = 'Connecting...';
-  if (btn) { btn.textContent = 'Stop'; btn.className = 'btn btn-xs btn-danger'; }
-
+  if (logReader) return; logStream = true;
+  const d = $('logDot'), t = $('logStatusText'), b = $('logToggle');
+  if(d) d.className='sse-dot connecting'; if(t) t.textContent='Connecting...'; if(b) {b.textContent='Stop';b.className='btn btn-xs btn-danger';}
   try {
-    const response = await fetch('/api/v1/logs/stream');
-    if (!response.ok) throw new Error('Failed to connect to log stream');
-    if (dot) dot.className = 'sse-dot connected';
-    if (text) text.textContent = 'Streaming';
-
-    const reader = response.body.getReader();
-    logStreamReader = reader;
-    const decoder = new TextDecoder();
-    let buffer = '';
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop() || '';
-      for (const line of lines) {
-        if (line.trim()) appendLogLine(line);
-      }
-    }
-  } catch (e) {
-    if (logStreamActive) {
-      if (dot) dot.className = 'sse-dot disconnected';
-      if (text) text.textContent = 'Disconnected';
-      toast('Log stream disconnected: ' + e.message, 'warning');
-    }
-  } finally {
-    logStreamActive = false;
-    logStreamReader = null;
-  }
+    const r = await fetch('/api/v1/logs/stream'); if (!r.ok) throw new Error('Connection failed');
+    if(d) d.className='sse-dot connected'; if(t) t.textContent='Streaming';
+    const reader = r.body.getReader(); logReader = reader; const dec = new TextDecoder(); let buf = '';
+    while (true) { const {done,value} = await reader.read(); if (done) break; buf += dec.decode(value, {stream:true}); const lines = buf.split('\n'); buf = lines.pop()||''; for (const ln of lines) { if (ln.trim()) { const c = $('logContainer'); if (c) { const el = document.createElement('div'); el.className = 'log-line'+(logLevel(ln)?' '+logLevel(ln):''); el.textContent = stripAnsi(ln); c.appendChild(el); if (logScroll) c.scrollTop = c.scrollHeight; } } } }
+  } catch (e) { if (logStream) { if(d) d.className='sse-dot disconnected'; if(t) t.textContent='Disconnected'; toast('Log stream: ' + e.message, 'warning'); } }
+  finally { logStream = false; logReader = null; if(b) {b.textContent='Stream';b.className='btn btn-xs btn-primary';} }
 }
+async function exportLogs() { try { window.open('/api/v1/logs/export', '_blank'); toast('Exporting...', 'info'); } catch (e) { toast(e.message, 'error'); } }
 
-async function exportLogs() {
-  try {
-    const blob = await API._fetch('/api/v1/logs/export');
-    const text = await blob.text();
-    const a = document.createElement('a');
-    a.href = 'data:text/plain;charset=utf-8,' + encodeURIComponent(text);
-    a.download = 'tmd-logs-' + new Date().toISOString().slice(0, 10) + '.log';
-    a.click();
-    toast('Logs exported', 'success');
-  } catch (e) { toast(e.message, 'error'); }
-}
-
-/* ---- SSE ---- */
-let sseSource = null;
-let sseReconnectTimer = null;
-
+/* ============================================================
+   SSE
+   ============================================================ */
+let sseSource = null, sseTimer = null;
 function connectSSE() {
   if (sseSource) { sseSource.close(); sseSource = null; }
-  const url = '/api/v1/sse/tasks';
-  sseSource = new EventSource(url);
-
-  sseSource.onopen = () => {
-    state.sseConnected = true;
-    updateSSEIndicator(true);
-    if (sseReconnectTimer) { clearTimeout(sseReconnectTimer); sseReconnectTimer = null; }
-  };
-
-  sseSource.addEventListener('tasks', (e) => {
-    try {
-      const data = JSON.parse(e.data);
-      if (data.tasks) {
-        state.tasks = data.tasks;
-        updateTaskBadge();
-        if (state.currentPage === 'tasks') {
-          const cardBody = document.querySelector('.card .task-list');
-          if (cardBody) {
-            // Live update: only refresh if on tasks page to avoid flash
-            renderTasks();
-          }
-        }
-        if (state.currentPage === 'dashboard') {
-          const dashSection = document.querySelector('.dashboard-grid');
-          if (dashSection) {
-            // Refresh just the stats on dashboard
-            API.get('/api/v1/tasks/stats').then(stats => {
-              if (stats) state.taskStats = stats;
-              updateTaskBadge();
-            }).catch(() => {});
-          }
-        }
-      }
-    } catch (err) { /* ignore parse errors */ }
-  });
-
-  sseSource.addEventListener('schedules', (e) => {
-    try {
-      const data = JSON.parse(e.data);
-      if (data.entries) {
-        state.schedules = data.entries;
-        state.schedulerRunning = data.scheduler_running;
-        if (state.currentPage === 'schedules') renderSchedules();
-      }
-    } catch (err) { /* ignore */ }
-  });
-
-  sseSource.addEventListener('notification', (e) => {
-    try {
-      const data = JSON.parse(e.data);
-      if (data.message) toast(data.message, data.level || 'info');
-    } catch (err) { /* ignore */ }
-  });
-
-  sseSource.addEventListener('server_shutdown', (e) => {
-    toast('Server is shutting down...', 'error');
-  });
-
-  sseSource.onerror = () => {
-    state.sseConnected = false;
-    updateSSEIndicator(false);
-    sseSource.close();
-    sseSource = null;
-    // Reconnect after 5s
-    if (!sseReconnectTimer) {
-      sseReconnectTimer = setTimeout(() => {
-        sseReconnectTimer = null;
-        connectSSE();
-      }, 5000);
-    }
-  };
+  sseSource = new EventSource('/api/v1/sse/tasks');
+  sseSource.onopen = () => { state.sseConnected = true; updateSSE(true); if (sseTimer) { clearTimeout(sseTimer); sseTimer = null; } };
+  sseSource.addEventListener('tasks', e => { try {
+    const d = JSON.parse(e.data);
+    if (d.tasks) { state.tasks = d.tasks; updateBadge(); if (state.currentPage === 'tasks') renderTasks(); }
+    if (state.currentPage === 'dashboard') { API.get('/api/v1/tasks/stats').then(s => { if (s) state.taskStats = s; updateBadge(); }).catch(() => {}); }
+  } catch(_) {} });
+  sseSource.addEventListener('schedules', e => { try { const d = JSON.parse(e.data); if (d.entries) { state.schedules = d.entries; state.schedulerRunning = d.scheduler_running; if (state.currentPage === 'schedules') renderSchedules(); } } catch(_) {} });
+  sseSource.addEventListener('notification', e => { try { const d = JSON.parse(e.data); if (d.message) toast(d.message, d.level||'info'); } catch(_) {} });
+  sseSource.addEventListener('server_shutdown', () => toast('Server shutting down...', 'error'));
+  sseSource.onerror = () => { state.sseConnected = false; updateSSE(false); if (sseSource) sseSource.close(); sseSource = null; if (!sseTimer) sseTimer = setTimeout(() => { sseTimer = null; connectSSE(); }, 5000); };
 }
-
-function updateSSEIndicator(connected) {
-  const dot = $('sseDot');
-  const dashStatus = $('dashSseStatus');
+function updateSSE(connected) {
+  const dot = $('sseDot'), dash = $('dashSseStatus');
   if (dot) dot.className = 'sse-dot ' + (connected ? 'connected' : 'disconnected');
-  if (dashStatus) {
-    dashStatus.innerHTML = `<span class="tag ${connected ? 'tag-success' : 'tag-failed'}">${connected ? 'Connected' : 'Disconnected'}</span>`;
-  }
+  if (dash) dash.innerHTML = '<span class="badge ' + (connected?'badge-completed':'badge-failed') + '">' + (connected?'Connected':'Disconnected') + '</span>';
 }
-
-function updateSidebarHealth() {
-  const dot = $('healthDot');
-  const text = $('healthText');
+function updateHealth() {
+  const dot = $('healthDot'), text = $('healthText'), ver = $('sidebarVersion');
   if (!dot || !text) return;
-  if (state.health && state.health.status === 'ok') {
-    dot.className = 'health-dot ok';
-    text.textContent = 'Online';
-  } else {
-    dot.className = 'health-dot down';
-    text.textContent = 'Offline';
-  }
+  dot.className = 'health-indicator ' + (state.health?.status === 'ok' ? 'ok' : 'down');
+  text.textContent = state.health?.status === 'ok' ? 'Online' : 'Offline';
+  if (ver) ver.textContent = state.health?.version || '--';
+}
+function updateBadge() {
+  const b = $('taskBadge'); if (!b) return;
+  const n = (state.taskStats?.running||0) + (state.taskStats?.queued||0);
+  if (n > 0) { b.textContent = n; b.style.display = ''; } else { b.style.display = 'none'; }
 }
 
-function updateTaskBadge() {
-  const badge = $('taskBadge');
-  if (!badge) return;
-  const running = state.taskStats?.running || 0;
-  const queued = state.taskStats?.queued || 0;
-  const total = running + queued;
-  if (total > 0) {
-    badge.textContent = total;
-    badge.style.display = '';
-  } else {
-    badge.style.display = 'none';
-  }
-}
-
-/* ---- Health Check ---- */
-async function checkHealth() {
-  try {
-    const health = await API.get('/api/v1/health');
-    state.health = health;
-  } catch (e) {
-    state.health = null;
-  }
-  updateSidebarHealth();
-}
-
-/* ---- Popstate (browser back/forward) ---- */
-window.addEventListener('popstate', () => {
-  const path = location.pathname.replace(/^\//, '') || 'dashboard';
-  const page = PAGES.includes(path) ? path : 'dashboard';
-  state.currentPage = page;
-  updateNavigation();
-  renderPage(page);
-});
+/* ---- Health check ---- */
+async function checkHealth() { try { state.health = await API.get('/api/v1/health'); } catch (e) { state.health = null; } updateHealth(); }
 
 /* ---- Init ---- */
 async function init() {
-  // Check health
   await checkHealth();
-
-  // Start SSE
   connectSSE();
-
-  // Determine initial page from URL
-  const path = location.pathname.replace(/^\//, '') || 'dashboard';
-  const page = PAGES.includes(path) ? path : 'dashboard';
-  state.currentPage = page;
-  updateNavigation();
-
-  // Load page content
-  renderPage(page);
-
-  // Periodic health check
+  const p = (location.pathname.replace(/^\//, '') || 'dashboard');
+  state.currentPage = PAGES.includes(p) ? p : 'dashboard';
+  updateNav();
+  renderPage(state.currentPage);
   setInterval(checkHealth, 30000);
 }
-
 document.addEventListener('DOMContentLoaded', init);
