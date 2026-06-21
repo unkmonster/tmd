@@ -162,7 +162,7 @@ func themeSwitcherHTML() string {
 	return `<div id="tmd-theme-switcher" style="position:fixed;bottom:16px;left:16px;z-index:9999;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:12px;line-height:1.4">
 <style>
 #tmd-theme-switcher *{box-sizing:border-box;margin:0;padding:0}
-#tmd-theme-switcher .ts-btn{width:36px;height:36px;border-radius:50%;border:1px solid rgba(255,255,255,.2);background:rgba(20,20,30,.85);backdrop-filter:blur(8px);color:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:16px;transition:transform .2s,box-shadow .2s;box-shadow:0 2px 12px rgba(0,0,0,.3);margin-left:auto}
+#tmd-theme-switcher .ts-btn{width:36px;height:36px;border-radius:50%;border:1px solid rgba(255,255,255,.2);background:rgba(20,20,30,.85);backdrop-filter:blur(8px);color:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:16px;transition:transform .2s,box-shadow .2s;box-shadow:0 2px 12px rgba(0,0,0,.3)}
 #tmd-theme-switcher .ts-btn:hover{transform:scale(1.1);box-shadow:0 4px 16px rgba(0,0,0,.4)}
 #tmd-theme-switcher .ts-panel{display:none;margin-top:8px;background:rgba(20,20,30,.92);backdrop-filter:blur(12px);border:1px solid rgba(255,255,255,.12);border-radius:10px;padding:12px;min-width:160px;box-shadow:0 8px 32px rgba(0,0,0,.4);color:#ddd}
 #tmd-theme-switcher .ts-panel.open{display:block}

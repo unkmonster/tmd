@@ -2859,7 +2859,7 @@ func TestHandleSetTheme_InvalidTheme(t *testing.T) {
 	defer setFrontendTheme(orig)
 
 	server := &Server{}
-	body := `{"theme":"web3"}`
+	body := `{"theme":"nonexistent"}`
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/config/theme", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
