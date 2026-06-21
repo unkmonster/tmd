@@ -240,6 +240,9 @@ GET  /api/v1/db/user-previous-names
 GET  /api/v1/db/stats
 
 # 配置
+GET  /api/v1/config/theme
+POST /api/v1/config/theme
+GET  /api/v1/config/themes
 GET  /api/v1/config
 GET  /api/v1/config/raw
 PUT  /api/v1/config/raw

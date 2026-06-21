@@ -201,7 +201,7 @@ handleDBUserDelete
         ├── BEGIN TRANSACTION
         ├── DELETE FROM user_links WHERE user_id = ?
         ├── DELETE FROM user_entities WHERE user_id = ?
-        ├── DELETE FROM user_previous_names WHERE uid = ?
+        ├── DELETE FROM user_previous_names WHERE user_id = ?
         ├── DELETE FROM users WHERE id = ?
         └── COMMIT / ROLLBACK
 ```
