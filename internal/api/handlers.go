@@ -85,7 +85,7 @@ func (s *Server) handleWeb(w http.ResponseWriter, r *http.Request) {
 	switcher := themeSwitcherHTML()
 	data = bytes.Replace(data, []byte("</body>"), []byte(switcher+"</body>"), 1)
 
-	s.writeCachedContent(w, r, data, "text/html; charset=utf-8", "public, max-age=3600")
+	s.writeCachedContent(w, r, data, "text/html; charset=utf-8", "no-cache")
 }
 
 // handleStatic 静态文件服务
@@ -131,7 +131,7 @@ func (s *Server) handleStatic(w http.ResponseWriter, r *http.Request) {
 		contentType = "image/svg+xml"
 	}
 
-	s.writeCachedContent(w, r, data, contentType, "public, max-age=86400")
+	s.writeCachedContent(w, r, data, contentType, "no-cache")
 }
 
 func (s *Server) writeCachedContent(w http.ResponseWriter, r *http.Request, data []byte, contentType, cacheControl string) {
@@ -214,7 +214,7 @@ list.appendChild(b);
 async function switchTheme(t){
 var r=await fetch('/api/v1/config/theme',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({theme:t})});
 var d=await r.json();
-if(d.success)window.location.href=window.location.pathname+'?_ts='+Date.now()}
+if(d.success)window.location.reload(true)}
 </script>
 </div>`
 }

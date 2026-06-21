@@ -38,7 +38,7 @@ func TestHandleWeb_Success(t *testing.T) {
 	// 验证响应
 	assert.Equal(t, http.StatusOK, rr.Code)
 	assert.Equal(t, "text/html; charset=utf-8", rr.Header().Get("Content-Type"))
-	assert.Equal(t, "public, max-age=3600", rr.Header().Get("Cache-Control"))
+	assert.Equal(t, "no-cache", rr.Header().Get("Cache-Control"))
 	assert.Equal(t, contentETag(rr.Body.Bytes()), rr.Header().Get("ETag"))
 	assert.Greater(t, rr.Body.Len(), 0)
 }
@@ -79,7 +79,7 @@ func TestHandleWeb_CacheHeaders(t *testing.T) {
 
 	server.handleWeb(rr, req)
 
-	assert.Equal(t, "public, max-age=3600", rr.Header().Get("Cache-Control"))
+	assert.Equal(t, "no-cache", rr.Header().Get("Cache-Control"))
 	assert.Equal(t, contentETag(rr.Body.Bytes()), rr.Header().Get("ETag"))
 }
 
@@ -244,7 +244,7 @@ func TestHandleStatic_CacheHeaders(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/static/styles.css", nil)
 	rr := serveStatic(server, req)
 
-	assert.Equal(t, "public, max-age=86400", rr.Header().Get("Cache-Control"))
+	assert.Equal(t, "no-cache", rr.Header().Get("Cache-Control"))
 	assert.Equal(t, contentETag(rr.Body.Bytes()), rr.Header().Get("ETag"))
 }
 
