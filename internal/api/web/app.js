@@ -59,6 +59,21 @@ const API = {
 const esc = (s) => { if (s == null) return ''; const d = document.createElement('div'); d.appendChild(document.createTextNode(String(s))); return d.innerHTML; };
 const jsEsc = (s) => { if (s == null) return ''; return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/\n/g,'\\n').replace(/\r/g,''); };
 
+// Log helpers
+function stripAnsi(str) { return str.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, ''); }
+function getLogLineColor(line) {
+  if (line.startsWith('ERRO[') || line.includes('level=error')) return 'var(--red)';
+  if (line.startsWith('WARN[') || line.includes('level=warn') || line.includes('level=warning')) return 'var(--amber)';
+  if (line.startsWith('INFO[') || line.includes('level=info')) return 'var(--blue)';
+  if (line.startsWith('DEBU[') || line.includes('level=debug')) return 'var(--text-muted)';
+  return 'var(--text-secondary)';
+}
+function highlightLogTimestamp(line) {
+  line = line.replace(/time=(&quot;)(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[-+]\d{2}:\d{2})(&quot;)/g, 'time=<span class="log-timestamp">$2</span>');
+  line = line.replace(/(ERRO|WARN|INFO|DEBU)\[(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})\]/g, '$1[<span class="log-timestamp">$2</span>]');
+  return line;
+}
+
 const relativeTime = (iso) => {
   if (!iso) return '-';
   const d = new Date(iso);
@@ -91,6 +106,41 @@ const formatDuration = (start, end) => {
   return m + 'm ' + secs + 's';
 };
 
+function getTaskProgressPercent(task) {
+  if (task.status === 'completed') return 100;
+  const p = task.progress || {};
+  const total = p.total || 0;
+  const completed = p.completed || 0;
+  const ratio = total > 0 ? Math.min(completed / total, 1) : 0;
+  if (task.status === 'failed' || task.status === 'cancelled') return total > 0 ? Math.round(ratio * 100) : 0;
+  switch (p.stage) {
+    case 'syncing': return 5;
+    case 'preparing': return 10;
+    case 'downloading': return Math.round(10 + ratio * 70);
+    case 'retrying': return Math.round(80 + ratio * 10);
+    case 'profile': return total > 0 ? Math.round(90 + ratio * 9) : 90;
+    case 'profile_warning': return 99;
+    case 'marking': return total > 0 ? Math.round(10 + ratio * 85) : 10;
+    default: return 0;
+  }
+}
+
+function getStageText(stage) {
+  const m = { preparing:'Preparing', syncing:'Syncing', downloading:'Downloading', retrying:'Retrying', profile:'Profile', profile_warning:'Profile Warning', marking:'Marking', completed:'' };
+  return m[stage] ? ' · ' + m[stage] : (stage ? ' · ' + stage : '');
+}
+
+function getTaskTarget(task) {
+  const d = task.data || {};
+  if (d.screen_name) return '@' + d.screen_name;
+  if (d.list_id) return 'List ' + d.list_id;
+  const parts = [];
+  if (Array.isArray(d.users) && d.users.length) parts.push(d.users.length + ' users');
+  if (Array.isArray(d.lists) && d.lists.length) parts.push(d.lists.length + ' lists');
+  if (Array.isArray(d.following_names) && d.following_names.length) parts.push(d.following_names.length + ' following');
+  return parts.length ? parts.join(' · ') : '';
+}
+
 function taskTypeName(type) {
   const names = {
     user_download:'User Download', list_download:'List Download',
@@ -122,15 +172,27 @@ function taskTypeIcon(type) {
 let toastId = 0;
 function toast(msg, type) {
   type = type || 'info';
-  const id = ++toastId;
   const container = document.getElementById('toast-container');
+  if (!container) return;
+
+  // Dedup: skip if same message already visible
+  for (const el of container.children) {
+    const msgEl = el.querySelector('.toast-msg');
+    if (msgEl && msgEl.textContent === msg) return;
+  }
+
+  // Max 3 concurrent toasts, remove oldest
+  while (container.children.length >= 3) container.firstChild.remove();
+
+  const id = ++toastId;
   const el = document.createElement('div');
   el.className = 'toast toast-' + type;
   el.id = 'toast-' + id;
   const icons = { success:'✓', error:'✕', warning:'!', info:'i' };
   el.innerHTML = '<span class="toast-icon">' + icons[type] + '</span><span class="toast-msg">' + esc(msg) + '</span><button class="toast-close" onclick="dismissToast(' + id + ')">✕</button>';
+  el.querySelector('.toast-close').onclick = () => el.remove();
   container.appendChild(el);
-  setTimeout(() => dismissToast(id), 5000);
+  setTimeout(() => { const e = document.getElementById('toast-'+id); if (e) e.remove(); }, 5000);
 }
 function dismissToast(id) {
   const el = document.getElementById('toast-'+id);
@@ -253,6 +315,9 @@ const ENDPOINTS = {
   // Logs
   logs:      (p) => API.get('/api/v1/logs' + qs(p)),
   logStats:  () => API.get('/api/v1/logs/stats'),
+
+  // Server
+  shutdown:  () => API.post('/api/v1/server/shutdown'),
 };
 
 function qs(params) {
@@ -354,7 +419,14 @@ function connectSSE() {
   sseSource.addEventListener('notification', (e) => {
     try {
       const n = JSON.parse(e.data);
-      if (n && n.message) toast(n.message, n.type === 'task_failed' ? 'error' : 'info');
+      if (n && n.message) {
+        const type = n.type === 'task_completed' ? 'success' :
+                     n.type === 'task_failed' ? 'error' :
+                     n.type === 'task_cancelled' ? 'warning' :
+                     n.type === 'schedule_warning' ? 'warning' : 'info';
+        // Delay toast to align with SSE debounce
+        setTimeout(() => toast(n.message, type), 100);
+      }
     } catch(err) { /* ignore */ }
   });
 
@@ -407,6 +479,14 @@ async function checkHealth() {
 function renderTasksPage(container) {
   container.innerHTML = `
     <div class="stats-grid" id="task-stats"></div>
+    <div class="card mb-4">
+      <div class="card-body" style="padding:12px 20px">
+        <div class="flex gap-2 items-center" style="flex-wrap:wrap">
+          <input type="text" id="quick-dl-input" placeholder="Twitter URL or @username ... paste link or type name" style="flex:1;min-width:200px">
+          <button class="btn btn-primary btn-sm" onclick="handleQuickDownload()">Quick Download</button>
+        </div>
+      </div>
+    </div>
     <div class="section">
       <div class="section-header">
         <h2>Tasks</h2>
@@ -423,15 +503,23 @@ function renderTasksPage(container) {
       </div>
       <div class="card">
         <div class="table-wrap">
-          <table>
+          <table class="task-table">
+            <colgroup>
+              <col style="width:48px">
+              <col>
+              <col style="width:100px">
+              <col style="width:220px">
+              <col style="width:130px">
+              <col style="width:100px">
+            </colgroup>
             <thead>
               <tr>
                 <th style="width:32px">Type</th>
                 <th>ID</th>
-                <th>Status</th>
-                <th style="min-width:180px">Progress</th>
-                <th>Time</th>
-                <th>Actions</th>
+                <th style="width:100px">Status</th>
+                <th style="width:220px">Progress</th>
+                <th style="width:130px">Time</th>
+                <th style="width:100px">Actions</th>
               </tr>
             </thead>
             <tbody id="task-table-body"></tbody>
@@ -477,25 +565,24 @@ function updateTasksView() {
   tbody.innerHTML = tasks.map(t => {
     const p = t.progress || {};
     const r = t.result || {};
-    const total = (p.total != null && p.total > 0) ? p.total : 1;
-    const done = p.completed || 0;
-    const pct = Math.round((done / total) * 100);
+    const pct = getTaskProgressPercent(t);
     const barClass = p.stage === 'completed' ? 'completed' : (t.status === 'failed' ? 'failed' : (t.status === 'running' ? 'pulsing' : ''));
+    const stageText = getStageText(p.stage);
+    const target = getTaskTarget(t);
     const canCancel = t.status === 'queued' || t.status === 'running';
     const canRetry = t.status === 'failed' || t.status === 'cancelled';
     const canDelete = t.status === 'completed' || t.status === 'failed' || t.status === 'cancelled';
 
     return `<tr data-status="${t.status}">
       <td>${taskTypeIcon(t.type)}</td>
-      <td><span class="mono">${esc(t.task_id || t.id)}</span><div class="text-sm text-muted">${taskTypeName(t.type)}</div></td>
+      <td><span class="mono">${esc(t.task_id || t.id)}</span><div class="text-sm text-muted">${taskTypeName(t.type)}${target ? ' - ' + esc(target) : ''}</div></td>
       <td><span class="badge badge-${t.status}">${t.status}</span></td>
       <td>
         <div class="progress-bar-wrap"><div class="progress-bar-fill ${barClass}" style="width:${pct}%"></div></div>
         <div class="progress-detail">
-          <span>${done}/${total}</span>
-          ${p.failed ? '<span class="fail"> <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg> ' + esc(p.failed) + '</span>' : ''}
-          ${p.current ? '<span class="text-sm text-muted"> &middot; ' + esc(p.current) + '</span>' : ''}
-          ${p.stage ? '<span class="text-sm text-muted"> &middot; ' + esc(p.stage) + '</span>' : ''}
+          <span>${pct}%${stageText}</span>
+          ${p.current ? '<span> &middot; ' + esc(p.current) + '</span>' : ''}
+          ${p.failed ? '<span class="fail"> &middot; ' + esc(p.failed) + ' failed</span>' : ''}
         </div>
       </td>
       <td>
@@ -504,6 +591,7 @@ function updateTasksView() {
       </td>
       <td>
         <div class="task-actions">
+          ${(t.status === 'completed' || t.status === 'failed' || t.status === 'cancelled') ? '<button class="btn btn-xs btn-ghost" onclick="showTaskDetail(\'' + jsEsc(t.task_id) + '\')" title="View"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button>' : ''}
           ${canCancel ? '<button class="btn btn-xs btn-ghost" onclick="doCancelTask(\'' + jsEsc(t.task_id) + '\')" title="Cancel"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>' : ''}
           ${canRetry ? '<button class="btn btn-xs btn-ghost" onclick="doRetryTask(\'' + jsEsc(t.task_id) + '\')" title="Retry"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg></button>' : ''}
           ${canDelete ? '<button class="btn btn-xs btn-ghost" onclick="doDeleteTask(\'' + jsEsc(t.task_id) + '\')" title="Delete"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>' : ''}
@@ -641,6 +729,7 @@ async function doUserDownload() {
       no_retry: document.getElementById('dl-user-noretry').checked
     });
     toast('Task created: ' + r.task_id, 'success');
+    document.getElementById('dl-user-name').value = '';
   } catch(e) { toast(e.message, 'error'); }
 }
 
@@ -761,6 +850,7 @@ async function doJSONFolderDownload() {
 
 // Task actions
 async function doCancelTask(id) {
+  if (!confirm('Cancel this task?')) return;
   try { await ENDPOINTS.cancelTask(id); toast('Task cancelled', 'info'); }
   catch(e) { toast(e.message, 'error'); }
 }
@@ -771,13 +861,123 @@ async function doRetryTask(id) {
 }
 
 async function doDeleteTask(id) {
+  if (!confirm('Delete this task?')) return;
   try { await ENDPOINTS.deleteTask(id); toast('Task deleted', 'info'); }
   catch(e) { toast(e.message, 'error'); }
+}
+
+// Task detail view
+async function showTaskDetail(id) {
+  let task;
+  try {
+    task = await ENDPOINTS.getTask(id);
+  } catch(e) {
+    return toast('Failed to load task: ' + e.message, 'error');
+  }
+  if (!task) return toast('Task not found', 'error');
+
+  const statusColors = { queued:'#8b949e', running:'#58a6ff', completed:'#3fb950', failed:'#f85149', cancelled:'#6e7681' };
+  const bgColors = { queued:'rgba(139,148,158,0.1)', running:'rgba(88,166,255,0.1)', completed:'rgba(63,185,80,0.1)', failed:'rgba(248,81,73,0.1)', cancelled:'rgba(110,118,129,0.1)' };
+  const sc = statusColors[task.status] || '#8b949e';
+  const bg = bgColors[task.status] || 'rgba(139,148,158,0.1)';
+  const target = getTaskTarget(task);
+  const pct = getTaskProgressPercent(task);
+
+  // Timeline
+  const fmt = (t) => t ? new Date(t).toLocaleString() : '-';
+  const started = task.started_at ? fmt(task.started_at) : null;
+  const ended = task.ended_at ? fmt(task.ended_at) : null;
+  const dur = (task.started_at && task.ended_at) ? formatDuration(task.started_at, task.ended_at) : null;
+
+  // Result
+  let resultHtml = '';
+  const res = task.result;
+  if (res) {
+    const parts = [];
+    if (res.main) parts.push('<div><strong>Main:</strong> ' + (res.main.downloaded||0) + ' downloaded' + (res.main.failed ? ', ' + res.main.failed + ' failed' : '') + '</div>');
+    if (res.profile) parts.push('<div><strong>Profile:</strong> ' + (res.profile.downloaded||0) + ' downloaded' + (res.profile.failed ? ', ' + res.profile.failed + ' failed' : '') + (res.profile.versioned ? ', ' + res.profile.versioned + ' versioned' : '') + '</div>');
+    if (res.message) parts.push('<div class="text-sm text-muted">' + esc(res.message) + '</div>');
+    if (parts.length) resultHtml = '<div class="section-header mt-4"><h3>Result</h3></div><div class="card" style="padding:12px 16px">' + parts.join('') + '</div>';
+  }
+
+  openModal(`
+    <div class="modal-header">
+      <h2>Task Detail</h2>
+      <button class="btn btn-ghost btn-sm" onclick="closeModal()"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+    </div>
+    <div class="modal-body">
+      <div style="background:${bg};border-radius:var(--radius);padding:12px 16px;margin-bottom:16px">
+        <div style="font-weight:600;font-size:15px">${esc(target || task.task_id)}</div>
+        <div class="text-sm text-muted" style="margin-top:4px">${esc(task.task_id)}</div>
+        <div style="margin-top:8px"><span class="badge badge-${task.status}">${task.status}</span> <span class="text-sm text-muted">${taskTypeName(task.type)}</span></div>
+      </div>
+
+      <div class="section-header"><h3>Progress</h3></div>
+      <div class="progress-bar-wrap mb-2"><div class="progress-bar-fill" style="width:${pct}%"></div></div>
+      <div class="progress-detail"><span>${pct}%${getStageText(task.progress?.stage)}</span></div>
+
+      <div class="section-header mt-4"><h3>Timeline</h3></div>
+      <div class="card" style="padding:12px 16px">
+        <div class="text-sm">Created: ${fmt(task.created_at)}</div>
+        ${started ? '<div class="text-sm">Started: ' + started + '</div>' : ''}
+        ${ended ? '<div class="text-sm">Ended: ' + ended + '</div>' : ''}
+        ${dur ? '<div class="text-sm">Duration: ' + dur + '</div>' : ''}
+      </div>
+
+      ${resultHtml}
+
+      ${task.error ? '<div class="section-header mt-4"><h3 style="color:var(--red)">Error</h3></div><div class="card" style="padding:12px 16px;color:var(--red)">' + esc(task.error) + '</div>' : ''}
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal()">Close</button>
+      ${task.status === 'queued' || task.status === 'running' ? '<button class="btn btn-danger btn-sm" onclick="closeModal();doCancelTask(\'' + jsEsc(task.task_id) + '\')">Cancel</button>' : ''}
+      ${task.status === 'failed' || task.status === 'cancelled' ? '<button class="btn btn-primary btn-sm" onclick="closeModal();doRetryTask(\'' + jsEsc(task.task_id) + '\')">Retry</button>' : ''}
+      ${task.status === 'completed' || task.status === 'failed' || task.status === 'cancelled' ? '<button class="btn btn-danger btn-sm" onclick="closeModal();doDeleteTask(\'' + jsEsc(task.task_id) + '\')">Delete</button>' : ''}
+    </div>`);
 }
 
 async function cancelAllQueued() {
   try { const r = await ENDPOINTS.cancelQueued(); toast('Cancelled ' + (r.cancelled_count || 0) + ' tasks', 'info'); }
   catch(e) { toast(e.message, 'error'); }
+}
+
+// Quick download with Twitter URL parsing
+async function handleQuickDownload() {
+  const input = document.getElementById('quick-dl-input');
+  if (!input) return;
+  let value = input.value.trim();
+  if (!value) return toast('Enter a Twitter username or URL', 'warning');
+
+  // Parse list link: twitter.com/i/lists/123 or x.com/i/lists/123
+  const listMatch = value.match(/https?:\/\/(?:twitter\.com|x\.com)\/i\/lists\/(\d+)/);
+  if (listMatch) {
+    try {
+      await ENDPOINTS.listDownload(listMatch[1], { auto_follow: true });
+      toast('List download task created', 'success');
+      input.value = '';
+    } catch(e) { toast(e.message, 'error'); }
+    return;
+  }
+
+  // Parse user link: twitter.com/username or x.com/username
+  const userMatch = value.match(/https?:\/\/(?:twitter\.com|x\.com)\/([^/\s?]+)/);
+  if (userMatch) {
+    const pathPart = userMatch[1];
+    const reserved = ['i','search','status','home','explore','notifications','messages','settings','compose','bookmarks','lists'];
+    if (!reserved.includes(pathPart.toLowerCase())) {
+      value = pathPart;
+    }
+  }
+
+  // Strip @ prefix
+  if (value.startsWith('@')) value = value.slice(1);
+  if (!value) return toast('Could not extract username from URL', 'warning');
+
+  try {
+    await ENDPOINTS.userDownload(value, { auto_follow: true });
+    toast('Download task created for @' + value, 'success');
+    input.value = '';
+  } catch(e) { toast(e.message, 'error'); }
 }
 
 /* ---- Data Page ---- */
@@ -985,10 +1185,26 @@ function renderPagination(page, totalPages, total, tabId) {
   let html = '<div class="pagination">';
   html += `<button class="btn btn-xs btn-ghost" ${page === 0 ? 'disabled' : ''} onclick="loadDBTab('${tabId}', 0)">First</button>`;
   html += `<button class="btn btn-xs btn-ghost" ${page === 0 ? 'disabled' : ''} onclick="loadDBTab('${tabId}', ${page - 1})">Prev</button>`;
-  html += `<span class="pagination-info">Page ${page + 1} of ${totalPages}</span>`;
+  // Page numbers with ellipsis
+  const pages = [];
+  if (totalPages <= 7) {
+    for (let i = 0; i < totalPages; i++) pages.push(i);
+  } else {
+    if (page < 4) {
+      pages.push(0, 1, 2, 3, -1, totalPages - 1);
+    } else if (page > totalPages - 5) {
+      pages.push(0, -1, totalPages - 4, totalPages - 3, totalPages - 2, totalPages - 1);
+    } else {
+      pages.push(0, -1, page - 1, page, page + 1, -1, totalPages - 1);
+    }
+  }
+  pages.forEach(p => {
+    if (p === -1) { html += '<span class="pagination-dots">...</span>'; return; }
+    html += `<button class="btn btn-xs ${p === page ? 'btn-primary' : 'btn-ghost'}" onclick="loadDBTab('${tabId}', ${p})">${p + 1}</button>`;
+  });
   html += `<button class="btn btn-xs btn-ghost" ${page >= totalPages - 1 ? 'disabled' : ''} onclick="loadDBTab('${tabId}', ${page + 1})">Next</button>`;
   html += `<button class="btn btn-xs btn-ghost" ${page >= totalPages - 1 ? 'disabled' : ''} onclick="loadDBTab('${tabId}', ${totalPages - 1})">Last</button>`;
-  html += ` <span class="pagination-info">(${total} total)</span>`;
+  html += ` <span class="pagination-info">Page ${page + 1}/${totalPages} (${total})</span>`;
   html += '</div>';
   return html;
 }
@@ -1070,6 +1286,7 @@ function renderSchedulesPage(container) {
         </div>
       </div>
       <div class="stats-grid" id="sched-stats"></div>
+      <div id="sched-warning" class="hidden"></div>
       <div id="sched-list"></div>
     </div>`;
 
@@ -1119,6 +1336,17 @@ function updateSchedulesView() {
     ].map(([k, v, cls]) => `<div class="stat-card ${cls}"><div class="stat-value">${v}</div><div class="stat-label">${k}</div></div>`).join('');
   }
 
+  // Warning when scheduler not running
+  const warnEl = document.getElementById('sched-warning');
+  if (warnEl) {
+    if (!running) {
+      warnEl.className = 'alert alert-warning';
+      warnEl.innerHTML = 'Scheduler is not running - scheduled downloads will not execute automatically.';
+    } else {
+      warnEl.className = 'hidden';
+    }
+  }
+
   const listEl = document.getElementById('sched-list');
   if (!listEl) return;
 
@@ -1128,7 +1356,7 @@ function updateSchedulesView() {
   }
 
   listEl.innerHTML = flatEntries.map(e => `
-    <div class="schedule-item">
+    <div class="schedule-item${e.consecutive_failures > 0 ? ' has-failure' : ''}">
       <div class="schedule-item-header">
         <div class="schedule-item-title">
           <span class="schedule-status-dot ${e.enabled ? 'enabled' : 'disabled'}"></span>
@@ -1254,8 +1482,19 @@ async function triggerSchedule(id) {
 }
 
 async function triggerAllSchedules() {
-  try { const r = await ENDPOINTS.triggerAll(); toast('Triggered ' + r.succeeded + '/' + r.total + ' schedules', 'info'); }
-  catch(e) { toast(e.message, 'error'); }
+  if (!confirm('Trigger all enabled schedules?')) return;
+  const btn = document.querySelector('[onclick="triggerAllSchedules()"]');
+  if (btn) { btn.disabled = true; btn.textContent = 'Triggering...'; }
+  try {
+    const r = await ENDPOINTS.triggerAll();
+    if (r.failed > 0) {
+      const errMsgs = (r.results || []).filter(x => x.error).map(x => x.entry_id + ': ' + x.error).join('; ');
+      toast('Triggered ' + r.succeeded + '/' + r.total + ' schedules (' + r.failed + ' failed): ' + errMsgs, 'warning');
+    } else {
+      toast('All ' + r.succeeded + ' schedules triggered successfully', 'success');
+    }
+  } catch(e) { toast(e.message, 'error'); }
+  finally { if (btn) { btn.disabled = false; btn.textContent = 'Trigger All'; } }
 }
 
 async function reloadSchedules() {
@@ -1359,6 +1598,10 @@ function renderSystemPage(container) {
     <div class="section">
       <div class="section-header"><h2>System</h2></div>
       <div class="stats-grid" id="sys-queue"></div>
+      <div class="section-header" style="margin-top:8px">
+        <div></div>
+        <button class="btn btn-danger btn-sm" onclick="if(confirm('Shut down the server?')){ENDPOINTS.shutdown().then(r=>toast(r.message||'Shutting down...','warning')).catch(e=>toast(e.message,'error'))}">Shut Down Server</button>
+      </div>
     </div>
 
     <div class="section">
@@ -1506,6 +1749,7 @@ async function renderCookies(content) {
           <input type="text" id="cookie-ct0-${i}" value="${esc(c.ct0||'')}" placeholder="ct0" style="font-family:var(--font-mono);font-size:12px">
         </div>`).join('')}
       <div class="form-actions">
+        <button class="btn btn-ghost btn-sm" onclick="addCookieRow()">+ Add Account</button>
         <button class="btn btn-primary" onclick="saveCookies()">Save</button>
       </div>
     </div>`;
@@ -1519,6 +1763,20 @@ async function saveCookies() {
   }));
   try { await ENDPOINTS.saveCookies(cookies); toast('Cookies saved', 'success'); }
   catch(e) { toast(e.message, 'error'); }
+}
+
+function addCookieRow() {
+  const form = document.getElementById('cookies-form');
+  if (!form) return;
+  const existing = form.querySelectorAll('[id^="cookie-at-"]');
+  const idx = existing.length;
+  const row = document.createElement('div');
+  row.className = 'form-row';
+  row.style.marginBottom = '8px';
+  row.innerHTML = '<input type="text" id="cookie-at-' + idx + '" value="" placeholder="auth_token" style="font-family:var(--font-mono);font-size:12px">' +
+    '<input type="text" id="cookie-ct0-' + idx + '" value="" placeholder="ct0" style="font-family:var(--font-mono);font-size:12px">';
+  const actions = form.querySelector('.form-actions');
+  if (actions) form.insertBefore(row, actions);
 }
 
 async function renderCookiesRaw(content) {
@@ -1624,7 +1882,11 @@ async function refreshLogs() {
   try {
     const r = await ENDPOINTS.logs({ page:1, pageSize:200, level: level || undefined });
     const lines = r.logs || [];
-    stream.innerHTML = lines.map(l => '<div class="log-entry">' + esc(l) + '</div>').join('');
+    stream.innerHTML = lines.map(l => {
+      const clean = stripAnsi(l);
+      const color = getLogLineColor(clean);
+      return '<div class="log-entry" style="color:' + color + '">' + highlightLogTimestamp(esc(clean)) + '</div>';
+    }).join('');
     stream.scrollTop = stream.scrollHeight;
   } catch(e) {
     stream.innerHTML = '<div class="log-entry">Error loading logs: ' + esc(e.message) + '</div>';
@@ -1651,7 +1913,10 @@ function connectLogSSE() {
     const autoScroll = stream.scrollTop + stream.clientHeight >= stream.scrollHeight - 20;
     const el = document.createElement('div');
     el.className = 'log-entry';
-    el.textContent = e.data;
+    const clean = stripAnsi(e.data);
+    const color = getLogLineColor(clean);
+    el.innerHTML = highlightLogTimestamp(esc(clean));
+    el.style.color = color;
     stream.appendChild(el);
     if (autoScroll) stream.scrollTop = stream.scrollHeight;
     // Keep last 5000 lines
