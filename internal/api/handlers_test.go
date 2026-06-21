@@ -143,11 +143,11 @@ func TestHandleWeb_NonGETMethods(t *testing.T) {
 func TestHandleStatic_CSS(t *testing.T) {
 	server := &Server{}
 
-	if !embeddedFileExists(server, "/static/style.css") {
-		t.Skip("embedded style.css not available")
+	if !embeddedFileExists(server, "/static/styles.css") {
+		t.Skip("embedded styles.css not available")
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/static/style.css", nil)
+	req := httptest.NewRequest(http.MethodGet, "/static/styles.css", nil)
 	rr := serveStatic(server, req)
 
 	assert.Equal(t, http.StatusOK, rr.Code)
@@ -237,11 +237,11 @@ func TestHandleStatic_NotFound(t *testing.T) {
 func TestHandleStatic_CacheHeaders(t *testing.T) {
 	server := &Server{}
 
-	if !embeddedFileExists(server, "/static/style.css") {
-		t.Skip("embedded style.css not available")
+	if !embeddedFileExists(server, "/static/styles.css") {
+		t.Skip("embedded styles.css not available")
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/static/style.css", nil)
+	req := httptest.NewRequest(http.MethodGet, "/static/styles.css", nil)
 	rr := serveStatic(server, req)
 
 	assert.Equal(t, "public, max-age=86400", rr.Header().Get("Cache-Control"))
@@ -251,15 +251,15 @@ func TestHandleStatic_CacheHeaders(t *testing.T) {
 func TestHandleStatic_IfNoneMatch(t *testing.T) {
 	server := &Server{}
 
-	if !embeddedFileExists(server, "/static/style.css") {
-		t.Skip("embedded style.css not available")
+	if !embeddedFileExists(server, "/static/styles.css") {
+		t.Skip("embedded styles.css not available")
 	}
 
-	firstReq := httptest.NewRequest(http.MethodGet, "/static/style.css", nil)
+	firstReq := httptest.NewRequest(http.MethodGet, "/static/styles.css", nil)
 	firstRR := serveStatic(server, firstReq)
 	requireETag := firstRR.Header().Get("ETag")
 
-	req := httptest.NewRequest(http.MethodGet, "/static/style.css", nil)
+	req := httptest.NewRequest(http.MethodGet, "/static/styles.css", nil)
 	req.Header.Set("If-None-Match", requireETag)
 	rr := serveStatic(server, req)
 
