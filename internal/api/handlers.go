@@ -10,7 +10,7 @@ import (
 	"sync"
 )
 
-//go:embed web/web1 web/web2
+//go:embed web/*
 var webFS embed.FS
 
 var (
@@ -31,12 +31,20 @@ func readFrontendFile(name string) ([]byte, error) {
 }
 
 func setFrontendTheme(theme string) bool {
-	themeMu.Lock()
-	defer themeMu.Unlock()
-	if theme != "web1" && theme != "web2" {
+	if theme == "" || strings.ContainsAny(theme, "/\\..") {
 		return false
 	}
+	// 验证目录在 embed FS 中真实存在（尝试读 index.html）
+	themeMu.RLock()
+	_, err := webFS.ReadFile("web/" + theme + "/index.html")
+	themeMu.RUnlock()
+	if err != nil {
+		return false
+	}
+
+	themeMu.Lock()
 	frontendTheme = theme
+	themeMu.Unlock()
 	return true
 }
 

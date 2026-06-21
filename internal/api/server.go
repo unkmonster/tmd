@@ -264,7 +264,7 @@ func (s *Server) handleSetTheme(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !setFrontendTheme(req.Theme) {
-		s.writeError(w, http.StatusBadRequest, "Invalid theme. Use \"web1\" or \"web2\"")
+		s.writeError(w, http.StatusBadRequest, "Invalid theme: directory not found or missing index.html")
 		return
 	}
 
