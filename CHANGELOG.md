@@ -7,7 +7,62 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ***
 
-## [v3.4.23] - 2026-06-19
+## [v3.4.24] - 2026-06-21
+
+### Added
+
+#### 前端主题动态切换系统
+- **主题切换 API**: `GET /api/v1/config/themes` 列出可用主题、`GET /api/v1/config/theme` 获取当前主题、`POST /api/v1/config/theme` 切换主题，支持运行时热切换
+- **通用主题切换器 UI**: 通过 `handleWeb` 自动注入到所有主题 HTML 中，支持任意数量主题的动态发现和切换
+- **主题目录自动发现**: `listThemes()` 遍历 embed FS 中所有包含 `index.html` 的子目录，新增主题目录无需修改 Go 代码
+- **浏览器缓存消除**: 切换主题时强制 reload(true)，`handleWeb`/`handleStatic` 均使用 `Cache-Control: no-cache` + ETag 校验，304 状态码保证未修改文件零字节传输
+
+#### 前端 Web 目录重构
+- `internal/api/web/` → `web/web1/` + `web/web2/` 双主题结构，通过 `frontendTheme` 运行时变量控制当前启用的主题目录
+- `setFrontendTheme` 加锁方式修复：单一 `Lock+defer` 消除验证和写入之间的 TOCTOU 竞态窗口
+- 删除未使用的 `getFrontendDir()` 函数，清理死代码
+- 前端单元测试补充：`TestHandleGetThemes_ReturnsList`、`TestHandleSetTheme_InvalidTheme`、`TestHandleSetTheme_Success`
+
+#### 调度器验证
+- `internal/scheduler/validate.go`: 新增独立的调度配置验证模块，支持 raw YAML、单个 entry、entries 列表三种模式的校验
+- `POST /api/v1/schedules/validate` 新增 API 端点，web2 保存原始 schedules.yaml 时先调验证
+
+### Changed
+
+#### web2 前端改进
+- **Shut Down Server 按钮**: 从 System 区域移至 Configuration 卡片右上角，与配置操作标签同行
+- **favicon 支持**: 新增 `favicon.svg`，`handleFavicon` 返回 SVG 图标
+- **SSE 事件优化**: PublishServerShutdown 确保客户端收到关闭通知
+
+#### Scheduler 重构
+- `internal/scheduler/scheduler.go`: 大幅简化解耦，消除与 validate 的耦合，提取独立验证逻辑到 `validate.go`
+- 周期性检查逻辑简化，`RunOnStart` 执行时机优化
+
+#### Service 层精简
+- `internal/service/download_service.go`: 移除重复的错误处理检查和冗余日志记录，减少 36 行
+- 测试用例同步更新适配
+
+### Fixed
+
+- **TOCTOU 竞态**: `setFrontendTheme` 验证后写入之间存在的竞态窗口，已通过全锁操作修复
+- **主题切换缓存问题**: 切换后浏览器缓存旧 CSS/JS，需 Ctrl+F5 才能生效。修复方案：强制 reload + no-cache Cache-Control + ETag 校验
+- **前端死代码**: 清理 `internal/api/web1/styles.css` 中 CSS 冗余声明、web2 中未使用的事件绑定
+
+### Removed
+
+- `internal/api/web/web3/`: 经过两轮设计迭代后未达到要求，已移除
+- `internal/database/connect.go`: 未使用的数据库连接辅助代码
+- `internal/database/schema.go`: 重复的 schema 定义
+- `internal/database/sqlite_migration.go`: 已合并到主 migration 流程
+
+### Stats
+
+- **32 个文件变更**
+- **+3,576 行 / -355 行**
+
+***
+
+
 
 ### Added
 
