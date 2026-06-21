@@ -1,9 +1,12 @@
 @echo off
 setlocal
 
-set "TMD_EXE=%~dp0tmd.exe"
+set "TMD_EXE=%~dp0tmd-Windows-amd64.exe"
 if not exist "%TMD_EXE%" (
-    set "TMD_EXE=%~dp0tmd-Windows-amd64.exe"
+    set "TMD_EXE=%~dp0tmd.exe"
+)
+if not exist "%TMD_EXE%" (
+    set "TMD_EXE=%~dp0tmd-test.exe"
 )
 if not exist "%TMD_EXE%" (
     set "TMD_EXE=%~dp0tmd"
@@ -17,7 +20,7 @@ if not exist "%TMD_EXE%" (
         echo Build failed.
         exit /b %errorlevel%
     )
-    set "TMD_EXE=%~dp0tmd.exe"
+    set "TMD_EXE=%~dp0tmd-test.exe"
 )
 
 "%TMD_EXE%" -server %*

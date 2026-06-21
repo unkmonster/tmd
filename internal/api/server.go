@@ -175,6 +175,7 @@ func (s *Server) buildHandler() http.Handler {
 
 	mux.HandleFunc("GET /api/v1/config/theme", s.handleGetTheme)
 	mux.HandleFunc("POST /api/v1/config/theme", s.handleSetTheme)
+	mux.HandleFunc("GET /api/v1/config/themes", s.handleGetThemes)
 	mux.HandleFunc("GET /api/v1/config", s.handleConfig)
 	mux.HandleFunc("GET /api/v1/config/raw", s.handleGetConfigRaw)
 	mux.HandleFunc("PUT /api/v1/config/raw", s.handleUpdateConfigRaw)
@@ -271,6 +272,18 @@ func (s *Server) handleSetTheme(w http.ResponseWriter, r *http.Request) {
 	log.Infof("[theme] switched to %s", req.Theme)
 	s.writeJSON(w, http.StatusOK, NewSuccessResponse(map[string]string{
 		"theme": getFrontendTheme(),
+	}))
+}
+
+func (s *Server) handleGetThemes(w http.ResponseWriter, r *http.Request) {
+	themes := listThemes()
+	if themes == nil {
+		s.writeError(w, http.StatusInternalServerError, "Failed to list themes")
+		return
+	}
+	s.writeJSON(w, http.StatusOK, NewSuccessResponse(map[string]interface{}{
+		"themes":  themes,
+		"current": getFrontendTheme(),
 	}))
 }
 

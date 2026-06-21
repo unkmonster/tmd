@@ -2868,3 +2868,33 @@ func TestHandleSetTheme_InvalidTheme(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rr.Code)
 	assert.Equal(t, orig, getFrontendTheme())
 }
+
+func TestHandleGetThemes_ReturnsList(t *testing.T) {
+	// 重置 theme 避免后续测试干扰
+	orig := getFrontendTheme()
+	defer setFrontendTheme(orig)
+
+	server := &Server{}
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/config/themes", nil)
+	rr := httptest.NewRecorder()
+	server.handleGetThemes(rr, req)
+
+	assert.Equal(t, http.StatusOK, rr.Code)
+
+	var resp APIResponse
+	err := json.Unmarshal(rr.Body.Bytes(), &resp)
+	assert.NoError(t, err)
+	assert.True(t, resp.Success)
+
+	data, ok := resp.Data.(map[string]interface{})
+	assert.True(t, ok)
+
+	themes, ok := data["themes"].([]interface{})
+	assert.True(t, ok)
+	assert.Contains(t, themes, "web1")
+	assert.Contains(t, themes, "web2")
+
+	current, ok := data["current"].(string)
+	assert.True(t, ok)
+	assert.NotEmpty(t, current)
+}
