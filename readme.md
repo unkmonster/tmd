@@ -689,6 +689,9 @@ tmd -server -port 8080
 | **PUT** | `/api/v1/config/raw` | 更新原始配置文件 (YAML) | ❌ |
 | **GET** | `/api/v1/config/fields` | 获取结构化配置字段列表 | ❌ |
 | **PUT** | `/api/v1/config/fields` | 保存结构化配置字段 | ❌ |
+| **GET** | `/api/v1/config/theme` | 获取当前前端主题 | ❌ |
+| **POST** | `/api/v1/config/theme` | 切换前端主题 | ❌ |
+| **GET** | `/api/v1/config/themes` | 获取可用主题列表 | ❌ |
 | **GET** | `/api/v1/cookies` | 获取备用 Cookie 列表（脱敏） | ❌ |
 | **PUT** | `/api/v1/cookies` | 保存备用 Cookie（表单） | ❌ |
 | **GET** | `/api/v1/cookies/raw` | 获取原始 Cookie 文件内容 | ❌ |
