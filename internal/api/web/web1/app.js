@@ -4775,7 +4775,12 @@ function syncSchedulesPage(state) {
   // 手术刀更新：列表 → 只改 #scheduleTable，保留页面容器和滚动位置
   if (changed._schedules || changed._scheduleExists) {
     const tableEl = document.getElementById('scheduleTable');
-    if (!tableEl) return;
+    if (!tableEl) {
+      // #scheduleTable 不存在说明当前是骨架屏（_schedules 从 null → 有值），
+      // 触发全页渲染从骨架屏切换到真正的视图
+      render();
+      return;
+    }
     // 保存当前滚动位置（card-body-scroll 是实际滚动容器）
     const scrollBody = tableEl.querySelector('.card-body-scroll');
     const scrollPos = scrollBody ? scrollBody.scrollTop : 0;
