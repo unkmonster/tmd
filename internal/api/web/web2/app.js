@@ -1864,7 +1864,7 @@ function renderLogsPage(container) {
           </div>
           <button class="log-scroll-to-top-btn" id="log-new-arrived-btn"
             style="display:none" onclick="scrollLogToBottom()">
-            📌 New logs arrived
+            ↓ New logs arrived
           </button>
         </div>
       </div>

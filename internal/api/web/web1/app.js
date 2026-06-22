@@ -2858,7 +2858,7 @@ function renderLogViewer() {
         </div>
         <button class="log-scroll-to-top-btn" id="log-new-arrived-btn"
           style="display:none" onclick="scrollLogToBottom()">
-          📌 新日志已到达
+          ↓ 新日志已到达
         </button>
       </div>
     </div>
