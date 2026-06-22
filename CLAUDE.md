@@ -105,3 +105,17 @@
 > 详细指南：`/gitnexus-guide` `/gitnexus-impact-analysis` `/gitnexus-refactoring` 等
 
 <!-- gitnexus:end -->
+
+## Agent skills
+
+### Issue tracker
+
+工单通过 Local Markdown 方式跟踪，存放在 `.scratch/<feature>/` 目录下。详见 `docs/agents/issue-tracker.md`。
+
+### Triage labels
+
+五个标准分类标签：`needs-triage`、`needs-info`、`ready-for-agent`、`ready-for-human`、`wontfix`。详见 `docs/agents/triage-labels.md`。
+
+### Domain docs
+
+单层领域文档布局：根目录一份 `CONTEXT.md` + `docs/adr/`。详见 `docs/agents/domain.md`。

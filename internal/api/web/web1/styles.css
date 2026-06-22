@@ -1381,7 +1381,7 @@ ul, ol {
   width: 160px;
 }
 #logViewerCard .toolbar {
-  padding: 6px var(--space-5);
+  padding: var(--space-3) var(--space-5);
 }
 
 /* Grid Layout for Tasks Page */
