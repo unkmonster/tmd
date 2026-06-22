@@ -1915,6 +1915,28 @@ ul, ol {
   color: var(--border-secondary);
 }
 
+/* Schedule form: inline checkbox label */
+.checkbox-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.checkbox-inline input[type="checkbox"] {
+  margin: 0;
+}
+
+/* Form inline hint text (e.g. "每行一个") */
+.form-hint-inline {
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+/* Schedule field validation hint */
+.form-hint-validate {
+  font-size: 12px;
+  margin-top: 8px;
+  min-height: 0;
+}
+
 /* Mode tabs wrapper: raw/form toggle within system config panels */
 .mode-tabs-wrapper {
   display: flex;

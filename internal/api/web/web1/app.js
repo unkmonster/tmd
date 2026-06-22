@@ -3054,19 +3054,19 @@ function renderScheduleFormField(item, idx) {
       </div>
       ${item.type === 'mixed' ? `
       <div class="config-field">
-        <label class="config-label" for="sf_users_${idx}">用户名 <span style="font-size:11px;color:var(--text-tertiary)">每行一个</span></label>
+        <label class="config-label" for="sf_users_${idx}">用户名 <span class="form-hint-inline">每行一个</span></label>
         <textarea class="form-textarea config-input" id="sf_users_${idx}" rows="3"
           aria-describedby="sf_schedule_hint_${idx}"
           placeholder="elonmusk&#10;openai" data-binding="sf_field" data-idx="${idx}">${escapeHtml((item.users || []).join('\n'))}</textarea>
       </div>
       <div class="config-field">
-        <label class="config-label" for="sf_lists_${idx}">列表 ID <span style="font-size:11px;color:var(--text-tertiary)">每行一个</span></label>
+        <label class="config-label" for="sf_lists_${idx}">列表 ID <span class="form-hint-inline">每行一个</span></label>
         <textarea class="form-textarea config-input" id="sf_lists_${idx}" rows="3"
           aria-describedby="sf_schedule_hint_${idx}"
           placeholder="123456789&#10;987654321" data-binding="sf_field" data-idx="${idx}">${escapeHtml((item.lists || []).join('\n'))}</textarea>
       </div>
       <div class="config-field">
-        <label class="config-label" for="sf_following_${idx}">关注用户名 <span style="font-size:11px;color:var(--text-tertiary)">每行一个</span></label>
+        <label class="config-label" for="sf_following_${idx}">关注用户名 <span class="form-hint-inline">每行一个</span></label>
         <textarea class="form-textarea config-input" id="sf_following_${idx}" rows="3"
           aria-describedby="sf_schedule_hint_${idx}"
           placeholder="someuser" data-binding="sf_field" data-idx="${idx}">${escapeHtml((item.following_names || []).join('\n'))}</textarea>
@@ -3100,32 +3100,32 @@ function renderScheduleFormField(item, idx) {
           data-binding="sf_field" data-idx="${idx}">
       </div>
       <div class="config-field" style="display:flex;gap:16px;flex-wrap:wrap;">
-        <label class="config-label" style="display:inline-flex;align-items:center;gap:4px">
-          <input type="checkbox" id="sf_enabled_${idx}" ${item.enabled ? 'checked' : ''} style="margin:0">
+        <label class="config-label checkbox-inline">
+          <input type="checkbox" id="sf_enabled_${idx}" ${item.enabled ? 'checked' : ''}>
           启用
         </label>
-        <label class="config-label" style="display:inline-flex;align-items:center;gap:4px">
-          <input type="checkbox" id="sf_auto_follow_${idx}" ${item.auto_follow ? 'checked' : ''} style="margin:0">
+        <label class="config-label checkbox-inline">
+          <input type="checkbox" id="sf_auto_follow_${idx}" ${item.auto_follow ? 'checked' : ''}>
           自动申请受保护账号
         </label>
-        <label class="config-label" style="display:inline-flex;align-items:center;gap:4px">
-          <input type="checkbox" id="sf_follow_members_${idx}" ${item.follow_members ? 'checked' : ''} style="margin:0">
+        <label class="config-label checkbox-inline">
+          <input type="checkbox" id="sf_follow_members_${idx}" ${item.follow_members ? 'checked' : ''}>
           下载时关注目标/成员
         </label>
-        <label class="config-label" style="display:inline-flex;align-items:center;gap:4px">
-          <input type="checkbox" id="sf_skip_profile_${idx}" ${item.skip_profile ? 'checked' : ''} style="margin:0">
+        <label class="config-label checkbox-inline">
+          <input type="checkbox" id="sf_skip_profile_${idx}" ${item.skip_profile ? 'checked' : ''}>
           跳过 Profile
         </label>
-        <label class="config-label" style="display:inline-flex;align-items:center;gap:4px">
-          <input type="checkbox" id="sf_no_retry_${idx}" ${item.no_retry ? 'checked' : ''} style="margin:0">
+        <label class="config-label checkbox-inline">
+          <input type="checkbox" id="sf_no_retry_${idx}" ${item.no_retry ? 'checked' : ''}>
           不重试
         </label>
-        <label class="config-label" style="display:inline-flex;align-items:center;gap:4px">
-          <input type="checkbox" id="sf_run_on_start_${idx}" ${item.run_on_start ? 'checked' : ''} style="margin:0">
+        <label class="config-label checkbox-inline">
+          <input type="checkbox" id="sf_run_on_start_${idx}" ${item.run_on_start ? 'checked' : ''}>
           首次启动时立即运行
         </label>
       </div>
-      <div id="sf_schedule_hint_${idx}" class="config-hint" aria-live="polite" style="font-size:12px;margin-top:8px;min-height:0"></div>
+      <div id="sf_schedule_hint_${idx}" class="config-hint form-hint-validate" aria-live="polite"></div>
     </div>
   `;
 }
