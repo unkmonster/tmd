@@ -1,89 +1,297 @@
 # TMD 架构图
 
-> 本文档独立呈现项目整体架构，结合 `AGENTS.md` 和原 `readme.md` 两处架构图的优点绘制。
+> 本文档独立呈现项目整体架构，结合 `AGENTS.md` 和原 `readme.md` 两处架构图的优点绘制，
+> 且已对照实际代码验证各包的接口与职责。
 
 ```
-┌──────────────────────────────────────────────────────────────────────┐
-│                            main.go                                  │
-│                 进程入口：配置 / 日志 / 数据库 / 分流                  │
-└────────────────────────────┬─────────────────────────────────────────┘
-                             │
-              ┌──────────────┴──────────────┐
-              │                             │
-              ▼                             ▼
-┌─────────────────────────┐   ┌──────────────────────────────────────────┐
-│     internal/cli        │   │            internal/api                  │
-│      CLI 模式            │   │            Server 模式                   │
-│                         │   │                                          │
-│  同步执行，直接返回结果    │   │  ┌──────────────────────────────────┐    │
-│                         │   │  │ TaskManager + DownloadQueue       │    │
-│  args.go → 解析参数      │   │  │                                  │    │
-│  executor.go → 执行     │   │  │ EventBus ──→ SSE → Web UI        │    │
-│                         │   │  │ Scheduler（定时调度）              │    │
-│                         │   │  └──────────────────────────────────┘    │
-└────────┬────────────────┘   └─────────────────┬────────────────────────┘
-         │                                      │
-         └──────────────┬───────────────────────┘
-                        │
-                        ▼
-       ┌────────────────────────────────────────────────────┐
-       │              internal/service                      │
-       │              ★ 统一应用服务层 ★                      │
-       │                                                    │
-       │    DownloadService 接口（11 种操作的唯一入口）          │
-       │                                                    │
-       │  UserDownload / ListDownload / FollowingDownload    │
-       │  ProfileDownload / JsonFileDownload / JsonFolder…   │
-       │  MarkDownloaded / BatchDownload / RetryAllFailed    │
-       └──────────────────────┬─────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────┐
+│                              main.go                                    │
+│                   进程入口：配置 / 日志 / 数据库 / 分流                    │
+│          ┌─ 初始化顺序：config → logrus → database → twitter client      │
+└──────────────────────────────┬───────────────────────────────────────────┘
+                               │
+                ┌──────────────┴──────────────┐
+                │                             │
+                ▼                             ▼
+┌───────────────────────────┐   ┌────────────────────────────────────────────┐
+│      internal/cli         │   │              internal/api                  │
+│        CLI 模式            │   │              Server 模式                   │
+│                           │   │                                            │
+│    同步执行，直接返回结果    │   │  ┌────────────┐  ┌─────────────────────┐   │
+│                           │   │  │TaskManager │  │   DownloadQueue      │   │
+│   args.go → 解析参数       │   │  │ 任务管理    │  │  任务队列 + Target锁 │   │
+│   executor.go → 调用      │   │  └─────┬──────┘  │ 单 worker 逐条消费    │   │
+│   DownloadService         │   │        │          └─────────────────────┘   │
+│                           │   │        │                                    │
+│                           │   │  ┌─────▼──────────────────────────────┐    │
+│                           │   │  │          EventBus                  │    │
+│                           │   │  │   coalesced: tasks / schedules     │    │
+│                           │   │  │   replayable: notification / ...   │    │
+│                           │   │  │   JSON 预序列化 → 扇出所有订阅者     │    │
+│                           │   │  └───────────────────────────────────┘    │
+│                           │   │        │                                    │
+│                           │   │  ┌─────▼──────────────────────────────┐    │
+│                           │   │  │         SSE → Web UI              │    │
+│                           │   │  │   GET /api/v1/sse/tasks           │    │
+│                           │   │  │   GET /api/v1/logs/stream         │    │
+│                           │   │  │   心跳 25s / 慢消费者保护 4096     │    │
+│                           │   │  └───────────────────────────────────┘    │
+│                           │   │                                            │
+│                           │   │  ┌────────────────────────────────────┐    │
+│                           │   │  │  Scheduler (独立包 internal/scheduler) │    │
+│                           │   │  │  interval / daily 两种调度模式      │    │
+│                           │   │  │  到期 → scheduledDownload 回调      │    │
+│                           │   │  │  → 创建 Task → DownloadQueue 入队  │    │
+│                           │   │  │  仅 Server 模式，CLI 不使用         │    │
+│                           │   │  └────────────────────────────────────┘    │
+└──────────┬────────────────┘   └───────────────────┬────────────────────────┘
+           │
+           └──────────────┬─────────────────────────┘
+                          │
+                          ▼
+         ┌─────────────────────────────────────────────────────────────┐
+         │                internal/service                             │
+         │                ★ 统一应用服务层 ★                             │
+         │                                                             │
+         │      DownloadService 接口（11 种操作的唯一入口）                │
+         │      被 CLI executor 和 API handler 共同调用                   │
+         │                                                             │
+         │    UserDownload / ListDownload / FollowingDownload           │
+         │    ProfileDownload / JsonFileDownload / JsonFolderDownload   │
+         │    MarkDownloaded / BatchDownload / RetryAllFailed           │
+         │                                                             │
+         │    内部使用 executeDownloadTemplate 模板方法统一编排流程        │
+         └────────────────────┬────────────────────────────────────────┘
                               │
-           ┌──────────────────┼──────────────────┐
-           │                  │                  │
-           ▼                  ▼                  ▼
-┌────────────────────┐ ┌────────────┐ ┌────────────────────┐
-│  internal/         │ │  internal/ │ │  internal/         │
-│  downloading       │ │  twitter   │ │  database          │
-│   业务编排层        │ │  API 客户端 │ │  数据持久化         │
-│                    │ │           │ │                    │
-│  • BatchDownload   │ │ • GraphQL │ │ • SQLite (WAL)     │
-│  • TweetDownload   │ │ • 多账号   │ │ • 6 张表           │
-│  • Retry / Dumper  │ │ • 限流管理  │ │ • 迁移 / 事务      │
-│  • ListSync        │ │ • Bearer  │ │ • 实体查询         │
-│  • MarkDownloaded  │ │   Token   │ │                    │
-└────────┬───────────┘ └────────────┘ └────────────────────┘
-         │
-         ▼
-┌──────────────────────────────────────────────────────────────────────┐
-│                        下载基础设施层                                  │
-│                                                                      │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌────────┐ │
-│  │downloader│  │ entity   │  │ naming   │  │  path    │  │ utils  │ │
-│  │          │  │          │  │          │  │          │  │        │ │
-│  │ 单文件    │  │ 用户/列表 │  │ 文件/目录 │  │ 存储路径  │  │ 通用   │ │
-│  │ 下载     │  │ 实体抽象  │  │ 命名规则  │  │ 管理      │  │ 工具   │ │
-│  │ 原子写入 │  │          │  │          │  │          │  │        │ │
-│  │ 版本管理 │  │          │  │          │  │          │  │        │ │
-│  └──────────┘  └──────────┘  └──────────┘  └──────────┘  └────────┘ │
-└──────────────────────────────────────────────────────────────────────┘
+            ┌─────────────────┼─────────────────┐
+            │                 │                 │
+            ▼                 ▼                 ▼
+┌─────────────────────┐ ┌──────────────┐ ┌──────────────────────┐
+│   internal/         │ │  internal/   │ │  internal/           │
+│   downloading       │ │  twitter     │ │  database            │
+│    业务编排层        │ │  API 客户端   │ │  数据持久化           │
+│                     │ │              │ │                      │
+│  • BatchDownload    │ │ • GraphQL    │ │ • SQLite (WAL 模式)   │
+│  • TweetDownload    │ │   endpoint   │ │ • 6 张表              │
+│  • Retry / Dumper   │ │ • 多账号     │ │   users / lsts       │
+│  • ListSync / Entity│ │   分流       │ │   user_entities      │
+│  • MarkDownloaded   │ │ • 限流管理   │ │   lst_entities       │
+│                     │ │ • Bearer     │ │   user_links         │
+│  ┌───────────────┐  │ │   Token      │ │   user_prev_names    │
+│  │profile 子包   │  │ │              │ │                      │
+│  │头像/横幅/简介  │  │ │              │ │ • 迁移 / 事务 / 查询  │
+│  │版本备份       │  │ │              │ │ • latest_release_time │
+│  └───────────────┘  │ │              │ │   增量下载依据        │
+└──────────┬──────────┘ └──────────────┘ └──────────────────────┘
+           │
+           ▼
+┌──────────────────────────────────────────────────────────────────────────┐
+│                             下载基础设施层                                 │
+│                                                                          │
+│  ┌────────────┐  ┌────────────┐  ┌────────────┐  ┌────────┐  ┌────────┐ │
+│  │ downloader  │  │  entity    │  │  naming    │  │  path  │  │ utils  │ │
+│  │            │  │            │  │            │  │        │  │        │ │
+│  │ 3 个接口：  │  │ Entity 接口 │  │ 3 种策略：  │  │ Store  │  │ 通用   │ │
+│  │ Downloader │  │ 7 个方法   │  │ UserNaming │  │ Path   │  │ 工具   │ │
+│  │ FileWriter │  │ Path Create│  │ ListNaming │  │ 管理   │  │        │ │
+│  │ VersionMgr │  │ Rename ... │  │ TweetNaming│  │ 6 个   │  │ 算法   │ │
+│  │            │  │            │  │            │  │ 路径   │  │ HTTP   │ │
+│  │ HEAD→策略  │  │ Sync 函数  │  │ UniquePath │  │ 字段   │  │ 文件   │ │
+│  │ 选Buffer/  │  │ 处理用户名  │  │ Resolver   │  │        │  │ 用户   │ │
+│  │ 流式       │  │ 变更重命名  │  │ 去重       │  │        │  │ win32  │ │
+│  └────────────┘  └────────────┘  └────────────┘  └────────┘  └────────┘ │
+└──────────────────────────────────────────────────────────────────────────┘
 
-             其他支撑层（独立于主调用链之外）
+              ┌──────────────┐    ┌──────────────────┐
+              │   config     │    │   consolelog     │
+              │  配置管理     │    │  日志捕获与分发    │
+              │              │    │                  │
+              │ YAML 配置    │    │ 接管 stdout/     │
+              │ 环境变量覆盖  │    │ stderr → OS pipe │
+              │ (6 个 TMD_)  │    │ → 解析行         │
+              │ 交互式配置    │    │ → 环形缓冲区     │
+              │              │    │ → 扇出 subscribers│
+              │ 被 main      │    │                  │
+              │ 读取后注入    │    │ SSE handler 订阅  │
+              │ service /    │    │ filter by level/q │
+              │ scheduler    │    │                  │
+              └──────────────┘    └──────────────────┘
 
-  ┌──────────────┐    ┌──────────────────┐    ┌──────────────────┐
-  │   config     │    │   consolelog     │    │   scheduler     │
-  │              │    │                  │    │                  │
-  │ YAML 配置    │    │ 控制台日志捕获    │    │ 计划任务调度      │
-  │ 环境变量覆盖  │    │ SSE 实时推送      │    │ interval / daily │
-  │ 交互式配置    │    │ 供 Web UI 显示   │    │ 与 api 协作      │
-  └──────────────┘    └──────────────────┘    └──────────────────┘
+                    其他支撑层：不直接参与下载流程，为各层提供基础能力
 ```
 
 ## 图例说明
 
-| 元素 | 含义 |
+| 符号 | 含义 |
 |------|------|
-| `main.go` → `service` | 主调用链（自上而下） |
-| `main.go` 分叉为 CLI / Server | 两种运行模式 |
-| 所有路径汇聚到 `service` | 统一应用服务层，两种模式共享 |
-| `service` → 三路分发 | 业务编排 / Twitter API / 数据库 |
-| 底部基础设施层 | 下载、实体、命名、路径、工具 |
-| 右侧支撑层 | 配置、日志、调度，不直接参与下载流程 |
+| `▼` 实线箭头 | 调用/控制流（上层调用下层） |
+| 框内缩进列表 `•` | 该模块的核心能力/接口/文件 |
+| 内嵌子框 `┌──┐` | 子包（如 downloading/profile） |
+| Server 内部并列框 | 各组件独立但通过 EventBus 协作 |
+| 底部 5 个并列框 | 基础设施层，被上层调用 |
+| 底部 2 个独立框 | 支撑层（config / consolelog），不参与主调用链 |
+
+## 调用主线速记
+
+```
+main.go
+  ├── CLI  ──→  service ──→ downloading ──→ downloader/fileWriter
+  └── Server ──→                ├── twitter
+                                └── database
+```
+
+## 关键设计点
+
+| 设计 | 体现在图中 |
+|------|-----------|
+| **Service 复用** | CLI 和 Server 汇聚到同一个 service 框，标注"被 CLI executor 和 API handler 共同调用" |
+| **模板方法模式** | service 框标注 `executeDownloadTemplate` |
+| **任务异步化** | Server 框内 TaskManager + DownloadQueue + EventBus + SSE 四件套协作 |
+| **多账号分流** | twitter 框内标注"多账号分流"和"限流管理" |
+| **增量下载** | database 框标注 `latest_release_time` 增量下载依据 |
+| **失败重试** | downloading 框内 Dumper + Retry |
+| **三接口分离** | downloader 框标注 Downloader / FileWriter / VersionManager 三个独立接口 |
+| **原子写入** | downloader 框标注"Buffer/流式策略选择" |
+| **用户名变更处理** | entity 框标注 Sync 函数处理用户名变更重命名 |
+| **三种命名策略** | naming 框标注 UserNaming / ListNaming / TweetNaming + UniquePathResolver |
+| **EventBus 两种事件** | EventBus 框标注 coalesced / replayable |
+| **Scheduler 回调机制** | api 框内 Scheduler 组件，标注"独立包"和"scheduledDownload 回调" |
+
+---
+
+## 项目目录结构
+
+非测试 `.go` 文件的完整目录树（由 Python 脚本从文件系统生成）：
+
+```
++-- main.go
++-- internal/
+|   +-- api
+|   |   +-- config_handlers.go
+|   |   +-- cookie_handlers.go
+|   |   +-- db_handlers.go
+|   |   +-- download_handlers.go
+|   |   +-- download_queue.go
+|   |   +-- download_targets.go
+|   |   +-- event_bus.go
+|   |   +-- handlers.go
+|   |   +-- log_handlers.go
+|   |   +-- middleware.go
+|   |   +-- pagination.go
+|   |   +-- progress.go
+|   |   +-- resource_handler.go
+|   |   +-- scheduler_handlers.go
+|   |   +-- server.go
+|   |   +-- sse_logs.go
+|   |   +-- sse_tasks.go
+|   |   +-- string_uint64.go
+|   |   +-- task_manager.go
+|   |   +-- task_types.go
+|   |   +-- types.go
+|   |   `-- version.go
+|   +-- cli
+|   |   +-- args.go
+|   |   `-- executor.go
+|   +-- config
+|   |   +-- backup.go
+|   |   `-- config.go
+|   +-- consolelog
+|   |   `-- hub.go
+|   +-- database
+|   |   +-- connect.go
+|   |   +-- helpers.go
+|   |   +-- lst.go
+|   |   +-- lst_entity.go
+|   |   +-- model.go
+|   |   +-- parent_dir_migration.go
+|   |   +-- path_validation.go
+|   |   +-- query.go
+|   |   +-- schema.go
+|   |   +-- sqlite.go
+|   |   +-- sqlite_migration.go
+|   |   +-- sqlite_schema.go
+|   |   +-- user.go
+|   |   +-- user_entity.go
+|   |   +-- user_link.go
+|   |   +-- user_sync.go
+|   |   `-- tx
+|   |       `-- manager.go
+|   +-- downloader
+|   |   +-- downloader.go
+|   |   +-- file_writer.go
+|   |   +-- types.go
+|   |   `-- version_manager.go
+|   +-- downloading
+|   |   +-- batch_any.go
+|   |   +-- batch_download.go
+|   |   +-- dumper.go
+|   |   +-- entity.go
+|   |   +-- json_file_download.go
+|   |   +-- json_folder_download.go
+|   |   +-- list_download.go
+|   |   +-- list_sync.go
+|   |   +-- mark_downloaded.go
+|   |   +-- retry.go
+|   |   +-- test_helper.go
+|   |   +-- tweet_download.go
+|   |   +-- tweet_json_converter.go
+|   |   +-- types.go
+|   |   +-- user_sync.go
+|   |   `-- profile
+|   |       +-- downloader.go
+|   |       +-- storage.go
+|   |       `-- types.go
+|   +-- entity
+|   |   +-- interface.go
+|   |   +-- list.go
+|   |   +-- sync.go
+|   |   `-- user.go
+|   +-- naming
+|   |   +-- base.go
+|   |   +-- list_naming.go
+|   |   +-- tweet_naming.go
+|   |   `-- user_naming.go
+|   +-- path
+|   |   `-- store.go
+|   +-- scheduler
+|   |   +-- scheduler.go
+|   |   +-- types.go
+|   |   `-- validate.go
+|   +-- service
+|   |   +-- deps.go
+|   |   +-- download_service.go
+|   |   +-- interfaces.go
+|   |   `-- progress.go
+|   +-- twitter
+|   |   +-- api.go
+|   |   +-- batch_login.go
+|   |   +-- client.go
+|   |   +-- errors.go
+|   |   +-- list.go
+|   |   +-- timeline.go
+|   |   +-- tweet.go
+|   |   `-- user.go
+|   `-- utils
+|       +-- algo.go
+|       +-- fs.go
+|       +-- http.go
+|       +-- recovery.go
+|       +-- stub.go
+|       +-- time_range.go
+|       +-- twitter_media.go
+|       +-- user.go
+|       `-- win32.go
++-- .github/workflows/
++-- tools/
++-- doc/
++-- go.mod
++-- go.sum
++-- Dockerfile
++-- docker-compose.yml
++-- readme.md
++-- CHANGELOG.md
++-- LICENSE
++-- start-server.bat
++-- convert_db_to_legacy.py
+`-- .gitignore
+```

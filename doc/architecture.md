@@ -309,3 +309,140 @@ go tool cover -html=covprofile -o coverage.html
 |------|------|------|
 | **tmd-db-migrate** | `tools/tmd-db-migrate/` | 跨平台数据库路径迁移，当下载目录从 Windows 迁移到 Linux 等场景时重写 `foo.db` 中的 `parent_dir` 路径。详见 [foo.db 跨平台迁移说明](foo.db%20跨平台迁移说明.md) |
 | **convert_db_to_legacy.py** | 仓库根目录 | 将新格式数据库转换为旧格式的辅助脚本 |
+
+---
+
+## 项目目录结构
+
+```
++-- main.go
++-- internal/
+|   +-- api
+|   |   +-- config_handlers.go
+|   |   +-- cookie_handlers.go
+|   |   +-- db_handlers.go
+|   |   +-- download_handlers.go
+|   |   +-- download_queue.go
+|   |   +-- download_targets.go
+|   |   +-- event_bus.go
+|   |   +-- handlers.go
+|   |   +-- log_handlers.go
+|   |   +-- middleware.go
+|   |   +-- pagination.go
+|   |   +-- progress.go
+|   |   +-- resource_handler.go
+|   |   +-- scheduler_handlers.go
+|   |   +-- server.go
+|   |   +-- sse_logs.go
+|   |   +-- sse_tasks.go
+|   |   +-- string_uint64.go
+|   |   +-- task_manager.go
+|   |   +-- task_types.go
+|   |   +-- types.go
+|   |   `-- version.go
+|   +-- cli
+|   |   +-- args.go
+|   |   `-- executor.go
+|   +-- config
+|   |   +-- backup.go
+|   |   `-- config.go
+|   +-- consolelog
+|   |   `-- hub.go
+|   +-- database
+|   |   +-- connect.go
+|   |   +-- helpers.go
+|   |   +-- lst.go
+|   |   +-- lst_entity.go
+|   |   +-- model.go
+|   |   +-- parent_dir_migration.go
+|   |   +-- path_validation.go
+|   |   +-- query.go
+|   |   +-- schema.go
+|   |   +-- sqlite.go
+|   |   +-- sqlite_migration.go
+|   |   +-- sqlite_schema.go
+|   |   +-- user.go
+|   |   +-- user_entity.go
+|   |   +-- user_link.go
+|   |   +-- user_sync.go
+|   |   `-- tx
+|   |       `-- manager.go
+|   +-- downloader
+|   |   +-- downloader.go
+|   |   +-- file_writer.go
+|   |   +-- types.go
+|   |   `-- version_manager.go
+|   +-- downloading
+|   |   +-- batch_any.go
+|   |   +-- batch_download.go
+|   |   +-- dumper.go
+|   |   +-- entity.go
+|   |   +-- json_file_download.go
+|   |   +-- json_folder_download.go
+|   |   +-- list_download.go
+|   |   +-- list_sync.go
+|   |   +-- mark_downloaded.go
+|   |   +-- retry.go
+|   |   +-- test_helper.go
+|   |   +-- tweet_download.go
+|   |   +-- tweet_json_converter.go
+|   |   +-- types.go
+|   |   +-- user_sync.go
+|   |   `-- profile
+|   |       +-- downloader.go
+|   |       +-- storage.go
+|   |       `-- types.go
+|   +-- entity
+|   |   +-- interface.go
+|   |   +-- list.go
+|   |   +-- sync.go
+|   |   `-- user.go
+|   +-- naming
+|   |   +-- base.go
+|   |   +-- list_naming.go
+|   |   +-- tweet_naming.go
+|   |   `-- user_naming.go
+|   +-- path
+|   |   `-- store.go
+|   +-- scheduler
+|   |   +-- scheduler.go
+|   |   +-- types.go
+|   |   `-- validate.go
+|   +-- service
+|   |   +-- deps.go
+|   |   +-- download_service.go
+|   |   +-- interfaces.go
+|   |   `-- progress.go
+|   +-- twitter
+|   |   +-- api.go
+|   |   +-- batch_login.go
+|   |   +-- client.go
+|   |   +-- errors.go
+|   |   +-- list.go
+|   |   +-- timeline.go
+|   |   +-- tweet.go
+|   |   `-- user.go
+|   `-- utils
+|       +-- algo.go
+|       +-- fs.go
+|       +-- http.go
+|       +-- recovery.go
+|       +-- stub.go
+|       +-- time_range.go
+|       +-- twitter_media.go
+|       +-- user.go
+|       `-- win32.go
++-- .github/workflows/
++-- tools/
++-- doc/
++-- go.mod
++-- go.sum
++-- Dockerfile
++-- docker-compose.yml
++-- readme.md
++-- CHANGELOG.md
++-- LICENSE
++-- start-server.bat
++-- convert_db_to_legacy.py
+`-- .gitignore
+```
