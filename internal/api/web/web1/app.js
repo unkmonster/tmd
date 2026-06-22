@@ -720,7 +720,10 @@ const pages = {
         <div>
           <div class="card card-fill">
             <div class="card-header">
-              <div class="card-title">创建新任务</div>
+              <div>
+                <div class="card-title">创建新任务</div>
+                <div class="card-subtitle">用户 / 列表 / 关注 / 批量 / JSON 导入</div>
+              </div>
             </div>
             <div class="card-body card-body-fill">
               <div class="tabs">
@@ -801,24 +804,25 @@ const pages = {
     const sort = dbSort[dataSubPage] || { sortBy: 'id', sortOrder: 'desc' };
     
     return `
-      <div class="card card-page">
-        <div class="card-header">
-          <div>
-            <div class="tabs" style="margin: 0; border: none;">
-              <div class="tab ${dataSubPage === 'users' ? 'active' : ''}" data-action="setDataSubPage" data-subpage="users">Users</div>
-              <div class="tab ${dataSubPage === 'lists' ? 'active' : ''}" data-action="setDataSubPage" data-subpage="lists">Lists</div>
-              <div class="tab ${dataSubPage === 'entities' ? 'active' : ''}" data-action="setDataSubPage" data-subpage="entities">User Entities</div>
-              <div class="tab ${dataSubPage === 'listEntities' ? 'active' : ''}" data-action="setDataSubPage" data-subpage="listEntities">List Entities</div>
-              <div class="tab ${dataSubPage === 'userLinks' ? 'active' : ''}" data-action="setDataSubPage" data-subpage="userLinks">User Links</div>
-              <div class="tab ${dataSubPage === 'previousNames' ? 'active' : ''}" data-action="setDataSubPage" data-subpage="previousNames">Previous Names</div>
+      <div class="page-container">
+        <div class="card card-page">
+          <div class="card-header">
+            <div>
+              <div class="tabs" style="margin:0;border:none">
+                <div class="tab ${dataSubPage === 'users' ? 'active' : ''}" data-action="setDataSubPage" data-subpage="users">Users</div>
+                <div class="tab ${dataSubPage === 'lists' ? 'active' : ''}" data-action="setDataSubPage" data-subpage="lists">Lists</div>
+                <div class="tab ${dataSubPage === 'entities' ? 'active' : ''}" data-action="setDataSubPage" data-subpage="entities">User Entities</div>
+                <div class="tab ${dataSubPage === 'listEntities' ? 'active' : ''}" data-action="setDataSubPage" data-subpage="listEntities">List Entities</div>
+                <div class="tab ${dataSubPage === 'userLinks' ? 'active' : ''}" data-action="setDataSubPage" data-subpage="userLinks">User Links</div>
+                <div class="tab ${dataSubPage === 'previousNames' ? 'active' : ''}" data-action="setDataSubPage" data-subpage="previousNames">Previous Names</div>
+              </div>
+            </div>
+            <div class="flex gap-2 items-center">
+              <input type="text" class="form-input search-input" id="dbSearchInput"
+                placeholder="搜索..." data-binding="dbSearch">
+              <button class="btn btn-ghost btn-icon" data-action="searchDB">🔍</button>
             </div>
           </div>
-          <div class="flex gap-2 items-center">
-            <input type="text" class="form-input search-input" id="dbSearchInput"
-              placeholder="搜索..." data-binding="dbSearch">
-            <button class="btn btn-ghost btn-icon" data-action="searchDB">🔍</button>
-          </div>
-        </div>
 
         <div class="card-body card-body-scroll">
           <div class="table-scroll-container" id="dataTableContainer">
@@ -839,6 +843,7 @@ const pages = {
           </div>
         </div>
       </div>
+    </div>
     `;
   },
 
@@ -858,7 +863,7 @@ const pages = {
 		            </div>
 		            <div class="card-body">
 		              <div class="empty-state">
-		                <div class="skeleton" style="width:64px;height:64px;border-radius:12px;margin-bottom:16px"></div>
+		                <div class="skeleton skeleton-icon"></div>
 		                <div class="empty-title">加载中...</div>
 		                <div class="empty-desc">正在加载定时任务配置</div>
 		              </div>
@@ -909,7 +914,7 @@ const pages = {
   },
 
   logs() {
-    return renderLogViewer();
+    return `<div class="page-container">${renderLogViewer()}</div>`;
   }
 };
 
@@ -918,7 +923,6 @@ const pages = {
 // ============================================
 const _state = {
   _taskFormState: {},
-  _cmDestroyVersion: 0,
   _logsPageLoaded: false
 };
 
@@ -1488,8 +1492,8 @@ function renderDBMobileCards(type, data) {
     if (type === 'users') {
       return `
         <div class="mobile-card">
-          <div style="font-weight: var(--font-semibold); margin-bottom: var(--space-2);">@${escapeHtml(item.screen_name)}</div>
-          <div style="color: var(--text-secondary); font-size: var(--text-sm); margin-bottom: var(--space-2);">${escapeHtml(item.name)}</div>
+          <div class="mobile-card-title">@${escapeHtml(item.screen_name)}</div>
+          <div class="mobile-card-meta">${escapeHtml(item.name)}</div>
           <div style="display: flex; gap: var(--space-4); font-size: var(--text-sm); margin-bottom: var(--space-2);">
             <span>${item.protected ? '🔒 Protected' : '🔓 Public'}</span>
             <span>${item.is_accessible ? '✅ Accessible' : '❌ Not Accessible'}</span>
@@ -1501,8 +1505,8 @@ function renderDBMobileCards(type, data) {
     } else if (type === 'lists') {
       return `
         <div class="mobile-card">
-          <div style="font-weight: var(--font-semibold); margin-bottom: var(--space-2);">${escapeHtml(item.name)}</div>
-          <div style="color: var(--text-secondary); font-size: var(--text-sm); margin-bottom: var(--space-2);">
+          <div class="mobile-card-title">${escapeHtml(item.name)}</div>
+          <div class="mobile-card-meta">
             <div>ID: ${escapeHtml(item.id)}</div>
             <div>Owner: ${escapeHtml(item.owner_user_id)}</div>
           </div>
@@ -1512,8 +1516,8 @@ function renderDBMobileCards(type, data) {
     } else if (type === 'entities') {
       return `
         <div class="mobile-card">
-          <div style="font-weight: var(--font-semibold); margin-bottom: var(--space-2);">${escapeHtml(item.name)}</div>
-          <div style="color: var(--text-secondary); font-size: var(--text-sm); margin-bottom: var(--space-2);">
+          <div class="mobile-card-title">${escapeHtml(item.name)}</div>
+          <div class="mobile-card-meta">
             <div>ID: ${escapeHtml(item.id)}</div>
             <div>User ID: ${escapeHtml(item.user_id)}</div>
             <div>Media: ${escapeHtml(item.media_count || 0)}</div>
@@ -1524,8 +1528,8 @@ function renderDBMobileCards(type, data) {
     } else if (type === 'listEntities') {
       return `
         <div class="mobile-card">
-          <div style="font-weight: var(--font-semibold); margin-bottom: var(--space-2);">${escapeHtml(item.name)}</div>
-          <div style="color: var(--text-secondary); font-size: var(--text-sm); margin-bottom: var(--space-2);">
+          <div class="mobile-card-title">${escapeHtml(item.name)}</div>
+          <div class="mobile-card-meta">
             <div>ID: ${escapeHtml(item.id)}</div>
             <div>List ID: ${escapeHtml(item.lst_id)}</div>
             <div>Dir: ${escapeHtml(item.parent_dir)}</div>
@@ -1537,8 +1541,8 @@ function renderDBMobileCards(type, data) {
       const currentLabel = item.current_screen_name ? `@${item.current_screen_name}` : (item.user_id || '');
       return `
         <div class="mobile-card">
-          <div style="font-weight: var(--font-semibold); margin-bottom: var(--space-2);">${escapeHtml(currentLabel)}</div>
-          <div style="color: var(--text-secondary); font-size: var(--text-sm); margin-bottom: var(--space-2);">
+          <div class="mobile-card-title">${escapeHtml(currentLabel)}</div>
+          <div class="mobile-card-meta">
             <div>Previous: @${escapeHtml(item.screen_name || '')} (${escapeHtml(item.name || '')})</div>
             <div>Date: ${escapeHtml(item.record_date || '-')}</div>
           </div>
@@ -1547,8 +1551,8 @@ function renderDBMobileCards(type, data) {
     } else {
       return `
         <div class="mobile-card">
-          <div style="font-weight: var(--font-semibold); margin-bottom: var(--space-2);">${escapeHtml(item.name)}</div>
-          <div style="color: var(--text-secondary); font-size: var(--text-sm); margin-bottom: var(--space-2);">
+          <div class="mobile-card-title">${escapeHtml(item.name)}</div>
+          <div class="mobile-card-meta">
             <div>ID: ${escapeHtml(item.id)}</div>
             <div>User ID: ${escapeHtml(item.user_id)}</div>
             <div>Entity: ${escapeHtml(item.parent_lst_entity_id)}</div>
@@ -1762,7 +1766,7 @@ async function editDBItem(type, id) {
     let content = `
       <div class="form-group">
         <label class="form-label">ID</label>
-        <div class="font-mono text-sm" style="background: var(--bg-primary); padding: var(--space-3); border-radius: var(--radius-md);">${escapeHtml(item.id)}</div>
+        <div class="font-mono text-sm code-display">${escapeHtml(item.id)}</div>
       </div>
     `;
 
@@ -1813,7 +1817,7 @@ async function editDBItem(type, id) {
           </div>
           <div class="form-group">
             <label class="form-label">User ID</label>
-            <div class="font-mono text-sm" style="background: var(--bg-primary); padding: var(--space-3); border-radius: var(--radius-md);">${escapeHtml(item.user_id)}</div>
+            <div class="font-mono text-sm code-display">${escapeHtml(item.user_id)}</div>
           </div>
           <div class="form-group">
             <label class="form-label">Media Count</label>
@@ -1829,7 +1833,7 @@ async function editDBItem(type, id) {
           </div>
           <div class="form-group">
             <label class="form-label">List ID</label>
-            <div class="font-mono text-sm" style="background: var(--bg-primary); padding: var(--space-3); border-radius: var(--radius-md);">${escapeHtml(item.lst_id)}</div>
+            <div class="font-mono text-sm code-display">${escapeHtml(item.lst_id)}</div>
           </div>
         `;
         break;
@@ -1841,11 +1845,11 @@ async function editDBItem(type, id) {
           </div>
           <div class="form-group">
             <label class="form-label">User ID</label>
-            <div class="font-mono text-sm" style="background: var(--bg-primary); padding: var(--space-3); border-radius: var(--radius-md);">${escapeHtml(item.user_id)}</div>
+            <div class="font-mono text-sm code-display">${escapeHtml(item.user_id)}</div>
           </div>
           <div class="form-group">
             <label class="form-label">Parent Entity ID</label>
-            <div class="font-mono text-sm" style="background: var(--bg-primary); padding: var(--space-3); border-radius: var(--radius-md);">${escapeHtml(item.parent_lst_entity_id)}</div>
+            <div class="font-mono text-sm code-display">${escapeHtml(item.parent_lst_entity_id)}</div>
           </div>
         `;
         break;
@@ -2595,8 +2599,8 @@ function renderConfigEditor() {
     </div>
   `;
 
-  if (configMode === 'raw') return `<div style="display:flex;flex-direction:column;height:100%">${modeTabs}${renderConfigRawEditor(configRaw, configSaving, configExists)}</div>`;
-  return `<div style="display:flex;flex-direction:column;height:100%">${modeTabs}${renderConfigForm(configFields, configSaving, configExists, configFieldsLoading)}</div>`;
+  if (configMode === 'raw') return `<div class="mode-tabs-wrapper">${modeTabs}${renderConfigRawEditor(configRaw, configSaving, configExists)}</div>`;
+  return `<div class="mode-tabs-wrapper">${modeTabs}${renderConfigForm(configFields, configSaving, configExists, configFieldsLoading)}</div>`;
 }
 
 function renderConfigForm(fields, saving, exists, loading = false) {
@@ -2667,7 +2671,7 @@ function renderConfigRawEditor(raw, saving, exists) {
         </div>
         <div class="card-body">
           <div class="empty-state">
-            <div class="skeleton" style="width:64px;height:64px;border-radius:12px;margin-bottom:16px"></div>
+            <div class="skeleton skeleton-icon"></div>
             <div class="empty-title">加载中...</div>
             <div class="empty-desc">正在加载配置文件</div>
           </div>
@@ -2684,9 +2688,9 @@ function renderConfigRawEditor(raw, saving, exists) {
           </button>
         </div>
       </div>
-      <div class="card-body" style="padding:0;display:flex;flex-direction:column;overflow:hidden">
-        <div id="configEditorContainer" style="flex:1;min-height:0"></div>
-        <div class="config-hint text-sm text-tertiary p-3 mt-3" style="flex-shrink:0">
+      <div class="card-body raw-editor-body">
+        <div id="configEditorContainer" class="raw-editor-container"></div>
+        <div class="config-hint text-sm text-tertiary p-3 raw-editor-hint">
           ⚠️ 直接编辑 YAML 需要了解语法格式。建议使用简易模式。
         </div>
       </div>
@@ -2704,8 +2708,8 @@ function renderCookiesEditor() {
     </div>
   `;
 
-  if (cookiesMode === 'raw') return `<div style="display:flex;flex-direction:column;height:100%">${modeTabs}${renderCookiesRawEditor(cookiesRaw, cookiesSaving, cookiesExists)}</div>`;
-  return `<div style="display:flex;flex-direction:column;height:100%">${modeTabs}${renderCookiesForm(cookieItems, cookiesSaving, cookiesExists, _cookiesLoading)}</div>`;
+  if (cookiesMode === 'raw') return `<div class="mode-tabs-wrapper">${modeTabs}${renderCookiesRawEditor(cookiesRaw, cookiesSaving, cookiesExists)}</div>`;
+  return `<div class="mode-tabs-wrapper">${modeTabs}${renderCookiesForm(cookieItems, cookiesSaving, cookiesExists, _cookiesLoading)}</div>`;
 }
 
 function renderCookiesForm(items, saving, exists, loading = false) {
@@ -2721,7 +2725,7 @@ function renderCookiesForm(items, saving, exists, loading = false) {
         </div>
         <div class="card-body">
           <div class="empty-state">
-            <div class="skeleton" style="width:64px;height:64px;border-radius:12px;margin-bottom:16px"></div>
+            <div class="skeleton skeleton-icon"></div>
             <div class="empty-title">加载中...</div>
             <div class="empty-desc">正在加载额外账户配置</div>
           </div>
@@ -2801,7 +2805,7 @@ function renderCookiesRawEditor(raw, saving, exists) {
         </div>
         <div class="card-body">
           <div class="empty-state">
-            <div class="skeleton" style="width:64px;height:64px;border-radius:12px;margin-bottom:16px"></div>
+            <div class="skeleton skeleton-icon"></div>
             <div class="empty-title">加载中...</div>
             <div class="empty-desc">正在加载额外账户配置</div>
           </div>
@@ -2818,9 +2822,9 @@ function renderCookiesRawEditor(raw, saving, exists) {
           </button>
         </div>
       </div>
-      <div class="card-body" style="padding:0;display:flex;flex-direction:column;overflow:hidden">
-        <div id="cookiesEditorContainer" style="flex:1;min-height:0"></div>
-        <div class="config-hint text-sm text-tertiary p-3 mt-3" style="flex-shrink:0">
+      <div class="card-body raw-editor-body">
+        <div id="cookiesEditorContainer" class="raw-editor-container"></div>
+        <div class="config-hint text-sm text-tertiary p-3 raw-editor-hint">
           ⚠️ 直接编辑 YAML 需要了解语法格式。建议使用简易模式。
         </div>
       </div>
@@ -2833,31 +2837,31 @@ function renderLogViewer() {
 
   return `
     <div class="card card-page" id="logViewerCard">
-      <div class="card-header" style="justify-content:space-between;flex-direction:row">
-        <div class="flex gap-2 items-center" style="flex-wrap:wrap">
+      <div class="toolbar">
+        <div class="toolbar-left">
           ${renderLogFilterButtons(logLevel, logStats)}
-          <input type="text" id="log-search-input" class="form-input" style="width:160px;padding:6px 10px;font-size:12px" placeholder="搜索日志..." value="${store.state.logSearch}" onkeydown="if(event.key==='Enter')doLogSearch()">
-          <button class="btn btn-ghost btn-sm" onclick="doLogSearch()">🔍</button>
+          <input type="text" id="log-search-input" class="form-input search-input" placeholder="搜索日志..." value="${store.state.logSearch}">
+          <button class="btn btn-ghost btn-sm" data-action="logSearch">🔍</button>
         </div>
-        <div class="flex gap-2 items-center" style="flex-wrap:wrap">
-          <button class="btn btn-ghost btn-sm" onclick="refreshLogs()">刷新</button>
-          <button class="btn btn-ghost btn-sm" onclick="exportLogs()">导出</button>
+        <div class="toolbar-right">
+          <button class="btn btn-ghost btn-sm" data-action="logRefresh">刷新</button>
+          <button class="btn btn-ghost btn-sm" data-action="logExport">导出</button>
           <label class="form-checkbox" style="font-size:12px;white-space:nowrap">
-            <input type="checkbox" id="log-live-toggle" checked onchange="toggleLogLive()">
+            <input type="checkbox" id="log-live-toggle" checked data-action="toggleLogLive">
             实时
           </label>
         </div>
       </div>
       <div class="card-body card-body-scroll" style="padding:0;position:relative">
         <div class="log-stream" id="log-stream">
-          <div class="empty-state" id="log-empty-hint" style="display:flex">
+          <div class="empty-state" id="log-empty-hint">
             <div class="empty-icon">📋</div>
             <div class="empty-title">暂无日志</div>
             <div class="empty-desc">选择日志级别或等待实时日志</div>
           </div>
         </div>
         <button class="log-scroll-to-top-btn" id="log-new-arrived-btn"
-          style="display:none" onclick="scrollLogToBottom()">
+          style="display:none" data-action="logScrollToBottom">
           📌 新日志已到达
         </button>
       </div>
@@ -2886,7 +2890,7 @@ function renderLogFilterButtons(level, stats) {
   return '<div class="log-level-filters">' +
     ['all','debug','info','warn','error'].map(l => {
       const count = l === 'all' ? (stats ? stats.total : 0) : (stats ? (stats[l] || 0) : 0);
-      return '<button class="btn btn-sm ' + (level === l ? 'btn-primary' : 'btn-ghost') + '" onclick="setLogLevel(\'' + l + '\')">' + l.toUpperCase() + (count > 0 ? ' (' + count + ')' : '') + '</button>';
+      return '<button class="btn btn-sm ' + (level === l ? 'btn-primary' : 'btn-ghost') + '" data-action="logSetLevel" data-level="' + l + '">' + l.toUpperCase() + (count > 0 ? ' (' + count + ')' : '') + '</button>';
     }).join('') +
     '</div>';
 }
@@ -3023,8 +3027,8 @@ function renderScheduleViewer() {
     </div>
   `;
 
-  if (_scheduleTab === 'edit') return `<div style="display:flex;flex-direction:column;height:100%">${schedulerBanner}${modeTabs}${renderScheduleRawEditor(_scheduleRaw, _scheduleSaving, _scheduleExists)}</div>`;
-  return `<div style="display:flex;flex-direction:column;height:100%">${schedulerBanner}${modeTabs}${renderScheduleForm(_scheduleFormItems, _scheduleSaving, _scheduleExists, _schedules === null)}</div>`;
+  if (_scheduleTab === 'edit') return `<div class="mode-tabs-wrapper">${schedulerBanner}${modeTabs}${renderScheduleRawEditor(_scheduleRaw, _scheduleSaving, _scheduleExists)}</div>`;
+  return `<div class="mode-tabs-wrapper">${schedulerBanner}${modeTabs}${renderScheduleForm(_scheduleFormItems, _scheduleSaving, _scheduleExists, _schedules === null)}</div>`;
 }
 
 function renderScheduleFormField(item, idx) {
@@ -3139,7 +3143,7 @@ function renderScheduleForm(items, saving, exists, loading = false) {
         </div>
         <div class="card-body">
           <div class="empty-state">
-            <div class="skeleton" style="width:64px;height:64px;border-radius:12px;margin-bottom:16px"></div>
+            <div class="skeleton skeleton-icon"></div>
             <div class="empty-title">加载中...</div>
             <div class="empty-desc">正在加载定时任务配置</div>
           </div>
@@ -3215,7 +3219,7 @@ function taskStatusTag(task) {
   };
   const st = statusMap[task.status];
   if (!st) return '';
-  return `<span class="tag ${st.tag}" style="font-size:10px;padding:1px 6px">${st.text}</span>`;
+  return `<span class="tag ${st.tag} tag-sm">${st.text}</span>`;
 }
 
 function fmtTime(t) {
@@ -3263,7 +3267,7 @@ function renderScheduleItem(s) {
       <div class="schedule-type">${typeTag(entry.type)}</div>
       <div class="schedule-info">
         <div class="schedule-title">${escapeHtml(displayName)}</div>
-        <div class="schedule-meta">${metaParts.join('<span style="color:var(--border-secondary)">·</span>')}</div>
+        <div class="schedule-meta">${metaParts.join('<span class="schedule-meta-sep">·</span>')}</div>
       </div>
       <div class="schedule-status">
         <span class="tag ${entry.enabled ? 'tag-success' : 'tag-danger'}" style="cursor:pointer" data-schedule-id="${escapeAttr(entry.id)}" data-enabled="${entry.enabled}" data-action="toggleScheduleEnabled">${entry.enabled ? '启用' : '禁用'}</span>
@@ -3340,7 +3344,7 @@ function renderScheduleRawEditor(raw, saving, exists) {
         </div>
         <div class="card-body">
           <div class="empty-state">
-            <div class="skeleton" style="width:64px;height:64px;border-radius:12px;margin-bottom:16px"></div>
+            <div class="skeleton skeleton-icon"></div>
             <div class="empty-title">加载中...</div>
             <div class="empty-desc">正在加载定时任务配置</div>
           </div>
@@ -3357,9 +3361,9 @@ function renderScheduleRawEditor(raw, saving, exists) {
           </button>
         </div>
       </div>
-      <div class="card-body" style="padding:0;display:flex;flex-direction:column;overflow:hidden">
-        <div id="scheduleEditorContainer" style="flex:1;min-height:0"></div>
-        <div class="config-hint text-sm text-tertiary p-3 mt-3" style="flex-shrink:0">
+      <div class="card-body raw-editor-body">
+        <div id="scheduleEditorContainer" class="raw-editor-container"></div>
+        <div class="config-hint text-sm text-tertiary p-3 raw-editor-hint">
           ⚠️ 保存后将自动重载调度配置，无需重启服务。
         </div>
       </div>
@@ -3557,14 +3561,12 @@ function navigateToSystemSchedules() {
 
 function setScheduleTab(tab) {
   if (tab !== 'edit' && _state.scheduleCodeMirror) {
-    _state.scheduleCodeMirror = destroyCodeMirror(_state.scheduleCodeMirror);
-    _state._scheduleCmInitializing = false;
+    _state.scheduleCodeMirror = null;
   }
   store.setState({ _scheduleTab: tab });
   if (tab === 'edit' && store.state._scheduleRaw === null) loadScheduleRaw();
   if (tab === 'form' && store.state._scheduleFormItems.length === 0 && (store.state._schedules || []).length === 0) loadSchedules();
   if (tab === 'edit' && store.state._scheduleRaw !== null) {
-    _state._scheduleCmInitializing = false;
     _state._schedulePanelSkipNextRebuild = true;
     const panel = document.getElementById('systemSchedulesPanel');
     if (panel) {
@@ -3751,7 +3753,7 @@ async function validateScheduleField(idx) {
       setScheduleValidationAriaState(idx, false);
     } else {
       const msg = (result.errors || []).join('; ');
-      hint.innerHTML = `<span style="color:var(--danger, #ef4444)">✗ ${escapeHtml(msg)}</span>`;
+      hint.innerHTML = `<span style="color:var(--danger, #f85149)">✗ ${escapeHtml(msg)}</span>`;
       setScheduleValidationAriaState(idx, true);
     }
   } catch (e) {
@@ -3849,18 +3851,13 @@ async function saveScheduleForm() {
 }
 
 _state.scheduleCodeMirror = null;
-_state._scheduleCmInitializing = false;
 
-async function initScheduleCodeMirror() {
-  if (_state._scheduleCmInitializing || _state.scheduleCodeMirror) return;
-  _state._scheduleCmInitializing = true;
-  const versionAtStart = _state._cmDestroyVersion;
-  await waitForCodeMirror(3000);
-  if (_state._cmDestroyVersion !== versionAtStart) { _state._scheduleCmInitializing = false; return; }
-  if (document.getElementById('scheduleEditorContainer')) {
+function initScheduleCodeMirror() {
+  if (_state.scheduleCodeMirror) return;
+  const container = document.getElementById('scheduleEditorContainer');
+  if (container) {
     _state.scheduleCodeMirror = initCodeMirror('scheduleEditorContainer', store.state._scheduleRaw, 'yaml');
   }
-  _state._scheduleCmInitializing = false;
 }
 
 function syncScheduleTabView() {
@@ -4025,12 +4022,11 @@ async function saveCookies() {
 
 function setCookiesMode(mode) {
   if (mode !== 'raw' && _state.cookiesCodeMirror) {
-    _state.cookiesCodeMirror = destroyCodeMirror(_state.cookiesCodeMirror);
+    _state.cookiesCodeMirror = null;
   }
   store.setState({ cookiesMode: mode });
   if (mode === 'raw' && store.state.cookiesRaw === null) loadCookiesRaw();
   if (mode === 'raw' && store.state.cookiesRaw !== null) {
-    _state._cookiesCmInitializing = false;
     _state._cookiesPanelSkipNextRebuild = true;
     const panel = document.getElementById('systemCookiesPanel');
     if (panel) {
@@ -4079,13 +4075,12 @@ function handleServerShutdown(message) {
 
 function setConfigMode(mode) {
   if (mode !== 'raw' && _state.configCodeMirror) {
-    _state.configCodeMirror = destroyCodeMirror(_state.configCodeMirror);
+    _state.configCodeMirror = null;
   }
   store.setState({ configMode: mode });
   if (mode === 'raw' && store.state.configRaw === null) loadConfigRaw();
   // configRaw 已存在时直接同步重建面板，设置标志位防止订阅重复重建
   if (mode === 'raw' && store.state.configRaw !== null) {
-    _state._configCmInitializing = false;
     _state._configPanelSkipNextRebuild = true;
     const panel = document.getElementById('systemConfigPanel');
     if (panel) {
@@ -4098,100 +4093,22 @@ function setConfigMode(mode) {
   }
 }
 
-function waitForCodeMirror(maxWait) {
-  _state._cmWaitCancelled = false;
-  if (typeof CodeMirror !== 'undefined') return Promise.resolve(true);
-  // Dynamically load CodeMirror CSS and JS only when first needed
-  return loadCodeMirrorAssets().then(() => {
-    if (typeof CodeMirror !== 'undefined') return true;
-    return new Promise(resolve => {
-      const start = Date.now();
-      const check = () => {
-        if (_state._cmWaitCancelled || typeof CodeMirror !== 'undefined' || Date.now() - start > maxWait) {
-          resolve(!_state._cmWaitCancelled && typeof CodeMirror !== 'undefined');
-        } else {
-          setTimeout(check, 100);
-        }
-      };
-      check();
-    });
-  });
-}
 
-function loadCodeMirrorAssets() {
-  return new Promise((resolve) => {
-    // Check if already loaded
-    if (document.querySelector('link[href*="codemirror.min.css"]')) {
-      resolve();
-      return;
-    }
-    // Load CSS files
-    const cssUrls = [
-      'https://cdn.jsdelivr.net/npm/codemirror@5.65.18/lib/codemirror.min.css',
-      'https://cdn.jsdelivr.net/npm/codemirror@5.65.18/theme/material-darker.min.css'
-    ];
-    let loaded = 0;
-    cssUrls.forEach(url => {
-      const link = document.createElement('link');
-      link.rel = 'stylesheet';
-      link.href = url;
-      link.onload = () => { loaded++; if (loaded === cssUrls.length) loadScripts(); };
-      link.onerror = () => { loaded++; console.warn('[CodeMirror] CSS 加载失败:', url); if (loaded === cssUrls.length) loadScripts(); };
-      document.head.appendChild(link);
-    });
-    function loadScripts() {
-      const scripts = [
-        'https://cdn.jsdelivr.net/npm/codemirror@5.65.18/lib/codemirror.min.js',
-        'https://cdn.jsdelivr.net/npm/codemirror@5.65.18/mode/yaml/yaml.min.js'
-      ];
-      let scriptLoaded = 0;
-      scripts.forEach(src => {
-        const script = document.createElement('script');
-        script.src = src;
-        script.onload = () => { scriptLoaded++; if (scriptLoaded === scripts.length) { setTimeout(resolve, 50); } };
-        script.onerror = () => { scriptLoaded++; console.warn('[CodeMirror] JS 加载失败:', src); if (scriptLoaded === scripts.length) { setTimeout(resolve, 50); } };
-        document.body.appendChild(script);
-      });
-    }
-  });
-}
 
-function initCodeMirror(containerId, content, mode) {
+
+
+function initCodeMirror(containerId, content, _mode) {
   const container = document.getElementById(containerId);
   if (!container) return null;
 
-  if (typeof CodeMirror === 'undefined') {
-    container.innerHTML = '';
-    const textarea = document.createElement('textarea');
-    textarea.className = 'form-textarea config-editor';
-    textarea.spellcheck = false;
-    textarea.value = content;
-    container.appendChild(textarea);
-    return textarea;
-  }
-
   container.innerHTML = '';
-
-  const cm = CodeMirror(container, {
-    value: content,
-    mode: mode || 'yaml',
-    theme: 'material-darker',
-    lineNumbers: true,
-    lineWrapping: true,
-    tabSize: 2,
-    indentWithTabs: false,
-    matchBrackets: true,
-    autoCloseBrackets: true,
-  });
-
-  cm.setSize('100%', '100%');
-  return cm;
-}
-
-function destroyCodeMirror(editor) {
-  if (!editor) return null;
-  if (typeof editor.toTextArea === 'function') editor.toTextArea();
-  return null;
+  const textarea = document.createElement('textarea');
+  textarea.className = 'form-textarea';
+  textarea.spellcheck = false;
+  textarea.value = content;
+  textarea.style.cssText = 'width:100%;height:100%;border:none;outline:none;resize:none;padding:12px;box-sizing:border-box;font-family:var(--font-mono);font-size:13px;line-height:1.6;tab-size:2;background:var(--bg-primary);color:var(--text-primary);';
+  container.appendChild(textarea);
+  return textarea;
 }
 
 function getEditorValue(editor, fallback = '') {
@@ -4209,45 +4126,32 @@ function setEditorValue(editor, value) {
   }
 }
 
-async function initConfigCodeMirror() {
-  if (_state._configCmInitializing || _state.configCodeMirror) return;
-  _state._configCmInitializing = true;
-  const versionAtStart = _state._cmDestroyVersion;
-  await waitForCodeMirror(3000);
-  if (_state._cmDestroyVersion !== versionAtStart) { _state._configCmInitializing = false; return; }
-  if (document.getElementById('configEditorContainer')) {
+function initConfigCodeMirror() {
+  if (_state.configCodeMirror) return;
+  const container = document.getElementById('configEditorContainer');
+  if (container) {
     _state.configCodeMirror = initCodeMirror('configEditorContainer', store.state.configRaw, 'yaml');
   }
-  _state._configCmInitializing = false;
 }
 
-async function initCookiesCodeMirror() {
-  if (_state._cookiesCmInitializing || _state.cookiesCodeMirror) return;
-  _state._cookiesCmInitializing = true;
-  const versionAtStart = _state._cmDestroyVersion;
-  await waitForCodeMirror(3000);
-  if (_state._cmDestroyVersion !== versionAtStart) { _state._cookiesCmInitializing = false; return; }
-  if (document.getElementById('cookiesEditorContainer')) {
+function initCookiesCodeMirror() {
+  if (_state.cookiesCodeMirror) return;
+  const container = document.getElementById('cookiesEditorContainer');
+  if (container) {
     _state.cookiesCodeMirror = initCodeMirror('cookiesEditorContainer', store.state.cookiesRaw, 'yaml');
   }
-  _state._cookiesCmInitializing = false;
 }
 
 function cleanupSystemTimers() {
-  _state._cmWaitCancelled = true;
   _state._logsPageLoaded = false;
   clearAllScheduleValidationTimers();
   disconnectLogSSE();
 }
 
 function destroyAllEditors() {
-  _state._cmDestroyVersion++;
-  _state.configCodeMirror = destroyCodeMirror(_state.configCodeMirror);
-  _state._configCmInitializing = false;
-  _state.cookiesCodeMirror = destroyCodeMirror(_state.cookiesCodeMirror);
-  _state._cookiesCmInitializing = false;
-  _state.scheduleCodeMirror = destroyCodeMirror(_state.scheduleCodeMirror);
-  _state._scheduleCmInitializing = false;
+  _state.configCodeMirror = null;
+  _state.cookiesCodeMirror = null;
+  _state.scheduleCodeMirror = null;
 }
 
 function connectLogSSE() {
@@ -4729,7 +4633,7 @@ function syncSystemPage(state) {
     rerenderSystemPanel(
       'systemConfigPanel',
       renderConfigEditor,
-      () => { _state.configCodeMirror = destroyCodeMirror(_state.configCodeMirror); _state._configCmInitializing = false; },
+      () => { _state.configCodeMirror = null; },
       state.configMode === 'raw' ? initConfigCodeMirror : null,
       () => state.configMode === 'raw' ? getEditorValue(_state.configCodeMirror, null) : null,
       (val) => { if (val !== null && _state.configCodeMirror) setEditorValue(_state.configCodeMirror, val); }
@@ -4759,7 +4663,7 @@ function syncSystemPage(state) {
     rerenderSystemPanel(
       'systemCookiesPanel',
       renderCookiesEditor,
-      () => { _state.cookiesCodeMirror = destroyCodeMirror(_state.cookiesCodeMirror); _state._cookiesCmInitializing = false; },
+      () => { _state.cookiesCodeMirror = null; },
       state.cookiesMode === 'raw' ? initCookiesCodeMirror : null,
       () => state.cookiesMode === 'raw' ? getEditorValue(_state.cookiesCodeMirror, null) : null,
       (val) => { if (val !== null && _state.cookiesCodeMirror) setEditorValue(_state.cookiesCodeMirror, val); }
@@ -4799,7 +4703,7 @@ function syncSystemPage(state) {
     rerenderSystemPanel(
       'systemSchedulesPanel',
       renderScheduleViewer,
-      () => { _state.scheduleCodeMirror = destroyCodeMirror(_state.scheduleCodeMirror); _state._scheduleCmInitializing = false; },
+      () => { _state.scheduleCodeMirror = null; },
       state._scheduleTab === 'edit' ? initScheduleCodeMirror : null,
       () => state._scheduleTab === 'edit' ? getEditorValue(_state.scheduleCodeMirror, null) : null,
       (val) => { if (val !== null && _state.scheduleCodeMirror) setEditorValue(_state.scheduleCodeMirror, val); }
@@ -4980,6 +4884,7 @@ document.getElementById('contentContainer').addEventListener('keydown', (e) => {
   const id = e.target.id;
   if (id === 'quickDownloadInput') handleQuickDownload();
   else if (id === 'dbSearchInput') searchDB();
+  else if (id === 'log-search-input') doLogSearch();
 });
 
 // Delegated input/change/blur for data-binding elements (replaces inline on* handlers)
@@ -5102,6 +5007,14 @@ document.getElementById('app').addEventListener('click', (e) => {
     case 'deleteDBItem':          deleteDBItem(el.dataset.dbType, el.dataset.dbId); break;
     case 'saveDBItem':            saveDBItem(el.dataset.dbType, el.dataset.dbId); break;
     case 'filterPreviousNamesByUser': filterPreviousNamesByUser(el.dataset.userId); break;
+
+    // Logs
+    case 'logSetLevel':       setLogLevel(el.dataset.level); break;
+    case 'logSearch':         doLogSearch(); break;
+    case 'logRefresh':        refreshLogs(); break;
+    case 'logExport':         exportLogs(); break;
+    case 'logScrollToBottom': scrollLogToBottom(); break;
+    case 'toggleLogLive':     toggleLogLive(); break;
 
     // Server
     case 'shutdownServer':        shutdownServer(); break;

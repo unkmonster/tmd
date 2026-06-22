@@ -1376,6 +1376,14 @@ ul, ol {
   width: 240px;
 }
 
+/* Log page: 有筛选按钮占用空间，搜索框窄一些 */
+#logViewerCard .search-input {
+  width: 160px;
+}
+#logViewerCard .toolbar {
+  padding: 6px var(--space-5);
+}
+
 /* Grid Layout for Tasks Page */
 .tasks-layout {
   display: grid;
@@ -1528,6 +1536,13 @@ ul, ol {
   background-size: 200% 100%;
   animation: shimmer 1.5s infinite;
   border-radius: var(--radius-md);
+}
+
+.skeleton-icon {
+  width: 64px;
+  height: 64px;
+  border-radius: 12px;
+  margin-bottom: 16px;
 }
 
 @keyframes shimmer {
@@ -1854,6 +1869,57 @@ ul, ol {
 .log-level-filters {
   display: flex;
   gap: var(--space-1);
+}
+
+/* Raw YAML editor shared styles */
+.raw-editor-body {
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.raw-editor-container {
+  flex: 1;
+  min-height: 0;
+}
+.raw-editor-hint {
+  flex-shrink: 0;
+}
+
+/* Mobile DB card styles */
+.mobile-card-title {
+  font-weight: var(--font-semibold);
+  margin-bottom: var(--space-2);
+}
+.mobile-card-meta {
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  margin-bottom: var(--space-2);
+}
+
+/* Code/value display block (read-only IDs in detail views) */
+.code-display {
+  background: var(--bg-primary);
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+}
+
+/* Extra small tag variant */
+.tag-sm {
+  font-size: 10px;
+  padding: 1px 6px;
+}
+
+/* Schedule meta separator */
+.schedule-meta-sep {
+  color: var(--border-secondary);
+}
+
+/* Mode tabs wrapper: raw/form toggle within system config panels */
+.mode-tabs-wrapper {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
 }
 
 .log-scroll-to-top-btn {
