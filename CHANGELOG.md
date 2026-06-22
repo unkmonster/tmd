@@ -7,6 +7,70 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ***
 
+## [v3.4.25] - 2026-06-22
+
+### Added
+
+#### 版本信息可点击跳转
+- **web1/web2**: 底部版本信息 `TMD Pro` / `v2 · Go + SQLite` 改为 `<a>` 标签，点击跳转到 GitHub 仓库（`https://github.com/leeexx2001/tmd`），web1 最后一个内联 `onclick` 至此消除
+
+#### 文档补全
+- `readme.md`: 补充 API 端点速查表中缺失的 theme 端点
+- `API_DOCUMENTATION.md` / `call_chain_analysis_report.md`: 补充 Theme API 文档
+- 修复三份文档中的过时代码引用
+
+#### 其他
+- `.gitignore`: 将 `CONTEXT.md`、`docs/`、`course/` 加入忽略列表
+
+### Changed
+
+#### web1 前端全面重构（内联样式→CSS 类、事件委托统一）
+- **移除 CodeMirror**: 删除全部 CodeMirror 5 依赖（CDN 加载、init/destroy/状态跟踪），YAML 编辑器改用原生 `<textarea>` + monospace 样式，离线完全可用，净减 102 行
+- **日志页面重构**: 重写为 web2 风格——移除 `card-title`/`card-subtitle`，改用 `toolbar` 结构（`toolbar-left`/`toolbar-right`），`onclick`/`onchange`/`onkeydown` 全部替换为 `data-action` 统一事件委托
+- **数据页面**: 加 `page-container` 包裹层
+- **任务页面**: 创建任务卡片补 `card-subtitle`
+
+#### 内联样式→CSS 类提取
+| CSS 类 | 替代 | 替换次数 |
+|--------|------|---------|
+| `.raw-editor-body` / `.raw-editor-container` / `.raw-editor-hint` | 3 处原始编辑器内联布局 | 9 处 |
+| `.mode-tabs-wrapper` | 6 处 `display:flex;flex-direction:column;height:100%` | 6 处 |
+| `.skeleton-icon` | 6 处骨架屏 loading | 6 处 |
+| `.mobile-card-title` / `.mobile-card-meta` | 12 处移动端卡片内联样式 | 12 处 |
+| `.code-display` | 5 处 ID 显示块 | 5 处 |
+| `.tag-sm` | 状态标签内联 `font-size`/`padding` | 1 处 |
+| `.schedule-meta-sep` | 分隔点内联 `color` | 1 处 |
+| `.checkbox-inline` | 6 组调度表单 checkbox | 12 处 |
+| `.form-hint-inline` | 3 处"每行一个"提示 | 3 处 |
+| `.form-hint-validate` | 调度验证提示 div | 1 处 |
+| `.log-level-filters` → `.toolbar` 结构 | 日志页筛选栏 | 整套 |
+
+#### web2 改进
+- 新增 SSE 日志流相关支持
+- 日志按钮改用 SVG 箭头图标
+
+### Fixed
+
+- **web1 toolbar padding**: 日志页 toolbar 纵向 padding 从硬编码 `6px` 改为 `var(--space-3)`（12px），与 CSS 变量体系一致
+- **颜色 fallback 不一致**: `var(--danger, #ef4444)` → `var(--danger, #f85149)`（CSS 变量实际值为 `#f85149`）
+- **冗余内联样式**: 移除 `.empty-state` 上多余的 `display:flex`（CSS 类自带）
+- **日志排序反转**: 修正日志顺序，匹配终端输出顺序
+- **新日志到达按钮图标**: 📌 → ↓（web2 保留 ↓ 箭头）
+- **syncSchedulesPage**: 骨架屏缺失时触发全页渲染
+- **scheduler_test**: 修正 `nextDailyTrigger` 测试 `times` 顺序
+
+### Removed
+
+- **CodeMirror 5**: 移除 CDN 加载（`codemirror.min.js`/`codemirror.min.css`/`yaml.min.js`/`material-darker` 主题）、`loadCodeMirrorAssets`/`waitForCodeMirror`/`initCodeMirror`(CM分支)/`destroyCodeMirror` 等全部相关代码
+- **CM 状态跟踪变量**: `_cmDestroyVersion`、`_cmWaitCancelled`、`_configCmInitializing`、`_cookiesCmInitializing`、`_scheduleCmInitializing`
+
+### Stats
+
+- **19 个文件变更**
+- **+754 行 / -577 行**
+
+***
+
 ## [v3.4.24] - 2026-06-21
 
 ### Added
