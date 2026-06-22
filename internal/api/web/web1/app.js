@@ -139,14 +139,9 @@ const store = {
     configSaving: false,
     configFieldsLoading: false,
     logs: [],
-    _logsLoading: true,
+    _logsLoading: false,
     logLevel: 'all',
-    logSearch: '',
     logStats: { debug: 0, info: 0, warn: 0, error: 0, total: 0 },
-    logAutoRefresh: true,
-    _logAutoScrollPaused: false,
-    _logNewArrived: false,
-    logPagination: { page: 1, pageSize: 100, total: 0, totalPages: 1 },
     _systemTab: 'config',
     configMode: 'form',
     configFields: [],
@@ -532,7 +527,7 @@ const sseManager = {
       return;
     }
     if (page === 'logs') {
-      this._safeRefresh(() => loadLogs(), 'logs');
+      this._safeRefresh(() => refreshLogs(), 'logs');
       return;
     }
     if (page !== 'system') return;
@@ -924,7 +919,8 @@ const pages = {
 // ============================================
 const _state = {
   _taskFormState: {},
-  _cmDestroyVersion: 0
+  _cmDestroyVersion: 0,
+  _logsPageLoaded: false
 };
 
 // 变化检测器：消除手动维护 _state.lastXxx 的重复模式
@@ -2545,8 +2541,6 @@ async function refreshTasks() {
   }
 }
 
-function refreshLogs() { loadLogs(); restartLogStreamIfNeeded(); }
-
 function escapeHtml(str) {
   if (str == null) return '';
   const d = document.createElement('div');
@@ -2590,19 +2584,6 @@ function highlightLogTimestamp(line) {
     '$1[<span class="log-timestamp">$2</span>]'
   );
   return line;
-}
-
-function renderLine(line) {
-  return `<div class="log-line" style="color:${getLineColor(line)}">${highlightLogTimestamp(escapeHtml(stripAnsi(line)))}</div>`;
-}
-
-function renderLogFilterButtons(level, stats) {
-  return `<div class="log-level-filters">
-    ${['all','debug','info','warn','error'].map(l => {
-      const count = l === 'all' ? stats.total : (stats[l] || 0);
-      return `<button class="btn btn-sm ${level===l?'btn-primary':'btn-ghost'}" data-action="setLogLevel" data-level="${l}">${l.toUpperCase()}${count > 0 ? ` (${count})` : ''}</button>`;
-    }).join('')}
-  </div>`;
 }
 
 function renderConfigEditor() {
@@ -2849,51 +2830,114 @@ function renderCookiesRawEditor(raw, saving, exists) {
 }
 
 function renderLogViewer() {
-  const { logs, logLevel, logSearch, logPagination, logAutoRefresh, logStats, _logsLoading } = store.state;
+  const { logLevel, logStats, _logsLoading } = store.state;
 
   return `
     <div class="card card-page" id="logViewerCard">
-      <div class="card-header">
-        <div><div class="card-title">系统日志</div><div class="card-subtitle">共 ${logPagination.total} 条记录</div></div>
-        <div id="logFilterArea" class="flex gap-2 items-center flex-wrap">
-          <input type="text" class="form-input search-input" id="logSearchInput"
-            placeholder="🔍 搜索..."
-            data-binding="logSearch">
+      <div class="card-header" style="justify-content:space-between;flex-direction:row">
+        <div class="flex gap-2 items-center" style="flex-wrap:wrap">
           ${renderLogFilterButtons(logLevel, logStats)}
-          <button class="btn btn-ghost btn-sm ${logAutoRefresh?'active':''}" data-action="toggleLogAutoRefresh">${logAutoRefresh?'⏸️':'▶️'} 实时</button>
-          <button class="btn btn-ghost btn-sm" data-action="downloadLogExport" title="导出完整日志文件">📥 导出</button>
+        </div>
+        <div class="flex gap-2 items-center" style="flex-wrap:wrap">
+          <button class="btn btn-ghost btn-sm" onclick="refreshLogs()">刷新</button>
+          <button class="btn btn-ghost btn-sm" onclick="exportLogs()">导出</button>
+          <label class="form-checkbox" style="font-size:12px;white-space:nowrap">
+            <input type="checkbox" id="log-live-toggle" checked onchange="toggleLogLive()">
+            实时
+          </label>
         </div>
       </div>
-      <div class="card-body card-body-scroll" style="position:relative">
-        <div class="log-container" id="logContainer">
-          <div id="logLines">${renderLogLines(logs, _logsLoading)}</div>
+      <div class="card-body" style="padding:0;position:relative">
+        <div class="log-stream" id="log-stream">
+          <div class="empty-state" id="log-empty-hint" style="display:${_logsLoading !== false ? 'none' : 'flex'}">
+            <div class="empty-icon">📋</div>
+            <div class="empty-title">暂无日志</div>
+            <div class="empty-desc">选择日志级别或等待实时日志</div>
+          </div>
         </div>
-        <button class="log-scroll-to-top-btn" id="logScrollToTopBtn"
-          data-action="scrollLogToTop" aria-label="滚动到日志顶部"
-          style="display:${store.state._logNewArrived ? 'flex' : 'none'}">
+        <button class="log-scroll-to-top-btn" id="log-new-arrived-btn"
+          style="display:none" onclick="scrollLogToBottom()">
           📌 新日志已到达
         </button>
-      </div>
-      <div class="pagination" id="logPagination">
-        <div class="pagination-info">显示 ${logs.length} / ${logPagination.total} 条 (第 ${logPagination.page}/${logPagination.totalPages} 页)</div>
-        <div class="pagination-controls">
-          <button class="page-btn" data-action="changeLogPage" data-delta="-1" ${logPagination.page <= 1 ? 'disabled' : ''}>←</button>
-          ${renderPageNumbers(logPagination.page, logPagination.totalPages, 'goToLogPage')}
-          <button class="page-btn" data-action="changeLogPage" data-delta="1" ${logPagination.page >= logPagination.totalPages ? 'disabled' : ''}>→</button>
-        </div>
       </div>
     </div>
   `;
 }
 
-function renderLogLines(logs, loading) {
-  if (loading && logs.length === 0) {
-    return `<div class="empty-state"><div class="skeleton" style="width:64px;height:64px;border-radius:12px;margin-bottom:16px"></div><div class="empty-title">加载中...</div><div class="empty-desc">正在加载系统日志</div></div>`;
+function renderLogLines(logs) {
+  if (!logs || logs.length === 0) return '';
+  return logs.map(l => {
+    const clean = stripAnsi(l);
+    return '<div class="log-entry" style="color:' + getLineColor(clean) + '">' + highlightLogTimestamp(escapeHtml(clean)) + '</div>';
+  }).join('');
+}
+
+function renderLogFilterButtons(level, stats) {
+  return '<div class="log-level-filters">' +
+    ['all','debug','info','warn','error'].map(l => {
+      const count = l === 'all' ? (stats ? stats.total : 0) : (stats ? (stats[l] || 0) : 0);
+      return '<button class="btn btn-sm ' + (level === l ? 'btn-primary' : 'btn-ghost') + '" onclick="setLogLevel(\'' + l + '\')">' + l.toUpperCase() + (count > 0 ? ' (' + count + ')' : '') + '</button>';
+    }).join('') +
+    '</div>';
+}
+
+let logLive = true;
+let logSSESource = null;
+let _logReconnectAttempts = 0;
+let _logIntentionalDisconnect = false;
+
+function toggleLogLive() {
+  logLive = document.getElementById('log-live-toggle')?.checked ?? true;
+}
+
+function exportLogs() { window.open('/api/v1/logs/export'); }
+
+function setLogLevel(level) {
+  store.setState({ logLevel: level });
+  refreshLogs();
+  // 重连 SSE 以应用新的 level 过滤
+  disconnectLogSSE();
+  connectLogSSE();
+}
+
+function scrollLogToBottom() {
+  const stream = document.getElementById('log-stream');
+  if (stream) { stream.scrollTop = stream.scrollHeight; }
+  document.getElementById('log-new-arrived-btn').style.display = 'none';
+}
+
+async function refreshLogs() {
+  const stream = document.getElementById('log-stream');
+  if (!stream) return;
+  const { logLevel } = store.state;
+  try {
+    const p = new URLSearchParams();
+    p.append('page', '1');
+    p.append('pageSize', '200');
+    if (logLevel !== 'all') p.append('level', logLevel);
+    const d = await api.getLogs('?' + p.toString());
+    const lines = d.logs || [];
+    stream.innerHTML = renderLogLines(lines);
+    stream.scrollTop = stream.scrollHeight;
+    // 更新统计
+    loadLogStats();
+  } catch (e) {
+    stream.innerHTML = '<div class="log-entry" style="color:var(--danger)">加载日志失败: ' + escapeHtml(e.message) + '</div>';
   }
-  if (logs.length === 0) {
-    return `<div class="empty-state"><div class="empty-icon">📋</div><div class="empty-title">暂无日志</div><div class="empty-desc">选择日志级别或调整筛选条件</div></div>`;
-  }
-  return logs.map(renderLine).join('');
+}
+
+async function loadLogStats() {
+  try {
+    const s = await api.getLogStats();
+    store.setState({ logStats: { debug: s.debug || 0, info: s.info || 0, warn: s.warn || 0, error: s.error || 0, total: s.total || 0 } });
+    const filterEl = document.getElementById('logViewerCard');
+    if (filterEl) {
+      const filterArea = filterEl.querySelector('.log-level-filters');
+      if (filterArea) {
+        filterArea.outerHTML = renderLogFilterButtons(store.state.logLevel, store.state.logStats);
+      }
+    }
+  } catch(e) { /* optional */ }
 }
 
 async function loadConfigFields() {
@@ -4034,64 +4078,6 @@ function setConfigMode(mode) {
   }
 }
 
-async function loadLogs() {
-  const { logLevel, logSearch, logPagination } = store.state;
-  const p = new URLSearchParams();
-  if (logLevel !== 'all') p.append('level', logLevel);
-  if (logSearch) p.append('q', logSearch);
-  p.append('page', logPagination.page);
-  p.append('pageSize', logPagination.pageSize);
-  store.setState({ _logsLoading: true });
-  try {
-    const d = await api.getLogs('?' + p.toString());
-    store.setState({ logs: d.logs || [], logPagination: { page: d.page, pageSize: d.pageSize, total: d.total, totalPages: d.totalPages }, _logsLoading: false });
-  } catch (e) {
-    store.setState({ _logsLoading: false });
-    toast.show('加载日志失败: ' + e.message, 'error');
-  }
-
-  // 异步获取统计（不阻塞日志加载）
-  api.getLogStats()
-    .then(s => store.setState({ logStats: { debug: s.debug || 0, info: s.info || 0, warn: s.warn || 0, error: s.error || 0, total: s.total || 0 } }))
-    .catch(() => { console.warn('[Logs] 获取日志统计失败'); });
-}
-
-function setLogLevel(level) {
-  store.setState({ logLevel: level, logPagination: { ...store.state.logPagination, page: 1 } });
-  loadLogs();
-  restartLogStreamIfNeeded();
-}
-
-_state._logSearchTimer = null;
-function onLogSearchInput(value) {
-  store.setState({ logSearch: value, logPagination: { ...store.state.logPagination, page: 1 } });
-  clearTimeout(_state._logSearchTimer);
-  _state._logSearchTimer = setTimeout(() => {
-    loadLogs();
-    restartLogStreamIfNeeded();
-  }, 300);
-}
-
-function changeLogPage(delta) {
-  const p = store.state.logPagination;
-  const np = p.page + delta;
-  if (np >= 1 && np <= p.totalPages) { store.setState({ logPagination: { ...p, page: np } }); loadLogs(); }
-}
-
-function goToLogPage(page) {
-  const p = store.state.logPagination;
-  if (page >= 1 && page <= p.totalPages) { store.setState({ logPagination: { ...p, page } }); loadLogs(); }
-}
-
-_state.logAutoRefreshTimer = null;
-_state.logStreamConn = null;
-_state.configCodeMirror = null;
-_state.cookiesCodeMirror = null;
-_state._configCmInitializing = false;
-_state._cookiesCmInitializing = false;
-
-_state._cmWaitCancelled = false;
-
 function waitForCodeMirror(maxWait) {
   _state._cmWaitCancelled = false;
   if (typeof CodeMirror !== 'undefined') return Promise.resolve(true);
@@ -4227,30 +4213,11 @@ async function initCookiesCodeMirror() {
   _state._cookiesCmInitializing = false;
 }
 
-function toggleLogAutoRefresh() {
-  const ns = !store.state.logAutoRefresh;
-  store.setState({ logAutoRefresh: ns });
-  if (ns) {
-    store.setState({ _logAutoScrollPaused: false, _logNewArrived: false });
-    _state._logScrollListenerAttached = false;
-    startLogStream();
-  }
-  else stopLogStream();
-}
-
 function cleanupSystemTimers() {
   _state._cmWaitCancelled = true;
   _state._logsPageLoaded = false;
-  if (_state._logSearchTimer) {
-    clearTimeout(_state._logSearchTimer);
-    _state._logSearchTimer = null;
-  }
-  if (_state.logAutoRefreshTimer) {
-    clearTimeout(_state.logAutoRefreshTimer);
-    _state.logAutoRefreshTimer = null;
-  }
   clearAllScheduleValidationTimers();
-  stopLogStream();
+  disconnectLogSSE();
 }
 
 function destroyAllEditors() {
@@ -4263,128 +4230,59 @@ function destroyAllEditors() {
   _state._scheduleCmInitializing = false;
 }
 
-function buildLogStreamURL() {
-  const { logLevel, logSearch } = store.state;
-  const p = new URLSearchParams();
-  if (logLevel !== 'all') p.append('level', logLevel);
-  if (logSearch) p.append('q', logSearch);
-  const qs = p.toString();
-  return `/api/v1/logs/stream${qs ? '?' + qs : ''}`;
-}
+function connectLogSSE() {
+  if (logSSESource) { logSSESource.close(); logSSESource = null; }
+  if (window._logSSETimer) { clearTimeout(window._logSSETimer); window._logSSETimer = null; }
+  _logIntentionalDisconnect = false;
+  const { logLevel } = store.state;
+  const url = '/api/v1/logs/stream' + (logLevel !== 'all' ? '?level=' + encodeURIComponent(logLevel) : '');
+  logSSESource = new EventSource(url);
 
-_state._logStreamConnecting = false;
-_state._pendingLogStreamConn = null;
-_state._logsPageLoaded = false;
-_state._logReconnectAttempts = 0;
-
-function startLogStream() {
-  if (_state.logStreamConn || _state._logStreamConnecting || store.state.currentPage !== 'logs') return;
-  _state._logScrollListenerAttached = false;
-  _state._logStreamConnecting = true;
-  const conn = new EventSource(buildLogStreamURL());
-  _state._pendingLogStreamConn = conn;
-  conn.onopen = () => {
-    _state._pendingLogStreamConn = null;
-    _state.logStreamConn = conn;
-    _state._logStreamConnecting = false;
-    _state._logReconnectAttempts = 0;
-    // 挂载日志容器的滚动监听
-    attachLogScrollListener();
-  };
-  conn.addEventListener('log', (e) => {
-    const line = e.data || '';
-    if (!line) return;
-    const logs = [line, ...store.state.logs].slice(0, 1000);
-    store.setState({ logs });
-    setTimeout(() => {
-      const el = document.getElementById('logContainer');
-      if (!el) return;
-      if (store.state._logAutoScrollPaused) {
-        store.setState({ _logNewArrived: true });
-      } else {
-        el.scrollTop = 0;
-      }
-    }, 0);
+  logSSESource.addEventListener('log', (e) => {
+    if (!logLive) return;
+    const stream = document.getElementById('log-stream');
+    if (!stream) return;
+    const autoScroll = stream.scrollTop + stream.clientHeight >= stream.scrollHeight - 20;
+    const el = document.createElement('div');
+    el.className = 'log-entry';
+    const clean = stripAnsi(e.data);
+    el.innerHTML = highlightLogTimestamp(escapeHtml(clean));
+    el.style.color = getLineColor(clean);
+    stream.appendChild(el);
+    // 移除 loading 占位
+    const hint = document.getElementById('log-empty-hint');
+    if (hint) hint.style.display = 'none';
+    if (autoScroll) {
+      stream.scrollTop = stream.scrollHeight;
+    } else {
+      // 用户已向上滚动，显示「新日志已到达」按钮
+      const btn = document.getElementById('log-new-arrived-btn');
+      if (btn) btn.style.display = 'flex';
+    }
+    // Keep last 5000 lines
+    while (stream.children.length > 5000) stream.removeChild(stream.firstChild);
   });
-  conn.onerror = () => {
-    _state._pendingLogStreamConn = null;
-    _state._logStreamConnecting = false;
-    if (conn === _state.logStreamConn) {
-      _state.logStreamConn.close();
-      _state.logStreamConn = null;
-    } else {
-      conn.close();
+
+  logSSESource.onerror = () => {
+    // 清理当前连接引用
+    if (logSSESource) { logSSESource.close(); logSSESource = null; }
+    // 主动断开时不触发重连
+    if (_logIntentionalDisconnect) { _logIntentionalDisconnect = false; return; }
+    _logReconnectAttempts++;
+    if (_logReconnectAttempts > 60) {
+      _logReconnectAttempts = 0;
+      return; // 放弃重连
     }
-    if (store.state.logAutoRefresh && store.state.currentPage === 'logs') {
-      _state._logReconnectAttempts++;
-      if (_state._logReconnectAttempts > 30) {
-        store.setState({ logAutoRefresh: false });
-        toast.show('日志流重连失败次数过多，已停止自动重连，请手动刷新', 'warning');
-        return;
-      }
-      const delay = Math.min(2000 * Math.pow(2, _state._logReconnectAttempts - 1), 30000);
-      _state.logAutoRefreshTimer = setTimeout(() => { _state.logAutoRefreshTimer = null; startLogStream(); }, delay);
-    }
+    const delay = Math.min(2000 * Math.pow(1.5, _logReconnectAttempts - 1), 30000);
+    window._logSSETimer = setTimeout(connectLogSSE, delay);
   };
 }
 
-function stopLogStream() {
-  _state._logStreamConnecting = false;
-  if (_state._pendingLogStreamConn) {
-    _state._pendingLogStreamConn.close();
-    _state._pendingLogStreamConn = null;
-  }
-  if (_state.logAutoRefreshTimer) {
-    clearTimeout(_state.logAutoRefreshTimer);
-    _state.logAutoRefreshTimer = null;
-  }
-  if (_state.logStreamConn) {
-    _state.logStreamConn.close();
-    _state.logStreamConn = null;
-  }
-}
-
-_state._logScrollHandler = null;
-
-function detachLogScrollListener() {
-  const el = document.getElementById('logContainer');
-  if (_state._logScrollHandler) {
-    el?.removeEventListener('scroll', _state._logScrollHandler);
-    _state._logScrollHandler = null;
-  }
-}
-
-function attachLogScrollListener() {
-  // 先移除旧的监听器，防止多次调用累积
-  detachLogScrollListener();
-  const el = document.getElementById('logContainer');
-  if (!el) return;
-  _state._logScrollHandler = () => {
-    if (el.scrollTop > 50) {
-      if (!store.state._logAutoScrollPaused) {
-        store.setState({ _logAutoScrollPaused: true });
-      }
-    } else {
-      if (store.state._logAutoScrollPaused || store.state._logNewArrived) {
-        store.setState({ _logAutoScrollPaused: false, _logNewArrived: false });
-      }
-    }
-  };
-  el.addEventListener('scroll', _state._logScrollHandler);
-}
-
-function scrollLogToTop() {
-  const el = document.getElementById('logContainer');
-  if (el) el.scrollTop = 0;
-  store.setState({ _logAutoScrollPaused: false, _logNewArrived: false });
-}
-
-function restartLogStreamIfNeeded() {
-  if (!store.state.logAutoRefresh) return;
-  _state._logScrollListenerAttached = false;
-  store.setState({ _logAutoScrollPaused: false, _logNewArrived: false });
-  stopLogStream();
-  startLogStream();
+function disconnectLogSSE() {
+  _logIntentionalDisconnect = true;
+  if (logSSESource) { logSSESource.close(); logSSESource = null; }
+  if (window._logSSETimer) { clearTimeout(window._logSSETimer); window._logSSETimer = null; }
+  _logReconnectAttempts = 0;
 }
 
 function syncConfigTabView() {
@@ -4412,9 +4310,10 @@ function syncCookiesTabView() {
 function syncLogsPageView() {
   if (!_state._logsPageLoaded) {
     _state._logsPageLoaded = true;
-    loadLogs();
+    refreshLogs();
   }
-  if (store.state.logAutoRefresh) startLogStream();
+  loadLogStats();
+  connectLogSSE();
 }
 
 function syncSystemTabView() {
@@ -4580,11 +4479,6 @@ function render() {
     if (page === 'schedules') {
       if (store.state._schedules === null) loadSchedules();
     }
-    
-    // Restore search value for logs
-    if (page === 'logs') {
-      restoreSearchValue('logSearchInput', 'logSearch');
-    }
   }
 }
 
@@ -4614,6 +4508,7 @@ window.addEventListener('unhandledrejection', function (e) {
 
 async function init() {
   const { page, dataSubPage } = parseRoute();
+  _state.lastPage = page;
   updateNavigationUI(page);
 
   sseManager.connect();
@@ -4674,7 +4569,7 @@ document.getElementById('sseIndicator').onclick = () => {
   if (page === 'tasks') refreshTasks();
   else if (page === 'data') refreshDBData();
   else if (page === 'schedules') loadSchedules();
-  else if (page === 'logs') loadLogs();
+  else if (page === 'logs') refreshLogs();
   else init();
 };
 
@@ -4689,7 +4584,6 @@ window.addEventListener('resize', () => {
 // Subscribe to state changes
 const dataDetector = makeChangeDetector(['dataSubPage', 'dbData', 'dbPagination', 'dbSort']);
 const scheduleDetector = makeChangeDetector(['_schedules', '_scheduleRaw', '_scheduleExists', '_scheduleSaving', '_scheduleTab', '_scheduleFormItems', '_schedulerRunning']);
-const logDetector = makeChangeDetector(['logs', 'logLevel', 'logPagination', '_logNewArrived']);
 const overviewDetector = makeChangeDetector(['tasks', 'health']);
 
 // ============================================
@@ -4897,44 +4791,8 @@ function syncSchedulesPage(state) {
 }
 
 function syncLogsPage(state) {
-  const { hasAny, changed } = logDetector.detect(state);
-  if (!hasAny) return;
-
-  // 手术刀：滚动到顶按钮显示/隐藏
-  if (changed._logNewArrived) {
-    const btn = document.getElementById('logScrollToTopBtn');
-    if (btn) btn.style.display = state._logNewArrived ? 'flex' : 'none';
-  }
-
-  // 手术刀：日志行 — 只改 #logLines，保留容器和滚动位置
-  if (changed.logs) {
-    const linesEl = document.getElementById('logLines');
-    if (linesEl) linesEl.innerHTML = renderLogLines(state.logs, state._logsLoading !== false);
-  }
-
-  // 手术刀：筛选按钮 — 只改 #logFilterArea，保留搜索输入框状态
-  if (changed.logLevel) {
-    const filterEl = document.getElementById('logFilterArea');
-    if (filterEl) {
-      const levelBtns = renderLogFilterButtons(state.logLevel, state.logStats);
-      const oldBtns = filterEl.querySelector('.log-level-filters');
-      if (oldBtns) oldBtns.outerHTML = levelBtns;
-    }
-  }
-
-  // 手术刀：分页栏 — 只改 #logPagination
-  if (changed.logPagination) {
-    const pagEl = document.getElementById('logPagination');
-    if (pagEl) {
-      pagEl.innerHTML = `
-        <div class="pagination-info">显示 ${state.logs.length} / ${state.logPagination.total} 条 (第 ${state.logPagination.page}/${state.logPagination.totalPages} 页)</div>
-        <div class="pagination-controls">
-          <button class="page-btn" data-action="changeLogPage" data-delta="-1" ${state.logPagination.page <= 1 ? 'disabled' : ''}>←</button>
-          ${renderPageNumbers(state.logPagination.page, state.logPagination.totalPages, 'goToLogPage')}
-          <button class="page-btn" data-action="changeLogPage" data-delta="1" ${state.logPagination.page >= state.logPagination.totalPages ? 'disabled' : ''}>→</button>
-        </div>`;
-    }
-  }
+  // 新的日志页面使用直接的 DOM 操作（refreshLogs/connectLogSSE），
+  // 不再需要通过 store 订阅做手术刀更新。
 }
 
 function syncOverviewPage(state) {
@@ -5066,7 +4924,6 @@ document.getElementById('contentContainer').addEventListener('keydown', (e) => {
   const id = e.target.id;
   if (id === 'quickDownloadInput') handleQuickDownload();
   else if (id === 'dbSearchInput') searchDB();
-  else if (id === 'logSearchInput') refreshLogs();
 });
 
 // Delegated input/change/blur for data-binding elements (replaces inline on* handlers)
@@ -5080,8 +4937,6 @@ document.getElementById('contentContainer').addEventListener('input', (e) => {
     filterTasks();
   } else if (binding === 'dbSearch') {
     updateSearchState('dbSearch', store.state.dataSubPage, el.value);
-  } else if (binding === 'logSearch') {
-    onLogSearchInput(el.value);
   } else if (binding === 'sf_field' && idx !== undefined) {
     scheduleFieldChanged(Number(idx));
   }
@@ -5185,20 +5040,12 @@ document.getElementById('app').addEventListener('click', (e) => {
     // DB page
     case 'changeDBPage':          changeDBPage(Number(el.dataset.delta)); break;
     case 'goToDBPage':            goToDBPage(Number(el.dataset.page)); break;
-    case 'goToLogPage':           goToLogPage(Number(el.dataset.page)); break;
     case 'sortDB':                sortDB(el.dataset.sortField); break;
     case 'searchDB':              searchDB(); break;
     case 'editDBItem':            editDBItem(el.dataset.dbType, el.dataset.dbId); break;
     case 'deleteDBItem':          deleteDBItem(el.dataset.dbType, el.dataset.dbId); break;
     case 'saveDBItem':            saveDBItem(el.dataset.dbType, el.dataset.dbId); break;
     case 'filterPreviousNamesByUser': filterPreviousNamesByUser(el.dataset.userId); break;
-
-    // Logs
-    case 'setLogLevel':           setLogLevel(el.dataset.level); break;
-    case 'changeLogPage':         changeLogPage(Number(el.dataset.delta)); break;
-    case 'toggleLogAutoRefresh':  toggleLogAutoRefresh(); break;
-    case 'scrollLogToTop':        scrollLogToTop(); break;
-    case 'downloadLogExport':     api.downloadLogExport(); break;
 
     // Server
     case 'shutdownServer':        shutdownServer(); break;

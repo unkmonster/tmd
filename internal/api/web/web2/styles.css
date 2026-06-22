@@ -726,8 +726,8 @@ pre { font-family: var(--font-mono); font-size: 12px; background: var(--sidebar-
 .log-entry:hover { background: #fafafa; }
 .log-entry .log-timestamp { color: var(--info); font-weight: 500; }
 .log-stream {
-  background: #09090b;
-  color: #e4e4e7;
+  background: #f8f9fa;
+  color: #1a1a2e;
   font-family: var(--font-mono);
   font-size: 11px;
   padding: 12px;
@@ -736,10 +736,10 @@ pre { font-family: var(--font-mono); font-size: 12px; background: var(--sidebar-
   border-radius: var(--radius-sm);
 }
 .log-stream .log-entry {
-  border-bottom-color: #27272a;
-  color: #a1a1aa;
+  border-bottom-color: #e0e0e0;
+  color: #555;
 }
-.log-stream .log-entry:hover { background: #18181b; }
+.log-stream .log-entry:hover { background: #eaeaea; }
 
 /* Download form sizing */
 .download-form { max-width: 520px; }

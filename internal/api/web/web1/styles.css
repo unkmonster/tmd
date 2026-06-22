@@ -1826,23 +1826,26 @@ ul, ol {
   border-radius: var(--radius-md);
 }
 
-.log-container {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  font-size: 12px;
-  line-height: 1.7;
+.log-stream {
   background: var(--bg-primary);
-  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 12px;
+  max-height: 70vh;
+  overflow-y: auto;
 }
 
-.log-line {
-  padding: 1px 8px;
+.log-entry {
+  padding: 4px 8px;
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: 11px;
+  border-bottom: 1px solid var(--border-primary);
+  line-height: 1.5;
   white-space: pre-wrap;
   word-break: break-all;
 }
+.log-entry:hover { background: var(--bg-tertiary); }
 
 .log-timestamp {
   color: var(--info);
