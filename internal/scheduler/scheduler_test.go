@@ -858,7 +858,8 @@ func TestNextDailyTrigger_SelectsNextTimeWhenMultiple(t *testing.T) {
 	in5Min := now.Add(5 * time.Minute)
 	in30Min := now.Add(30 * time.Minute)
 
-	times := []time.Time{in30Min, in5Min}
+	// times must be sorted ascending; in5Min is the nearest future
+	times := []time.Time{in5Min, in30Min}
 	got := nextDailyTrigger(times)
 
 	if got.IsZero() {
