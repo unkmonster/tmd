@@ -155,7 +155,7 @@ main.go
 | **用户名变更处理** | entity 框标注 Sync 函数处理用户名变更重命名 |
 | **三种命名策略** | naming 框标注 UserNaming / ListNaming / TweetNaming + UniquePathResolver |
 | **EventBus 两种事件** | EventBus 框标注 coalesced / replayable |
-| **Scheduler 回调机制** | api 框内 Scheduler 组件，标注"独立包"和"scheduledDownload 回调" |
+| **Scheduler 回调机制** | api 框内 Scheduler 组件，标注"独立包"和"scheduledDownload" |
 
 ---
 
@@ -193,3 +193,4 @@ tmd/
 ├── convert_db_to_legacy.py        # 数据库格式转换脚本
 └── .gitignore                     # Git 忽略规则
 ```
+

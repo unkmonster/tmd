@@ -212,31 +212,39 @@ type DownloadService interface {
 
 ## 开发指南
 
-### 项目结构
+### 项目目录结构
 
 ```
 tmd/
-├── main.go                      # 应用入口（命令行解析、模式选择）
-├── start-server.bat              # Windows Server 模式启动脚本
+├── main.go                        # 应用入口（命令行解析、模式选择）
+├── start-server.bat               # Windows Server 模式启动脚本
 ├── internal/
-│   ├── api/                     # API Server 模块
-│   ├── cli/                     # CLI 命令模块
-│   ├── config/                  # 配置管理
-│   ├── service/                 # Service 层（核心业务编排）
-│   ├── database/                # 数据持久化层
-│   ├── downloading/             # 核心下载逻辑
-│   ├── downloader/              # 通用下载基础设施
-│   ├── twitter/                 # Twitter API 客户端
-│   ├── naming/                  # 命名服务
-│   ├── entity/                  # 数据实体层
-│   ├── path/                    # 路径管理
-│   ├── scheduler/               # 定时任务调度器
-│   ├── consolelog/              # 控制台日志捕获与分发
-│   └── utils/                   # 工具函数
-├── doc/                         # 详细文档
-├── tools/                       # 工具脚本（迁移工具、Tampermonkey脚本）
-├── .github/workflows/           # CI/CD 配置
-└── test/                        # 集成测试
+│   ├── api/                       # API Server 模块
+│   ├── cli/                       # CLI 命令模块
+│   ├── config/                    # 配置管理
+│   ├── service/                   # Service 层（核心业务编排）
+│   ├── database/                  # 数据持久化层
+│   ├── downloading/               # 核心下载逻辑
+│   ├── downloader/                # 通用下载基础设施
+│   ├── twitter/                   # Twitter API 客户端
+│   ├── naming/                    # 命名服务
+│   ├── entity/                    # 数据实体层
+│   ├── path/                      # 路径管理
+│   ├── scheduler/                 # 定时任务调度器
+│   ├── consolelog/                # 控制台日志捕获与分发
+│   └── utils/                     # 工具函数
+├── doc/                           # 详细文档
+├── tools/                         # 工具脚本（迁移工具、Tampermonkey脚本）
+├── .github/workflows/             # CI/CD 配置
+├── go.mod                         # Go 模块定义
+├── go.sum                         # 依赖校验和
+├── Dockerfile                     # Docker 镜像构建
+├── docker-compose.yml             # Docker Compose 部署
+├── readme.md                      # 用户手册
+├── CHANGELOG.md                   # 变更日志
+├── LICENSE                        # GPL-3.0 许可证
+├── convert_db_to_legacy.py        # 数据库格式转换脚本
+└── .gitignore                     # Git 忽略规则
 ```
 
 ### 运行测试
@@ -310,39 +318,3 @@ go tool cover -html=covprofile -o coverage.html
 | **tmd-db-migrate** | `tools/tmd-db-migrate/` | 跨平台数据库路径迁移，当下载目录从 Windows 迁移到 Linux 等场景时重写 `foo.db` 中的 `parent_dir` 路径。详见 [foo.db 跨平台迁移说明](foo.db%20跨平台迁移说明.md) |
 | **convert_db_to_legacy.py** | 仓库根目录 | 将新格式数据库转换为旧格式的辅助脚本 |
 
----
-
-## 项目目录结构
-
-```
-tmd/
-├── main.go                        # 应用入口（命令行解析、模式选择）
-├── start-server.bat               # Windows Server 模式启动脚本
-├── internal/
-│   ├── api/                       # API Server 模块
-│   ├── cli/                       # CLI 命令模块
-│   ├── config/                    # 配置管理
-│   ├── service/                   # Service 层（核心业务编排）
-│   ├── database/                  # 数据持久化层
-│   ├── downloading/               # 核心下载逻辑
-│   ├── downloader/                # 通用下载基础设施
-│   ├── twitter/                   # Twitter API 客户端
-│   ├── naming/                    # 命名服务
-│   ├── entity/                    # 数据实体层
-│   ├── path/                      # 路径管理
-│   ├── scheduler/                 # 定时任务调度器
-│   ├── consolelog/                # 控制台日志捕获与分发
-│   └── utils/                     # 工具函数
-├── doc/                           # 详细文档
-├── tools/                         # 工具脚本（迁移工具、Tampermonkey脚本）
-├── .github/workflows/             # CI/CD 配置
-├── go.mod                         # Go 模块定义
-├── go.sum                         # 依赖校验和
-├── Dockerfile                     # Docker 镜像构建
-├── docker-compose.yml             # Docker Compose 部署
-├── readme.md                      # 用户手册
-├── CHANGELOG.md                   # 变更日志
-├── LICENSE                        # GPL-3.0 许可证
-├── convert_db_to_legacy.py        # 数据库格式转换脚本
-└── .gitignore                     # Git 忽略规则
-```
