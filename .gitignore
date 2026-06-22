@@ -83,3 +83,8 @@ todo.md
 .codegraph/
 .reasonix/
 .gitnexus/
+
+# === Agent / Docs (not part of source) ===
+CONTEXT.md
+docs/
+course/
