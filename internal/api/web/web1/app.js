@@ -2847,7 +2847,7 @@ function renderLogViewer() {
           </label>
         </div>
       </div>
-      <div class="card-body" style="padding:0;position:relative">
+      <div class="card-body card-body-scroll" style="padding:0;position:relative">
         <div class="log-stream" id="log-stream">
           <div class="empty-state" id="log-empty-hint" style="display:${_logsLoading !== false ? 'none' : 'flex'}">
             <div class="empty-icon">📋</div>
@@ -2916,7 +2916,7 @@ async function refreshLogs() {
     p.append('pageSize', '200');
     if (logLevel !== 'all') p.append('level', logLevel);
     const d = await api.getLogs('?' + p.toString());
-    const lines = d.logs || [];
+    const lines = (d.logs || []).reverse();
     stream.innerHTML = renderLogLines(lines);
     stream.scrollTop = stream.scrollHeight;
     // 更新统计

@@ -730,7 +730,6 @@ pre { font-family: var(--font-mono); font-size: 12px; background: var(--sidebar-
   color: #1a1a2e;
   font-family: var(--font-mono);
   font-size: 11px;
-  padding: 12px;
   max-height: 70vh;
   overflow-y: auto;
   border-radius: var(--radius-sm);

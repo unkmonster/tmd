@@ -1878,7 +1878,7 @@ async function refreshLogs() {
   const level = document.getElementById('log-level') ? document.getElementById('log-level').value.trim() : '';
   try {
     const r = await ENDPOINTS.logs({ page:1, pageSize:200, level: level || undefined });
-    const lines = r.logs || [];
+    const lines = (r.logs || []).reverse();
     stream.innerHTML = lines.map(l => {
       const clean = stripAnsi(l);
       const color = getLogLineColor(clean);
