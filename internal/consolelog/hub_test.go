@@ -136,13 +136,13 @@ func TestCapturePipe_ReassemblesLinesAcrossChunks(t *testing.T) {
 }
 
 func TestStartCaptureRetriesAfterFailure(t *testing.T) {
+	StopCapture()
 	captureMu.Lock()
-	stopCaptureLocked()
 	startCaptureFn = startCaptureSession
 	captureMu.Unlock()
 	t.Cleanup(func() {
+		StopCapture()
 		captureMu.Lock()
-		stopCaptureLocked()
 		startCaptureFn = startCaptureSession
 		captureMu.Unlock()
 	})
@@ -169,13 +169,13 @@ func TestStartCaptureRetriesAfterFailure(t *testing.T) {
 }
 
 func TestStartCaptureIsIdempotentAfterSuccess(t *testing.T) {
+	StopCapture()
 	captureMu.Lock()
-	stopCaptureLocked()
 	startCaptureFn = startCaptureSession
 	captureMu.Unlock()
 	t.Cleanup(func() {
+		StopCapture()
 		captureMu.Lock()
-		stopCaptureLocked()
 		startCaptureFn = startCaptureSession
 		captureMu.Unlock()
 	})

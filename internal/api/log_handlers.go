@@ -2,6 +2,7 @@ package api
 
 import (
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -111,16 +112,21 @@ func (s *Server) handleLogStats(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleLogExport(w http.ResponseWriter, r *http.Request) {
 	logPath := filepath.Join(s.appRootPath, "tmd2.log")
-	data, err := os.ReadFile(logPath)
+	f, err := os.Open(logPath)
 	if err != nil {
-		s.writeError(w, http.StatusInternalServerError, "Failed to read log file: "+err.Error())
+		s.writeError(w, http.StatusInternalServerError, "Failed to open log file: "+err.Error())
 		return
+	}
+	defer f.Close()
+
+	stat, err := f.Stat()
+	if err == nil {
+		w.Header().Set("Content-Length", fmt.Sprintf("%d", stat.Size()))
 	}
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="tmd2-%s.log"`, time.Now().Format("20060102-150405")))
-	w.Header().Set("Content-Length", fmt.Sprintf("%d", len(data)))
 	w.WriteHeader(http.StatusOK)
-	w.Write(data)
+	io.Copy(w, f)
 }
 
 // filterLogLinesReverse 从尾向头遍历（天然逆序），过滤并直接产出结果，一次遍历完成。

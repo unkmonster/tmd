@@ -714,7 +714,7 @@ pre { font-family: var(--font-mono); font-size: 12px; background: var(--sidebar-
 
 /* Log viewer */
 .log-entry {
-  padding: 4px 8px;
+  padding: 8px 8px;
   font-family: var(--font-mono);
   font-size: 11px;
   border-bottom: 1px solid #f0f0f0;
@@ -740,6 +740,33 @@ pre { font-family: var(--font-mono); font-size: 12px; background: var(--sidebar-
 }
 .log-stream .log-entry:hover { background: #eaeaea; }
 
+.log-scroll-to-top-btn {
+  position: absolute;
+  bottom: 48px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  font-family: var(--font);
+  background: var(--accent);
+  color: #fff;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  box-shadow: var(--shadow);
+  transition: all .12s ease;
+  white-space: nowrap;
+  line-height: 1.4;
+}
+.log-scroll-to-top-btn:hover {
+  background: var(--accent-hover);
+}
+
 /* Download form sizing */
 .download-form { max-width: 520px; }
 .download-form-wide { max-width: 640px; }
@@ -762,3 +789,4 @@ pre { font-family: var(--font-mono); font-size: 12px; background: var(--sidebar-
   .filter-bar { flex-direction: column; }
   .filter-bar input { min-width: auto; }
 }
+

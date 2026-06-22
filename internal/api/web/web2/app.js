@@ -61,6 +61,14 @@ const jsEsc = (s) => { if (s == null) return ''; return String(s).replace(/&/g,'
 
 // Log helpers
 function stripAnsi(str) { return str.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, ''); }
+
+// 提取日志行末尾的推文 ID（行首必须是 [...] 格式）
+function getTweetId(text) {
+  if (!text.startsWith('[')) return null;
+  const m = text.match(/_(\d{16,20})\s*$/);
+  return m ? m[1] : null;
+}
+
 function getLogLineColor(line) {
   if (line.startsWith('ERRO[') || line.includes('level=error')) return 'var(--red)';
   if (line.startsWith('WARN[') || line.includes('level=warn') || line.includes('level=warning')) return 'var(--amber)';
@@ -333,9 +341,8 @@ function qs(params) {
 function navigateTo(page) {
   closeModal();
   // Clean up log SSE when leaving logs page
-  if (currentPage === 'logs' && page !== 'logs' && logSSESource) {
-    logSSESource.close(); logSSESource = null;
-    if (window._logSSETimer) { clearTimeout(window._logSSETimer); window._logSSETimer = null; }
+  if (currentPage === 'logs' && page !== 'logs') {
+    disconnectLogSSE();
   }
   if (page === currentPage) return;
   currentPage = page;
@@ -1844,15 +1851,21 @@ function renderLogsPage(container) {
       <div class="card">
         <div class="card-header">
           <div class="flex gap-2 items-center" style="flex-wrap:wrap">
-            <input type="text" id="log-level" placeholder="level (info/warn/error)" style="width:160px">
-            <button class="btn btn-primary btn-sm" onclick="refreshLogs()">Search</button>
+            <input type="text" id="log-level" placeholder="level (info/warn/error)" style="width:140px" onkeydown="if(event.key==='Enter')setLogLevel()">
+            <input type="text" id="log-search-input" placeholder="search text..." style="width:140px" onkeydown="if(event.key==='Enter')doLogSearch()">
+            <button class="btn btn-primary btn-sm" onclick="setLogLevel()">Filter</button>
+            <button class="btn btn-ghost btn-sm" onclick="doLogSearch()">Search</button>
             <span id="log-stats-inline" class="text-sm text-muted" style="margin-left:8px"></span>
           </div>
         </div>
-        <div class="card-body" style="padding:0">
+        <div class="card-body" style="padding:0;position:relative">
           <div class="log-stream" id="log-stream">
             <div class="loading"><div class="spinner"></div> Loading logs...</div>
           </div>
+          <button class="log-scroll-to-top-btn" id="log-new-arrived-btn"
+            style="display:none" onclick="scrollLogToBottom()">
+            📌 New logs arrived
+          </button>
         </div>
       </div>
     </div>`;
@@ -1864,25 +1877,46 @@ function renderLogsPage(container) {
 }
 
 let logSSESource = null;
-let logStreamEl = null;
 let logLive = true;
+let _logReconnectAttempts = 0;
+let _logIntentionalDisconnect = false;
 
 function toggleLogLive() {
   logLive = document.getElementById('log-live-toggle').checked;
 }
 function exportLogs() { window.open(apiBase() + '/api/v1/logs/export'); }
 
+function setLogLevel() {
+  refreshLogs();
+  disconnectLogSSE();
+  connectLogSSE();
+}
+
+function doLogSearch() {
+  refreshLogs();
+  disconnectLogSSE();
+  connectLogSSE();
+}
+
+function scrollLogToBottom() {
+  const stream = document.getElementById('log-stream');
+  if (stream) { stream.scrollTop = stream.scrollHeight; }
+  document.getElementById('log-new-arrived-btn').style.display = 'none';
+}
+
 async function refreshLogs() {
   const stream = document.getElementById('log-stream');
   if (!stream) return;
   const level = document.getElementById('log-level') ? document.getElementById('log-level').value.trim() : '';
+  const q = document.getElementById('log-search-input') ? document.getElementById('log-search-input').value.trim() : '';
   try {
-    const r = await ENDPOINTS.logs({ page:1, pageSize:200, level: level || undefined });
+    const r = await ENDPOINTS.logs({ page:1, pageSize:200, level: level || undefined, q: q || undefined });
     const lines = (r.logs || []).reverse();
     stream.innerHTML = lines.map(l => {
       const clean = stripAnsi(l);
       const color = getLogLineColor(clean);
-      return '<div class="log-entry" style="color:' + color + '">' + highlightLogTimestamp(esc(clean)) + '</div>';
+      const tweetId = getTweetId(clean);
+      return '<div class="log-entry" style="color:' + color + '"' + (tweetId ? ' data-tweet-id="' + tweetId + '"' : '') + '>' + highlightLogTimestamp(esc(clean)) + '</div>';
     }).join('');
     stream.scrollTop = stream.scrollHeight;
   } catch(e) {
@@ -1901,7 +1935,14 @@ async function loadLogStats() {
 function connectLogSSE() {
   if (logSSESource) { logSSESource.close(); logSSESource = null; }
   if (window._logSSETimer) { clearTimeout(window._logSSETimer); window._logSSETimer = null; }
-  logSSESource = new EventSource(apiBase() + '/api/v1/logs/stream');
+  _logIntentionalDisconnect = false;
+  const level = document.getElementById('log-level') ? document.getElementById('log-level').value.trim() : '';
+  const q = document.getElementById('log-search-input') ? document.getElementById('log-search-input').value.trim() : '';
+  const params = new URLSearchParams();
+  if (level) params.append('level', level);
+  if (q) params.append('q', q);
+  const qs = params.toString();
+  logSSESource = new EventSource(apiBase() + '/api/v1/logs/stream' + (qs ? '?' + qs : ''));
 
   logSSESource.addEventListener('log', (e) => {
     if (!logLive) return;
@@ -1911,20 +1952,55 @@ function connectLogSSE() {
     const el = document.createElement('div');
     el.className = 'log-entry';
     const clean = stripAnsi(e.data);
+    const tweetId = getTweetId(clean);
+    if (tweetId) el.dataset.tweetId = tweetId;
     const color = getLogLineColor(clean);
     el.innerHTML = highlightLogTimestamp(esc(clean));
     el.style.color = color;
     stream.appendChild(el);
-    if (autoScroll) stream.scrollTop = stream.scrollHeight;
+    if (autoScroll) {
+      stream.scrollTop = stream.scrollHeight;
+    } else {
+      const btn = document.getElementById('log-new-arrived-btn');
+      if (btn) btn.style.display = 'flex';
+    }
     // Keep last 5000 lines
     while (stream.children.length > 5000) stream.removeChild(stream.firstChild);
   });
 
   logSSESource.onerror = () => {
     if (logSSESource) { logSSESource.close(); logSSESource = null; }
-    window._logSSETimer = setTimeout(connectLogSSE, 5000);
+    if (_logIntentionalDisconnect) { _logIntentionalDisconnect = false; return; }
+    _logReconnectAttempts++;
+    if (_logReconnectAttempts > 60) {
+      _logReconnectAttempts = 0;
+      return;
+    }
+    const delay = Math.min(2000 * Math.pow(1.5, _logReconnectAttempts - 1), 30000);
+    window._logSSETimer = setTimeout(connectLogSSE, delay);
   };
 }
+
+function disconnectLogSSE() {
+  _logIntentionalDisconnect = true;
+  if (logSSESource) { logSSESource.close(); logSSESource = null; }
+  if (window._logSSETimer) { clearTimeout(window._logSSETimer); window._logSSETimer = null; }
+  _logReconnectAttempts = 0;
+}
+
+// 点击日志行任意位置复制推文 ID
+document.addEventListener('click', (e) => {
+  const entry = e.target.closest('.log-entry[data-tweet-id]');
+  if (!entry) return;
+  const id = entry.dataset.tweetId;
+  if (id) {
+    navigator.clipboard.writeText(id).then(() => {
+      toast('已复制推文 ID: ' + id, 'success');
+    }).catch(() => {
+      toast('复制失败，请手动选择文本复制', 'warning');
+    });
+  }
+});
 
 /* ---- Sidebar ---- */
 function toggleSidebar() {

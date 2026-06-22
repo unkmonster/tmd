@@ -1836,7 +1836,7 @@ ul, ol {
 }
 
 .log-entry {
-  padding: 4px 8px;
+  padding: 8px 8px;
   font-family: var(--font-mono);
   font-size: 11px;
   border-bottom: 1px solid var(--border-primary);

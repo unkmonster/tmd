@@ -215,6 +215,15 @@ func StartCapture(h *Hub) error {
 	return nil
 }
 
+// StopCapture stops the active stdout/stderr capture session and restores
+// the original stdout/stderr. It is safe to call multiple times (no-op
+// when no capture is active).
+func StopCapture() {
+	captureMu.Lock()
+	defer captureMu.Unlock()
+	stopCaptureLocked()
+}
+
 func startCaptureSession(h *Hub) (*captureSession, error) {
 	originalStdout := os.Stdout
 	originalStderr := os.Stderr

@@ -17,6 +17,29 @@ import (
 const sseHeartbeatInterval = 25 * time.Second
 const sseWriteTimeout = 10 * time.Second
 
+// setupSSE sets common SSE response headers, checks for Flusher support,
+// and writes the initial ": connected" frame. Returns the flusher on success.
+func setupSSE(w http.ResponseWriter) (http.Flusher, error) {
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		return nil, fmt.Errorf("streaming not supported")
+	}
+
+	if err := writeSSEFrame(w, flusher, func() error {
+		_, err := fmt.Fprint(w, ": connected\n\n")
+		return err
+	}); err != nil {
+		return nil, err
+	}
+
+	return flusher, nil
+}
+
 func writeSSEFrame(w http.ResponseWriter, flusher http.Flusher, write func() error) error {
 	controller := http.NewResponseController(w)
 	if err := controller.SetWriteDeadline(time.Now().Add(sseWriteTimeout)); err != nil && !errors.Is(err, http.ErrNotSupported) {
@@ -36,21 +59,9 @@ func writeSSEFrame(w http.ResponseWriter, flusher http.Flusher, write func() err
 }
 
 func (s *Server) handleSSETasks(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-	w.Header().Set("X-Accel-Buffering", "no")
-
-	flusher, ok := w.(http.Flusher)
-	if !ok {
+	flusher, err := setupSSE(w)
+	if err != nil {
 		s.writeError(w, http.StatusInternalServerError, "Streaming unsupported")
-		return
-	}
-
-	if err := writeSSEFrame(w, flusher, func() error {
-		_, err := fmt.Fprint(w, ": connected\n\n")
-		return err
-	}); err != nil {
 		return
 	}
 

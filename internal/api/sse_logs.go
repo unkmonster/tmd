@@ -8,16 +8,11 @@ import (
 )
 
 func (s *Server) handleLogStream(w http.ResponseWriter, r *http.Request) {
-	flusher, ok := w.(http.Flusher)
-	if !ok {
+	flusher, err := setupSSE(w)
+	if err != nil {
 		s.writeError(w, http.StatusInternalServerError, "Streaming not supported")
 		return
 	}
-
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-	w.Header().Set("X-Accel-Buffering", "no")
 
 	levelStr := r.URL.Query().Get("level")
 	if levelStr != "" && !isValidLogLevel(levelStr) {
@@ -29,12 +24,6 @@ func (s *Server) handleLogStream(w http.ResponseWriter, r *http.Request) {
 	ch, unsubscribe := s.logHub.Subscribe()
 	defer unsubscribe()
 
-	if err := writeSSEFrame(w, flusher, func() error {
-		_, err := fmt.Fprint(w, ": connected\n\n")
-		return err
-	}); err != nil {
-		return
-	}
 	heartbeat := time.NewTicker(sseHeartbeatInterval)
 	defer heartbeat.Stop()
 

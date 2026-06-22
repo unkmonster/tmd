@@ -138,9 +138,8 @@ const store = {
     configExists: false,
     configSaving: false,
     configFieldsLoading: false,
-    logs: [],
-    _logsLoading: false,
     logLevel: 'all',
+    logSearch: '',
     logStats: { debug: 0, info: 0, warn: 0, error: 0, total: 0 },
     _systemTab: 'config',
     configMode: 'form',
@@ -2830,13 +2829,15 @@ function renderCookiesRawEditor(raw, saving, exists) {
 }
 
 function renderLogViewer() {
-  const { logLevel, logStats, _logsLoading } = store.state;
+  const { logLevel, logStats } = store.state;
 
   return `
     <div class="card card-page" id="logViewerCard">
       <div class="card-header" style="justify-content:space-between;flex-direction:row">
         <div class="flex gap-2 items-center" style="flex-wrap:wrap">
           ${renderLogFilterButtons(logLevel, logStats)}
+          <input type="text" id="log-search-input" class="form-input" style="width:160px;padding:6px 10px;font-size:12px" placeholder="搜索日志..." value="${store.state.logSearch}" onkeydown="if(event.key==='Enter')doLogSearch()">
+          <button class="btn btn-ghost btn-sm" onclick="doLogSearch()">🔍</button>
         </div>
         <div class="flex gap-2 items-center" style="flex-wrap:wrap">
           <button class="btn btn-ghost btn-sm" onclick="refreshLogs()">刷新</button>
@@ -2849,7 +2850,7 @@ function renderLogViewer() {
       </div>
       <div class="card-body card-body-scroll" style="padding:0;position:relative">
         <div class="log-stream" id="log-stream">
-          <div class="empty-state" id="log-empty-hint" style="display:${_logsLoading !== false ? 'none' : 'flex'}">
+          <div class="empty-state" id="log-empty-hint" style="display:flex">
             <div class="empty-icon">📋</div>
             <div class="empty-title">暂无日志</div>
             <div class="empty-desc">选择日志级别或等待实时日志</div>
@@ -2864,11 +2865,20 @@ function renderLogViewer() {
   `;
 }
 
+// 提取日志行末尾的推文 ID（行首必须是 [...] 格式）
+function getTweetId(text) {
+  if (!text.startsWith('[')) return null;
+  const m = text.match(/_(\d{16,20})\s*$/);
+  return m ? m[1] : null;
+}
+
 function renderLogLines(logs) {
   if (!logs || logs.length === 0) return '';
   return logs.map(l => {
     const clean = stripAnsi(l);
-    return '<div class="log-entry" style="color:' + getLineColor(clean) + '">' + highlightLogTimestamp(escapeHtml(clean)) + '</div>';
+    const tweetId = getTweetId(clean);
+    const html = highlightLogTimestamp(escapeHtml(clean));
+    return '<div class="log-entry" style="color:' + getLineColor(clean) + '"' + (tweetId ? ' data-tweet-id="' + tweetId + '"' : '') + '>' + html + '</div>';
   }).join('');
 }
 
@@ -2900,6 +2910,15 @@ function setLogLevel(level) {
   connectLogSSE();
 }
 
+function doLogSearch() {
+  const q = document.getElementById('log-search-input')?.value?.trim() || '';
+  store.setState({ logSearch: q });
+  refreshLogs();
+  // 重连 SSE 以应用搜索过滤
+  disconnectLogSSE();
+  connectLogSSE();
+}
+
 function scrollLogToBottom() {
   const stream = document.getElementById('log-stream');
   if (stream) { stream.scrollTop = stream.scrollHeight; }
@@ -2909,12 +2928,13 @@ function scrollLogToBottom() {
 async function refreshLogs() {
   const stream = document.getElementById('log-stream');
   if (!stream) return;
-  const { logLevel } = store.state;
+  const { logLevel, logSearch } = store.state;
   try {
     const p = new URLSearchParams();
     p.append('page', '1');
     p.append('pageSize', '200');
     if (logLevel !== 'all') p.append('level', logLevel);
+    if (logSearch) p.append('q', logSearch);
     const d = await api.getLogs('?' + p.toString());
     const lines = (d.logs || []).reverse();
     stream.innerHTML = renderLogLines(lines);
@@ -4234,8 +4254,12 @@ function connectLogSSE() {
   if (logSSESource) { logSSESource.close(); logSSESource = null; }
   if (window._logSSETimer) { clearTimeout(window._logSSETimer); window._logSSETimer = null; }
   _logIntentionalDisconnect = false;
-  const { logLevel } = store.state;
-  const url = '/api/v1/logs/stream' + (logLevel !== 'all' ? '?level=' + encodeURIComponent(logLevel) : '');
+  const { logLevel, logSearch } = store.state;
+  const params = new URLSearchParams();
+  if (logLevel !== 'all') params.append('level', logLevel);
+  if (logSearch) params.append('q', logSearch);
+  const qs = params.toString();
+  const url = '/api/v1/logs/stream' + (qs ? '?' + qs : '');
   logSSESource = new EventSource(url);
 
   logSSESource.addEventListener('log', (e) => {
@@ -4246,6 +4270,8 @@ function connectLogSSE() {
     const el = document.createElement('div');
     el.className = 'log-entry';
     const clean = stripAnsi(e.data);
+    const tweetId = getTweetId(clean);
+    if (tweetId) el.dataset.tweetId = tweetId;
     el.innerHTML = highlightLogTimestamp(escapeHtml(clean));
     el.style.color = getLineColor(clean);
     stream.appendChild(el);
@@ -4285,6 +4311,20 @@ function disconnectLogSSE() {
   _logReconnectAttempts = 0;
 }
 
+// 点击日志行任意位置复制推文 ID
+document.addEventListener('click', (e) => {
+  const entry = e.target.closest('.log-entry[data-tweet-id]');
+  if (!entry) return;
+  const id = entry.dataset.tweetId;
+  if (id) {
+    navigator.clipboard.writeText(id).then(() => {
+      toast.show('已复制推文 ID: ' + id, 'success');
+    }).catch(() => {
+      toast.show('复制失败，请手动选择文本复制', 'warning');
+    });
+  }
+});
+
 function syncConfigTabView() {
   if (store.state.configMode === 'form' && (!store.state.configFields || store.state.configFields.length === 0)) {
     loadConfigFields();
@@ -4314,6 +4354,17 @@ function syncLogsPageView() {
   }
   loadLogStats();
   connectLogSSE();
+  // 滚动日志到底部时自动隐藏「新日志已到达」按钮
+  const stream = document.getElementById('log-stream');
+  if (stream && !stream._scrollHandlerAttached) {
+    stream._scrollHandlerAttached = true;
+    stream.addEventListener('scroll', () => {
+      if (stream.scrollTop + stream.clientHeight >= stream.scrollHeight - 10) {
+        const btn = document.getElementById('log-new-arrived-btn');
+        if (btn) btn.style.display = 'none';
+      }
+    });
+  }
 }
 
 function syncSystemTabView() {
