@@ -161,137 +161,35 @@ main.go
 
 ## 项目目录结构
 
-非测试 `.go` 文件的完整目录树（由 Python 脚本从文件系统生成）：
-
 ```
-+-- main.go
-+-- internal/
-|   +-- api
-|   |   +-- config_handlers.go
-|   |   +-- cookie_handlers.go
-|   |   +-- db_handlers.go
-|   |   +-- download_handlers.go
-|   |   +-- download_queue.go
-|   |   +-- download_targets.go
-|   |   +-- event_bus.go
-|   |   +-- handlers.go
-|   |   +-- log_handlers.go
-|   |   +-- middleware.go
-|   |   +-- pagination.go
-|   |   +-- progress.go
-|   |   +-- resource_handler.go
-|   |   +-- scheduler_handlers.go
-|   |   +-- server.go
-|   |   +-- sse_logs.go
-|   |   +-- sse_tasks.go
-|   |   +-- string_uint64.go
-|   |   +-- task_manager.go
-|   |   +-- task_types.go
-|   |   +-- types.go
-|   |   `-- version.go
-|   +-- cli
-|   |   +-- args.go
-|   |   `-- executor.go
-|   +-- config
-|   |   +-- backup.go
-|   |   `-- config.go
-|   +-- consolelog
-|   |   `-- hub.go
-|   +-- database
-|   |   +-- connect.go
-|   |   +-- helpers.go
-|   |   +-- lst.go
-|   |   +-- lst_entity.go
-|   |   +-- model.go
-|   |   +-- parent_dir_migration.go
-|   |   +-- path_validation.go
-|   |   +-- query.go
-|   |   +-- schema.go
-|   |   +-- sqlite.go
-|   |   +-- sqlite_migration.go
-|   |   +-- sqlite_schema.go
-|   |   +-- user.go
-|   |   +-- user_entity.go
-|   |   +-- user_link.go
-|   |   +-- user_sync.go
-|   |   `-- tx
-|   |       `-- manager.go
-|   +-- downloader
-|   |   +-- downloader.go
-|   |   +-- file_writer.go
-|   |   +-- types.go
-|   |   `-- version_manager.go
-|   +-- downloading
-|   |   +-- batch_any.go
-|   |   +-- batch_download.go
-|   |   +-- dumper.go
-|   |   +-- entity.go
-|   |   +-- json_file_download.go
-|   |   +-- json_folder_download.go
-|   |   +-- list_download.go
-|   |   +-- list_sync.go
-|   |   +-- mark_downloaded.go
-|   |   +-- retry.go
-|   |   +-- test_helper.go
-|   |   +-- tweet_download.go
-|   |   +-- tweet_json_converter.go
-|   |   +-- types.go
-|   |   +-- user_sync.go
-|   |   `-- profile
-|   |       +-- downloader.go
-|   |       +-- storage.go
-|   |       `-- types.go
-|   +-- entity
-|   |   +-- interface.go
-|   |   +-- list.go
-|   |   +-- sync.go
-|   |   `-- user.go
-|   +-- naming
-|   |   +-- base.go
-|   |   +-- list_naming.go
-|   |   +-- tweet_naming.go
-|   |   `-- user_naming.go
-|   +-- path
-|   |   `-- store.go
-|   +-- scheduler
-|   |   +-- scheduler.go
-|   |   +-- types.go
-|   |   `-- validate.go
-|   +-- service
-|   |   +-- deps.go
-|   |   +-- download_service.go
-|   |   +-- interfaces.go
-|   |   `-- progress.go
-|   +-- twitter
-|   |   +-- api.go
-|   |   +-- batch_login.go
-|   |   +-- client.go
-|   |   +-- errors.go
-|   |   +-- list.go
-|   |   +-- timeline.go
-|   |   +-- tweet.go
-|   |   `-- user.go
-|   `-- utils
-|       +-- algo.go
-|       +-- fs.go
-|       +-- http.go
-|       +-- recovery.go
-|       +-- stub.go
-|       +-- time_range.go
-|       +-- twitter_media.go
-|       +-- user.go
-|       `-- win32.go
-+-- .github/workflows/
-+-- tools/
-+-- doc/
-+-- go.mod
-+-- go.sum
-+-- Dockerfile
-+-- docker-compose.yml
-+-- readme.md
-+-- CHANGELOG.md
-+-- LICENSE
-+-- start-server.bat
-+-- convert_db_to_legacy.py
-`-- .gitignore
+tmd/
+├── main.go                        # 应用入口（命令行解析、模式选择）
+├── start-server.bat               # Windows Server 模式启动脚本
+├── internal/
+│   ├── api/                       # API Server 模块
+│   ├── cli/                       # CLI 命令模块
+│   ├── config/                    # 配置管理
+│   ├── service/                   # Service 层（核心业务编排）
+│   ├── database/                  # 数据持久化层
+│   ├── downloading/               # 核心下载逻辑
+│   ├── downloader/                # 通用下载基础设施
+│   ├── twitter/                   # Twitter API 客户端
+│   ├── naming/                    # 命名服务
+│   ├── entity/                    # 数据实体层
+│   ├── path/                      # 路径管理
+│   ├── scheduler/                 # 定时任务调度器
+│   ├── consolelog/                # 控制台日志捕获与分发
+│   └── utils/                     # 工具函数
+├── doc/                           # 详细文档
+├── tools/                         # 工具脚本（迁移工具、Tampermonkey脚本）
+├── .github/workflows/             # CI/CD 配置
+├── go.mod                         # Go 模块定义
+├── go.sum                         # 依赖校验和
+├── Dockerfile                     # Docker 镜像构建
+├── docker-compose.yml             # Docker Compose 部署
+├── readme.md                      # 用户手册
+├── CHANGELOG.md                   # 变更日志
+├── LICENSE                        # GPL-3.0 许可证
+├── convert_db_to_legacy.py        # 数据库格式转换脚本
+└── .gitignore                     # Git 忽略规则
 ```
