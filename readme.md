@@ -23,11 +23,10 @@
 - [推文 JSON 保存](#推文-json-保存)
 - [文件存储结构](#文件存储结构)
 - [高级设置](#高级设置)
+- [日志系统详解](#日志系统详解)
 - [项目架构](#项目架构)
-- [Service 层架构](#service-层架构)
 - [常见问题](#常见问题)
 - [输出结果格式](#输出结果格式)
-- [开发指南](#开发指南)
 - [性能参考](#性能参考)
 - [故障排除进阶](#故障排除进阶)
 
@@ -49,7 +48,7 @@
 
 ## 安装与配置
 
-### 环境要求
+### 1. 环境要求
 
 - **Go**: >= 1.25.0（从源码编译时需要）
 - **操作系统**: Windows 10+, macOS 10.15+, Ubuntu 18.04+
@@ -58,11 +57,11 @@
 - **磁盘空间**: 根据下载数量而定
 - **权限**: Windows 需要管理员权限（创建符号链接）
 
-### 下载/编译
+### 2. 下载/编译
 
-**直接下载（推荐）**
+**2.1 直接下载（推荐）**
 
-前往 [Release](https://github.com/unkmonster/tmd/releases/latest) 自行选择合适的版本：
+前往 [Release](https://github.com/unkmonster/tmd/releases/latest) 下载对应平台的单文件可执行程序：
 
 | 平台 | 文件名 |
 |------|--------|
@@ -70,7 +69,55 @@
 | Linux | `tmd-linux-amd64` |
 | macOS | `tmd-darwin-amd64` |
 
-**自行编译**
+> **单文件，无依赖**：下载后即可直接运行，无需安装任何运行时或依赖库。放桌面就能用，放到 `PATH` 目录下更方便全局调用。
+
+**首次运行与配置**
+
+```bash
+# Windows（cmd / PowerShell）
+tmd-windows-amd64.exe
+
+# Linux / macOS
+./tmd-linux-amd64
+```
+
+> 注意：TMD 是命令行程序，请在终端中运行，**不要直接双击 exe 文件**（会一闪而过）。
+
+首次运行会自动检测配置文件，不存在时进入**交互式配置向导**，依次填写：
+1. Twitter 登录凭据（`auth_token` 和 `ct0`）
+2. 下载根目录（存放媒体文件的路径）
+3. 可选：代理地址、下载并发数等
+
+配置完成后即可正常使用。
+
+如需重新配置或修改参数，运行 `tmd -conf` 可再次进入配置向导，各配置项说明如下：
+
+| 配置项 | 说明 | 默认值 | 示例 |
+| --- | --- | --- | --- |
+| storage dir | 文件存储目录 | 无（必填） | `D:\twitter_downloads` |
+| auth\_token | Twitter Cookie 中的 auth\_token | 无（必填） | `a1b2c3d4e5f6...` |
+| ct0 | Twitter Cookie 中的 ct0 | 无（必填） | `x1y2z3...` |
+| max download routine | 最大并发下载数（范围 1-100） | `min(100, CPU×10)`¹ | `35` |
+| max file name len | 最大文件名长度（50-245） | `158` | `158` |
+| proxy_url | 代理服务器 URL（支持 http/https/socks5） | 空（使用系统代理） | `http://127.0.0.1:7890` |
+
+> ¹ `max download routine` 默认值为 `min(100, runtime.GOMAXPROCS(0)*10)`，即 CPU 核数的 10 倍且不超过 100。
+
+**快速上手示例**
+
+```bash
+# CLI 下载模式：下载某用户的所有媒体
+./tmd-windows-amd64.exe -user elonmusk
+
+# Server 模式：启动 Web 管理界面（默认端口 25556）
+./tmd-windows-amd64.exe -server
+# 打开浏览器访问 http://localhost:25556
+
+# 查看全部命令
+./tmd-windows-amd64.exe -help
+```
+
+**2.2 自行编译**
 
 ```bash
 # 克隆项目
@@ -89,7 +136,7 @@ GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 go build -o tmd-macos .
 
 > **说明**: SQLite 使用 `modernc.org/sqlite` 纯 Go driver，源码构建不再需要 GCC/MingW 等 C 编译器。
 
-### Docker
+### 3. Docker
 
 项目通过 GitHub Actions 自动发布 Docker 镜像到 **Docker Hub** 和 **GHCR** 双仓库，两者镜像内容完全一致，任选其一即可：
 
@@ -215,33 +262,16 @@ http://localhost:25556/api/v1/health
 - 如果宿主机端口 `25556` 被占用，可改 compose 里的左侧端口，例如 `"8080:25556"`
 - 如果不想把数据放在当前目录，可把 `./config`、`./data` 改成宿主机绝对路径
 
-### 首次运行
+### 4. 配置参考
 
-```bash
-tmd -conf
-```
-
-程序会提示输入以下配置：
-
-| 配置项                  | 说明                            | 默认值                   | 示例                     |
-| -------------------- | ----------------------------- | ---------------------- | ---------------------- |
-| storage dir          | 文件存储目录                        | 无（必填）                | `D:\twitter_downloads` |
-| auth\_token          | Twitter Cookie 中的 auth\_token | 无（必填）                | `a1b2c3d4e5f6...`      |
-| ct0                  | Twitter Cookie 中的 ct0         | 无（必填）                | `x1y2z3...`            |
-| max download routine | 最大并发下载数（范围 1-100）         | `min(100, CPU×10)`¹                | `35`                   |
-| max file name len    | 最大文件名长度（50-245）           | `158`                   | `158`                  |
-| proxy_url            | 代理服务器 URL（支持 http/https/socks5） | 空（使用系统代理） | `http://127.0.0.1:7890` |
-
-> ¹ `max download routine` 默认值为 `min(100, runtime.GOMAXPROCS(0)*10)`，即 CPU 核数的 10 倍且不超过 100。首次通过 `-conf` 配置时建议输入 35。
-
-### 配置文件位置
+**配置文件位置**
 
 | 系统          | 路径                          |
 | ----------- | --------------------------- |
 | Windows     | `%APPDATA%\.tmd2\conf.yaml` |
 | macOS/Linux | `~/.tmd2/conf.yaml`         |
 
-### 其他配置文件
+**其他配置文件**
 
 | 文件 | 位置 | 说明 |
 |------|------|------|
@@ -250,14 +280,14 @@ tmd -conf
 | 日志文件 | `$HOME/.tmd2/tmd2.log` | 主日志 |
 | CLI 日志 | `$HOME/.tmd2/client.log` | REST 客户端日志 |
 
-### 获取 Cookie
+**获取 Cookie**
 
 1. 登录 [Twitter/X](https://x.com)
 2. 打开浏览器开发者工具 (F12)
 3. 进入 Application → Cookies → x.com
 4. 复制 `auth_token` 和 `ct0` 的值
 
-> 详细获取方式请参考 [获取 Cookie](https://github.com/unkmonster/tmd/blob/master/doc/help.md#获取-cookie)
+> 详细获取方式请参考 [doc/help.md](doc/help.md#获取-cookie)
 
 ***
 
@@ -572,7 +602,7 @@ tmd -user elonmusk -no-retry
 
 ***
 
-### 参数兼容性速查表
+## 参数兼容性速查表
 
 | 组合                                    |  兼容 | 说明                      |
 | ------------------------------------- | :-: | ----------------------- |
@@ -1179,16 +1209,16 @@ start-server.bat -port 8080
 
 ***
 
-### 日志系统详解
+## 日志系统详解
 
-#### 日志位置
+### 日志位置
 
 | 平台 | 主日志路径 | CLI 输出日志 |
 |------|----------|-------------|
 | **Windows** | `%APPDATA%\.tmd2\tmd2.log` | `%APPDATA%\.tmd2\client.log` |
 | **macOS/Linux** | `~/.tmd2/tmd2.log` | `~/.tmd2/client.log` |
 
-#### 日志轮转配置
+### 日志轮转配置
 
 程序使用 [lumberjack](https://github.com/natefinch/lumberjack) 进行日志轮转：
 
@@ -1199,7 +1229,7 @@ start-server.bat -port 8080
 | 保留天数 | **14 天** | 自动清理 14 天前的日志 |
 | 压缩 | ❌ 关闭 | 不压缩历史日志（便于查看） |
 
-#### 日志级别
+### 日志级别
 
 ```bash
 # 默认级别：Info（显示重要信息）
@@ -1289,314 +1319,9 @@ API 模式下，标记结果可以通过任务详情查看（`GET /api/v1/tasks/
 
 ## 项目架构
 
-本项目当前的主干调用关系是：
+> 完整的架构分层图、Service 层接口设计、开发指南（项目结构/测试/CI/CD/设计模式）已移至 [doc/architecture.md](doc/architecture.md)，面向开发者，普通用户无需阅读。
 
-```text
-main.go
-  ├─ 读取配置 / 环境变量 / 日志 / 数据库 / Twitter 客户端
-  ├─ CLI 模式 -> internal/cli
-  └─ Server 模式 -> internal/api
-
-internal/cli / internal/api
-  └─ 统一调用 internal/service.DownloadService
-
-internal/service
-  └─ 编排 downloading / downloader / twitter / database / path
-```
-
-整体上采用"入口层 + 应用服务层 + 业务层 + 基础设施层"的结构，核心复用点是 **`internal/service`**：CLI 和 API Server 共用同一套下载编排逻辑，避免两边各自维护一份下载流程。
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│  main.go (应用入口层)                                         │
-│  - 预解析全局参数                                             │
-│  - 初始化配置、日志、数据库、Twitter 客户端                      │
-│  - 模式选择：Server / CLI                                    │
-└──────────┬──────────────────────────────────────────────────┘
-           │
-┌──────────▼──────────────────────────────────────────────────┐
-│  internal/config (配置层)                                    │
-│  - config.go: 配置结构、读写、环境变量覆盖、交互式配置             │
-└──────────┬──────────────────────────────────────────────────┘
-           │
-┌──────────▼───────────────────┐  ┌─────────────────────▼─────────────────────────┐
-│  internal/twitter            │  │  internal/database                            │
-│  (API 客户端层)               │  │  (数据持久化层)                                  │
-│                              │  │                                               │
-│  - client.go: 登录与客户端管理 │  │  - connect/sqlite/schema                       │
-│  - api.go: 请求封装与通用能力  │  │  - sqlite_schema/sqlite_migration              │
-│  - user/tweet/list/timeline  │  │  - model/query/helpers                        │
-│  - batch_login.go: 多账号     │  │  - user/lst/user_entity/lst_entity            │
-│                              │  │  - user_link/user_sync                        │
-│                              │  │  - parent_dir_migration/path_validation       │
-│                              │  │  - tx/manager                                 │
-└──────────┬───────────────────┘  └────────────────────────┬──────────────────────┘
-           │                                               │
-           └────────────────┬──────────────────────────────┘
-                            │
-          ┌─────────────────▼───────────────────────────┐
-          │  🎯 internal/service (Service 层)           │
-          │        ★ 核心业务编排层 ★                    │
-          │                                             │
-          │  - interfaces.go: DownloadService 接口       │
-          │  - download_service.go: 用户/列表/关注/       │
-          │    JSON/Profile/重试等统一入口                 │
-          │  - deps.go: 依赖注入与构造                     │
-          │  - progress.go: 进度上报                      │
-          └─────────────────┬───────────────────────────┘
-                            │
-          ┌─────────────────┼───────────────────────────┐
-          │                 │                           │
-┌─────────▼────────┐   ┌────▼───────────┐     ┌─────────▼─────────┐
-│  internal/api    │   │  internal/cli  │     │  internal/path    │
-│  (Server 层)     │   │  (CLI 层)       │     │  (路径工具)        │
-│                  │   │                │     │                   │
-│  - server.go     │   │  - args.go     │     │  - store.go       │
-│  - download_*    │   │  - executor.go │     │                   │
-│  - task_manager  │   │                │     │                   │
-│  - download_queue│   │                │     │                   │
-│  - progress / sse│   │                │     │                   │
-│  - db/config/    │   │                │     │                   │
-│    cookie/log_*  │   │                │     │                   │
-│  - scheduler_*   │   │                │     │                   │
-│  - event_bus.go  │   │                │     │                   │
-└────────┬─────────┘   └────────────────┘     └───────────────────┘
-         │
-         ▼
-┌─────────────────────────────────────────────────────────────┐
-│  internal/downloading (业务流程层)                           │
-│                                                             │
-│  - batch_any.go / batch_download.go                         │
-│  - tweet_download.go / user_sync.go / list_sync.go          │
-│  - list_download.go / json_file_download.go / json_folder_download.go │
-│  - mark_downloaded.go / retry.go / dumper.go                │
-│  - entity.go / types.go / tweet_json_converter.go           │
-│  - 负责抓取、同步实体、组织批量下载、失败重试                       │
-├─────────────────────────────────────────────────────────────┤
-│  internal/downloading/profile (Profile 业务子包)             │
-│  - downloader.go / storage.go / types.go                    │
-│  - 负责头像、横幅、简介、profile.json 与版本备份                  │
-└──────────┬──────────────────────────────────────────────────┘
-           │
-┌──────────▼──────────────────────────────────────────────────┐
-│  internal/entity (数据实体层)                                 │
-│  - interface.go / user.go / list.go / sync.go               │
-├─────────────────────────────────────────────────────────────┤
-│  internal/downloader (基础设施层 - 通用下载)                   │
-│  - downloader.go: 单文件下载、流式下载、大小校验                 │
-│  - file_writer.go: 原子写入、跳过未变化文件、并发锁管理           │
-│  - version_manager.go: 版本备份管理                           │
-├─────────────────────────────────────────────────────────────┤
-│  internal/naming (命名服务)                                  │
-│  - base.go / tweet_naming.go / user_naming.go / list_naming.go │
-├─────────────────────────────────────────────────────────────┤
-│  internal/scheduler (定时任务调度器)                          │
-│  - scheduler.go: 调度执行与状态维护                            │
-│  - types.go: ScheduleEntry / ScheduleStatus / ParsedSchedule│
-├─────────────────────────────────────────────────────────────┤
-│  internal/consolelog (控制台日志)                             │
-│  - hub.go: 日志捕获和分发中心，支持 SSE 实时推送                  │
-├─────────────────────────────────────────────────────────────┤
-│  internal/utils (工具层)                                     │
-│  - fs.go / http.go / algo.go / time_range.go / recovery.go  │
-│  - user.go / win32.go (Windows) / stub.go (!Windows)        │
-└─────────────────────────────────────────────────────────────┘
-```
-
-### 核心设计原则
-
-| 原则 | 实现 |
-| --- | --- |
-| **Service 复用** | CLI 和 API 统一走 `DownloadService`，避免重复维护下载逻辑 |
-| **入口与业务分离** | `internal/cli` / `internal/api` 只负责参数、HTTP、任务编排和响应 |
-| **业务与下载器分离** | `internal/downloading` 负责"下载什么、按什么流程下载"，`internal/downloader` 负责"文件怎么下、怎么写" |
-| **数据库集中管理** | SQLite schema、迁移、查询和实体同步集中在 `internal/database` |
-| **任务异步化** | Server 模式通过 TaskManager、DownloadQueue、SSE 推进长任务 |
-| **增量与重试** | 基于数据库和 `.data/errors.json` 做增量抓取与失败重试 |
-| **跨入口一致性** | 用户下载、列表下载、关注下载、JSON 导入、Profile 下载都通过 service 层统一暴露 |
-
-***
-
-## Service 层架构
-
-重构后的代码引入了 **Service 层**，将核心下载逻辑从 CLI 和 API 中抽象出来，实现代码复用和统一业务逻辑。
-
-### 设计目标
-
-| 目标 | 实现 |
-|------|------|
-| **统一业务逻辑** | CLI 和 API 共享同一套下载实现 |
-| **简化 CLI 层** | CLI 只负责参数解析和调用 Service |
-| **简化 API 层** | API 只负责 HTTP 路由和 SSE 推送 |
-| **便于测试** | Service 接口易于 Mock 和单元测试 |
-
-### DownloadService 接口
-
-```go
-type DownloadService interface {
-    // 用户下载（单用户）
-    UserDownload(ctx context.Context, taskID string, screenName string, opts DownloadOptions, reporter ProgressReporter) error
-    
-    // 列表下载（单列表）
-    ListDownload(ctx context.Context, taskID string, listID uint64, opts DownloadOptions, reporter ProgressReporter) error
-    
-    // 关注列表下载
-    FollowingDownload(ctx context.Context, taskID string, screenName string, opts DownloadOptions, reporter ProgressReporter) error
-    
-    // 批量下载（多用户/多列表/多关注）
-    BatchDownload(ctx context.Context, taskID string, screenNames []string, listIDs []uint64, followingNames []string, opts DownloadOptions, reporter ProgressReporter) error
-    
-    // Profile 下载（指定用户）
-    ProfileDownload(ctx context.Context, taskID string, screenNames []string, reporter ProgressReporter) error
-    
-    // 列表 Profile 下载
-    ListProfileDownload(ctx context.Context, taskID string, listID uint64, reporter ProgressReporter) error
-    
-    // JSON 文件下载（第三方工具导出的推文 JSON）
-    JsonFileDownload(ctx context.Context, taskID string, paths []string, noRetry bool, reporter ProgressReporter) error
-
-    // LoongTweet 文件夹下载（TMD 生成的 .loongtweet）
-    JsonFolderDownload(ctx context.Context, taskID string, paths []string, noRetry bool, reporter ProgressReporter) error
-
-    // 标记已下载
-    MarkDownloaded(ctx context.Context, taskID string, screenNames []string, listIDs []uint64, followingNames []string, markTime *string, reporter ProgressReporter) error
-
-    // 重试所有历史失败推文（常规下载和 JSON 导入）
-    RetryAllFailed(ctx context.Context, taskID string, reporter ProgressReporter) error
-
-    // 清除所有失败推文记录
-    ClearErrors() error
-}
-```
-
-### 调用关系
-
-```
-┌─────────────┐     ┌─────────────────┐     ┌─────────────────┐
-│   CLI 层    │────▶│  DownloadService│────▶│  downloading包   │
-│  executor   │     │  (业务编排)      │     │  (具体实现)      │
-└─────────────┘     └─────────────────┘     └─────────────────┘
-                           ▲
-┌─────────────┐            │
-│   API 层    │────────────┘
-│  handlers   │
-└─────────────┘
-```
-
-### 与稳定版的区别
-
-| 特性 | 稳定版 | 重构版 |
-|------|--------|--------|
-| CLI 实现 | 直接调用 downloading 包 | 通过 Service 层间接调用 |
-| API 实现 | 调用 CLI Execute | 直接调用 Service 层 |
-| 代码复用 | 低（CLI 和 API 各自实现） | 高（共享 Service） |
-| 可测试性 | 低 | 高（接口化设计） |
-| 实时进度 | 无 | SSE 推送 |
-
-***
-
-## 开发指南
-
-### 项目结构
-
-```
-tmd/
-├── main.go                      # 应用入口（命令行解析、模式选择）
-├── start-server.bat              # Windows Server 模式启动脚本
-├── internal/
-│   ├── api/                     # API Server 模块
-│   ├── cli/                     # CLI 命令模块
-│   ├── config/                  # 配置管理
-│   ├── service/                 # Service 层（核心业务编排）
-│   ├── database/                # 数据持久化层
-│   ├── downloading/             # 核心下载逻辑
-│   ├── downloader/              # 通用下载基础设施
-│   ├── twitter/                 # Twitter API 客户端
-│   ├── naming/                  # 命名服务
-│   ├── entity/                  # 数据实体层
-│   ├── path/                    # 路径管理
-│   ├── scheduler/               # 定时任务调度器
-│   ├── consolelog/              # 控制台日志捕获与分发
-│   └── utils/                   # 工具函数
-├── doc/                         # 详细文档
-├── tools/                       # 工具脚本（迁移工具、Tampermonkey脚本）
-├── .github/workflows/           # CI/CD 配置
-└── test/                        # 集成测试
-```
-
-### 运行测试
-
-项目包含 **58 个测试文件**，覆盖核心业务逻辑：
-
-```bash
-# 运行所有测试（含竞态检测）
-go test -race ./...
-
-# 运行特定包的测试
-go test -v ./internal/downloading/
-go test -v ./internal/api/
-go test -v ./internal/database/
-go test -v ./internal/service/
-
-# 运行单个测试函数
-go test -v -run TestFunctionName ./internal/package/
-
-# 生成覆盖率报告
-go test -race -covermode atomic -coverprofile=covprofile ./...
-go tool cover -html=covprofile -o coverage.html
-```
-
-### 代码风格
-
-本项目遵循以下编码规范：
-
-- **Go 标准**: 遵循 [Effective Go](https://go.dev/doc/effective_go) 和官方风格指南
-- **格式化**: 使用 `gofmt` 格式化代码（IDE 自动格式化）
-- **编码准则**: 参考 [CLAUDE.md](./CLAUDE.md) 中的 AI 编码准则
-- **设计原则**:
-  - 简单优先：只写解决问题所需的最少代码
-  - 外科手术式修改：只改必须改的内容
-  - 接口隔离：小接口设计，便于 Mock 和测试
-  - 分层解耦：清晰的层次结构，避免循环依赖
-
-### 关键设计模式
-
-| 模式 | 应用位置 | 说明 |
-|------|---------|------|
-| **依赖注入** | `service/deps.go` | 通过构造函数注入依赖，支持测试 Mock |
-| **策略模式** | `downloader/downloader.go` | 小文件 Buffer / 大文件流式两种策略 |
-| **观察者模式** | `api/sse.go` | SSE 推送任务状态更新 |
-| **观察者模式** | `consolelog/hub.go` | SSE 推送实时日志流 |
-| **工厂模式** | `naming/` | TweetNaming / UserNaming / ListNaming 工厂 |
-| **单例模式** | `database/connect.go` | 全局数据库连接（SQLite） |
-| **调度器模式** | `scheduler/scheduler.go` | interval/daily 两种调度策略 |
-
-### CI/CD 流程
-
-项目配置了 GitHub Actions 自动化流程：
-
-```yaml
-触发条件:
-  - push 到 master 分支
-  - Pull Request 到 master
-  - 创建版本标签 (v*)
-
-执行步骤:
-  1. 多平台构建 (Windows / Linux / macOS) + Docker 镜像构建
-  2. 运行测试套件 (go test -race)
-  3. 上报覆盖率到 Coveralls
-  4. 发布版本时自动创建 Release
-```
-
-### 独立工具
-
-| 工具 | 位置 | 用途 |
-|------|------|------|
-| **tmd-db-migrate** | `tools/tmd-db-migrate/` | 跨平台数据库路径迁移，当下载目录从 Windows 迁移到 Linux 等场景时重写 `foo.db` 中的 `parent_dir` 路径。详见 [foo.db 跨平台迁移说明](doc/foo.db%20跨平台迁移说明.md) |
-| **convert_db_to_legacy.py** | 仓库根目录 | 将新格式数据库转换为旧格式的辅助脚本 |
-
-***
-
+TMD 采用"入口层 → 服务层 → 业务层 → 基础设施层"的四层结构，CLI 和 API Server 统一通过 `internal/service.DownloadService` 编排下载流程。
 
 ***
 
