@@ -936,9 +936,9 @@ const pages = {
         <div class="system-tab-bar">
           <div class="system-tabs" style="margin:0">
             <div class="tab ${store.state._systemTab === 'config' ? 'active' : ''}" data-tab="config" data-action="setSystemTab">⚙️ 配置编辑</div>
-            <div class="tab ${store.state._systemTab === 'security' ? 'active' : ''}" data-tab="security" data-action="setSystemTab">🔐 安全</div>
             <div class="tab ${store.state._systemTab === 'cookies' ? 'active' : ''}" data-tab="cookies" data-action="setSystemTab">🍪 额外账户</div>
             <div class="tab ${store.state._systemTab === 'schedules' ? 'active' : ''}" data-tab="schedules" data-action="setSystemTab">⏰ 任务配置</div>
+            <div class="tab ${store.state._systemTab === 'security' ? 'active' : ''}" data-tab="security" data-action="setSystemTab">🔐 安全</div>
           </div>
           <button class="btn btn-danger btn-sm" data-action="shutdownServer">⏻ 关闭服务器</button>
         </div>
@@ -947,16 +947,16 @@ const pages = {
           ${renderConfigEditor()}
         </div>
 
-        <div id="systemSecurityPanel" class="system-panel system-panel-scroll" style="${store.state._systemTab === 'security' ? '' : 'display:none'}">
-          ${renderSecurityEditor()}
-        </div>
-
         <div id="systemCookiesPanel" class="system-panel system-panel-scroll" style="${store.state._systemTab === 'cookies' ? '' : 'display:none'}">
           ${renderCookiesEditor()}
         </div>
 
         <div id="systemSchedulesPanel" class="system-panel system-panel-scroll" style="${store.state._systemTab === 'schedules' ? '' : 'display:none'}">
           ${renderScheduleViewer()}
+        </div>
+
+        <div id="systemSecurityPanel" class="system-panel system-panel-scroll" style="${store.state._systemTab === 'security' ? '' : 'display:none'}">
+          ${renderSecurityEditor()}
         </div>
       </div>
     `;
@@ -4400,9 +4400,9 @@ function syncSystemTabView() {
   if (store.state.currentPage !== 'system') return;
 
   if (store.state._systemTab === 'config') syncConfigTabView();
-  if (store.state._systemTab === 'security') syncSecurityTabView();
   if (store.state._systemTab === 'cookies') syncCookiesTabView();
   if (store.state._systemTab === 'schedules') syncScheduleTabView();
+  if (store.state._systemTab === 'security') syncSecurityTabView();
 }
 
 function syncSecurityTabView() {
@@ -4931,9 +4931,9 @@ function syncSystemPage(state) {
       t.classList.toggle('active', t.dataset.tab === state._systemTab);
     });
     document.getElementById('systemConfigPanel').style.display = state._systemTab === 'config' ? '' : 'none';
-    document.getElementById('systemSecurityPanel').style.display = state._systemTab === 'security' ? '' : 'none';
     document.getElementById('systemCookiesPanel').style.display = state._systemTab === 'cookies' ? '' : 'none';
     document.getElementById('systemSchedulesPanel').style.display = state._systemTab === 'schedules' ? '' : 'none';
+    document.getElementById('systemSecurityPanel').style.display = state._systemTab === 'security' ? '' : 'none';
   }
 
   const configRawRebuildNeeded = configRawChanged && _state.lastConfigRaw === null && state.configRaw !== null;
