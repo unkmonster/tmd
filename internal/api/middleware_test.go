@@ -2,6 +2,7 @@ package api
 
 import (
 	"bufio"
+	"encoding/json"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -408,4 +409,320 @@ func TestResponseRecorder_LargeResponse(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, rr.Code)
 	assert.Equal(t, len(largeBody), rr.Body.Len())
+}
+
+// ============================================
+// Auth Middleware Tests
+// ============================================
+
+func TestIsPublicPath(t *testing.T) {
+	tests := []struct {
+		path   string
+		public bool
+	}{
+		// 公开路径
+		{"/", true},
+		{"/favicon.ico", true},
+		{"/tasks", true},
+		{"/data", true},
+		{"/schedules", true},
+		{"/system", true},
+		{"/logs", true},
+		{"/api/v1/health", true},
+		{"/api/v1/health?foo=bar", true},
+		{"/api/v1/config/theme", true},
+		{"/api/v1/config/themes", true},
+		{"/api/v1/config/theme?foo=bar", true},
+		{"/static/app.js", true},
+		{"/static/css/styles.css", true},
+		{"/static/", true},
+		// 非公开路径
+		{"/api/v1/tasks", false},
+		{"/api/v1/tasks/stats", false},
+		{"/api/v1/users/elonmusk/download", false},
+		{"/api/v1/config", false},
+		{"/api/v1/db/users", false},
+		{"/api/v1/sse/tasks", false},
+		{"/api/v1/logs/stream", false},
+		{"/api/v1/server/shutdown", false},
+		{"/some/other/path", false},
+		{"/not-static/file.js", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.path, func(t *testing.T) {
+			got := isPublicPath(tt.path)
+			assert.Equal(t, tt.public, got, "isPublicPath(%q)", tt.path)
+		})
+	}
+}
+
+func TestExtractBearerToken(t *testing.T) {
+	tests := []struct {
+		name  string
+		auth  string
+		token string
+	}{
+		{"无 Authorization 头", "", ""},
+		{"非 Bearer 前缀", "Token mytoken", ""},
+		{"小写 bearer", "bearer mytoken", ""},
+		{"标准 Bearer", "Bearer mytoken123", "mytoken123"},
+		{"Bearer 带多余空格", "Bearer   mytoken  ", "mytoken"},
+		{"Bearer 空 token", "Bearer ", ""},
+		{"Bearer 复杂 token", "Bearer sec-r3t_K#12!@", "sec-r3t_K#12!@"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/tasks", nil)
+			if tt.auth != "" {
+				req.Header.Set("Authorization", tt.auth)
+			}
+			got := extractBearerToken(req)
+			assert.Equal(t, tt.token, got)
+		})
+	}
+}
+
+func TestAuthMiddleware_NoKey_PassesThrough(t *testing.T) {
+	// api_key = "" 时，所有请求应直接放行
+	server, db := setupTestServer(t)
+	defer db.Close()
+	server.config.APIKey = ""
+
+	handler := server.authMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("passed"))
+	}))
+
+	// 无需 token 的请求
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/tasks", nil)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+	assert.Equal(t, http.StatusOK, rr.Code)
+	assert.Equal(t, "passed", rr.Body.String())
+}
+
+func TestAuthMiddleware_CorrectBearerToken_Succeeds(t *testing.T) {
+	server, db := setupTestServer(t)
+	defer db.Close()
+	server.config.APIKey = "my-test-key"
+
+	handler := server.authMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("authenticated"))
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/tasks", nil)
+	req.Header.Set("Authorization", "Bearer my-test-key")
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	assert.Equal(t, http.StatusOK, rr.Code)
+	assert.Equal(t, "authenticated", rr.Body.String())
+}
+
+func TestAuthMiddleware_WrongBearerToken_Returns401(t *testing.T) {
+	server, db := setupTestServer(t)
+	defer db.Close()
+	server.config.APIKey = "my-test-key"
+
+	handler := server.authMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Error("handler should not be called")
+	}))
+
+	tests := []struct {
+		name  string
+		token string
+	}{
+		{"无 token", ""},
+		{"错误 token", "wrong-key"},
+		{"空 Bearer", "Bearer "},
+		{"缺少 Bearer 前缀", "my-test-key"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/tasks", nil)
+			if tt.token != "" {
+				req.Header.Set("Authorization", tt.token)
+			}
+			rr := httptest.NewRecorder()
+			handler.ServeHTTP(rr, req)
+
+			assert.Equal(t, http.StatusUnauthorized, rr.Code)
+			assert.Equal(t, `Bearer realm="TMD API"`, rr.Header().Get("WWW-Authenticate"))
+
+			var resp APIResponse
+			err := json.Unmarshal(rr.Body.Bytes(), &resp)
+			assert.NoError(t, err)
+			assert.False(t, resp.Success)
+			assert.Equal(t, "unauthorized", resp.Error)
+		})
+	}
+}
+
+func TestAuthMiddleware_SSEQueryParam_Succeeds(t *testing.T) {
+	server, db := setupTestServer(t)
+	defer db.Close()
+	server.config.APIKey = "sse-key"
+
+	handler := server.authMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("sse-authenticated"))
+	}))
+
+	// SSE 使用 ?token=xxx 而非 Authorization 头
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/sse/tasks?token=sse-key", nil)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	assert.Equal(t, http.StatusOK, rr.Code)
+	assert.Equal(t, "sse-authenticated", rr.Body.String())
+}
+
+func TestAuthMiddleware_SSEQueryParam_WrongToken_Returns401(t *testing.T) {
+	server, db := setupTestServer(t)
+	defer db.Close()
+	server.config.APIKey = "sse-key"
+
+	handler := server.authMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Error("handler should not be called")
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/sse/tasks?token=wrong", nil)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	assert.Equal(t, http.StatusUnauthorized, rr.Code)
+}
+
+func TestAuthMiddleware_PublicPaths_BypassAuth(t *testing.T) {
+	server, db := setupTestServer(t)
+	defer db.Close()
+	server.config.APIKey = "secret"
+
+	handler := server.authMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("public-path-reached"))
+	}))
+
+	publicPaths := []string{
+		"/",
+		"/favicon.ico",
+		"/tasks",
+		"/data",
+		"/schedules",
+		"/system",
+		"/logs",
+		"/api/v1/health",
+		"/api/v1/health?foo=bar",
+		"/api/v1/config/theme",
+		"/api/v1/config/themes",
+		"/static/app.js",
+		"/static/css/styles.css",
+	}
+
+	for _, p := range publicPaths {
+		t.Run(p, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, p, nil)
+			// 故意不带 token，验证公开路径可以绕过
+			rr := httptest.NewRecorder()
+			handler.ServeHTTP(rr, req)
+			assert.Equal(t, http.StatusOK, rr.Code, "public path %q should bypass auth", p)
+			assert.Equal(t, "public-path-reached", rr.Body.String())
+		})
+	}
+}
+
+func TestAuthMiddleware_ProtectedPaths_RequireAuth(t *testing.T) {
+	server, db := setupTestServer(t)
+	defer db.Close()
+	server.config.APIKey = "secret"
+
+	handler := server.authMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Error("handler should not be called for", r.URL.Path)
+	}))
+
+	protectedPaths := []string{
+		"/api/v1/tasks",
+		"/api/v1/tasks/stats",
+		"/api/v1/users/elonmusk/download",
+		"/api/v1/config",
+		"/api/v1/db/users",
+		"/api/v1/sse/tasks",
+		"/api/v1/logs/stream",
+		"/api/v1/server/shutdown",
+	}
+
+	for _, p := range protectedPaths {
+		t.Run(p, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, p, nil)
+			rr := httptest.NewRecorder()
+			handler.ServeHTTP(rr, req)
+			assert.Equal(t, http.StatusUnauthorized, rr.Code, "protected path %q should require auth", p)
+		})
+	}
+}
+
+func TestAuthMiddleware_BuildHandlerIntegration(t *testing.T) {
+	// 集成测试：通过 buildHandler 验证完整的中间件链
+	server, db := setupTestServer(t)
+	defer db.Close()
+	server.config.APIKey = "integ-test-key"
+
+	handler := server.buildHandler()
+
+	t.Run("公开路径无需 token", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/health", nil)
+		rr := httptest.NewRecorder()
+		handler.ServeHTTP(rr, req)
+		assert.Equal(t, http.StatusOK, rr.Code)
+	})
+
+	t.Run("Web UI 路径无需 token", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		rr := httptest.NewRecorder()
+		handler.ServeHTTP(rr, req)
+		assert.Equal(t, http.StatusOK, rr.Code)
+	})
+
+	t.Run("API 路径无 token 返回 401", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/tasks", nil)
+		rr := httptest.NewRecorder()
+		handler.ServeHTTP(rr, req)
+		assert.Equal(t, http.StatusUnauthorized, rr.Code)
+
+		var resp APIResponse
+		json.Unmarshal(rr.Body.Bytes(), &resp)
+		assert.False(t, resp.Success)
+		assert.Equal(t, "unauthorized", resp.Error)
+	})
+
+	t.Run("API 路径带正确 token 返回 200", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/tasks", nil)
+		req.Header.Set("Authorization", "Bearer integ-test-key")
+		rr := httptest.NewRecorder()
+		handler.ServeHTTP(rr, req)
+		assert.Equal(t, http.StatusOK, rr.Code)
+	})
+}
+
+func TestAuthMiddleware_OPTIONS_PreflightPasses(t *testing.T) {
+	server, db := setupTestServer(t)
+	defer db.Close()
+	server.config.APIKey = "secret"
+
+	handler := server.buildHandler()
+
+	// OPTIONS 预检请求应不被 auth 拦截：auth 在 CORS 内层
+	req := httptest.NewRequest(http.MethodOptions, "/api/v1/tasks", nil)
+	req.Header.Set("Origin", "http://example.com")
+	req.Header.Set("Access-Control-Request-Method", "GET")
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	// CORS 中间件处理 OPTIONS 返回 204（No Content），auth 不被触发
+	assert.Equal(t, http.StatusNoContent, rr.Code)
+	assert.Equal(t, "*", rr.Header().Get("Access-Control-Allow-Origin"))
 }

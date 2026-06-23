@@ -126,6 +126,26 @@
 
   <!-- Toast Container -->
   <div class="toast-container" id="toastContainer"></div>
+
+  <!-- Auth Modal (hidden by default, shown on 401) -->
+  <div class="auth-overlay" id="authOverlay" style="display:none">
+    <div class="auth-modal">
+      <div class="auth-modal-header">
+        <div class="auth-modal-icon">🔐</div>
+        <div class="auth-modal-title">API 认证</div>
+      </div>
+      <div class="auth-modal-body">
+        <p class="auth-modal-desc">服务器需要 API Key 认证。输入你的 API Key 即可访问，或前往系统设置 → 安全页面配置。</p>
+        <input type="password" id="authDialogKey" class="auth-modal-input" placeholder="输入 API Key"
+          autocomplete="off" />
+        <div class="auth-modal-status" id="authDialogStatus"></div>
+      </div>
+      <div class="auth-modal-footer">
+        <button class="btn btn-sm" onclick="hideAuthDialog()">取消</button>
+        <button class="btn btn-primary btn-sm" id="authSubmitBtn" onclick="submitAuthKey()">确认</button>
+      </div>
+    </div>
+  </div>
 </div>
 	<script src="/static/app.js"></script>
 </body>

@@ -208,12 +208,16 @@ func (s *Server) buildHandler() http.Handler {
 
 	var handler http.Handler = mux
 
-	// 注意中间件的包裹顺序：最外层是 Logging，里面一层是 CORS，最里面是 Mux。
+	// authMiddleware 在 CORS 内层：OPTIONS 预检请求由 CORS 直接处理，不经过 auth。
+	// 当 api_key 为空时 authMiddleware 直接放行，不改变现有行为。
+	handler = s.authMiddleware(handler)
+
+	// 注意中间件的包裹顺序：最外层是 Logging，里面一层是 CORS，最里面是 Mux + Auth。
 	// 这样 Logging 就能记录到所有请求，包括那些被 CORS 拦截的 OPTIONS 预检请求。
 	handler = cors.New(cors.Options{
 		AllowedOrigins: []string{"*"},
 		AllowedMethods: []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
-		AllowedHeaders: []string{"Content-Type"},
+		AllowedHeaders: []string{"Content-Type", "Authorization"},
 	}).Handler(handler)
 
 	// API 版本头中间件：在所有响应中添加 API-Version 头，为未来版本迁移预留

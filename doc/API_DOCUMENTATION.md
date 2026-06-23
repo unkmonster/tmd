@@ -23,11 +23,68 @@ tmd -server -port 8080
 | `-server` | 启用 API Server 模式 | -       |
 | `-port`   | API Server 监听端口  | `25556` |
 
+## 认证
+
+> ⚠️ **自 v3.5 起支持 API Key 认证。** 以下为简要说明，详细文档见 [`tmd-api-auth-layer.md`](tmd-api-auth-layer.md)。
+
+### 开启认证
+
+在 `conf.yaml` 中设置 `api_key`：
+
+```yaml
+api_key: "your-secret-api-key"
+```
+
+留空（或不设置）则不启用认证，完全向后兼容。
+
+### 认证方式
+
+所有 API 请求需要在 `Authorization` 头中携带 Bearer Token：
+
+```http
+Authorization: Bearer <your-api-key>
+```
+
+### 公开路径（免认证）
+
+以下端点**不需要认证**，用于 Web UI 加载和健康检查：
+
+| 端点 | 说明 |
+|------|------|
+| `GET /` 和 SPA 页面路由 | Web UI 页面 |
+| `GET /static/*` | 静态文件（JS/CSS） |
+| `GET /api/v1/health` | 健康检查 |
+| `GET /api/v1/config/theme` | 获取当前主题（主题切换器使用） |
+| `POST /api/v1/config/theme` | 切换主题（主题切换器使用） |
+| `GET /api/v1/config/themes` | 列出可用主题（主题切换器使用） |
+
+### SSE 端点
+
+`EventSource` API 无法设置自定义 HTTP 头，SSE 端点通过 `?token=` 查询参数认证：
+
+```javascript
+new EventSource('/api/v1/sse/tasks?token=xxx')
+```
+
+### 请求示例
+
+```bash
+# 带认证
+curl -H "Authorization: Bearer your-key" http://localhost:25556/api/v1/tasks
+
+# 无认证（返回 401）
+curl http://localhost:25556/api/v1/tasks
+```
+
+***
+
 ## API 端点
 
 ### 1. 健康检查
 
 检查 API Server 是否正常运行。
+
+> 🔓 **公开端点**：即使开启了 API Key 认证，此端点也无需认证。
 
 **请求：**
 
@@ -108,6 +165,8 @@ Content-Type: application/json
 ```
 
 **示例：**
+
+> 🔒 **需要认证**：如果开启了 API Key 认证，需要在请求头中添加 `Authorization: Bearer <key>`。详见[认证章节](#认证)。
 
 ```bash
 # 基本下载

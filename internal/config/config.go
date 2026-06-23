@@ -40,6 +40,7 @@ type Config struct {
 	MaxDownloadRoutine int    `yaml:"max_download_routine"`
 	MaxFileNameLen     int    `yaml:"max_file_name_len"`
 	ProxyURL           string `yaml:"proxy_url"`
+	APIKey             string `yaml:"api_key"`
 }
 
 // FieldDef 字段定义，包含 getter/setter 实现双向绑定
@@ -152,6 +153,14 @@ func GetFieldDefs() []FieldDef {
 				c.ProxyURL = proxyURL
 				return nil
 			},
+		},
+		{
+			Name:    "api_key",
+			EnvName: "TMD_API_KEY",
+			Prompt:  "enter API key for HTTP auth (leave empty to disable)",
+			Default: "",
+			Getter:  func(c *Config) string { return c.APIKey },
+			Setter:  func(c *Config, v string) error { c.APIKey = strings.TrimSpace(v); return nil },
 		},
 	}
 }
@@ -332,6 +341,8 @@ func NormalizeLoadedConf(conf *Config) error {
 
 	// 规范化 MaxFileNameLen：0 表示"使用默认值"；负数归零；低于下限或高于上限时截断
 	conf.MaxFileNameLen = normalizeInt(conf.MaxFileNameLen, 0, MinFileNameLen, MaxFileNameLen)
+
+	conf.APIKey = strings.TrimSpace(conf.APIKey)
 
 	return nil
 }

@@ -13,8 +13,23 @@ const API = {
   async _fetch(url, options) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), API_TIMEOUT);
+    
+    const apiKey = localStorage.getItem('tmd_api_key');
+    if (apiKey) {
+      if (!options) options = {};
+      if (!options.headers) options.headers = {};
+      options.headers['Authorization'] = 'Bearer ' + apiKey;
+    }
+    
     try {
       const r = await fetch(url, { ...options, signal: controller.signal });
+      
+      if (r.status === 401) {
+        const authErr = new Error('unauthorized');
+        authErr.status = 401;
+        throw authErr;
+      }
+      
       return r;
     } catch(e) {
       if (e.name === 'AbortError') throw new Error('Request timed out');
@@ -65,7 +80,7 @@ function stripAnsi(str) { return str.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, ''); }
 // 提取日志行末尾的推文 ID（行首必须是 [...] 格式）
 function getTweetId(text) {
   if (!text.startsWith('[')) return null;
-  const m = text.match(/_(\d{16,20})\s*$/);
+  const m = text.match(/_(\d{16,20})\b/);
   return m ? m[1] : null;
 }
 
@@ -390,6 +405,11 @@ let sseSource = null;
 let sseReconnectTimer = null;
 let sseReconnectDelay = 1000;
 
+function sseTokenParam() {
+  const key = localStorage.getItem('tmd_api_key');
+  return key ? '?token=' + encodeURIComponent(key) : '';
+}
+
 // Debounce rapid SSE updates to avoid excessive re-renders
 const debouncedTasksUpdate = debounce(function(tasks) {
   pageTasks = tasks;
@@ -407,7 +427,7 @@ const debouncedSchedulesUpdate = debounce(function(data) {
 function connectSSE() {
   if (sseReconnectTimer) { clearTimeout(sseReconnectTimer); sseReconnectTimer = null; }
   if (sseSource) { sseSource.close(); sseSource = null; }
-  sseSource = new EventSource(apiBase() + '/api/v1/sse/tasks');
+  sseSource = new EventSource(apiBase() + '/api/v1/sse/tasks' + sseTokenParam());
 
   sseSource.addEventListener('tasks', (e) => {
     try {
@@ -475,6 +495,7 @@ async function checkHealth() {
     const dot = document.getElementById('health-dot');
     if (dot) dot.className = 'health-dot error';
     document.getElementById('health-text').textContent = 'Offline';
+    if (e.status === 401 || e.message === 'unauthorized') showAuthDialog();
   }
 }
 
@@ -1616,6 +1637,7 @@ function renderSystemPage(container) {
             <button class="tab" data-configtab="raw">Raw YAML</button>
             <button class="tab" data-configtab="cookies">Cookies</button>
             <button class="tab" data-configtab="cookies-raw">Raw Cookies</button>
+            <button class="tab" data-configtab="security">Security</button>
           </div>
           <button class="btn btn-danger btn-sm" style="flex-shrink:0" onclick="if(confirm('Shut down the server?')){ENDPOINTS.shutdown().then(r=>toast(r.message||'Shutting down...','warning')).catch(e=>toast(e.message,'error'))}">Shut Down Server</button>
         </div>
@@ -1679,6 +1701,7 @@ async function loadConfigTab(tab) {
       case 'raw': await renderConfigRaw(content); break;
       case 'cookies': await renderCookies(content); break;
       case 'cookies-raw': await renderCookiesRaw(content); break;
+      case 'security': renderSecurityEditor(content); break;
     }
   } catch(e) {
     content.innerHTML = '<div class="empty-state"><p>Error: ' + esc(e.message) + '</p></div>';
@@ -1802,6 +1825,77 @@ async function saveCookiesRaw() {
   const text = el.value;
   try { await ENDPOINTS.saveCookiesRaw(text); toast('Cookies saved', 'success'); }
   catch(e) { toast(e.message, 'error'); }
+}
+
+function renderSecurityEditor(content) {
+  const savedKey = localStorage.getItem('tmd_api_key') || '';
+  content.innerHTML = `
+    <div class="form-group">
+      <h3>API Authentication</h3>
+      <p class="hint" style="margin-bottom:12px">
+        Set an API Key to require <code>Authorization: Bearer &lt;key&gt;</code> on all HTTP API requests.
+        SSE connections automatically use <code>?token=</code> parameter.
+        Leave empty to disable authentication.
+      </p>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <input type="password" id="sec-api-key" style="flex:1;min-width:200px;padding:10px 12px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:14px"
+          placeholder="Enter API Key (leave empty to disable)" value="${esc(savedKey)}" />
+        <button class="btn btn-sm" onclick="toggleSecKeyVis()">Show</button>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:12px">
+        <button class="btn btn-primary btn-sm" onclick="saveSecKey()">Save to Local</button>
+        <button class="btn btn-sm" onclick="testSecKey()">Test Connection</button>
+        <button class="btn btn-sm" onclick="clearSecKey()">Clear</button>
+      </div>
+      <div id="sec-status" style="margin-top:8px;font-size:13px"></div>
+    </div>`;
+}
+
+function toggleSecKeyVis() {
+  const el = document.getElementById('sec-api-key');
+  if (el) el.type = el.type === 'password' ? 'text' : 'password';
+}
+
+function saveSecKey() {
+  const el = document.getElementById('sec-api-key');
+  if (!el) return;
+  const key = el.value.trim();
+  localStorage.setItem('tmd_api_key', key);
+  const st = document.getElementById('sec-status');
+  if (st) {
+    st.textContent = key ? '✅ API Key saved locally' : '✅ API Key cleared';
+    st.style.color = 'var(--text)';
+  }
+}
+
+function clearSecKey() {
+  localStorage.removeItem('tmd_api_key');
+  const el = document.getElementById('sec-api-key');
+  if (el) el.value = '';
+  const st = document.getElementById('sec-status');
+  if (st) {
+    st.textContent = '✅ Local API Key cleared';
+    st.style.color = 'var(--text)';
+  }
+}
+
+async function testSecKey() {
+  const el = document.getElementById('sec-api-key');
+  if (!el) return;
+  const key = el.value.trim();
+  const st = document.getElementById('sec-status');
+  if (!st) return;
+  if (!key) { st.textContent = '⚠️ Enter an API Key first'; st.style.color = 'orange'; return; }
+  st.textContent = '⏳ Testing...';
+  st.style.color = 'var(--text)';
+  try {
+    const res = await fetch(apiBase() + '/api/v1/tasks?limit=1', {
+      headers: { 'Authorization': 'Bearer ' + key }
+    });
+    if (res.ok) { st.textContent = '✅ Connection successful! API Key is valid'; st.style.color = 'green'; }
+    else if (res.status === 401) { st.textContent = '❌ API Key is invalid (server returned 401)'; st.style.color = 'red'; }
+    else { st.textContent = '⚠️ Server returned status ' + res.status; st.style.color = 'orange'; }
+  } catch(e) { st.textContent = '❌ Network error: ' + e.message; st.style.color = 'red'; }
 }
 
 async function loadErrors() {
@@ -2015,6 +2109,8 @@ function connectLogSSE() {
   const params = new URLSearchParams();
   if (level) params.append('level', level);
   if (q) params.append('q', q);
+  const apiKey = localStorage.getItem('tmd_api_key');
+  if (apiKey) params.append('token', apiKey);
   const qs = params.toString();
   logSSESource = new EventSource(apiBase() + '/api/v1/logs/stream' + (qs ? '?' + qs : ''));
 
@@ -2085,6 +2181,12 @@ function toggleSidebar() {
 }
 
 /* ---- Init ---- */
+window.addEventListener('unhandledrejection', (e) => {
+  console.error('[Global] Unhandled promise rejection:', e.reason);
+  if (e.reason && (e.reason.status === 401 || e.reason.message === 'unauthorized')) {
+    showAuthDialog();
+  }
+});
 document.addEventListener('DOMContentLoaded', () => {
   // Determine initial page
   const path = location.pathname.replace(/^\//, '') || 'tasks';
@@ -2109,8 +2211,67 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Render initial page
   renderPage(currentPage);
+
+  // Proactive auth check - shows dialog if server requires auth
+  checkAuth();
 });
 
 // Export functions for inline onclick
 window.ENDPOINTS = ENDPOINTS;
 window.apiBase = apiBase;
+
+/* ---- Auth Dialog ---- */
+function showAuthDialog() {
+  const overlay = document.getElementById('authOverlay');
+  if (!overlay) return;
+  overlay.style.display = '';
+  requestAnimationFrame(() => overlay.classList.add('open'));
+  const input = document.getElementById('authDialogKey');
+  if (input) {
+    const saved = localStorage.getItem('tmd_api_key');
+    if (saved) input.value = saved;
+    input.onkeydown = (e) => {
+      if (e.key === 'Enter') submitAuthKey();
+    };
+    setTimeout(() => input.focus(), 100);
+  }
+}
+
+function hideAuthDialog() {
+  const overlay = document.getElementById('authOverlay');
+  if (!overlay) return;
+  overlay.classList.remove('open');
+  setTimeout(() => { overlay.style.display = 'none'; }, 200);
+}
+
+function submitAuthKey() {
+  const input = document.getElementById('authDialogKey');
+  const status = document.getElementById('authDialogStatus');
+  const btn = document.getElementById('authSubmitBtn');
+  if (!input || !btn) return;
+  const key = input.value.trim();
+  if (!key) {
+    if (status) { status.textContent = 'Please enter an API Key'; status.style.color = 'var(--red)'; }
+    input.focus();
+    return;
+  }
+  btn.disabled = true;
+  btn.textContent = 'Verifying...';
+  if (status) status.textContent = '';
+  localStorage.setItem('tmd_api_key', key);
+  setTimeout(() => { window.location.reload(); }, 300);
+}
+
+// Proactive auth check: if the server requires auth and no key is stored,
+// show the auth dialog. Called from DOMContentLoaded.
+async function checkAuth() {
+  const key = localStorage.getItem('tmd_api_key');
+  if (key) return;
+  try {
+    await ENDPOINTS.tasks();
+  } catch(e) {
+    if (e.status === 401 || e.message === 'unauthorized') {
+      showAuthDialog();
+    }
+  }
+}

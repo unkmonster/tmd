@@ -33,6 +33,7 @@
        └─ Server 模式 ────→ internal/api
                             （异步任务，SSE 推送）
                             │
+                            ├─ authMiddleware          ← Bearer Token 认证
                             ├─ Web UI (internal/api/web/)
                             ├─ TaskManager + DownloadQueue
                             ├─ EventBus → SSE 广播
@@ -155,6 +156,8 @@ main.go
 
 ```text
 HTTP 请求
+  → [authMiddleware] Bearer Token 认证（可选）   ← 新增认证层
+  → [CORS] 跨域处理
   → server.buildHandler() 路由分发
     → handler 函数（如 handleUserDownload）
       → taskManager.CreateTask(type, data)    创建任务 → task_id
@@ -650,6 +653,16 @@ queued → running → completed
 - **慢消费者保护**：队列超过 4096 条时自动关闭该订阅者
 - SSE 心跳间隔：25s；写超时：10s
 
+### 10.6 AuthMiddleware — API 认证中间件
+
+- **位置**：`internal/api/middleware.go`，通过 `Server.authMiddleware()` 方法实现
+- **注入**：在 `buildHandler()` 中位于 CORS 内层、ServeMux 外层
+- **配置**：`conf.yaml` 的 `api_key` 字段 + `TMD_API_KEY` 环境变量；为空时不启用（向后兼容）
+- **认证方式**：`Authorization: Bearer <token>` 头（首选），SSE 端点回退 `?token=` 查询参数
+- **公开路径白名单**：健康检查（`/api/v1/health`）、主题切换（`/api/v1/config/theme`）、Web UI 页面（`/`、`/tasks`、`/data` 等）、静态文件（`/static/*`）免认证
+- **401 响应**：`{"success":false,"error":"unauthorized"}` + `WWW-Authenticate: Bearer` 头
+- **详情**：见 `doc/tmd-api-auth-layer.md`
+
 ---
 
 ## 十一、计划任务系统 — `internal/scheduler`
@@ -743,13 +756,33 @@ type StorePath struct {
 
 纯静态前端，**无构建步骤**（无 npm/webpack/框架）。
 
-| 文件 | 大小 | 说明 |
-|------|------|------|
-| `index.html` | ~15KB | 多页面 SPA 布局（任务/数据/计划/系统/日志页） |
-| `app.js` | ~200KB | 全部前端逻辑 |
-| `styles.css` | ~38KB | 样式表 |
+### 13.1 双主题架构
 
-**实现方式**：
+Web UI 采用 **双主题独立架构**，`web1` 和 `web2` 是两个完全独立的前端主题：
+
+```
+internal/api/web/
+├── web1/          ← 经典主题（老版风格）
+│   ├── index.html
+│   ├── app.js     (~204KB)
+│   └── styles.css (~40KB)
+└── web2/          ← 新版主题（精简风格）
+    ├── index.html
+    ├── app.js     (~104KB)
+    ├── styles.css (~20KB)
+    └── favicon.svg
+```
+
+**关键设计**：
+- **彼此独立**：两个主题的 HTML/CSS/JS 互相独立，无文件共享，可以有不同的代码风格和 UI 风格
+- **运行时热切换**：通过 `GET/POST /api/v1/config/theme` 和 `GET /api/v1/config/themes` API 实现，无需重启服务
+- **embed FS 载体**：通过 Go embed 打包，由 `frontendTheme` 变量（`handlers.go:19`）在运行时决定加载哪个主题目录的文件
+- **浮动主题切换器**：所有主题页面右下角有一个 🎨 按钮，内联在 Go handler 中（`themeSwitcherHTML()`），运行时注入到 SPA 页面
+- **安全校验**：切换主题时验证目标目录存在且包含 `index.html`，防止目录遍历攻击
+
+### 13.2 共同架构
+
+两个主题共享相同的后端通信模式：
 - 通过 `fetch()` 调用 REST API
 - 通过 `EventSource` 订阅 SSE 实时推送（任务状态、调度状态）
 - 页面内路由：`/` → 下载任务页，`/tasks` → 任务列表，`/data` → 数据管理
@@ -875,6 +908,7 @@ HTTP POST /api/v1/users/elonmusk/download
 
 | 文档 | 内容 |
 |------|------|
+| `tmd-api-auth-layer.md` | API 认证/授权层设计说明 |
 | `API_DOCUMENTATION.md` | 完整 REST API 规格说明 |
 | `SERVICE_LAYER.md` | 服务层设计说明 |
 | `foo.db 技术文档.md` | 数据库 schema 和字段详解 |
@@ -989,3 +1023,48 @@ GOARCH=amd64 CGO_ENABLED=0 go build -o bin/tmd-${{ runner.os }}-amd64 -v -ldflag
 - 不要把不可重试媒体错误（403/404）放回重试队列。
 - 不要无依据改启动脚本退出码语义；`start-server.bat` 依赖正常退出码为 0。
 - 不要做仓库级大格式化。
+
+<!-- gitnexus:start -->
+# GitNexus — Code Intelligence
+
+This project is indexed by GitNexus as **tmd** (5536 symbols, 19464 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+
+> Index stale? Run `node .gitnexus/run.cjs analyze` from the project root — it auto-selects an available runner. No `.gitnexus/run.cjs` yet? `npx gitnexus analyze` (npm 11 crash → `npm i -g gitnexus`; #1939).
+
+## Always Do
+
+- **MUST run impact analysis before editing any symbol.** Before modifying a function, class, or method, run `impact({target: "symbolName", direction: "upstream"})` and report the blast radius (direct callers, affected processes, risk level) to the user.
+- **MUST run `detect_changes()` before committing** to verify your changes only affect expected symbols and execution flows. For regression review, compare against the default branch: `detect_changes({scope: "compare", base_ref: "main"})`.
+- **MUST warn the user** if impact analysis returns HIGH or CRITICAL risk before proceeding with edits.
+- When exploring unfamiliar code, use `query({search_query: "concept"})` to find execution flows instead of grepping. It returns process-grouped results ranked by relevance.
+- When you need full context on a specific symbol — callers, callees, which execution flows it participates in — use `context({name: "symbolName"})`.
+- For security review, `explain({target: "fileOrSymbol"})` lists taint findings (source→sink flows; needs `analyze --pdg`).
+
+## Never Do
+
+- NEVER edit a function, class, or method without first running `impact` on it.
+- NEVER ignore HIGH or CRITICAL risk warnings from impact analysis.
+- NEVER rename symbols with find-and-replace — use `rename` which understands the call graph.
+- NEVER commit changes without running `detect_changes()` to check affected scope.
+
+## Resources
+
+| Resource | Use for |
+|----------|---------|
+| `gitnexus://repo/tmd/context` | Codebase overview, check index freshness |
+| `gitnexus://repo/tmd/clusters` | All functional areas |
+| `gitnexus://repo/tmd/processes` | All execution flows |
+| `gitnexus://repo/tmd/process/{name}` | Step-by-step execution trace |
+
+## CLI
+
+| Task | Read this skill file |
+|------|---------------------|
+| Understand architecture / "How does X work?" | `.claude/skills/gitnexus/gitnexus-exploring/SKILL.md` |
+| Blast radius / "What breaks if I change X?" | `.claude/skills/gitnexus/gitnexus-impact-analysis/SKILL.md` |
+| Trace bugs / "Why is X failing?" | `.claude/skills/gitnexus/gitnexus-debugging/SKILL.md` |
+| Rename / extract / split / refactor | `.claude/skills/gitnexus/gitnexus-refactoring/SKILL.md` |
+| Tools, resources, schema reference | `.claude/skills/gitnexus/gitnexus-guide/SKILL.md` |
+| Index, status, clean, wiki CLI commands | `.claude/skills/gitnexus/gitnexus-cli/SKILL.md` |
+
+<!-- gitnexus:end -->

@@ -144,6 +144,10 @@ func buildConfigFieldMeta(fieldDefs []config.FieldDef) []configFieldMeta {
 			meta.Placeholder = fmt.Sprintf("%d-%d, default %s", config.MinFileNameLen, config.MaxFileNameLen, fd.Default)
 		case "proxy_url":
 			meta.Label, meta.Type, meta.Group, meta.Placeholder = "Proxy URL", "text", "advanced", "http://127.0.0.1:7897 or leave empty"
+		case "api_key":
+			meta.Label, meta.Type, meta.Group = "API Key", "password", "security"
+			meta.IsSensitive = true
+			meta.Placeholder = "Leave empty to disable HTTP auth"
 		default:
 			meta.Label, meta.Type, meta.Group = fd.Name, "text", "basic"
 		}

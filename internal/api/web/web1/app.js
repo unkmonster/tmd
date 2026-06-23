@@ -227,10 +227,18 @@ const api = {
       method,
       signal
     };
+    
+    // 注入 Authorization 头（如果 localStorage 中有 API Key）
+    const apiKey = localStorage.getItem('tmd_api_key');
+    if (apiKey) {
+      options.headers = { ...options.headers, 'Authorization': 'Bearer ' + apiKey };
+    }
+    
     if (extra.isFormData) {
       if (body !== null && body !== undefined) options.body = body;
     } else {
-      options.headers = { 'Content-Type': 'application/json' };
+      if (!options.headers) options.headers = {};
+      options.headers['Content-Type'] = 'application/json';
       if (body !== null && body !== undefined) options.body = JSON.stringify(body);
     }
     
@@ -251,6 +259,15 @@ const api = {
       throw new Error('服务器返回无效响应 (HTTP ' + res.status + ')');
     }
     this._cleanupAbortController(controller);
+    
+    // 401 未认证 → 触发登录对话框
+    if (res.status === 401) {
+      const authErr = new Error('unauthorized');
+      authErr.status = 401;
+      authErr._isUnauthorized = true;
+      throw authErr;
+    }
+    
     if (!res.ok || !json.success) throw new Error(json.error || '服务器错误 (HTTP ' + res.status + ')');
     return json.data;
   },
@@ -388,11 +405,16 @@ const sseManager = {
   reconnectDisabled: false,
   _everConnected: false, // 首次成功连接前不显示"断开"状态
 
+  _tokenParam() {
+    const key = localStorage.getItem('tmd_api_key');
+    return key ? '?token=' + encodeURIComponent(key) : '';
+  },
+
   connect() {
     this.reconnectDisabled = false;
     if (this.conn) return;
 
-    this.conn = new EventSource('/api/v1/sse/tasks');
+    this.conn = new EventSource('/api/v1/sse/tasks' + this._tokenParam());
 
     this.conn.onopen = () => {
       this._everConnected = true;
@@ -895,6 +917,7 @@ const pages = {
         <div class="system-tab-bar">
           <div class="system-tabs" style="margin:0">
             <div class="tab ${store.state._systemTab === 'config' ? 'active' : ''}" data-tab="config" data-action="setSystemTab">⚙️ 配置编辑</div>
+            <div class="tab ${store.state._systemTab === 'security' ? 'active' : ''}" data-tab="security" data-action="setSystemTab">🔐 安全</div>
             <div class="tab ${store.state._systemTab === 'cookies' ? 'active' : ''}" data-tab="cookies" data-action="setSystemTab">🍪 额外账户</div>
             <div class="tab ${store.state._systemTab === 'schedules' ? 'active' : ''}" data-tab="schedules" data-action="setSystemTab">⏰ 任务配置</div>
           </div>
@@ -907,6 +930,10 @@ const pages = {
 
         <div id="systemCookiesPanel" class="system-panel system-panel-scroll" style="${store.state._systemTab === 'cookies' ? '' : 'display:none'}">
           ${renderCookiesEditor()}
+        </div>
+
+        <div id="systemSecurityPanel" class="system-panel system-panel-scroll" style="${store.state._systemTab === 'security' ? '' : 'display:none'}">
+          ${renderSecurityEditor()}
         </div>
 
         <div id="systemSchedulesPanel" class="system-panel system-panel-scroll" style="${store.state._systemTab === 'schedules' ? '' : 'display:none'}">
@@ -2638,9 +2665,9 @@ function renderConfigForm(fields, saving, exists, loading = false) {
     `;
   }
 
-  const groups = { basic: [], cookie: [], advanced: [] };
+  const groups = { basic: [], cookie: [], advanced: [], security: [] };
   fields.forEach(f => { if (groups[f.group]) groups[f.group].push(f); });
-  const groupLabels = { basic: '📁 基础设置', cookie: '🍪 Cookie 认证', advanced: '⚙️ 高级选项' };
+  const groupLabels = { basic: '📁 基础设置', cookie: '🍪 Cookie 认证', advanced: '⚙️ 高级选项', security: '🔐 安全认证' };
 
   const renderField = f => {
     const inputType = f.type === 'password' ? 'password' : (f.type === 'number' ? 'number' : 'text');
@@ -2880,7 +2907,7 @@ function renderLogViewer() {
 // 提取日志行末尾的推文 ID（行首必须是 [...] 格式）
 function getTweetId(text) {
   if (!text.startsWith('[')) return null;
-  const m = text.match(/_(\d{16,20})\s*$/);
+  const m = text.match(/_(\d{16,20})\b/);
   return m ? m[1] : null;
 }
 
@@ -4220,6 +4247,8 @@ function connectLogSSE() {
   const params = new URLSearchParams();
   if (logLevel !== 'all') params.append('level', logLevel);
   if (logSearch) params.append('q', logSearch);
+  const apiKey = localStorage.getItem('tmd_api_key');
+  if (apiKey) params.append('token', apiKey);
   const qs = params.toString();
   const url = '/api/v1/logs/stream' + (qs ? '?' + qs : '');
   logSSESource = new EventSource(url);
@@ -4350,6 +4379,93 @@ function syncSystemTabView() {
   if (store.state._systemTab === 'config') syncConfigTabView();
   if (store.state._systemTab === 'cookies') syncCookiesTabView();
   if (store.state._systemTab === 'schedules') syncScheduleTabView();
+}
+
+function renderSecurityEditor() {
+  const savedKey = localStorage.getItem('tmd_api_key') || '';
+  return `
+    <div class="config-group">
+      <div class="config-group-title"><span>🔐 API 认证</span></div>
+      <p class="security-desc">
+        设置 API Key 后，所有 HTTP API 请求需要携带 <code>Authorization: Bearer &lt;key&gt;</code> 头。
+        SSE 连接会自动追加 <code>?token=</code> 参数。
+        留空则关闭认证。
+      </p>
+      <div class="security-input-row">
+        <input type="password" id="securityApiKey" class="form-input config-input"
+          placeholder="输入 API Key（留空禁用认证）" value="${savedKey}" />
+        <button class="btn btn-sm" onclick="toggleSecurityKeyVisibility()">👁️</button>
+      </div>
+      <div class="security-actions">
+        <button class="btn btn-primary btn-sm" onclick="saveSecurityApiKey()">💾 保存到本地</button>
+        <button class="btn btn-sm" onclick="testSecurityApiKey()">🔍 测试连接</button>
+        <button class="btn btn-sm" onclick="clearSecurityApiKey()">🗑️ 清除</button>
+      </div>
+      <div class="security-status" id="securityStatus"></div>
+    </div>
+  `;
+}
+
+function toggleSecurityKeyVisibility() {
+  const input = document.getElementById('securityApiKey');
+  if (!input) return;
+  input.type = input.type === 'password' ? 'text' : 'password';
+}
+
+function saveSecurityApiKey() {
+  const input = document.getElementById('securityApiKey');
+  if (!input) return;
+  const key = input.value.trim();
+  localStorage.setItem('tmd_api_key', key);
+  const status = document.getElementById('securityStatus');
+  if (status) {
+    status.textContent = key ? '✅ API Key 已保存到本地' : '✅ 已清除 API Key';
+    status.style.color = 'var(--text-primary)';
+  }
+}
+
+function clearSecurityApiKey() {
+  localStorage.removeItem('tmd_api_key');
+  const input = document.getElementById('securityApiKey');
+  if (input) input.value = '';
+  const status = document.getElementById('securityStatus');
+  if (status) {
+    status.textContent = '✅ 已清除本地 API Key';
+    status.style.color = 'var(--text-primary)';
+  }
+}
+
+async function testSecurityApiKey() {
+  const input = document.getElementById('securityApiKey');
+  if (!input) return;
+  const key = input.value.trim();
+  const status = document.getElementById('securityStatus');
+  if (!status) return;
+  if (!key) {
+    status.textContent = '⚠️ 请先输入 API Key';
+    status.style.color = 'orange';
+    return;
+  }
+  status.textContent = '⏳ 测试中...';
+  status.style.color = 'var(--text-primary)';
+  try {
+    const res = await fetch('/api/v1/tasks?limit=1', {
+      headers: { 'Authorization': 'Bearer ' + key }
+    });
+    if (res.ok) {
+      status.textContent = '✅ 连接成功！API Key 有效';
+      status.style.color = 'green';
+    } else if (res.status === 401) {
+      status.textContent = '❌ API Key 无效（服务器返回 401）';
+      status.style.color = 'red';
+    } else {
+      status.textContent = '⚠️ 服务器返回状态 ' + res.status;
+      status.style.color = 'orange';
+    }
+  } catch (e) {
+    status.textContent = '❌ 网络错误: ' + e.message;
+    status.style.color = 'red';
+  }
 }
 
 function rerenderSystemPanel(panelId, renderFn, resetEditor = null, initEditor = null, saveFn = null, restoreFn = null) {
@@ -4527,6 +4643,9 @@ window.onerror = function (msg, url, line, col, error) {
 
 window.addEventListener('unhandledrejection', function (e) {
   console.error('[Global] 未处理的 Promise 拒绝:', e.reason);
+  if (e.reason && (e.reason.status === 401 || e.reason._isUnauthorized)) {
+    showAuthDialog();
+  }
   e.preventDefault();
 });
 
@@ -4564,10 +4683,64 @@ async function init() {
       currentPage: page,
       dataSubPage: dataSubPage
     });
-    toast.show('加载数据失败: ' + err.message, 'error');
+
+    // 401 → 显示认证对话框
+    if (err.status === 401 || err._isUnauthorized) {
+      showAuthDialog();
+    } else {
+      toast.show('加载数据失败: ' + err.message, 'error');
+    }
   }
 
   render();
+}
+
+// ============================================
+// Auth Dialog
+// ============================================
+function showAuthDialog() {
+  const overlay = document.getElementById('authOverlay');
+  if (!overlay) return;
+  overlay.style.display = '';
+  requestAnimationFrame(() => overlay.classList.add('open'));
+  const input = document.getElementById('authDialogKey');
+  if (input) {
+    const saved = localStorage.getItem('tmd_api_key');
+    if (saved) input.value = saved;
+    // Handle Enter key
+    input.onkeydown = (e) => {
+      if (e.key === 'Enter') submitAuthKey();
+    };
+    setTimeout(() => input.focus(), 100);
+  }
+}
+
+function hideAuthDialog() {
+  const overlay = document.getElementById('authOverlay');
+  if (!overlay) return;
+  overlay.classList.remove('open');
+  // Wait for CSS transition before hiding
+  setTimeout(() => { overlay.style.display = 'none'; }, 200);
+}
+
+function submitAuthKey() {
+  const input = document.getElementById('authDialogKey');
+  const status = document.getElementById('authDialogStatus');
+  const btn = document.getElementById('authSubmitBtn');
+  if (!input || !btn) return;
+  const key = input.value.trim();
+  if (!key) {
+    if (status) { status.textContent = '请输入 API Key'; status.style.color = 'var(--danger)'; }
+    input.focus();
+    return;
+  }
+  // Show loading state
+  btn.disabled = true;
+  btn.textContent = '验证中...';
+  if (status) status.textContent = '';
+  localStorage.setItem('tmd_api_key', key);
+  // Brief delay so user sees feedback, then reload
+  setTimeout(() => { window.location.reload(); }, 300);
 }
 
 // Event Listeners
@@ -4679,6 +4852,7 @@ function syncSystemPage(state) {
     });
     document.getElementById('systemConfigPanel').style.display = state._systemTab === 'config' ? '' : 'none';
     document.getElementById('systemCookiesPanel').style.display = state._systemTab === 'cookies' ? '' : 'none';
+    document.getElementById('systemSecurityPanel').style.display = state._systemTab === 'security' ? '' : 'none';
     document.getElementById('systemSchedulesPanel').style.display = state._systemTab === 'schedules' ? '' : 'none';
   }
 
