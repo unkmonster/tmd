@@ -4196,7 +4196,14 @@ function connectLogSSE() {
     const hint = document.getElementById('log-empty-hint');
     if (hint) hint.style.display = 'none';
     if (logAutoScroll) {
-      stream.scrollTop = stream.scrollHeight;
+      const userAtBottom = stream.scrollTop + stream.clientHeight >= stream.scrollHeight - 20;
+      if (userAtBottom) {
+        stream.scrollTop = stream.scrollHeight;
+      } else {
+        // 用户手动滚到上面，不强制拉回
+        const btn = document.getElementById('log-new-arrived-btn');
+        if (btn) btn.style.display = 'flex';
+      }
     } else {
       // 用户关闭了自动滚动，显示「新日志已到达」按钮
       const btn = document.getElementById('log-new-arrived-btn');

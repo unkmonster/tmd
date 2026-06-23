@@ -1963,7 +1963,13 @@ function connectLogSSE() {
     el.style.color = color;
     stream.appendChild(el);
     if (logAutoScroll) {
-      stream.scrollTop = stream.scrollHeight;
+      const userAtBottom = stream.scrollTop + stream.clientHeight >= stream.scrollHeight - 20;
+      if (userAtBottom) {
+        stream.scrollTop = stream.scrollHeight;
+      } else {
+        const btn = document.getElementById('log-new-arrived-btn');
+        if (btn) btn.style.display = 'flex';
+      }
     } else {
       const btn = document.getElementById('log-new-arrived-btn');
       if (btn) btn.style.display = 'flex';
