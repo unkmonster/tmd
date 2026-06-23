@@ -88,21 +88,47 @@
 **注意：** Reasonix 不支持自动 hook（没有 PreToolUse 机制），所有命令手动加 `rtk` 前缀。
 
 <!-- gitnexus:start -->
-## GitNexus 速查（索引 5 089 节点 / 17 402 边 / 300 流程）
+# GitNexus — Code Intelligence
 
-| 你要做什么 | 调用示例 | 关键参数 |
-|-----------|---------|---------|
-| 上下游影响分析 | `impact(target="符号", direction="upstream")` | `direction`: upstream(谁依赖我) / downstream(我依赖谁); `minConfidence`(最低置信度); `summaryOnly`(只看摘要); `target_uid`(精确消歧) |
-| 语义搜索执行流程 | `query(search_query="自然语言")` | `task_context`(当前任务), `goal`(查找目标), `limit`, `include_content` |
-| 符号完整视图 | `context(name="符号")` | `uid`(精确查找), `file_path`(消歧), `kind`, `include_content` |
-| 两点间调用链 | `trace(from="A", to="B")` | `maxDepth`, `includeTests`; 可用 `from_uid`/`to_uid` 精确指定 |
-| 多文件安全重命名 | `rename(symbol_name="旧名", new_name="新名", dry_run=true)` | `dry_run`(预览，默认 true); 返回 `graph_edits`(高置信度) + `text_search_edits`(需人工审核) |
-| 提交前影响分析 | `detect_changes(scope="all")` | `scope`: unstaged(默认) / staged / all / compare; `base_ref`(对比分支) |
-| 安全污点分析 | `explain(target="文件或符号")` | 需要 `--pdg` 索引 |
-| Cypher 查图谱 | `cypher(statement="MATCH ...")` | 也可用 `params` 传参 |
+This project is indexed by GitNexus as **tmd** (5536 symbols, 19464 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
-> 索引过期？`gitnexus analyze` 增量更新。`gitnexus status` 查看状态。强制重建加 `--force`。
-> 详细指南：`/gitnexus-guide` `/gitnexus-impact-analysis` `/gitnexus-refactoring` 等
+> Index stale? Run `node .gitnexus/run.cjs analyze` from the project root — it auto-selects an available runner. No `.gitnexus/run.cjs` yet? `npx gitnexus analyze` (npm 11 crash → `npm i -g gitnexus`; #1939).
+
+## Always Do
+
+- **MUST run impact analysis before editing any symbol.** Before modifying a function, class, or method, run `impact({target: "symbolName", direction: "upstream"})` and report the blast radius (direct callers, affected processes, risk level) to the user.
+- **MUST run `detect_changes()` before committing** to verify your changes only affect expected symbols and execution flows. For regression review, compare against the default branch: `detect_changes({scope: "compare", base_ref: "main"})`.
+- **MUST warn the user** if impact analysis returns HIGH or CRITICAL risk before proceeding with edits.
+- When exploring unfamiliar code, use `query({search_query: "concept"})` to find execution flows instead of grepping. It returns process-grouped results ranked by relevance.
+- When you need full context on a specific symbol — callers, callees, which execution flows it participates in — use `context({name: "symbolName"})`.
+- For security review, `explain({target: "fileOrSymbol"})` lists taint findings (source→sink flows; needs `analyze --pdg`).
+
+## Never Do
+
+- NEVER edit a function, class, or method without first running `impact` on it.
+- NEVER ignore HIGH or CRITICAL risk warnings from impact analysis.
+- NEVER rename symbols with find-and-replace — use `rename` which understands the call graph.
+- NEVER commit changes without running `detect_changes()` to check affected scope.
+
+## Resources
+
+| Resource | Use for |
+|----------|---------|
+| `gitnexus://repo/tmd/context` | Codebase overview, check index freshness |
+| `gitnexus://repo/tmd/clusters` | All functional areas |
+| `gitnexus://repo/tmd/processes` | All execution flows |
+| `gitnexus://repo/tmd/process/{name}` | Step-by-step execution trace |
+
+## CLI
+
+| Task | Read this skill file |
+|------|---------------------|
+| Understand architecture / "How does X work?" | `.claude/skills/gitnexus/gitnexus-exploring/SKILL.md` |
+| Blast radius / "What breaks if I change X?" | `.claude/skills/gitnexus/gitnexus-impact-analysis/SKILL.md` |
+| Trace bugs / "Why is X failing?" | `.claude/skills/gitnexus/gitnexus-debugging/SKILL.md` |
+| Rename / extract / split / refactor | `.claude/skills/gitnexus/gitnexus-refactoring/SKILL.md` |
+| Tools, resources, schema reference | `.claude/skills/gitnexus/gitnexus-guide/SKILL.md` |
+| Index, status, clean, wiki CLI commands | `.claude/skills/gitnexus/gitnexus-cli/SKILL.md` |
 
 <!-- gitnexus:end -->
 
@@ -119,3 +145,19 @@
 ### Domain docs
 
 单层领域文档布局：根目录一份 `CONTEXT.md` + `docs/adr/`。详见 `docs/agents/domain.md`。
+
+---
+
+### Web UI 双主题架构
+
+`web1` 和 `web2` 是两个完全独立的前端主题，各自有独立的代码风格和 UI 风格：
+
+- **目录结构**：`internal/api/web/web1/` 和 `internal/api/web/web2/`，无文件共享
+- **运行时热切换**：通过 `GET/POST /api/v1/config/theme` API 在运行中切换，无需重启
+- **核心文件**：`internal/api/handlers.go` 中 `frontendTheme` 变量控制当前主题，`readFrontendFile/setFrontendTheme/listThemes` 管理主题切换
+- **安全机制**：切换时验证目录存在且含 `index.html`，防止目录遍历
+
+**常见任务**：
+- 新增主题：在 `internal/api/web/` 下新建目录，放入 `index.html/app.js/styles.css`
+- 修改前端：只改当前主题下的文件，不要跨主题复制 CSS/JS 逻辑
+- 主题切换前端入口：所有主题页面右下角的 🎨 浮动切换按钮（`themeSwitcherHTML()`）
