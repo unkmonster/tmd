@@ -1845,7 +1845,7 @@ function renderLogsPage(container) {
         <div class="flex gap-2">
           <button class="btn btn-ghost btn-sm" onclick="refreshLogs()">Refresh</button>
           <button class="btn btn-ghost btn-sm" onclick="exportLogs()">Export</button>
-          <label class="checkbox-label" style="font-size:12px"><input type="checkbox" id="log-live-toggle" checked onchange="toggleLogLive()"> Live</label>
+          <label class="checkbox-label" style="font-size:12px"><input type="checkbox" id="log-auto-scroll-toggle" checked onchange="toggleLogAutoScroll()"> Auto-scroll</label>
         </div>
       </div>
       <div class="card">
@@ -1878,12 +1878,16 @@ function renderLogsPage(container) {
 }
 
 let logSSESource = null;
-let logLive = true;
+let logAutoScroll = true;
 let _logReconnectAttempts = 0;
 let _logIntentionalDisconnect = false;
 
-function toggleLogLive() {
-  logLive = document.getElementById('log-live-toggle').checked;
+function toggleLogAutoScroll() {
+  logAutoScroll = document.getElementById('log-auto-scroll-toggle').checked;
+  if (logAutoScroll) {
+    const stream = document.getElementById('log-stream');
+    if (stream) stream.scrollTop = stream.scrollHeight;
+  }
 }
 function exportLogs() { window.open(apiBase() + '/api/v1/logs/export'); }
 
@@ -1902,7 +1906,8 @@ function doLogSearch() {
 function scrollLogToBottom() {
   const stream = document.getElementById('log-stream');
   if (stream) { stream.scrollTop = stream.scrollHeight; }
-  document.getElementById('log-new-arrived-btn').style.display = 'none';
+  const btn = document.getElementById('log-new-arrived-btn');
+  if (btn) btn.style.display = 'none';
 }
 
 async function refreshLogs() {
@@ -1946,10 +1951,8 @@ function connectLogSSE() {
   logSSESource = new EventSource(apiBase() + '/api/v1/logs/stream' + (qs ? '?' + qs : ''));
 
   logSSESource.addEventListener('log', (e) => {
-    if (!logLive) return;
     const stream = document.getElementById('log-stream');
     if (!stream) return;
-    const autoScroll = stream.scrollTop + stream.clientHeight >= stream.scrollHeight - 20;
     const el = document.createElement('div');
     el.className = 'log-entry';
     const clean = stripAnsi(e.data);
@@ -1959,7 +1962,7 @@ function connectLogSSE() {
     el.innerHTML = highlightLogTimestamp(esc(clean));
     el.style.color = color;
     stream.appendChild(el);
-    if (autoScroll) {
+    if (logAutoScroll) {
       stream.scrollTop = stream.scrollHeight;
     } else {
       const btn = document.getElementById('log-new-arrived-btn');
