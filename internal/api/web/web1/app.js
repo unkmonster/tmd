@@ -643,7 +643,7 @@ const pages = {
     const taskStats = { queued: 0, running: 0, completed: 0, failed: 0, cancelled: 0 };
     tasks.forEach(t => { if (taskStats[t.status] !== undefined) taskStats[t.status]++; });
     
-    const recentTasks = tasks.slice(0, 5);
+    const recentTasks = tasks.slice(0, 4);
     
     return `
       <div class="page-container">
@@ -4887,7 +4887,7 @@ function updateOverviewStatsUI(tasks) {
 
 // Update overview page recent tasks without full re-render
 function updateOverviewTasksUI(tasks) {
-  const recentTasks = tasks.slice(0, 5);
+  const recentTasks = tasks.slice(0, 4);
   const taskList = document.querySelector('.overview-tasks-list');
   if (!taskList) return;
 
