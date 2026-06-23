@@ -520,7 +520,7 @@ ul, ol {
 
 .form-textarea {
   resize: vertical;
-  min-height: 80px;
+  min-height: 75px;
 }
 
 .form-checkbox {
@@ -1262,6 +1262,7 @@ ul, ol {
   border-bottom: 2px solid transparent;
   margin-bottom: -1px;
   cursor: pointer;
+  white-space: nowrap;
   transition: color var(--duration-fast), border-bottom-color var(--duration-fast);
 }
 
@@ -1387,7 +1388,7 @@ ul, ol {
 /* Grid Layout for Tasks Page */
 .tasks-layout {
   display: grid;
-  grid-template-columns: 480px 1fr;
+  grid-template-columns: 488px 1fr;
   gap: var(--space-6);
   align-items: stretch;
   height: calc(100vh - var(--header-height) - var(--space-6) * 2);

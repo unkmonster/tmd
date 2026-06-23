@@ -1219,15 +1219,15 @@ function renderTaskForm(type) {
     batch: `
       <div class="form-group">
         <label class="form-label">用户列表（每行一个）</label>
-        <textarea class="form-textarea" id="batchUsers" placeholder="user1\nuser2\nuser3" rows="3"></textarea>
+        <textarea class="form-textarea" id="batchUsers" placeholder="user1\nuser2" rows="2"></textarea>
       </div>
       <div class="form-group">
         <label class="form-label">List IDs（每行一个）</label>
-        <textarea class="form-textarea" id="batchLists" placeholder="123\n456\n789" rows="3"></textarea>
+        <textarea class="form-textarea" id="batchLists" placeholder="123\n456" rows="2"></textarea>
       </div>
       <div class="form-group">
         <label class="form-label">Following 用户（每行一个）</label>
-        <textarea class="form-textarea" id="batchFollowingNames" placeholder="user_a\nuser_b" rows="3"></textarea>
+        <textarea class="form-textarea" id="batchFollowingNames" placeholder="user_a\nuser_b" rows="2"></textarea>
         <div class="text-sm text-tertiary mt-2">将这些用户的 Following 加入批量下载目标</div>
       </div>
       <div class="form-group">
