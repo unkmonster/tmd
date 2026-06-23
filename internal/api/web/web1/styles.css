@@ -2162,7 +2162,7 @@ ul, ol {
   border-radius: var(--radius-lg);
   width: 360px;
   max-width: 90vw;
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.35);
+  box-shadow: var(--shadow-lg);
   transform: translateY(-8px) scale(0.97);
   transition: transform var(--duration-normal) var(--ease-out);
 }
@@ -2209,8 +2209,8 @@ ul, ol {
 
 .auth-modal-input {
   width: 100%;
-  padding: 9px 12px;
-  background: var(--bg-tertiary);
+  padding: 10px 12px;
+  background: var(--bg-primary);
   border: 1px solid var(--border-primary);
   border-radius: var(--radius-md);
   color: var(--text-primary);
@@ -2222,7 +2222,7 @@ ul, ol {
 
 .auth-modal-input:focus {
   border-color: var(--accent-primary);
-  box-shadow: 0 0 0 3px rgba(47, 129, 247, 0.15);
+  box-shadow: 0 0 0 3px rgba(47, 129, 247, 0.1);
 }
 
 .auth-modal-input::placeholder {
@@ -2246,24 +2246,23 @@ ul, ol {
   min-width: 80px;
 }
 
+@media (prefers-reduced-motion: reduce) {
+  .auth-overlay,
+  .auth-modal {
+    transition-duration: 0s !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+  .auth-modal {
+    transform: none !important;
+  }
+}
+
 .auth-overlay input[type="checkbox"] {
   width: auto;
   margin-right: 6px;
 }
 
-/* Security Editor */
-.security-desc {
-  color: var(--text-secondary);
-  font-size: var(--text-sm);
-  margin-bottom: var(--space-4);
-  line-height: 1.5;
-}
-.security-desc code {
-  background: var(--bg-tertiary);
-  padding: 1px 5px;
-  border-radius: 4px;
-  font-size: 12px;
-}
 .security-input-row {
   display: flex;
   gap: 8px;

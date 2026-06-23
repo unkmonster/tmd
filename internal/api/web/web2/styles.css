@@ -219,6 +219,7 @@ a:hover { text-decoration: underline; }
 }
 .card-body { padding: 20px; }
 .card-body:only-child { border: none; }
+#config-content { max-height: 60vh; overflow-y: auto; }
 
 /* Stats Grid */
 .stats-grid {

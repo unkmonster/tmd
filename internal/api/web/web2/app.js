@@ -284,9 +284,6 @@ const ENDPOINTS = {
   jsonFolderDownload:  (data) => API.post('/api/v1/json/folder/download', data),
 
   // Errors
-  errors:      () => API.get('/api/v1/errors'),
-  retryErrors: () => API.post('/api/v1/errors/retry'),
-  clearErrors: () => API.del('/api/v1/errors'),
 
   // DB
   dbUsers:             (p) => API.get('/api/v1/db/users' + qs(p)),
@@ -334,6 +331,11 @@ const ENDPOINTS = {
   deleteSchedule:  (id) => API.del('/api/v1/schedules/' + encodeURIComponent(id)),
   setScheduleEnabled: (id,e) => API.patch('/api/v1/schedules/' + encodeURIComponent(id) + '/enabled', {enabled:e}),
   triggerSchedule: (id) => API.post('/api/v1/schedules/' + encodeURIComponent(id) + '/trigger'),
+
+  // Errors
+  errors:      () => API.get('/api/v1/errors'),
+  retryErrors: () => API.post('/api/v1/errors/retry'),
+  clearErrors: () => API.del('/api/v1/errors'),
 
   // Logs
   logs:      (p) => API.get('/api/v1/logs' + qs(p)),
@@ -405,9 +407,8 @@ let sseSource = null;
 let sseReconnectTimer = null;
 let sseReconnectDelay = 1000;
 
-function sseTokenParam() {
-  const key = localStorage.getItem('tmd_api_key');
-  return key ? '?token=' + encodeURIComponent(key) : '';
+function sseApiKey() {
+  return localStorage.getItem('tmd_api_key') || '';
 }
 
 // Debounce rapid SSE updates to avoid excessive re-renders
@@ -427,12 +428,16 @@ const debouncedSchedulesUpdate = debounce(function(data) {
 function connectSSE() {
   if (sseReconnectTimer) { clearTimeout(sseReconnectTimer); sseReconnectTimer = null; }
   if (sseSource) { sseSource.close(); sseSource = null; }
-  sseSource = new EventSource(apiBase() + '/api/v1/sse/tasks' + sseTokenParam());
+  const key = sseApiKey();
+  sseSource = new EventSource(apiBase() + '/api/v1/sse/tasks' + (key ? '?token=' + encodeURIComponent(key) : ''));
 
   sseSource.addEventListener('tasks', (e) => {
     try {
       const tasks = JSON.parse(e.data);
-      if (Array.isArray(tasks)) debouncedTasksUpdate(tasks);
+      if (Array.isArray(tasks)) {
+        debouncedTasksUpdate(tasks);
+        loadErrors();
+      }
     } catch(err) { /* ignore parse errors */ }
   });
 
@@ -515,6 +520,16 @@ function renderTasksPage(container) {
         </div>
       </div>
     </div>
+    <div class="card mb-4" id="errors-panel">
+      <div class="card-header" onclick="toggleErrorsPanel()" style="cursor:pointer;user-select:none">
+        <span id="errors-panel-title">Failed Records</span>
+        <span id="errors-panel-badge" style="margin-left:auto"></span>
+        <span id="errors-panel-arrow" style="margin-left:8px;transition:transform .2s">▶</span>
+      </div>
+      <div class="card-body" id="errors-panel-body" style="display:none">
+        <div id="errors-panel-content"><div class="loading"><div class="spinner"></div> Loading...</div></div>
+      </div>
+    </div>
     <div class="section">
       <div class="section-header">
         <h2>Tasks</h2>
@@ -564,6 +579,7 @@ function renderTasksPage(container) {
 
   pageRenderers.tasks = renderTasksPage;
   updateTasksView();
+  loadErrors();
 }
 
 function updateTasksView() {
@@ -1647,19 +1663,11 @@ function renderSystemPage(container) {
       </div>
     </div>
 
-    <div class="section">
-      <div class="section-header"><h2>Errors</h2></div>
-      <div class="card">
-        <div class="card-body" id="errors-content">
-          <div class="loading"><div class="spinner"></div> Loading...</div>
-        </div>
-      </div>
-    </div>`;
+    `;
 
   pageRenderers.system = renderSystemPage;
   loadSystemData();
   loadConfigTab('fields');
-  loadErrors();
 
   // Tab switching for System page
   const configTabs = document.getElementById('config-tabs');
@@ -1718,7 +1726,9 @@ async function renderConfigFields(content) {
           <label>${esc(f.label || f.name)}</label>
           ${f.type === 'number'
             ? `<input type="number" id="cf-${esc(f.name)}" value="${esc(f.value||f.default||'')}" placeholder="${esc(f.placeholder||'')}">`
-            : `<input type="text" id="cf-${esc(f.name)}" value="${esc(f.value||f.default||'')}" placeholder="${esc(f.placeholder||'')}">`
+            : f.type === 'password'
+              ? `<input type="text" id="cf-${esc(f.name)}" value="" placeholder="${f.value ? '当前值: ' + esc(f.value) : esc(f.placeholder||'')}">`
+              : `<input type="text" id="cf-${esc(f.name)}" value="${esc(f.value||f.default||'')}" placeholder="${esc(f.placeholder||'')}">`
           }
           ${f.prompt ? '<div class="hint">' + esc(f.prompt) + '</div>' : ''}
         </div>`).join('')}
@@ -1735,7 +1745,13 @@ async function saveConfigFields() {
     const data = {};
     fields.forEach(f => {
       const el = document.getElementById('cf-' + f.name);
-      if (el) data[f.name] = el.value;
+      if (el) {
+        if (f.type === 'password') {
+          data[f.name] = el.value || '__KEEP_OLD__';
+        } else {
+          data[f.name] = el.value;
+        }
+      }
     });
     await ENDPOINTS.saveConfigFields(data);
     toast('Configuration saved (restart to apply)', 'success');
@@ -1771,9 +1787,9 @@ async function renderCookies(content) {
     <div id="cookies-form">
       ${cArr.length === 0 ? '<p class="text-muted">No additional cookies configured.</p>' : ''}
       ${cArr.map((c, i) => `
-        <div class="form-row" style="margin-bottom:8px">
-          <input type="text" id="cookie-at-${i}" value="${esc(c.auth_token||'')}" placeholder="auth_token" style="font-family:var(--font-mono);font-size:12px">
-          <input type="text" id="cookie-ct0-${i}" value="${esc(c.ct0||'')}" placeholder="ct0" style="font-family:var(--font-mono);font-size:12px">
+        <div class="form-row" style="margin-bottom:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <input type="text" id="cookie-at-${i}" value="" placeholder="${c.auth_token ? '当前值: ' + esc(c.auth_token) : 'auth_token'}" style="flex:1;min-width:120px;font-family:var(--font-mono);font-size:12px">
+          <input type="text" id="cookie-ct0-${i}" value="" placeholder="${c.ct0 ? '当前值: ' + esc(c.ct0) : 'ct0'}" style="flex:1;min-width:120px;font-family:var(--font-mono);font-size:12px">
         </div>`).join('')}
       <div class="form-actions">
         <button class="btn btn-ghost btn-sm" onclick="addCookieRow()">+ Add Account</button>
@@ -1785,8 +1801,8 @@ async function renderCookies(content) {
 async function saveCookies() {
   const cArr = document.querySelectorAll('[id^="cookie-at-"]');
   const cookies = Array.from(cArr).map((el, i) => ({
-    auth_token: el.value,
-    ct0: document.getElementById('cookie-ct0-' + i) ? document.getElementById('cookie-ct0-' + i).value : ''
+    auth_token: el.value || '__KEEP_OLD__',
+    ct0: (document.getElementById('cookie-ct0-' + i)?.value) || '__KEEP_OLD__'
   }));
   try { await ENDPOINTS.saveCookies(cookies); toast('Cookies saved', 'success'); }
   catch(e) { toast(e.message, 'error'); }
@@ -1800,8 +1816,12 @@ function addCookieRow() {
   const row = document.createElement('div');
   row.className = 'form-row';
   row.style.marginBottom = '8px';
-  row.innerHTML = '<input type="text" id="cookie-at-' + idx + '" value="" placeholder="auth_token" style="font-family:var(--font-mono);font-size:12px">' +
-    '<input type="text" id="cookie-ct0-' + idx + '" value="" placeholder="ct0" style="font-family:var(--font-mono);font-size:12px">';
+  row.style.display = 'flex';
+  row.style.gap = '8px';
+  row.style.alignItems = 'center';
+  row.style.flexWrap = 'wrap';
+  row.innerHTML = '<input type="text" id="cookie-at-' + idx + '" value="" placeholder="auth_token" style="flex:1;min-width:120px;font-family:var(--font-mono);font-size:12px">' +
+    '<input type="text" id="cookie-ct0-' + idx + '" value="" placeholder="ct0" style="flex:1;min-width:120px;font-family:var(--font-mono);font-size:12px">';
   const actions = form.querySelector('.form-actions');
   if (actions) form.insertBefore(row, actions);
 }
@@ -1837,23 +1857,21 @@ function renderSecurityEditor(content) {
         SSE connections automatically use <code>?token=</code> parameter.
         Leave empty to disable authentication.
       </p>
+      <p class="hint" style="margin-bottom:12px;font-size:12px;color:var(--text-secondary)">
+        💡 The same key can also be set via <strong>Configuration → Fields</strong> tab (persisted to server config).
+        This panel stores it locally in your browser for convenience.
+      </p>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-        <input type="password" id="sec-api-key" style="flex:1;min-width:200px;padding:10px 12px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:14px"
+        <input type="text" id="sec-api-key" style="flex:1;min-width:200px;padding:10px 12px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:14px"
           placeholder="Enter API Key (leave empty to disable)" value="${esc(savedKey)}" />
-        <button class="btn btn-sm" onclick="toggleSecKeyVis()">Show</button>
       </div>
       <div style="display:flex;gap:8px;margin-top:12px">
         <button class="btn btn-primary btn-sm" onclick="saveSecKey()">Save to Local</button>
-        <button class="btn btn-sm" onclick="testSecKey()">Test Connection</button>
-        <button class="btn btn-sm" onclick="clearSecKey()">Clear</button>
+        <button class="btn btn-ghost btn-sm" onclick="testSecKey()">Test Connection</button>
+        <button class="btn btn-ghost btn-sm" onclick="clearSecKey()">Clear</button>
       </div>
       <div id="sec-status" style="margin-top:8px;font-size:13px"></div>
     </div>`;
-}
-
-function toggleSecKeyVis() {
-  const el = document.getElementById('sec-api-key');
-  if (el) el.type = el.type === 'password' ? 'text' : 'password';
 }
 
 function saveSecKey() {
@@ -1888,47 +1906,26 @@ async function testSecKey() {
   if (!key) { st.textContent = '⚠️ Enter an API Key first'; st.style.color = 'orange'; return; }
   st.textContent = '⏳ Testing...';
   st.style.color = 'var(--text)';
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), API_TIMEOUT);
   try {
+    // Use raw fetch instead of API._fetch() to test authentication explicitly:
+    // API._fetch would already attach the same Bearer header and 401 handling,
+    // making it impossible to distinguish "key works" from "server not responding".
     const res = await fetch(apiBase() + '/api/v1/tasks?limit=1', {
+      signal: controller.signal,
       headers: { 'Authorization': 'Bearer ' + key }
     });
     if (res.ok) { st.textContent = '✅ Connection successful! API Key is valid'; st.style.color = 'green'; }
     else if (res.status === 401) { st.textContent = '❌ API Key is invalid (server returned 401)'; st.style.color = 'red'; }
     else { st.textContent = '⚠️ Server returned status ' + res.status; st.style.color = 'orange'; }
-  } catch(e) { st.textContent = '❌ Network error: ' + e.message; st.style.color = 'red'; }
-}
-
-async function loadErrors() {
-  const content = document.getElementById('errors-content');
-  if (!content) return;
-  try {
-    const r = await ENDPOINTS.errors();
-    const regular = r.regular || {};
-    const json = r.json || [];
-    const regKeys = Object.keys(regular);
-
-    content.innerHTML = `
-      ${regKeys.length || json.length ? `<div class="form-actions"><button class="btn btn-primary btn-sm" onclick="retryAllErrors()">Retry All Failed</button><button class="btn btn-danger btn-sm" onclick="clearAllErrors()">Clear Errors</button></div>` : ''}
-      ${regKeys.length ? `<div class="section-header mt-2"><h3>Regular errors (${regKeys.length} entities)</h3></div>
-      <table><thead><tr><th>Entity ID</th><th>Failed Tweets</th></tr></thead><tbody>${regKeys.map(k => `<tr><td>${esc(k)}</td><td>${regular[k]}</td></tr>`).join('')}</tbody></table>` : ''}
-      ${json.length ? `<div class="section-header mt-2"><h3>JSON errors (${json.length} sources)</h3></div>
-      <table><thead><tr><th>Source</th><th>Count</th></tr></thead><tbody>${json.map(j => `<tr><td class="mono">${esc(j.source_path||'')}</td><td>${j.count||0}</td></tr>`).join('')}</tbody></table>` : ''}
-      ${!regKeys.length && !json.length ? '<p class="text-muted">No errors recorded.</p>' : ''}`;
   } catch(e) {
-    content.innerHTML = '<div class="empty-state"><p>Error loading errors: ' + esc(e.message) + '</p></div>';
-  }
+    if (e.name === 'AbortError') { st.textContent = '❌ Request timed out'; st.style.color = 'red'; }
+    else { st.textContent = '❌ Network error: ' + e.message; st.style.color = 'red'; }
+  } finally { clearTimeout(timer); }
 }
 
-async function retryAllErrors() {
-  try { const r = await ENDPOINTS.retryErrors(); toast('Retry task: ' + r.task_id, 'success'); }
-  catch(e) { toast(e.message, 'error'); }
-}
 
-async function clearAllErrors() {
-  if (!confirm('Clear all error records?')) return;
-  try { await ENDPOINTS.clearErrors(); toast('Errors cleared', 'info'); loadErrors(); }
-  catch(e) { toast(e.message, 'error'); }
-}
 
 /* ---- Logs Page ---- */
 function renderLogsPage(container) {
@@ -2109,8 +2106,8 @@ function connectLogSSE() {
   const params = new URLSearchParams();
   if (level) params.append('level', level);
   if (q) params.append('q', q);
-  const apiKey = localStorage.getItem('tmd_api_key');
-  if (apiKey) params.append('token', apiKey);
+  const key = sseApiKey();
+  if (key) params.append('token', key);
   const qs = params.toString();
   logSSESource = new EventSource(apiBase() + '/api/v1/logs/stream' + (qs ? '?' + qs : ''));
 
@@ -2180,6 +2177,136 @@ function toggleSidebar() {
   document.getElementById('sidebar').classList.toggle('open');
 }
 
+/* ---- Errors ---- */
+let _errorsData = null;
+
+function toggleErrorsPanel() {
+  const body = document.getElementById('errors-panel-body');
+  const arrow = document.getElementById('errors-panel-arrow');
+  if (!body) return;
+  const isOpen = body.style.display !== 'none';
+  body.style.display = isOpen ? 'none' : '';
+  if (arrow) arrow.style.transform = isOpen ? 'rotate(0deg)' : 'rotate(90deg)';
+  if (!isOpen && _errorsData) updateErrorsPanel();
+}
+
+async function loadErrors() {
+  try {
+    const r = await ENDPOINTS.errors();
+    _errorsData = r;
+    updateErrorsPanel();
+  } catch(e) { /* ignore */ }
+}
+
+function updateErrorsPanel() {
+  const title = document.getElementById('errors-panel-title');
+  const badge = document.getElementById('errors-panel-badge');
+  const arrow = document.getElementById('errors-panel-arrow');
+  const body = document.getElementById('errors-panel-body');
+  const content = document.getElementById('errors-panel-content');
+  if (!content) return;
+
+  const r = _errorsData || {};
+  const regular = r.regular || {};
+  const json = r.json || [];
+  const regKeys = Object.keys(regular);
+  const total = regKeys.length + json.length;
+
+  if (title) title.textContent = 'Failed Records' + (total ? ' (' + total + ')' : '');
+  if (badge) {
+    badge.textContent = total > 0 ? '\u26A0\uFE0F' : '';
+    badge.style.display = total > 0 ? '' : 'none';
+  }
+
+  if (total === 0) {
+    if (body) body.style.display = 'none';
+    content.innerHTML = '';
+    return;
+  }
+
+  content.innerHTML = `
+    <div style="margin-bottom:10px;display:flex;gap:8px">
+      <button class="btn btn-primary btn-sm" onclick="retryAllErrors()">Retry All Failed</button>
+      <button class="btn btn-danger btn-sm" onclick="clearAllErrors()">Clear Errors</button>
+    </div>
+    ${regKeys.length ? `<div class="section-header mt-2"><h3>Regular errors (${regKeys.length} entities)</h3></div>
+    <table><thead><tr><th>Entity ID</th><th>Failed Tweets</th></tr></thead><tbody>${regKeys.map(k => `<tr><td>${esc(k)}</td><td>${regular[k]}</td></tr>`).join('')}</tbody></table>` : ''}
+    ${json.length ? `<div class="section-header mt-2"><h3>JSON errors (${json.length} sources)</h3></div>
+    <table><thead><tr><th>Source</th><th>Count</th></tr></thead><tbody>${json.map(j => `<tr><td class="mono">${esc(j.source_path||'')}</td><td>${j.count||0}</td></tr>`).join('')}</tbody></table>` : ''}`;
+}
+
+async function retryAllErrors() {
+  try { const r = await ENDPOINTS.retryErrors(); toast('Retry task: ' + r.task_id, 'success'); }
+  catch(e) { toast(e.message, 'error'); }
+}
+
+async function clearAllErrors() {
+  if (!confirm('Clear all error records?')) return;
+  try { await ENDPOINTS.clearErrors(); toast('Errors cleared', 'info'); loadErrors(); }
+  catch(e) { toast(e.message, 'error'); }
+}
+
+/* ---- Auth Dialog ---- */
+function showAuthDialog() {
+  const saved = localStorage.getItem('tmd_api_key') || '';
+  openModal(`
+      <div class="modal-header">
+        <h2>Authentication Required</h2>
+      </div>
+      <div class="modal-body">
+        <p style="font-size:13px;color:var(--text-secondary);line-height:1.5;margin-bottom:14px">
+          This server requires an API Key. Enter your key below, or configure one in System settings.
+        </p>
+        <input type="password" id="authDialogKey" style="width:100%;padding:9px 12px;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:14px;outline:none;box-sizing:border-box"
+          placeholder="Enter API Key" autocomplete="off" value="${esc(saved)}" />
+        <div id="authDialogStatus" style="margin-top:8px;font-size:13px;min-height:20px"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost btn-sm" onclick="closeModal()">Cancel</button>
+        <button class="btn btn-primary btn-sm" id="authSubmitBtn" onclick="submitAuthKey()">Confirm</button>
+      </div>
+  `);
+  const input = document.getElementById('authDialogKey');
+  if (input) {
+    input.onkeydown = (e) => {
+      if (e.key === 'Enter') submitAuthKey();
+    };
+    setTimeout(() => input.focus(), 100);
+  }
+}
+
+function submitAuthKey() {
+  const input = document.getElementById('authDialogKey');
+  const status = document.getElementById('authDialogStatus');
+  const btn = document.getElementById('authSubmitBtn');
+  if (!input || !btn) return;
+  const key = input.value.trim();
+  if (!key) {
+    if (status) { status.textContent = 'Please enter an API Key'; status.style.color = 'var(--danger)'; }
+    input.focus();
+    return;
+  }
+  btn.disabled = true;
+  btn.textContent = 'Verifying...';
+  if (status) status.textContent = '';
+  localStorage.setItem('tmd_api_key', key);
+  setTimeout(() => { window.location.reload(); }, 300);
+}
+
+// Proactive auth check: if the server requires auth and no key is stored,
+// show the auth dialog. Called from DOMContentLoaded.
+async function checkAuth() {
+  const key = localStorage.getItem('tmd_api_key');
+  if (key) return;
+  try {
+    await ENDPOINTS.tasks();
+  } catch(e) {
+    if (e.status === 401 || e.message === 'unauthorized') {
+      showAuthDialog();
+    }
+  }
+}
+
 /* ---- Init ---- */
 window.addEventListener('unhandledrejection', (e) => {
   console.error('[Global] Unhandled promise rejection:', e.reason);
@@ -2219,68 +2346,3 @@ document.addEventListener('DOMContentLoaded', () => {
 // Export functions for inline onclick
 window.ENDPOINTS = ENDPOINTS;
 window.apiBase = apiBase;
-
-/* ---- Auth Dialog ---- */
-function showAuthDialog() {
-  const saved = localStorage.getItem('tmd_api_key') || '';
-  openModal(`
-      <div class="modal-header">
-        <h2>Authentication Required</h2>
-      </div>
-      <div class="modal-body">
-        <p style="font-size:13px;color:var(--text-secondary);line-height:1.5;margin-bottom:14px">
-          This server requires an API Key. Enter your key below, or configure one in System settings.
-        </p>
-        <input type="password" id="authDialogKey" style="width:100%;padding:9px 12px;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:14px;outline:none;box-sizing:border-box"
-          placeholder="Enter API Key" autocomplete="off" value="${esc(saved)}" />
-        <div id="authDialogStatus" style="margin-top:8px;font-size:13px;min-height:20px"></div>
-      </div>
-      <div class="modal-footer">
-        <button class="btn btn-ghost btn-sm" onclick="closeModal()">Cancel</button>
-        <button class="btn btn-primary btn-sm" id="authSubmitBtn" onclick="submitAuthKey()">Confirm</button>
-      </div>
-  `);
-  const input = document.getElementById('authDialogKey');
-  if (input) {
-    input.onkeydown = (e) => {
-      if (e.key === 'Enter') submitAuthKey();
-    };
-    setTimeout(() => input.focus(), 100);
-  }
-}
-
-function hideAuthDialog() {
-  closeModal();
-}
-
-function submitAuthKey() {
-  const input = document.getElementById('authDialogKey');
-  const status = document.getElementById('authDialogStatus');
-  const btn = document.getElementById('authSubmitBtn');
-  if (!input || !btn) return;
-  const key = input.value.trim();
-  if (!key) {
-    if (status) { status.textContent = 'Please enter an API Key'; status.style.color = 'var(--danger)'; }
-    input.focus();
-    return;
-  }
-  btn.disabled = true;
-  btn.textContent = 'Verifying...';
-  if (status) status.textContent = '';
-  localStorage.setItem('tmd_api_key', key);
-  setTimeout(() => { window.location.reload(); }, 300);
-}
-
-// Proactive auth check: if the server requires auth and no key is stored,
-// show the auth dialog. Called from DOMContentLoaded.
-async function checkAuth() {
-  const key = localStorage.getItem('tmd_api_key');
-  if (key) return;
-  try {
-    await ENDPOINTS.tasks();
-  } catch(e) {
-    if (e.status === 401 || e.message === 'unauthorized') {
-      showAuthDialog();
-    }
-  }
-}

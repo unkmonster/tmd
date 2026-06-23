@@ -228,10 +228,12 @@ const api = {
       signal
     };
     
-    // 注入 Authorization 头（如果 localStorage 中有 API Key）
-    const apiKey = localStorage.getItem('tmd_api_key');
-    if (apiKey) {
-      options.headers = { ...options.headers, 'Authorization': 'Bearer ' + apiKey };
+    // 注入 Authorization 头（如果 localStorage 中有 API Key），skipAuthInject 可跳过
+    if (!extra.skipAuthInject) {
+      const apiKey = localStorage.getItem('tmd_api_key');
+      if (apiKey) {
+        options.headers = { ...options.headers, 'Authorization': 'Bearer ' + apiKey };
+      }
     }
     
     if (extra.isFormData) {
@@ -389,7 +391,24 @@ const api = {
   deleteDBUserLink(id) { return this.request('DELETE', `/api/v1/db/user-links/${id}`); },
   getDBPreviousNames(params = '') { return this.get(`/api/v1/db/user-previous-names${params ? '?' + params : ''}`); },
   getDBStats() { return this.get('/api/v1/db/stats'); },
-  getDBUserPreviousNames(id, params = '') { return this.get(`/api/v1/db/users/${id}/previous-names${params ? '?' + params : ''}`); }
+  getDBUserPreviousNames(id, params = '') { return this.get(`/api/v1/db/users/${id}/previous-names${params ? '?' + params : ''}`); },
+
+  // 测试 API Key 有效性（绕过 localStorage 中的 key，使用传入的 key）
+  async testAuth(key) {
+    const { signal, controller } = this._getAbortSignal();
+    try {
+      const res = await fetch(this.base + '/api/v1/tasks?limit=1', {
+        signal,
+        headers: { 'Authorization': 'Bearer ' + key }
+      });
+      return { ok: res.ok, status: res.status };
+    } catch (e) {
+      if (e.name === 'AbortError') return { aborted: true };
+      return { ok: false, status: 0, error: e.message };
+    } finally {
+      this._cleanupAbortController(controller);
+    }
+  }
 };
 
 // ============================================
@@ -928,12 +947,12 @@ const pages = {
           ${renderConfigEditor()}
         </div>
 
-        <div id="systemCookiesPanel" class="system-panel system-panel-scroll" style="${store.state._systemTab === 'cookies' ? '' : 'display:none'}">
-          ${renderCookiesEditor()}
-        </div>
-
         <div id="systemSecurityPanel" class="system-panel system-panel-scroll" style="${store.state._systemTab === 'security' ? '' : 'display:none'}">
           ${renderSecurityEditor()}
+        </div>
+
+        <div id="systemCookiesPanel" class="system-panel system-panel-scroll" style="${store.state._systemTab === 'cookies' ? '' : 'display:none'}">
+          ${renderCookiesEditor()}
         </div>
 
         <div id="systemSchedulesPanel" class="system-panel system-panel-scroll" style="${store.state._systemTab === 'schedules' ? '' : 'display:none'}">
@@ -3986,6 +4005,10 @@ async function saveConfigForm() {
       configRaw: data.yaml_preview || store.state.configRaw
     });
     showManualRestartNotice('配置');
+    // 若 api_key 字段有实际值，同步到 localStorage（防止密码表单 __KEEP_OLD__ 覆盖）
+    if (fields['api_key'] && fields['api_key'] !== '__KEEP_OLD__') {
+      localStorage.setItem('tmd_api_key', fields['api_key']);
+    }
     // 保存后重载数据，刷新脱敏显示
     loadConfigFields();
     loadConfigRaw();
@@ -4377,31 +4400,43 @@ function syncSystemTabView() {
   if (store.state.currentPage !== 'system') return;
 
   if (store.state._systemTab === 'config') syncConfigTabView();
+  if (store.state._systemTab === 'security') syncSecurityTabView();
   if (store.state._systemTab === 'cookies') syncCookiesTabView();
   if (store.state._systemTab === 'schedules') syncScheduleTabView();
+}
+
+function syncSecurityTabView() {
+  // 安全面板当前无异步加载需求，保留作为扩展点
 }
 
 function renderSecurityEditor() {
   const savedKey = localStorage.getItem('tmd_api_key') || '';
   return `
-    <div class="config-group">
-      <div class="config-group-title"><span>🔐 API 认证</span></div>
-      <p class="security-desc">
-        设置 API Key 后，所有 HTTP API 请求需要携带 <code>Authorization: Bearer &lt;key&gt;</code> 头。
-        SSE 连接会自动追加 <code>?token=</code> 参数。
-        留空则关闭认证。
-      </p>
-      <div class="security-input-row">
-        <input type="password" id="securityApiKey" class="form-input config-input"
-          placeholder="输入 API Key（留空禁用认证）" value="${savedKey}" />
-        <button class="btn btn-sm" onclick="toggleSecurityKeyVisibility()">👁️</button>
+    <div class="card">
+      <div class="card-header">
+        <div>
+          <div class="card-title">🔐 API 认证</div>
+          <div class="card-subtitle">设置 API Key 保护后端 API，留空则关闭认证</div>
+        </div>
       </div>
-      <div class="security-actions">
-        <button class="btn btn-primary btn-sm" onclick="saveSecurityApiKey()">💾 保存到本地</button>
-        <button class="btn btn-sm" onclick="testSecurityApiKey()">🔍 测试连接</button>
-        <button class="btn btn-sm" onclick="clearSecurityApiKey()">🗑️ 清除</button>
+      <div class="card-body">
+        <div class="config-group">
+          <div class="config-field">
+            <label class="config-label">API Key</label>
+            <div class="security-input-row">
+              <input type="password" id="securityApiKey" class="form-input config-input"
+                placeholder="输入 API Key（留空禁用认证）" value="${escapeAttr(savedKey)}" />
+              <button class="btn btn-sm" data-action="toggleSecurityKey">👁️</button>
+            </div>
+          </div>
+          <div class="security-actions">
+            <button class="btn btn-primary btn-sm" data-action="saveSecurityKey">💾 保存到本地</button>
+            <button class="btn btn-sm" data-action="testSecurityKey">🔍 测试连接</button>
+            <button class="btn btn-sm" data-action="clearSecurityKey">🗑️ 清除</button>
+          </div>
+          <div class="security-status" id="securityStatus"></div>
+        </div>
       </div>
-      <div class="security-status" id="securityStatus"></div>
     </div>
   `;
 }
@@ -4412,26 +4447,58 @@ function toggleSecurityKeyVisibility() {
   input.type = input.type === 'password' ? 'text' : 'password';
 }
 
-function saveSecurityApiKey() {
+async function saveSecurityApiKey() {
   const input = document.getElementById('securityApiKey');
   if (!input) return;
   const key = input.value.trim();
-  localStorage.setItem('tmd_api_key', key);
   const status = document.getElementById('securityStatus');
-  if (status) {
-    status.textContent = key ? '✅ API Key 已保存到本地' : '✅ 已清除 API Key';
-    status.style.color = 'var(--text-primary)';
+  if (!status) return;
+
+  // 不提前修改 localStorage：保留旧 key 用于 API 调用的认证
+  // authMiddleware 读取的是服务器当前 in-memory 的 api_key 值
+  // 必须用旧 key 认证，新 key 作为字段值传输
+  status.textContent = '⏳ 保存中...';
+  status.style.color = 'var(--text-primary)';
+  try {
+    await api.saveConfigFields({ api_key: key });
+    // API 成功后再更新 localStorage
+    if (key) {
+      localStorage.setItem('tmd_api_key', key);
+    } else {
+      localStorage.removeItem('tmd_api_key');
+      if (input) input.value = '';
+    }
+    status.textContent = key ? '✅ API Key 已保存' : '✅ 已清除 API Key';
+    status.style.color = 'var(--success)';
+  } catch (e) {
+    if (e.status === 401 || e._isUnauthorized) {
+      showAuthDialog();
+      status.textContent = '⚠️ 需要先认证才能保存';
+      status.style.color = 'var(--warning)';
+    } else {
+      status.textContent = '❌ 保存失败: ' + e.message;
+      status.style.color = 'var(--danger)';
+    }
   }
 }
 
-function clearSecurityApiKey() {
-  localStorage.removeItem('tmd_api_key');
-  const input = document.getElementById('securityApiKey');
-  if (input) input.value = '';
+async function clearSecurityApiKey() {
   const status = document.getElementById('securityStatus');
-  if (status) {
-    status.textContent = '✅ 已清除本地 API Key';
-    status.style.color = 'var(--text-primary)';
+  if (!status) return;
+
+  status.textContent = '⏳ 清除中...';
+  status.style.color = 'var(--text-primary)';
+  try {
+    // 不清除 localStorage（保留旧 key 用于 API 认证），API 成功后再移除
+    await api.saveConfigFields({ api_key: '' });
+    localStorage.removeItem('tmd_api_key');
+    const input = document.getElementById('securityApiKey');
+    if (input) input.value = '';
+    status.textContent = '✅ 已清除 API Key';
+    status.style.color = 'var(--success)';
+  } catch (e) {
+    status.textContent = '❌ 清除失败: ' + e.message;
+    status.style.color = 'var(--danger)';
   }
 }
 
@@ -4443,28 +4510,30 @@ async function testSecurityApiKey() {
   if (!status) return;
   if (!key) {
     status.textContent = '⚠️ 请先输入 API Key';
-    status.style.color = 'orange';
+    status.style.color = 'var(--warning)';
     return;
   }
   status.textContent = '⏳ 测试中...';
   status.style.color = 'var(--text-primary)';
   try {
-    const res = await fetch('/api/v1/tasks?limit=1', {
-      headers: { 'Authorization': 'Bearer ' + key }
-    });
-    if (res.ok) {
+    const result = await api.testAuth(key);
+    if (result.aborted) return;
+    if (result.ok) {
       status.textContent = '✅ 连接成功！API Key 有效';
-      status.style.color = 'green';
-    } else if (res.status === 401) {
+      status.style.color = 'var(--success)';
+    } else if (result.status === 401) {
       status.textContent = '❌ API Key 无效（服务器返回 401）';
-      status.style.color = 'red';
+      status.style.color = 'var(--danger)';
+    } else if (result.status === 0) {
+      status.textContent = '❌ 网络错误: ' + (result.error || '');
+      status.style.color = 'var(--danger)';
     } else {
-      status.textContent = '⚠️ 服务器返回状态 ' + res.status;
-      status.style.color = 'orange';
+      status.textContent = '⚠️ 服务器返回状态 ' + result.status;
+      status.style.color = 'var(--warning)';
     }
   } catch (e) {
-    status.textContent = '❌ 网络错误: ' + e.message;
-    status.style.color = 'red';
+    status.textContent = '❌ 错误: ' + e.message;
+    status.style.color = 'var(--danger)';
   }
 }
 
@@ -4738,9 +4807,20 @@ function submitAuthKey() {
   btn.disabled = true;
   btn.textContent = '验证中...';
   if (status) status.textContent = '';
+  // 先写 localStorage 确保 API 请求携带认证头，失败时回滚
+  const oldKey = localStorage.getItem('tmd_api_key');
   localStorage.setItem('tmd_api_key', key);
-  // Brief delay so user sees feedback, then reload
-  setTimeout(() => { window.location.reload(); }, 300);
+
+  api.saveConfigFields({ api_key: key }).then(() => {
+    setTimeout(() => { window.location.reload(); }, 300);
+  }).catch((e) => {
+    // 回滚 localStorage
+    if (oldKey) localStorage.setItem('tmd_api_key', oldKey);
+    else localStorage.removeItem('tmd_api_key');
+    btn.disabled = false;
+    btn.textContent = '确认';
+    if (status) { status.textContent = '❌ 保存失败: ' + e.message; status.style.color = 'var(--danger)'; }
+  });
 }
 
 // Event Listeners
@@ -4851,8 +4931,8 @@ function syncSystemPage(state) {
       t.classList.toggle('active', t.dataset.tab === state._systemTab);
     });
     document.getElementById('systemConfigPanel').style.display = state._systemTab === 'config' ? '' : 'none';
-    document.getElementById('systemCookiesPanel').style.display = state._systemTab === 'cookies' ? '' : 'none';
     document.getElementById('systemSecurityPanel').style.display = state._systemTab === 'security' ? '' : 'none';
+    document.getElementById('systemCookiesPanel').style.display = state._systemTab === 'cookies' ? '' : 'none';
     document.getElementById('systemSchedulesPanel').style.display = state._systemTab === 'schedules' ? '' : 'none';
   }
 
@@ -5234,6 +5314,12 @@ document.getElementById('app').addEventListener('click', (e) => {
     case 'saveCookiesForm':       saveCookiesForm(); break;
     case 'removeCookieAccount':   removeCookieAccount(Number(el.dataset.index)); break;
     case 'saveCookies':           saveCookies(); break;
+
+    // Security
+    case 'toggleSecurityKey':     toggleSecurityKeyVisibility(); break;
+    case 'saveSecurityKey':       saveSecurityApiKey(); break;
+    case 'testSecurityKey':       testSecurityApiKey(); break;
+    case 'clearSecurityKey':      clearSecurityApiKey(); break;
 
     // Schedules
     case 'setScheduleTab':        setScheduleTab(el.dataset.tab); break;
