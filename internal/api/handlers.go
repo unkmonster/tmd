@@ -6,7 +6,10 @@ import (
 	"embed"
 	"encoding/hex"
 	"net/http"
+	"os"
 	"path"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 )
@@ -15,14 +18,27 @@ import (
 var webFS embed.FS
 
 var (
-	themeMu     sync.RWMutex
+	themeMu      sync.RWMutex
 	frontendTheme = "web1" // web1 或 web2，运行时热切换
+	devWebRoot   string    // TMD_DEV=1 时设为本地 web 目录路径
 )
+
+func init() {
+	if os.Getenv("TMD_DEV") == "1" {
+		_, filename, _, ok := runtime.Caller(0)
+		if ok {
+			devWebRoot = filepath.Join(filepath.Dir(filename), "web")
+		}
+	}
+}
 
 
 func readFrontendFile(name string) ([]byte, error) {
 	themeMu.RLock()
 	defer themeMu.RUnlock()
+	if devWebRoot != "" {
+		return os.ReadFile(filepath.Join(devWebRoot, frontendTheme, name))
+	}
 	return webFS.ReadFile("web/" + frontendTheme + "/" + name)
 }
 
@@ -32,9 +48,16 @@ func setFrontendTheme(theme string) bool {
 	if theme == "" || strings.ContainsAny(theme, "/\\..") {
 		return false
 	}
-	// 验证目录在 embed FS 中真实存在（尝试读 index.html）
-	if _, err := webFS.ReadFile("web/" + theme + "/index.html"); err != nil {
-		return false
+	// 验证目录存在（开发模式走本地 FS，否则走 embed FS）
+	if devWebRoot != "" {
+		info, err := os.Stat(filepath.Join(devWebRoot, theme, "index.html"))
+		if err != nil || info.IsDir() {
+			return false
+		}
+	} else {
+		if _, err := webFS.ReadFile("web/" + theme + "/index.html"); err != nil {
+			return false
+		}
 	}
 	frontendTheme = theme
 	return true
@@ -46,8 +69,23 @@ func getFrontendTheme() string {
 	return frontendTheme
 }
 
-// listThemes 从 embed FS 中列出所有可用主题目录
+// listThemes 列出所有可用主题目录（开发模式走本地 FS，否则走 embed FS）
 func listThemes() []string {
+	if devWebRoot != "" {
+		entries, err := os.ReadDir(devWebRoot)
+		if err != nil {
+			return nil
+		}
+		var themes []string
+		for _, e := range entries {
+			if e.IsDir() {
+				if _, err := os.Stat(filepath.Join(devWebRoot, e.Name(), "index.html")); err == nil {
+					themes = append(themes, e.Name())
+				}
+			}
+		}
+		return themes
+	}
 	entries, err := webFS.ReadDir("web")
 	if err != nil {
 		return nil

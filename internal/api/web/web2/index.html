@@ -84,25 +84,6 @@
 <!-- Toast Container -->
 <div class="toast-container" id="toast-container"></div>
 
-<!-- Auth Modal (hidden by default, shown on 401) -->
-<div class="auth-overlay" id="authOverlay" style="display:none">
-  <div class="auth-modal">
-    <div class="auth-modal-header">
-      <div class="auth-modal-title">Authentication Required</div>
-    </div>
-    <div class="auth-modal-body">
-      <p class="auth-modal-desc">This server requires an API Key. Enter your key below, or configure one in System settings.</p>
-      <input type="password" id="authDialogKey" class="auth-modal-input" placeholder="Enter API Key"
-        autocomplete="off" />
-      <div class="auth-modal-status" id="authDialogStatus"></div>
-    </div>
-    <div class="auth-modal-footer">
-      <button class="btn btn-sm" onclick="hideAuthDialog()">Cancel</button>
-      <button class="btn btn-primary btn-sm" id="authSubmitBtn" onclick="submitAuthKey()">Confirm</button>
-    </div>
-  </div>
-</div>
-
 <script src="/static/app.js"></script>
 </body>
 </html>

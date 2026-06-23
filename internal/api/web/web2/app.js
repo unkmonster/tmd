@@ -2222,14 +2222,26 @@ window.apiBase = apiBase;
 
 /* ---- Auth Dialog ---- */
 function showAuthDialog() {
-  const overlay = document.getElementById('authOverlay');
-  if (!overlay) return;
-  overlay.style.display = '';
-  requestAnimationFrame(() => overlay.classList.add('open'));
+  const saved = localStorage.getItem('tmd_api_key') || '';
+  openModal(`
+      <div class="modal-header">
+        <h2>Authentication Required</h2>
+      </div>
+      <div class="modal-body">
+        <p style="font-size:13px;color:var(--text-secondary);line-height:1.5;margin-bottom:14px">
+          This server requires an API Key. Enter your key below, or configure one in System settings.
+        </p>
+        <input type="password" id="authDialogKey" style="width:100%;padding:9px 12px;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:14px;outline:none;box-sizing:border-box"
+          placeholder="Enter API Key" autocomplete="off" value="${esc(saved)}" />
+        <div id="authDialogStatus" style="margin-top:8px;font-size:13px;min-height:20px"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost btn-sm" onclick="closeModal()">Cancel</button>
+        <button class="btn btn-primary btn-sm" id="authSubmitBtn" onclick="submitAuthKey()">Confirm</button>
+      </div>
+  `);
   const input = document.getElementById('authDialogKey');
   if (input) {
-    const saved = localStorage.getItem('tmd_api_key');
-    if (saved) input.value = saved;
     input.onkeydown = (e) => {
       if (e.key === 'Enter') submitAuthKey();
     };
@@ -2238,10 +2250,7 @@ function showAuthDialog() {
 }
 
 function hideAuthDialog() {
-  const overlay = document.getElementById('authOverlay');
-  if (!overlay) return;
-  overlay.classList.remove('open');
-  setTimeout(() => { overlay.style.display = 'none'; }, 200);
+  closeModal();
 }
 
 function submitAuthKey() {
@@ -2251,7 +2260,7 @@ function submitAuthKey() {
   if (!input || !btn) return;
   const key = input.value.trim();
   if (!key) {
-    if (status) { status.textContent = 'Please enter an API Key'; status.style.color = 'var(--red)'; }
+    if (status) { status.textContent = 'Please enter an API Key'; status.style.color = 'var(--danger)'; }
     input.focus();
     return;
   }

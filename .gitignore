@@ -82,6 +82,7 @@ todo.md
 .review/
 .codegraph/
 .reasonix/
+.claude/
 .gitnexus/
 
 # === Agent / Docs (not part of source) ===
