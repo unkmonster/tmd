@@ -4287,7 +4287,12 @@ function syncLogsPageView() {
       const atBottom = stream.scrollTop + stream.clientHeight >= stream.scrollHeight - 10;
       const scrolledUp = stream.scrollTop < _lastScrollTop;
       _lastScrollTop = stream.scrollTop;
-      if (!atBottom && scrolledUp && logAutoScroll) {
+      if (atBottom) {
+        // User scrolled to bottom → hide button if visible
+        const btn = document.getElementById('log-new-arrived-btn');
+        if (btn) btn.style.display = 'none';
+      } else if (scrolledUp && logAutoScroll) {
+        // User scrolled up → uncheck
         logAutoScroll = false;
         const cb = document.getElementById('log-auto-scroll-toggle');
         if (cb) cb.checked = false;
