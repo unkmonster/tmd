@@ -2258,28 +2258,3 @@ ul, ol {
   }
 }
 
-.auth-overlay input[type="checkbox"] {
-  width: auto;
-  margin-right: 6px;
-}
-
-.security-input-row {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  flex-wrap: wrap;
-}
-.security-input-row .form-input.config-input {
-  flex: 1;
-  min-width: 200px;
-}
-.security-actions {
-  display: flex;
-  gap: 8px;
-  margin-top: var(--space-3);
-}
-.security-status {
-  margin-top: var(--space-2);
-  font-size: var(--text-sm);
-  min-height: 20px;
-}
