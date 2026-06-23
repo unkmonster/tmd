@@ -2908,6 +2908,10 @@ let _logIntentionalDisconnect = false;
 
 function toggleLogAutoScroll() {
   logAutoScroll = document.getElementById('log-auto-scroll-toggle')?.checked ?? true;
+  if (logAutoScroll) {
+    const stream = document.getElementById('log-stream');
+    if (stream) stream.scrollTop = stream.scrollHeight;
+  }
 }
 
 function exportLogs() { window.open('/api/v1/logs/export'); }
@@ -2932,7 +2936,8 @@ function doLogSearch() {
 function scrollLogToBottom() {
   const stream = document.getElementById('log-stream');
   if (stream) { stream.scrollTop = stream.scrollHeight; }
-  document.getElementById('log-new-arrived-btn').style.display = 'none';
+  const btn = document.getElementById('log-new-arrived-btn');
+  if (btn) btn.style.display = 'none';
 }
 
 async function refreshLogs() {
