@@ -394,6 +394,10 @@ const api = {
   getDBUserPreviousNames(id, params = '') { return this.get(`/api/v1/db/users/${id}/previous-names${params ? '?' + params : ''}`); },
 
   // 测试 API Key 有效性（绕过 localStorage 中的 key，使用传入的 key）
+  // 使用原生 fetch 而非 this.request()，原因：
+  //   1) 需要跳过 request() 的自动 Authorization 头注入（使用传入的 key 而非 localStorage）
+  //   2) 需要原始 HTTP 状态码而非解析 JSON，区分 401（key 无效）与其他错误
+  //   3) 自定义错误处理：返回结构而非抛出异常，AbortError 返回 { aborted: true }
   async testAuth(key) {
     const { signal, controller } = this._getAbortSignal();
     try {
@@ -4460,7 +4464,7 @@ async function saveSecurityApiKey() {
   status.textContent = '⏳ 保存中...';
   status.style.color = 'var(--text-primary)';
   try {
-    await api.saveConfigFields({ api_key: key });
+    await api.saveConfigFields({ api_key: key || '__CLEAR__' });
     // API 成功后再更新 localStorage
     if (key) {
       localStorage.setItem('tmd_api_key', key);
@@ -4490,7 +4494,7 @@ async function clearSecurityApiKey() {
   status.style.color = 'var(--text-primary)';
   try {
     // 不清除 localStorage（保留旧 key 用于 API 认证），API 成功后再移除
-    await api.saveConfigFields({ api_key: '' });
+    await api.saveConfigFields({ api_key: '__CLEAR__' });
     localStorage.removeItem('tmd_api_key');
     const input = document.getElementById('securityApiKey');
     if (input) input.value = '';
@@ -4776,10 +4780,6 @@ function showAuthDialog() {
   if (input) {
     const saved = localStorage.getItem('tmd_api_key');
     if (saved) input.value = saved;
-    // Handle Enter key
-    input.onkeydown = (e) => {
-      if (e.key === 'Enter') submitAuthKey();
-    };
     setTimeout(() => input.focus(), 100);
   }
 }
@@ -4792,7 +4792,7 @@ function hideAuthDialog() {
   setTimeout(() => { overlay.style.display = 'none'; }, 200);
 }
 
-function submitAuthKey() {
+async function submitAuthKey() {
   const input = document.getElementById('authDialogKey');
   const status = document.getElementById('authDialogStatus');
   const btn = document.getElementById('authSubmitBtn');
@@ -4811,16 +4811,17 @@ function submitAuthKey() {
   const oldKey = localStorage.getItem('tmd_api_key');
   localStorage.setItem('tmd_api_key', key);
 
-  api.saveConfigFields({ api_key: key }).then(() => {
+  try {
+    await api.saveConfigFields({ api_key: key });
     setTimeout(() => { window.location.reload(); }, 300);
-  }).catch((e) => {
+  } catch (e) {
     // 回滚 localStorage
     if (oldKey) localStorage.setItem('tmd_api_key', oldKey);
     else localStorage.removeItem('tmd_api_key');
     btn.disabled = false;
     btn.textContent = '确认';
     if (status) { status.textContent = '❌ 保存失败: ' + e.message; status.style.color = 'var(--danger)'; }
-  });
+  }
 }
 
 // Event Listeners
@@ -5214,6 +5215,14 @@ document.getElementById('contentContainer').addEventListener('keydown', (e) => {
   else if (id === 'log-search-input') doLogSearch();
 });
 
+// Auth Dialog: Enter key 提交（弹窗在 #app 内但不在 #contentContainer 内，需独立委派）
+document.getElementById('app').addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter') return;
+  const overlay = document.getElementById('authOverlay');
+  if (!overlay || overlay.style.display === 'none') return;
+  if (e.target.id === 'authDialogKey') submitAuthKey();
+});
+
 // Delegated input/change/blur for data-binding elements (replaces inline on* handlers)
 document.getElementById('contentContainer').addEventListener('input', (e) => {
   const el = e.target.closest('[data-binding]');
@@ -5320,6 +5329,8 @@ document.getElementById('app').addEventListener('click', (e) => {
     case 'saveSecurityKey':       saveSecurityApiKey(); break;
     case 'testSecurityKey':       testSecurityApiKey(); break;
     case 'clearSecurityKey':      clearSecurityApiKey(); break;
+    case 'hideAuthDialog':        hideAuthDialog(); break;
+    case 'submitAuthKey':         submitAuthKey(); break;
 
     // Schedules
     case 'setScheduleTab':        setScheduleTab(el.dataset.tab); break;

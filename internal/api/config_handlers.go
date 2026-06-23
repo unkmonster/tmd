@@ -92,15 +92,23 @@ func (s *Server) handleUpdateConfigRaw(w http.ResponseWriter, r *http.Request) {
 
 	log.Infoln("[WebUI] config saved via raw editor")
 
+	// 检测 api_key 是否被修改，以确定生效消息
+	oldAPIKey := s.config.APIKey
 	*s.config = *testConf
+	apiKeyChanged := oldAPIKey != s.config.APIKey
 
 	yamlPreview, err := config.MarshalConf(testConf)
 	if err != nil {
 		log.Warnf("Failed to marshal yaml preview: %v", err)
 	}
 
+	message := "Configuration saved successfully. Please restart TMD manually for changes to take effect."
+	if apiKeyChanged {
+		message = "Configuration saved. API Key has been updated and takes effect immediately. Other changes may require a restart."
+	}
+
 	s.writeJSON(w, http.StatusOK, NewSuccessResponse(map[string]interface{}{
-		"message":      "Configuration saved successfully. Please restart TMD manually for changes to take effect.",
+		"message":      message,
 		"backup":       backupName,
 		"yaml_preview": string(yamlPreview),
 	}))
@@ -231,7 +239,11 @@ func (s *Server) handleSaveConfigFields(w http.ResponseWriter, r *http.Request) 
 
 	for _, fd := range fieldDefs {
 		userVal, ok := req.Fields[fd.Name]
-		if !ok || strings.TrimSpace(userVal) == "" || userVal == "__KEEP_OLD__" {
+
+		// __CLEAR__ sentinel: explicitly set field to empty (e.g. clearing api_key)
+		if ok && userVal == "__CLEAR__" {
+			userVal = ""
+		} else if !ok || strings.TrimSpace(userVal) == "" || userVal == "__KEEP_OLD__" {
 			userVal = config.GetFieldValue(newConf, fd)
 			if userVal == "" {
 				userVal = fd.Default
@@ -266,6 +278,10 @@ func (s *Server) handleSaveConfigFields(w http.ResponseWriter, r *http.Request) 
 
 	log.Infoln("[WebUI] config saved via structured form")
 
+	// 检测 api_key 是否被修改，以确定生效消息
+	apiKeyUserVal, apiKeySubmitted := req.Fields["api_key"]
+	apiKeyChanged := apiKeySubmitted && apiKeyUserVal != "__KEEP_OLD__"
+
 	*s.config = *newConf
 
 	yamlPreview, err := config.MarshalConf(newConf)
@@ -273,8 +289,13 @@ func (s *Server) handleSaveConfigFields(w http.ResponseWriter, r *http.Request) 
 		log.Warnf("Failed to marshal yaml preview: %v", err)
 	}
 
+	message := "Configuration saved successfully. Please restart TMD manually for changes to take effect."
+	if apiKeyChanged {
+		message = "Configuration saved. API Key has been updated and takes effect immediately."
+	}
+
 	s.writeJSON(w, http.StatusOK, NewSuccessResponse(map[string]interface{}{
-		"message":      "Configuration saved successfully. Please restart TMD manually for changes to take effect.",
+		"message":      message,
 		"backup":       backupName,
 		"yaml_preview": string(yamlPreview),
 		"fields":       buildConfigFieldItems(newConf),

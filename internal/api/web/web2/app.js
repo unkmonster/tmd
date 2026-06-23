@@ -9,11 +9,16 @@ const API_TIMEOUT = 30000; // 30s timeout for all API requests
 
 function apiBase() { return API_BASE; }
 
+// Helper: fetch with automatic timeout
+function fetchWithTimeout(url, options) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), API_TIMEOUT);
+  return fetch(url, { ...options, signal: controller.signal })
+    .finally(() => clearTimeout(timer));
+}
+
 const API = {
   async _fetch(url, options) {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), API_TIMEOUT);
-    
     const apiKey = localStorage.getItem('tmd_api_key');
     if (apiKey) {
       if (!options) options = {};
@@ -22,7 +27,7 @@ const API = {
     }
     
     try {
-      const r = await fetch(url, { ...options, signal: controller.signal });
+      const r = await fetchWithTimeout(url, { ...options });
       
       if (r.status === 401) {
         const authErr = new Error('unauthorized');
@@ -34,8 +39,6 @@ const API = {
     } catch(e) {
       if (e.name === 'AbortError') throw new Error('Request timed out');
       throw e;
-    } finally {
-      clearTimeout(timer);
     }
   },
   get: async (url) => {
@@ -283,8 +286,6 @@ const ENDPOINTS = {
   jsonFileDownload:    (data) => API.post('/api/v1/json/file/download', data),
   jsonFolderDownload:  (data) => API.post('/api/v1/json/folder/download', data),
 
-  // Errors
-
   // DB
   dbUsers:             (p) => API.get('/api/v1/db/users' + qs(p)),
   dbUser:              (id) => API.get('/api/v1/db/users/' + encodeURIComponent(id)),
@@ -500,7 +501,6 @@ async function checkHealth() {
     const dot = document.getElementById('health-dot');
     if (dot) dot.className = 'health-dot error';
     document.getElementById('health-text').textContent = 'Offline';
-    if (e.status === 401 || e.message === 'unauthorized') showAuthDialog();
   }
 }
 
@@ -1726,9 +1726,7 @@ async function renderConfigFields(content) {
           <label>${esc(f.label || f.name)}</label>
           ${f.type === 'number'
             ? `<input type="number" id="cf-${esc(f.name)}" value="${esc(f.value||f.default||'')}" placeholder="${esc(f.placeholder||'')}">`
-            : f.type === 'password'
-              ? `<input type="text" id="cf-${esc(f.name)}" value="" placeholder="${f.value ? '当前值: ' + esc(f.value) : esc(f.placeholder||'')}">`
-              : `<input type="text" id="cf-${esc(f.name)}" value="${esc(f.value||f.default||'')}" placeholder="${esc(f.placeholder||'')}">`
+            : `<input type="text" id="cf-${esc(f.name)}" value="${esc(f.value||f.default||'')}" placeholder="${esc(f.placeholder||'')}">`
           }
           ${f.prompt ? '<div class="hint">' + esc(f.prompt) + '</div>' : ''}
         </div>`).join('')}
@@ -1745,13 +1743,7 @@ async function saveConfigFields() {
     const data = {};
     fields.forEach(f => {
       const el = document.getElementById('cf-' + f.name);
-      if (el) {
-        if (f.type === 'password') {
-          data[f.name] = el.value || '__KEEP_OLD__';
-        } else {
-          data[f.name] = el.value;
-        }
-      }
+      if (el) data[f.name] = el.value;
     });
     await ENDPOINTS.saveConfigFields(data);
     toast('Configuration saved (restart to apply)', 'success');
@@ -1787,9 +1779,9 @@ async function renderCookies(content) {
     <div id="cookies-form">
       ${cArr.length === 0 ? '<p class="text-muted">No additional cookies configured.</p>' : ''}
       ${cArr.map((c, i) => `
-        <div class="form-row" style="margin-bottom:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-          <input type="text" id="cookie-at-${i}" value="" placeholder="${c.auth_token ? '当前值: ' + esc(c.auth_token) : 'auth_token'}" style="flex:1;min-width:120px;font-family:var(--font-mono);font-size:12px">
-          <input type="text" id="cookie-ct0-${i}" value="" placeholder="${c.ct0 ? '当前值: ' + esc(c.ct0) : 'ct0'}" style="flex:1;min-width:120px;font-family:var(--font-mono);font-size:12px">
+        <div class="form-row" style="margin-bottom:8px">
+          <input type="text" id="cookie-at-${i}" value="${esc(c.auth_token||'')}" placeholder="auth_token" style="font-family:var(--font-mono);font-size:12px">
+          <input type="text" id="cookie-ct0-${i}" value="${esc(c.ct0||'')}" placeholder="ct0" style="font-family:var(--font-mono);font-size:12px">
         </div>`).join('')}
       <div class="form-actions">
         <button class="btn btn-ghost btn-sm" onclick="addCookieRow()">+ Add Account</button>
@@ -1801,8 +1793,8 @@ async function renderCookies(content) {
 async function saveCookies() {
   const cArr = document.querySelectorAll('[id^="cookie-at-"]');
   const cookies = Array.from(cArr).map((el, i) => ({
-    auth_token: el.value || '__KEEP_OLD__',
-    ct0: (document.getElementById('cookie-ct0-' + i)?.value) || '__KEEP_OLD__'
+    auth_token: el.value,
+    ct0: document.getElementById('cookie-ct0-' + i) ? document.getElementById('cookie-ct0-' + i).value : ''
   }));
   try { await ENDPOINTS.saveCookies(cookies); toast('Cookies saved', 'success'); }
   catch(e) { toast(e.message, 'error'); }
@@ -1820,8 +1812,8 @@ function addCookieRow() {
   row.style.gap = '8px';
   row.style.alignItems = 'center';
   row.style.flexWrap = 'wrap';
-  row.innerHTML = '<input type="text" id="cookie-at-' + idx + '" value="" placeholder="auth_token" style="flex:1;min-width:120px;font-family:var(--font-mono);font-size:12px">' +
-    '<input type="text" id="cookie-ct0-' + idx + '" value="" placeholder="ct0" style="flex:1;min-width:120px;font-family:var(--font-mono);font-size:12px">';
+  row.innerHTML = '<input type="text" id="cookie-at-' + idx + '" value="" placeholder="auth_token" style="font-family:var(--font-mono);font-size:12px">' +
+    '<input type="text" id="cookie-ct0-' + idx + '" value="" placeholder="ct0" style="font-family:var(--font-mono);font-size:12px">';
   const actions = form.querySelector('.form-actions');
   if (actions) form.insertBefore(row, actions);
 }
@@ -1857,15 +1849,15 @@ function renderSecurityEditor(content) {
         SSE connections automatically use <code>?token=</code> parameter.
         Leave empty to disable authentication.
       </p>
-      <p class="hint" style="margin-bottom:12px;font-size:12px;color:var(--text-secondary)">
+      <p class="hint text-sm text-muted" style="margin-bottom:12px">
         💡 The same key can also be set via <strong>Configuration → Fields</strong> tab (persisted to server config).
         This panel stores it locally in your browser for convenience.
       </p>
-      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-        <input type="text" id="sec-api-key" style="flex:1;min-width:200px;padding:10px 12px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:14px"
+      <div class="flex gap-2 items-center" style="flex-wrap:wrap">
+        <input type="text" id="sec-api-key" style="flex:1;min-width:200px"
           placeholder="Enter API Key (leave empty to disable)" value="${esc(savedKey)}" />
       </div>
-      <div style="display:flex;gap:8px;margin-top:12px">
+      <div class="flex gap-2 mt-2">
         <button class="btn btn-primary btn-sm" onclick="saveSecKey()">Save to Local</button>
         <button class="btn btn-ghost btn-sm" onclick="testSecKey()">Test Connection</button>
         <button class="btn btn-ghost btn-sm" onclick="clearSecKey()">Clear</button>
@@ -1874,55 +1866,46 @@ function renderSecurityEditor(content) {
     </div>`;
 }
 
+function updateSecStatus(msg, color) {
+  const st = document.getElementById('sec-status');
+  if (st) { st.textContent = msg; st.style.color = color || 'var(--text)'; }
+}
+
 function saveSecKey() {
   const el = document.getElementById('sec-api-key');
   if (!el) return;
   const key = el.value.trim();
   localStorage.setItem('tmd_api_key', key);
-  const st = document.getElementById('sec-status');
-  if (st) {
-    st.textContent = key ? '✅ API Key saved locally' : '✅ API Key cleared';
-    st.style.color = 'var(--text)';
-  }
+  updateSecStatus(key ? '✅ API Key saved locally' : '✅ API Key cleared');
 }
 
 function clearSecKey() {
   localStorage.removeItem('tmd_api_key');
   const el = document.getElementById('sec-api-key');
   if (el) el.value = '';
-  const st = document.getElementById('sec-status');
-  if (st) {
-    st.textContent = '✅ Local API Key cleared';
-    st.style.color = 'var(--text)';
-  }
+  updateSecStatus('✅ Local API Key cleared');
 }
 
 async function testSecKey() {
   const el = document.getElementById('sec-api-key');
   if (!el) return;
   const key = el.value.trim();
-  const st = document.getElementById('sec-status');
-  if (!st) return;
-  if (!key) { st.textContent = '⚠️ Enter an API Key first'; st.style.color = 'orange'; return; }
-  st.textContent = '⏳ Testing...';
-  st.style.color = 'var(--text)';
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), API_TIMEOUT);
+  if (!key) { updateSecStatus('⚠️ Enter an API Key first', 'orange'); return; }
+  updateSecStatus('⏳ Testing...');
   try {
     // Use raw fetch instead of API._fetch() to test authentication explicitly:
     // API._fetch would already attach the same Bearer header and 401 handling,
     // making it impossible to distinguish "key works" from "server not responding".
-    const res = await fetch(apiBase() + '/api/v1/tasks?limit=1', {
-      signal: controller.signal,
+    const res = await fetchWithTimeout(apiBase() + '/api/v1/tasks?limit=1', {
       headers: { 'Authorization': 'Bearer ' + key }
     });
-    if (res.ok) { st.textContent = '✅ Connection successful! API Key is valid'; st.style.color = 'green'; }
-    else if (res.status === 401) { st.textContent = '❌ API Key is invalid (server returned 401)'; st.style.color = 'red'; }
-    else { st.textContent = '⚠️ Server returned status ' + res.status; st.style.color = 'orange'; }
+    if (res.ok) { updateSecStatus('✅ Connection successful! API Key is valid', 'green'); }
+    else if (res.status === 401) { updateSecStatus('❌ API Key is invalid (server returned 401)', 'red'); }
+    else { updateSecStatus('⚠️ Server returned status ' + res.status, 'orange'); }
   } catch(e) {
-    if (e.name === 'AbortError') { st.textContent = '❌ Request timed out'; st.style.color = 'red'; }
-    else { st.textContent = '❌ Network error: ' + e.message; st.style.color = 'red'; }
-  } finally { clearTimeout(timer); }
+    if (e.name === 'AbortError') { updateSecStatus('❌ Request timed out', 'red'); }
+    else { updateSecStatus('❌ Network error: ' + e.message, 'red'); }
+  }
 }
 
 
