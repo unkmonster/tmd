@@ -3573,6 +3573,7 @@ function setScheduleTab(tab) {
   if (tab === 'raw' && store.state._scheduleRaw === null) loadScheduleRaw();
   if (tab === 'form' && store.state._scheduleFormItems.length === 0 && (store.state._schedules || []).length === 0) loadSchedules();
   if (tab === 'raw' && store.state._scheduleRaw !== null) {
+    _state.scheduleEditor = null;
     _state._schedulePanelSkipNextRebuild = true;
     const panel = document.getElementById('systemSchedulesPanel');
     if (panel) {
@@ -4040,6 +4041,7 @@ function setCookiesMode(mode) {
   store.setState({ cookiesMode: mode });
   if (mode === 'raw' && store.state.cookiesRaw === null) loadCookiesRaw();
   if (mode === 'raw' && store.state.cookiesRaw !== null) {
+    _state.cookiesEditor = null;
     _state._cookiesPanelSkipNextRebuild = true;
     const panel = document.getElementById('systemCookiesPanel');
     if (panel) {
@@ -4094,6 +4096,7 @@ function setConfigMode(mode) {
   if (mode === 'raw' && store.state.configRaw === null) loadConfigRaw();
   // configRaw 已存在时直接同步重建面板，设置标志位防止订阅重复重建
   if (mode === 'raw' && store.state.configRaw !== null) {
+    _state.configEditor = null;
     _state._configPanelSkipNextRebuild = true;
     const panel = document.getElementById('systemConfigPanel');
     if (panel) {
