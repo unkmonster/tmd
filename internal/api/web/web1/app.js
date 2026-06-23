@@ -141,6 +141,8 @@ const store = {
     logLevel: 'all',
     logSearch: '',
     logStats: { debug: 0, info: 0, warn: 0, error: 0, total: 0 },
+    logPage: 1,
+    logTotalPages: 1,
     _systemTab: 'config',
     configMode: 'form',
     configFields: [],
@@ -2917,7 +2919,7 @@ function toggleLogAutoScroll() {
 function exportLogs() { window.open('/api/v1/logs/export'); }
 
 function setLogLevel(level) {
-  store.setState({ logLevel: level });
+  store.setState({ logLevel: level, logPage: 1 });
   refreshLogs();
   // 重连 SSE 以应用新的 level 过滤
   disconnectLogSSE();
@@ -2926,7 +2928,7 @@ function setLogLevel(level) {
 
 function doLogSearch() {
   const q = document.getElementById('log-search-input')?.value?.trim() || '';
-  store.setState({ logSearch: q });
+  store.setState({ logSearch: q, logPage: 1 });
   refreshLogs();
   // 重连 SSE 以应用搜索过滤
   disconnectLogSSE();
@@ -2943,13 +2945,20 @@ function scrollLogToBottom() {
   if (cb) cb.checked = true;
 }
 
+let _logLoadingMore = false;
+
 async function refreshLogs() {
+  store.setState({ logPage: 1 });
+  await loadLogsReplace();
+}
+
+async function loadLogsReplace() {
   const stream = document.getElementById('log-stream');
   if (!stream) return;
-  const { logLevel, logSearch } = store.state;
+  const { logLevel, logSearch, logPage } = store.state;
   try {
     const p = new URLSearchParams();
-    p.append('page', '1');
+    p.append('page', String(logPage));
     p.append('pageSize', '200');
     if (logLevel !== 'all') p.append('level', logLevel);
     if (logSearch) p.append('q', logSearch);
@@ -2957,10 +2966,41 @@ async function refreshLogs() {
     const lines = (d.logs || []).reverse();
     stream.innerHTML = renderLogLines(lines);
     stream.scrollTop = stream.scrollHeight;
-    // 更新统计
+    store.setState({ logTotalPages: d.totalPages || 1 });
     loadLogStats();
   } catch (e) {
     stream.innerHTML = '<div class="log-entry" style="color:var(--danger)">加载日志失败: ' + escapeHtml(e.message) + '</div>';
+  }
+}
+
+async function loadMoreLogs() {
+  if (_logLoadingMore) return;
+  const { logPage, logTotalPages } = store.state;
+  if (logPage >= logTotalPages) return; // 没有更多了
+  _logLoadingMore = true;
+  const stream = document.getElementById('log-stream');
+  if (!stream) { _logLoadingMore = false; return; }
+  const nextPage = logPage + 1;
+  store.setState({ logPage: nextPage });
+  const { logLevel, logSearch } = store.state;
+  try {
+    const p = new URLSearchParams();
+    p.append('page', String(nextPage));
+    p.append('pageSize', '200');
+    if (logLevel !== 'all') p.append('level', logLevel);
+    if (logSearch) p.append('q', logSearch);
+    const d = await api.getLogs('?' + p.toString());
+    const lines = (d.logs || []).reverse();
+    const oldHeight = stream.scrollHeight;
+    stream.innerHTML = renderLogLines(lines) + stream.innerHTML;
+    // 保持视觉位置不变
+    stream.scrollTop = (stream.scrollHeight - oldHeight) + stream.scrollTop;
+    store.setState({ logTotalPages: d.totalPages || 1 });
+  } catch (e) {
+    // 加载失败，回退页码
+    store.setState({ logPage: logPage });
+  } finally {
+    _logLoadingMore = false;
   }
 }
 
@@ -4287,7 +4327,10 @@ function syncLogsPageView() {
       const atBottom = stream.scrollTop + stream.clientHeight >= stream.scrollHeight - 10;
       const scrolledUp = stream.scrollTop < _lastScrollTop;
       _lastScrollTop = stream.scrollTop;
-      if (atBottom) {
+      if (stream.scrollTop <= 0) {
+        // 滚动到顶部 → 加载上一页并拼接
+        loadMoreLogs();
+      } else if (atBottom) {
         // User scrolled to bottom → hide button if visible
         const btn = document.getElementById('log-new-arrived-btn');
         if (btn) btn.style.display = 'none';

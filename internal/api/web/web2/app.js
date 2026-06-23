@@ -1883,7 +1883,10 @@ function renderLogsPage(container) {
     const atBottom = logStream.scrollTop + logStream.clientHeight >= logStream.scrollHeight - 10;
     const scrolledUp = logStream.scrollTop < _lastScrollTop;
     _lastScrollTop = logStream.scrollTop;
-    if (atBottom) {
+    if (logStream.scrollTop <= 0) {
+      // 滚动到顶部 → 加载上一页并拼接
+      loadMoreLogs();
+    } else if (atBottom) {
       // User scrolled to bottom → hide button if visible
       const btn = document.getElementById('log-new-arrived-btn');
       if (btn) btn.style.display = 'none';
@@ -1900,6 +1903,9 @@ let logSSESource = null;
 let logAutoScroll = true;
 let _logReconnectAttempts = 0;
 let _logIntentionalDisconnect = false;
+let _logPage = 1;
+let _logTotalPages = 1;
+let _logLoadingMore = false;
 
 function toggleLogAutoScroll() {
   logAutoScroll = document.getElementById('log-auto-scroll-toggle').checked;
@@ -1911,12 +1917,14 @@ function toggleLogAutoScroll() {
 function exportLogs() { window.open(apiBase() + '/api/v1/logs/export'); }
 
 function setLogLevel() {
+  _logPage = 1;
   refreshLogs();
   disconnectLogSSE();
   connectLogSSE();
 }
 
 function doLogSearch() {
+  _logPage = 1;
   refreshLogs();
   disconnectLogSSE();
   connectLogSSE();
@@ -1933,12 +1941,19 @@ function scrollLogToBottom() {
 }
 
 async function refreshLogs() {
+  _logPage = 1;
+  _logLoadingMore = false;
+  await loadLogsReplace();
+}
+
+async function loadLogsReplace() {
   const stream = document.getElementById('log-stream');
   if (!stream) return;
   const level = document.getElementById('log-level') ? document.getElementById('log-level').value.trim() : '';
   const q = document.getElementById('log-search-input') ? document.getElementById('log-search-input').value.trim() : '';
   try {
-    const r = await ENDPOINTS.logs({ page:1, pageSize:200, level: level || undefined, q: q || undefined });
+    const r = await ENDPOINTS.logs({ page: _logPage, pageSize: 200, level: level || undefined, q: q || undefined });
+    _logTotalPages = r.totalPages || 1;
     const lines = (r.logs || []).reverse();
     stream.innerHTML = lines.map(l => {
       const clean = stripAnsi(l);
@@ -1949,6 +1964,37 @@ async function refreshLogs() {
     stream.scrollTop = stream.scrollHeight;
   } catch(e) {
     stream.innerHTML = '<div class="log-entry">Error loading logs: ' + esc(e.message) + '</div>';
+  }
+}
+
+async function loadMoreLogs() {
+  if (_logLoadingMore) return;
+  if (_logPage >= _logTotalPages) return;
+  _logLoadingMore = true;
+  const stream = document.getElementById('log-stream');
+  if (!stream) { _logLoadingMore = false; return; }
+  const nextPage = _logPage + 1;
+  _logPage = nextPage;
+  const level = document.getElementById('log-level') ? document.getElementById('log-level').value.trim() : '';
+  const q = document.getElementById('log-search-input') ? document.getElementById('log-search-input').value.trim() : '';
+  try {
+    const r = await ENDPOINTS.logs({ page: nextPage, pageSize: 200, level: level || undefined, q: q || undefined });
+    const lines = (r.logs || []).reverse();
+    const oldHeight = stream.scrollHeight;
+    const newLines = lines.map(l => {
+      const clean = stripAnsi(l);
+      const color = getLogLineColor(clean);
+      const tweetId = getTweetId(clean);
+      return '<div class="log-entry" style="color:' + color + '"' + (tweetId ? ' data-tweet-id="' + tweetId + '"' : '') + '>' + highlightLogTimestamp(esc(clean)) + '</div>';
+    }).join('');
+    stream.innerHTML = newLines + stream.innerHTML;
+    // 保持视觉位置不变
+    stream.scrollTop = (stream.scrollHeight - oldHeight) + stream.scrollTop;
+    _logTotalPages = r.totalPages || 1;
+  } catch(e) {
+    _logPage--;
+  } finally {
+    _logLoadingMore = false;
   }
 }
 
