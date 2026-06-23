@@ -1875,6 +1875,20 @@ function renderLogsPage(container) {
   refreshLogs();
   loadLogStats();
   connectLogSSE();
+
+  // Auto-uncheck only when user scrolls UP from bottom (scrolling down never unchecks)
+  let _lastScrollTop = 0;
+  const logStream = document.getElementById('log-stream');
+  logStream.addEventListener('scroll', () => {
+    const atBottom = logStream.scrollTop + logStream.clientHeight >= logStream.scrollHeight - 10;
+    const scrolledUp = logStream.scrollTop < _lastScrollTop;
+    _lastScrollTop = logStream.scrollTop;
+    if (!atBottom && scrolledUp && logAutoScroll) {
+      logAutoScroll = false;
+      const cb = document.getElementById('log-auto-scroll-toggle');
+      if (cb) cb.checked = false;
+    }
+  });
 }
 
 let logSSESource = null;
@@ -1908,6 +1922,9 @@ function scrollLogToBottom() {
   if (stream) { stream.scrollTop = stream.scrollHeight; }
   const btn = document.getElementById('log-new-arrived-btn');
   if (btn) btn.style.display = 'none';
+  logAutoScroll = true;
+  const cb = document.getElementById('log-auto-scroll-toggle');
+  if (cb) cb.checked = true;
 }
 
 async function refreshLogs() {
@@ -1963,16 +1980,15 @@ function connectLogSSE() {
     el.style.color = color;
     stream.appendChild(el);
     if (logAutoScroll) {
-      const userAtBottom = stream.scrollTop + stream.clientHeight >= stream.scrollHeight - 20;
-      if (userAtBottom) {
-        stream.scrollTop = stream.scrollHeight;
-      } else {
+      // Auto-scroll is checked → always scroll to show new log
+      stream.scrollTop = stream.scrollHeight;
+    } else {
+      // Only show button if user is NOT at the bottom
+      const userAtBottom = stream.scrollTop + stream.clientHeight >= stream.scrollHeight - 10;
+      if (!userAtBottom) {
         const btn = document.getElementById('log-new-arrived-btn');
         if (btn) btn.style.display = 'flex';
       }
-    } else {
-      const btn = document.getElementById('log-new-arrived-btn');
-      if (btn) btn.style.display = 'flex';
     }
     // Keep last 5000 lines
     while (stream.children.length > 5000) stream.removeChild(stream.firstChild);

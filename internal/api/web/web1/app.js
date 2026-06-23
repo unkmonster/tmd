@@ -2938,6 +2938,9 @@ function scrollLogToBottom() {
   if (stream) { stream.scrollTop = stream.scrollHeight; }
   const btn = document.getElementById('log-new-arrived-btn');
   if (btn) btn.style.display = 'none';
+  logAutoScroll = true;
+  const cb = document.getElementById('log-auto-scroll-toggle');
+  if (cb) cb.checked = true;
 }
 
 async function refreshLogs() {
@@ -4196,18 +4199,15 @@ function connectLogSSE() {
     const hint = document.getElementById('log-empty-hint');
     if (hint) hint.style.display = 'none';
     if (logAutoScroll) {
-      const userAtBottom = stream.scrollTop + stream.clientHeight >= stream.scrollHeight - 20;
-      if (userAtBottom) {
-        stream.scrollTop = stream.scrollHeight;
-      } else {
-        // 用户手动滚到上面，不强制拉回
+      // Auto-scroll is checked → always scroll to show new log
+      stream.scrollTop = stream.scrollHeight;
+    } else {
+      // 仅在用户不在底部时显示按钮
+      const userAtBottom = stream.scrollTop + stream.clientHeight >= stream.scrollHeight - 10;
+      if (!userAtBottom) {
         const btn = document.getElementById('log-new-arrived-btn');
         if (btn) btn.style.display = 'flex';
       }
-    } else {
-      // 用户关闭了自动滚动，显示「新日志已到达」按钮
-      const btn = document.getElementById('log-new-arrived-btn');
-      if (btn) btn.style.display = 'flex';
     }
     // Keep last 5000 lines
     while (stream.children.length > 5000) stream.removeChild(stream.firstChild);
@@ -4278,14 +4278,19 @@ function syncLogsPageView() {
   }
   loadLogStats();
   connectLogSSE();
-  // 滚动日志到底部时自动隐藏「新日志已到达」按钮
   const stream = document.getElementById('log-stream');
   if (stream && !stream._scrollHandlerAttached) {
     stream._scrollHandlerAttached = true;
+    // Auto-uncheck only when user scrolls UP from bottom (scrolling down never unchecks)
+    let _lastScrollTop = 0;
     stream.addEventListener('scroll', () => {
-      if (stream.scrollTop + stream.clientHeight >= stream.scrollHeight - 10) {
-        const btn = document.getElementById('log-new-arrived-btn');
-        if (btn) btn.style.display = 'none';
+      const atBottom = stream.scrollTop + stream.clientHeight >= stream.scrollHeight - 10;
+      const scrolledUp = stream.scrollTop < _lastScrollTop;
+      _lastScrollTop = stream.scrollTop;
+      if (!atBottom && scrolledUp && logAutoScroll) {
+        logAutoScroll = false;
+        const cb = document.getElementById('log-auto-scroll-toggle');
+        if (cb) cb.checked = false;
       }
     });
   }
