@@ -359,6 +359,14 @@ func (s *Server) GracefulShutdown(reason string) {
 			sched.Stop()
 		}
 
+		// Close SSE connections so httpServer.Shutdown() doesn't wait 30s for them.
+		if s.eventBus != nil {
+			s.eventBus.Close()
+		}
+		if s.logHub != nil {
+			s.logHub.Close()
+		}
+
 		if s.httpServer != nil {
 			shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer shutdownCancel()

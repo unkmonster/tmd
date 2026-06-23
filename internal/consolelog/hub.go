@@ -173,6 +173,16 @@ func (h *Hub) Snapshot() []string {
 	return lines
 }
 
+// Close closes all active log subscribers, causing their SSE handlers to exit.
+func (h *Hub) Close() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for sub := range h.subscribers {
+		sub.close()
+	}
+	h.subscribers = make(map[*logSubscriber]struct{})
+}
+
 func (h *Hub) Subscribe() (<-chan string, func()) {
 	sub := newLogSubscriber()
 

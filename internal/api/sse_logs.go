@@ -37,7 +37,10 @@ func (s *Server) handleLogStream(w http.ResponseWriter, r *http.Request) {
 			}); err != nil {
 				return
 			}
-		case line := <-ch:
+		case line, ok := <-ch:
+			if !ok {
+				return
+			}
 			if line == "" {
 				continue
 			}

@@ -216,3 +216,30 @@ func TestEventBusMultipleSubscribers(t *testing.T) {
 		t.Fatal("Subscriber 2 did not receive event")
 	}
 }
+
+func TestEventBusClose(t *testing.T) {
+	bus := NewEventBus()
+	ch1, unsub1 := bus.Subscribe()
+	defer unsub1()
+	ch2, unsub2 := bus.Subscribe()
+	defer unsub2()
+
+	bus.Close()
+
+	// After Close, all subscriber channels should be closed
+	select {
+	case _, ok := <-ch1:
+		assert.False(t, ok, "ch1 should be closed after EventBus.Close()")
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("ch1 should close immediately after EventBus.Close()")
+	}
+	select {
+	case _, ok := <-ch2:
+		assert.False(t, ok, "ch2 should be closed after EventBus.Close()")
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("ch2 should close immediately after EventBus.Close()")
+	}
+
+	// Close is idempotent
+	bus.Close()
+}

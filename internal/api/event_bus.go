@@ -181,6 +181,16 @@ func NewEventBus() *EventBus {
 	}
 }
 
+// Close closes all active subscribers, causing their SSE handlers to exit.
+func (b *EventBus) Close() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for sub := range b.subscribers {
+		sub.close()
+	}
+	b.subscribers = make(map[*eventSubscriber]struct{})
+}
+
 func (b *EventBus) Subscribe() (<-chan SSEEvent, func()) {
 	ch, _, unsubscribe := b.SubscribeWithReplay(0)
 	return ch, unsubscribe
