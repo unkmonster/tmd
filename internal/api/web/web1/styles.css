@@ -1708,8 +1708,7 @@ ul, ol {
     min-width: min-content;
   }
 
-  .config-editor,
-  .CodeMirror {
+  .config-editor {
     max-height: 300px;
     min-height: 200px;
   }
@@ -1814,28 +1813,6 @@ ul, ol {
   outline: none;
 }
 
-.CodeMirror {
-  height: auto !important;
-  font-family: "Cascadia Code", "Fira Code", "JetBrains Mono", Consolas, monospace !important;
-  font-size: 13px !important;
-  border: 1px solid var(--border-primary) !important;
-  border-radius: var(--radius-md) !important;
-}
-
-/* CodeMirror fills card-body in system panels */
-.system-panel .CodeMirror {
-  height: 100% !important;
-}
-
-.CodeMirror-scroll {
-  min-height: 300px;
-  max-height: 500px;
-}
-
-.system-panel .CodeMirror-scroll {
-  max-height: none;
-}
-
 .config-hint {
   background: rgba(240, 136, 62, 0.08);
   border-radius: var(--radius-md);
@@ -1884,6 +1861,19 @@ ul, ol {
 }
 .raw-editor-hint {
   flex-shrink: 0;
+}
+.raw-editor-textarea {
+  width: 100%;
+  height: 100%;
+  border: none;
+  outline: none;
+  resize: none;
+  padding: 12px;
+  box-sizing: border-box;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.6;
+  tab-size: 2;
 }
 
 /* Mobile DB card styles */

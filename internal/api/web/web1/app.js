@@ -152,6 +152,7 @@ const store = {
     cookiesMode: 'form',
     _scheduleTab: 'form',
     _schedules: null,
+    _schedulesLoading: true,
     _scheduleRaw: null,
     _scheduleExists: false,
     _scheduleSaving: false,
@@ -532,7 +533,7 @@ const sseManager = {
     if (page !== 'system') return;
 
     if (store.state._systemTab === 'schedules') {
-      this._safeRefresh(() => loadSchedules({ updateFormItems: !isScheduleFormEditing() }), 'system schedules');
+      this._safeRefresh(() => refreshSchedulesAfterReconnect(), 'system schedules');
     } else if (store.state._systemTab === 'config') {
       this._safeRefresh(() => refreshConfigAfterReconnect(), 'config');
     } else if (store.state._systemTab === 'cookies') {
@@ -923,6 +924,9 @@ const pages = {
 // ============================================
 const _state = {
   _taskFormState: {},
+  _configRawLoading: false,
+  _cookiesRawLoading: false,
+  _scheduleRawLoading: false,
   _logsPageLoaded: false
 };
 
@@ -2604,7 +2608,7 @@ function renderConfigEditor() {
 }
 
 function renderConfigForm(fields, saving, exists, loading = false) {
-  if (loading || !fields || fields.length === 0) {
+  if (loading || !fields) {
     return `
       <div class="card">
         <div class="card-header">
@@ -2612,6 +2616,22 @@ function renderConfigForm(fields, saving, exists, loading = false) {
           <button class="btn btn-primary btn-sm" disabled>⏳ 加载中...</button>
         </div>
         <div class="card-body"><div class="empty-state"><div class="empty-icon">⏳</div><div class="empty-title">加载中...</div></div></div>
+      </div>
+    `;
+  }
+  if (fields.length === 0) {
+    return `
+      <div class="card">
+        <div class="card-header">
+          <div><div class="card-title">配置编辑</div><div class="card-subtitle">${exists ? '✅ 配置文件存在' : '⚠️ 将创建新配置'}</div></div>
+        </div>
+        <div class="card-body">
+          <div class="empty-state">
+            <div class="empty-icon">⚙️</div>
+            <div class="empty-title">暂无配置项</div>
+            <div class="empty-desc">请使用高级 (YAML) 模式直接编辑配置文件</div>
+          </div>
+        </div>
       </div>
     `;
   }
@@ -2659,43 +2679,59 @@ function renderConfigForm(fields, saving, exists, loading = false) {
   `;
 }
 
-function renderConfigRawEditor(raw, saving, exists) {
-  if (raw === null) {
-    return `
-      <div class="card">
-        <div class="card-header">
-          <div><div class="card-title">conf.yaml 原始编辑器</div><div class="card-subtitle">加载中...</div></div>
-          <div class="flex gap-2">
-            <button class="btn btn-primary btn-sm" disabled>⏳ 加载中...</button>
-          </div>
-        </div>
-        <div class="card-body">
-          <div class="empty-state">
-            <div class="skeleton skeleton-icon"></div>
-            <div class="empty-title">加载中...</div>
-            <div class="empty-desc">正在加载配置文件</div>
-          </div>
-        </div>
-      </div>`;
-  }
+function renderRawEditorLoading(title, desc) {
   return `
     <div class="card">
       <div class="card-header">
-        <div><div class="card-title">conf.yaml 原始编辑器</div><div class="card-subtitle">${exists ? '✅ 文件存在' : '⚠️ 将创建新配置'}</div></div>
+        <div><div class="card-title">${title}</div><div class="card-subtitle">加载中...</div></div>
         <div class="flex gap-2">
-          <button class="btn btn-primary btn-sm" data-action="saveConfig" ${saving ? 'disabled' : ''}>
-            ${saving ? '<span class="loading-spinner"></span> 保存中...' : '💾 保存配置'}
+          <button class="btn btn-primary btn-sm" disabled>⏳ 加载中...</button>
+        </div>
+      </div>
+      <div class="card-body">
+        <div class="empty-state">
+          <div class="skeleton skeleton-icon"></div>
+          <div class="empty-title">加载中...</div>
+          <div class="empty-desc">${desc}</div>
+        </div>
+      </div>
+    </div>`;
+}
+
+function renderRawEditorContent(opts) {
+  const { title, exists, existsNewText, action, btnText, containerId, hintText } = opts;
+  return `
+    <div class="card">
+      <div class="card-header">
+        <div><div class="card-title">${title}</div><div class="card-subtitle">${exists ? '✅ 文件存在' : '⚠️ ' + existsNewText}</div></div>
+        <div class="flex gap-2">
+          <button class="btn btn-primary btn-sm" data-action="${action}" ${opts.saving ? 'disabled' : ''}>
+            ${opts.saving ? '<span class="loading-spinner"></span> 保存中...' : btnText}
           </button>
         </div>
       </div>
       <div class="card-body raw-editor-body">
-        <div id="configEditorContainer" class="raw-editor-container"></div>
+        <div id="${containerId}" class="raw-editor-container"></div>
         <div class="config-hint text-sm text-tertiary p-3 raw-editor-hint">
-          ⚠️ 直接编辑 YAML 需要了解语法格式。建议使用简易模式。
+          ${hintText}
         </div>
       </div>
     </div>
   `;
+}
+
+function renderConfigRawEditor(raw, saving, exists) {
+  if (raw === null) return renderRawEditorLoading('conf.yaml 原始编辑器', '正在加载配置文件');
+  return renderRawEditorContent({
+    title: 'conf.yaml 原始编辑器',
+    exists,
+    existsNewText: '将创建新配置',
+    action: 'saveConfig',
+    btnText: '💾 保存配置',
+    containerId: 'configEditorContainer',
+    hintText: '⚠️ 直接编辑 YAML 需要了解语法格式。建议使用简易模式。',
+    saving,
+  });
 }
 
 function renderCookiesEditor() {
@@ -2738,12 +2774,7 @@ function renderCookiesForm(items, saving, exists, loading = false) {
       <div class="card">
         <div class="card-header">
           <div><div class="card-title">额外账户管理</div><div class="card-subtitle">${exists ? '✅ 文件存在 · 0 个账户' : '⚠️ 将创建新文件'}</div></div>
-          <div class="flex gap-2">
-            <button class="btn btn-ghost btn-sm" data-action="addCookieAccount">➕ 添加账户</button>
-            <button class="btn btn-primary btn-sm" data-action="saveCookiesForm" ${saving ? 'disabled' : ''}>
-              ${saving ? '<span class="loading-spinner"></span> 保存中...' : '💾 保存配置'}
-            </button>
-          </div>
+          <button class="btn btn-ghost btn-sm" data-action="addCookieAccount">➕ 添加账户</button>
         </div>
         <div class="card-body">
           <div class="empty-state">
@@ -2794,42 +2825,17 @@ function renderCookiesForm(items, saving, exists, loading = false) {
 }
 
 function renderCookiesRawEditor(raw, saving, exists) {
-  if (raw === null) {
-    return `
-      <div class="card">
-        <div class="card-header">
-          <div><div class="card-title">additional_cookies.yaml 原始编辑器</div><div class="card-subtitle">加载中...</div></div>
-          <div class="flex gap-2">
-            <button class="btn btn-primary btn-sm" disabled>⏳ 加载中...</button>
-          </div>
-        </div>
-        <div class="card-body">
-          <div class="empty-state">
-            <div class="skeleton skeleton-icon"></div>
-            <div class="empty-title">加载中...</div>
-            <div class="empty-desc">正在加载额外账户配置</div>
-          </div>
-        </div>
-      </div>`;
-  }
-  return `
-    <div class="card">
-      <div class="card-header">
-        <div><div class="card-title">additional_cookies.yaml 原始编辑器</div><div class="card-subtitle">${exists ? '✅ 文件存在' : '⚠️ 将创建新文件'}</div></div>
-        <div class="flex gap-2">
-          <button class="btn btn-primary btn-sm" data-action="saveCookies" ${saving ? 'disabled' : ''}>
-            ${saving ? '<span class="loading-spinner"></span> 保存中...' : '💾 保存配置'}
-          </button>
-        </div>
-      </div>
-      <div class="card-body raw-editor-body">
-        <div id="cookiesEditorContainer" class="raw-editor-container"></div>
-        <div class="config-hint text-sm text-tertiary p-3 raw-editor-hint">
-          ⚠️ 直接编辑 YAML 需要了解语法格式。建议使用简易模式。
-        </div>
-      </div>
-    </div>
-  `;
+  if (raw === null) return renderRawEditorLoading('additional_cookies.yaml 原始编辑器', '正在加载额外账户配置');
+  return renderRawEditorContent({
+    title: 'additional_cookies.yaml 原始编辑器',
+    exists,
+    existsNewText: '将创建新文件',
+    action: 'saveCookies',
+    btnText: '💾 保存配置',
+    containerId: 'cookiesEditorContainer',
+    hintText: '⚠️ 直接编辑 YAML 需要了解语法格式。建议使用简易模式。',
+    saving,
+  });
 }
 
 function renderLogViewer() {
@@ -2977,10 +2983,13 @@ async function loadConfigFields() {
 }
 
 async function loadConfigRaw() {
+  if (_state._configRawLoading) return;
+  _state._configRawLoading = true;
   try {
     const d = await api.getConfigRaw();
     store.setState({ configRaw: d.content || '', configExists: d.exists || false });
   } catch (e) { toast.show('加载配置失败: ' + e.message, 'error'); }
+  _state._configRawLoading = false;
 }
 
 function isPanelInputFocused(panelId) {
@@ -3000,7 +3009,7 @@ function isConfigFormDirty() {
 }
 
 function isConfigRawDirty() {
-  return store.state.configMode === 'raw' && _state.configCodeMirror && getEditorValue(_state.configCodeMirror, store.state.configRaw) !== (store.state.configRaw || '');
+  return store.state.configMode === 'raw' && _state.configEditor && getEditorValue(_state.configEditor, store.state.configRaw) !== (store.state.configRaw || '');
 }
 
 function refreshConfigAfterReconnect() {
@@ -3013,8 +3022,18 @@ function showManualRestartNotice(subject) {
   toast.show(`✅ ${subject}已保存，需要手动重启服务后生效`, 'success');
 }
 
+function isScheduleRawDirty() {
+  return store.state._scheduleTab === 'raw' && _state.scheduleEditor && getEditorValue(_state.scheduleEditor, store.state._scheduleRaw) !== (store.state._scheduleRaw || '');
+}
+
+function refreshSchedulesAfterReconnect() {
+  if (isPanelInputFocused('systemSchedulesPanel') || store.state._scheduleFormDirty || isScheduleRawDirty()) return;
+  if (store.state._scheduleTab === 'raw') loadScheduleRaw();
+  else loadSchedules({ updateFormItems: true });
+}
+
 function renderScheduleViewer() {
-  const { _scheduleTab, _schedules, _scheduleRaw, _scheduleExists, _scheduleSaving, _scheduleFormItems, _schedulerRunning } = store.state;
+  const { _scheduleTab, _schedules, _scheduleRaw, _scheduleExists, _scheduleSaving, _scheduleFormItems, _schedulerRunning, _schedulesLoading } = store.state;
 
   const schedulerBanner = !_schedulerRunning
     ? `<div class="alert alert-warning" style="margin-bottom:var(--space-3)">⚠️ 调度器未启动，定时任务不会自动执行。请添加并启用规则后重载配置。</div>`
@@ -3023,12 +3042,12 @@ function renderScheduleViewer() {
   const modeTabs = `
     <div class="config-mode-tabs">
       <button class="mode-tab ${_scheduleTab === 'form' ? 'active' : ''}" data-action="setScheduleTab" data-tab="form">📝 简易模式</button>
-      <button class="mode-tab ${_scheduleTab === 'edit' ? 'active' : ''}" data-action="setScheduleTab" data-tab="edit">🔧 高级 (YAML)</button>
+      <button class="mode-tab ${_scheduleTab === 'raw' ? 'active' : ''}" data-action="setScheduleTab" data-tab="raw">🔧 高级 (YAML)</button>
     </div>
   `;
 
-  if (_scheduleTab === 'edit') return `<div class="mode-tabs-wrapper">${schedulerBanner}${modeTabs}${renderScheduleRawEditor(_scheduleRaw, _scheduleSaving, _scheduleExists)}</div>`;
-  return `<div class="mode-tabs-wrapper">${schedulerBanner}${modeTabs}${renderScheduleForm(_scheduleFormItems, _scheduleSaving, _scheduleExists, _schedules === null)}</div>`;
+  if (_scheduleTab === 'raw') return `<div class="mode-tabs-wrapper">${schedulerBanner}${modeTabs}${renderScheduleRawEditor(_scheduleRaw, _scheduleSaving, _scheduleExists)}</div>`;
+  return `<div class="mode-tabs-wrapper">${schedulerBanner}${modeTabs}${renderScheduleForm(_scheduleFormItems, _scheduleSaving, _scheduleExists, _schedulesLoading)}</div>`;
 }
 
 function renderScheduleFormField(item, idx) {
@@ -3333,42 +3352,17 @@ function renderScheduleTable(schedules, exists) {
 }
 
 function renderScheduleRawEditor(raw, saving, exists) {
-  if (raw === null) {
-    return `
-      <div class="card">
-        <div class="card-header">
-          <div><div class="card-title">schedules.yaml 原始编辑器</div><div class="card-subtitle">加载中...</div></div>
-          <div class="flex gap-2">
-            <button class="btn btn-primary btn-sm" disabled>⏳ 加载中...</button>
-          </div>
-        </div>
-        <div class="card-body">
-          <div class="empty-state">
-            <div class="skeleton skeleton-icon"></div>
-            <div class="empty-title">加载中...</div>
-            <div class="empty-desc">正在加载定时任务配置</div>
-          </div>
-        </div>
-      </div>`;
-  }
-  return `
-    <div class="card">
-      <div class="card-header">
-        <div><div class="card-title">schedules.yaml 原始编辑器</div><div class="card-subtitle">${exists ? '✅ 文件存在' : '⚠️ 将创建新文件'}</div></div>
-        <div class="flex gap-2">
-          <button class="btn btn-primary btn-sm" data-action="saveScheduleRaw" ${saving ? 'disabled' : ''}>
-            ${saving ? '<span class="loading-spinner"></span> 保存中...' : '💾 保存并重载'}
-          </button>
-        </div>
-      </div>
-      <div class="card-body raw-editor-body">
-        <div id="scheduleEditorContainer" class="raw-editor-container"></div>
-        <div class="config-hint text-sm text-tertiary p-3 raw-editor-hint">
-          ⚠️ 保存后将自动重载调度配置，无需重启服务。
-        </div>
-      </div>
-    </div>
-  `;
+  if (raw === null) return renderRawEditorLoading('schedules.yaml 原始编辑器', '正在加载定时任务配置');
+  return renderRawEditorContent({
+    title: 'schedules.yaml 原始编辑器',
+    exists,
+    existsNewText: '将创建新文件',
+    action: 'saveScheduleRaw',
+    btnText: '💾 保存并重载',
+    containerId: 'scheduleEditorContainer',
+    hintText: '⚠️ 保存后将自动重载调度配置，无需重启服务。',
+    saving,
+  });
 }
 
 function isScheduleFormEditing() {
@@ -3383,11 +3377,14 @@ function isScheduleFormEditing() {
 }
 
 async function loadSchedules(options = {}) {
+  if (store.state._schedulesLoading) return;
+  store.setState({ _schedulesLoading: true });
   try {
     const data = await api.getSchedules();
     const entries = data.entries || [];
     const update = {
       _schedules: entries,
+      _schedulesLoading: false,
       _schedulerRunning: !!data.scheduler_running,
     };
     if (options.updateFormItems !== false) {
@@ -3396,6 +3393,7 @@ async function loadSchedules(options = {}) {
     }
     store.setState(update);
   } catch (e) {
+    store.setState({ _schedulesLoading: false });
     console.warn('loadSchedules failed:', e);
     toast.show('加载定时任务失败: ' + e.message, 'error');
   }
@@ -3461,6 +3459,8 @@ function readScheduleEntryField(entry, jsonName, legacyName) {
 }
 
 async function loadScheduleRaw() {
+  if (_state._scheduleRawLoading) return;
+  _state._scheduleRawLoading = true;
   try {
     const data = await api.getSchedulesRaw();
     store.setState({ _scheduleRaw: data.content || '', _scheduleExists: data.exists || false });
@@ -3468,10 +3468,11 @@ async function loadScheduleRaw() {
     console.warn('loadScheduleRaw failed:', e);
     toast.show('加载调度原始配置失败: ' + e.message, 'error');
   }
+  _state._scheduleRawLoading = false;
 }
 
 async function saveScheduleRaw() {
-  const content = getEditorValue(_state.scheduleCodeMirror, store.state._scheduleRaw);
+  const content = getEditorValue(_state.scheduleEditor, store.state._scheduleRaw);
   store.setState({ _scheduleRaw: content, _scheduleSaving: true });
   try {
     const validateResult = await api.validateSchedule({ raw: content });
@@ -3490,7 +3491,7 @@ async function saveScheduleRaw() {
       _scheduleExists: rawData.exists || false,
       _scheduleSaving: false,
     });
-    setEditorValue(_state.scheduleCodeMirror, store.state._scheduleRaw || '');
+    setEditorValue(_state.scheduleEditor, store.state._scheduleRaw || '');
   } catch (e) {
     toast.show('保存失败: ' + e.message, 'error');
     store.setState({ _scheduleSaving: false });
@@ -3560,18 +3561,18 @@ function navigateToSystemSchedules() {
 }
 
 function setScheduleTab(tab) {
-  if (tab !== 'edit' && _state.scheduleCodeMirror) {
-    _state.scheduleCodeMirror = null;
+  if (tab !== 'raw' && _state.scheduleEditor) {
+    _state.scheduleEditor = null;
   }
   store.setState({ _scheduleTab: tab });
-  if (tab === 'edit' && store.state._scheduleRaw === null) loadScheduleRaw();
+  if (tab === 'raw' && store.state._scheduleRaw === null) loadScheduleRaw();
   if (tab === 'form' && store.state._scheduleFormItems.length === 0 && (store.state._schedules || []).length === 0) loadSchedules();
-  if (tab === 'edit' && store.state._scheduleRaw !== null) {
+  if (tab === 'raw' && store.state._scheduleRaw !== null) {
     _state._schedulePanelSkipNextRebuild = true;
     const panel = document.getElementById('systemSchedulesPanel');
     if (panel) {
       panel.innerHTML = renderScheduleViewer();
-      requestAnimationFrame(() => requestAnimationFrame(initScheduleCodeMirror));
+      requestAnimationFrame(() => requestAnimationFrame(initScheduleEditor));
     }
   } else {
     _state._schedulePanelSkipNextRebuild = false;
@@ -3850,13 +3851,13 @@ async function saveScheduleForm() {
   }
 }
 
-_state.scheduleCodeMirror = null;
+_state.scheduleEditor = null;
 
-function initScheduleCodeMirror() {
-  if (_state.scheduleCodeMirror) return;
+function initScheduleEditor() {
+  if (_state.scheduleEditor) return;
   const container = document.getElementById('scheduleEditorContainer');
   if (container) {
-    _state.scheduleCodeMirror = initCodeMirror('scheduleEditorContainer', store.state._scheduleRaw, 'yaml');
+    _state.scheduleEditor = initRawEditor('scheduleEditorContainer', store.state._scheduleRaw, 'yaml');
   }
 }
 
@@ -3864,7 +3865,7 @@ function syncScheduleTabView() {
   if (store.state._schedules === null && !store.state.sseConnected) loadSchedules();
   // 提前加载原始数据，切换高级模式时无需等待异步请求
   if (store.state._scheduleRaw === null) loadScheduleRaw();
-  if (store.state._scheduleTab === 'edit' && !_state.scheduleCodeMirror) requestAnimationFrame(() => requestAnimationFrame(initScheduleCodeMirror));
+  if (store.state._scheduleTab === 'raw' && !_state.scheduleEditor) requestAnimationFrame(() => requestAnimationFrame(initScheduleEditor));
 }
 
 function renderServerClosedState() {
@@ -3909,6 +3910,9 @@ async function saveConfigForm() {
       configRaw: data.yaml_preview || store.state.configRaw
     });
     showManualRestartNotice('配置');
+    // 保存后重载数据，刷新脱敏显示
+    loadConfigFields();
+    loadConfigRaw();
   } catch (e) {
     toast.show('❌ 保存失败: ' + e.message, 'error');
     store.setState({ configSaving: false });
@@ -3916,7 +3920,7 @@ async function saveConfigForm() {
 }
 
 async function saveConfig() {
-  const content = getEditorValue(_state.configCodeMirror, store.state.configRaw);
+  const content = getEditorValue(_state.configEditor, store.state.configRaw);
   if (!content.trim()) return toast.show('配置不能为空', 'error');
   store.setState({ configRaw: content, configSaving: true });
   try {
@@ -3933,6 +3937,7 @@ async function saveConfig() {
 }
 
 async function loadCookiesItems() {
+  if (store.state._cookiesLoading) return;
   store.setState({ _cookiesLoading: true });
   try {
     const d = await api.getCookies();
@@ -3944,10 +3949,13 @@ async function loadCookiesItems() {
 }
 
 async function loadCookiesRaw() {
+  if (_state._cookiesRawLoading) return;
+  _state._cookiesRawLoading = true;
   try {
     const d = await api.getCookiesRaw();
     store.setState({ cookiesRaw: d.content || '', cookiesExists: d.exists || false });
   } catch (e) { toast.show('加载额外账户失败: ' + e.message, 'error'); }
+  _state._cookiesRawLoading = false;
 }
 
 function isCookiesFormDirty() {
@@ -3957,7 +3965,7 @@ function isCookiesFormDirty() {
 }
 
 function isCookiesRawDirty() {
-  return store.state.cookiesMode === 'raw' && _state.cookiesCodeMirror && getEditorValue(_state.cookiesCodeMirror, store.state.cookiesRaw) !== (store.state.cookiesRaw || '');
+  return store.state.cookiesMode === 'raw' && _state.cookiesEditor && getEditorValue(_state.cookiesEditor, store.state.cookiesRaw) !== (store.state.cookiesRaw || '');
 }
 
 function refreshCookiesAfterReconnect() {
@@ -4005,7 +4013,7 @@ async function saveCookiesForm() {
 }
 
 async function saveCookies() {
-  const content = getEditorValue(_state.cookiesCodeMirror, store.state.cookiesRaw);
+  const content = getEditorValue(_state.cookiesEditor, store.state.cookiesRaw);
   if (!content.trim()) return toast.show('内容不能为空', 'error');
 
   store.setState({ cookiesRaw: content, cookiesSaving: true });
@@ -4021,8 +4029,8 @@ async function saveCookies() {
 }
 
 function setCookiesMode(mode) {
-  if (mode !== 'raw' && _state.cookiesCodeMirror) {
-    _state.cookiesCodeMirror = null;
+  if (mode !== 'raw' && _state.cookiesEditor) {
+    _state.cookiesEditor = null;
   }
   store.setState({ cookiesMode: mode });
   if (mode === 'raw' && store.state.cookiesRaw === null) loadCookiesRaw();
@@ -4031,7 +4039,7 @@ function setCookiesMode(mode) {
     const panel = document.getElementById('systemCookiesPanel');
     if (panel) {
       panel.innerHTML = renderCookiesEditor();
-      requestAnimationFrame(() => requestAnimationFrame(initCookiesCodeMirror));
+      requestAnimationFrame(() => requestAnimationFrame(initCookiesEditor));
     }
   } else {
     _state._cookiesPanelSkipNextRebuild = false;
@@ -4074,8 +4082,8 @@ function handleServerShutdown(message) {
 }
 
 function setConfigMode(mode) {
-  if (mode !== 'raw' && _state.configCodeMirror) {
-    _state.configCodeMirror = null;
+  if (mode !== 'raw' && _state.configEditor) {
+    _state.configEditor = null;
   }
   store.setState({ configMode: mode });
   if (mode === 'raw' && store.state.configRaw === null) loadConfigRaw();
@@ -4085,7 +4093,7 @@ function setConfigMode(mode) {
     const panel = document.getElementById('systemConfigPanel');
     if (panel) {
       panel.innerHTML = renderConfigEditor();
-      requestAnimationFrame(() => requestAnimationFrame(initConfigCodeMirror));
+      requestAnimationFrame(() => requestAnimationFrame(initConfigEditor));
     }
   } else {
     // 切回简易模式时清除标志位，确保订阅能正常重建
@@ -4097,16 +4105,15 @@ function setConfigMode(mode) {
 
 
 
-function initCodeMirror(containerId, content, _mode) {
+function initRawEditor(containerId, content, _mode) {
   const container = document.getElementById(containerId);
   if (!container) return null;
 
   container.innerHTML = '';
   const textarea = document.createElement('textarea');
-  textarea.className = 'form-textarea';
+  textarea.className = 'form-textarea raw-editor-textarea';
   textarea.spellcheck = false;
   textarea.value = content;
-  textarea.style.cssText = 'width:100%;height:100%;border:none;outline:none;resize:none;padding:12px;box-sizing:border-box;font-family:var(--font-mono);font-size:13px;line-height:1.6;tab-size:2;background:var(--bg-primary);color:var(--text-primary);';
   container.appendChild(textarea);
   return textarea;
 }
@@ -4126,19 +4133,19 @@ function setEditorValue(editor, value) {
   }
 }
 
-function initConfigCodeMirror() {
-  if (_state.configCodeMirror) return;
+function initConfigEditor() {
+  if (_state.configEditor) return;
   const container = document.getElementById('configEditorContainer');
   if (container) {
-    _state.configCodeMirror = initCodeMirror('configEditorContainer', store.state.configRaw, 'yaml');
+    _state.configEditor = initRawEditor('configEditorContainer', store.state.configRaw, 'yaml');
   }
 }
 
-function initCookiesCodeMirror() {
-  if (_state.cookiesCodeMirror) return;
+function initCookiesEditor() {
+  if (_state.cookiesEditor) return;
   const container = document.getElementById('cookiesEditorContainer');
   if (container) {
-    _state.cookiesCodeMirror = initCodeMirror('cookiesEditorContainer', store.state.cookiesRaw, 'yaml');
+    _state.cookiesEditor = initRawEditor('cookiesEditorContainer', store.state.cookiesRaw, 'yaml');
   }
 }
 
@@ -4149,9 +4156,9 @@ function cleanupSystemTimers() {
 }
 
 function destroyAllEditors() {
-  _state.configCodeMirror = null;
-  _state.cookiesCodeMirror = null;
-  _state.scheduleCodeMirror = null;
+  _state.configEditor = null;
+  _state.cookiesEditor = null;
+  _state.scheduleEditor = null;
 }
 
 function connectLogSSE() {
@@ -4235,8 +4242,8 @@ function syncConfigTabView() {
   }
   // 提前加载原始数据，切换高级模式时无需等待异步请求
   if (store.state.configRaw === null) loadConfigRaw();
-  if (store.state.configMode === 'raw' && !_state.configCodeMirror) {
-    requestAnimationFrame(() => requestAnimationFrame(initConfigCodeMirror));
+  if (store.state.configMode === 'raw' && !_state.configEditor) {
+    requestAnimationFrame(() => requestAnimationFrame(initConfigEditor));
   }
 }
 
@@ -4246,8 +4253,8 @@ function syncCookiesTabView() {
   }
   // 提前加载原始数据，切换高级模式时无需等待异步请求
   if (store.state.cookiesRaw === null) loadCookiesRaw();
-  if (store.state.cookiesMode === 'raw' && !_state.cookiesCodeMirror) {
-    requestAnimationFrame(() => requestAnimationFrame(initCookiesCodeMirror));
+  if (store.state.cookiesMode === 'raw' && !_state.cookiesEditor) {
+    requestAnimationFrame(() => requestAnimationFrame(initCookiesEditor));
   }
 }
 
@@ -4633,14 +4640,14 @@ function syncSystemPage(state) {
     rerenderSystemPanel(
       'systemConfigPanel',
       renderConfigEditor,
-      () => { _state.configCodeMirror = null; },
-      state.configMode === 'raw' ? initConfigCodeMirror : null,
-      () => state.configMode === 'raw' ? getEditorValue(_state.configCodeMirror, null) : null,
-      (val) => { if (val !== null && _state.configCodeMirror) setEditorValue(_state.configCodeMirror, val); }
+      () => { _state.configEditor = null; },
+      state.configMode === 'raw' ? initConfigEditor : null,
+      () => state.configMode === 'raw' ? getEditorValue(_state.configEditor, null) : null,
+      (val) => { if (val !== null && _state.configEditor) setEditorValue(_state.configEditor, val); }
     );
-  } else if (configRawChanged && state.configMode === 'raw' && _state.configCodeMirror) {
+  } else if (configRawChanged && state.configMode === 'raw' && _state.configEditor) {
     _state.lastConfigRaw = state.configRaw;
-    setEditorValue(_state.configCodeMirror, state.configRaw);
+    setEditorValue(_state.configEditor, state.configRaw);
   }
 
   const cookiesRawRebuildNeeded = cookiesRawChanged && _state.lastCookiesRaw === null && state.cookiesRaw !== null;
@@ -4663,14 +4670,14 @@ function syncSystemPage(state) {
     rerenderSystemPanel(
       'systemCookiesPanel',
       renderCookiesEditor,
-      () => { _state.cookiesCodeMirror = null; },
-      state.cookiesMode === 'raw' ? initCookiesCodeMirror : null,
-      () => state.cookiesMode === 'raw' ? getEditorValue(_state.cookiesCodeMirror, null) : null,
-      (val) => { if (val !== null && _state.cookiesCodeMirror) setEditorValue(_state.cookiesCodeMirror, val); }
+      () => { _state.cookiesEditor = null; },
+      state.cookiesMode === 'raw' ? initCookiesEditor : null,
+      () => state.cookiesMode === 'raw' ? getEditorValue(_state.cookiesEditor, null) : null,
+      (val) => { if (val !== null && _state.cookiesEditor) setEditorValue(_state.cookiesEditor, val); }
     );
-  } else if (cookiesRawChanged && state.cookiesMode === 'raw' && _state.cookiesCodeMirror) {
+  } else if (cookiesRawChanged && state.cookiesMode === 'raw' && _state.cookiesEditor) {
     _state.lastCookiesRaw = state.cookiesRaw;
-    setEditorValue(_state.cookiesCodeMirror, state.cookiesRaw);
+    setEditorValue(_state.cookiesEditor, state.cookiesRaw);
   }
 
   const schedulePanelSchedulesChanged = state._scheduleTab !== 'form' && schedulesChanged;
@@ -4678,10 +4685,10 @@ function syncSystemPage(state) {
     _state.lastSchedulesJson = JSON.stringify(state._schedules);
   }
   const scheduleRawRebuildNeeded = scheduleRawChanged && _state.lastScheduleRaw === null && state._scheduleRaw !== null;
-  let schedulePanelShouldRebuild = state._scheduleTab === 'edit'
+  let schedulePanelShouldRebuild = state._scheduleTab === 'raw'
     ? (scheduleTabChanged || scheduleSavingChanged || scheduleExistsChanged || scheduleRawRebuildNeeded || schedulePanelSchedulesChanged || scheduleFormItemsChanged)
     : (schedulePanelSchedulesChanged || scheduleRawChanged || scheduleExistsChanged || scheduleSavingChanged || scheduleTabChanged || scheduleFormItemsChanged);
-  if (_state._schedulePanelSkipNextRebuild && schedulePanelShouldRebuild && scheduleTabChanged && state._scheduleTab === 'edit') {
+  if (_state._schedulePanelSkipNextRebuild && schedulePanelShouldRebuild && scheduleTabChanged && state._scheduleTab === 'raw') {
     _state._schedulePanelSkipNextRebuild = false;
     schedulePanelShouldRebuild = false;
     _state.lastSchedulesJson = JSON.stringify(state._schedules);
@@ -4703,14 +4710,14 @@ function syncSystemPage(state) {
     rerenderSystemPanel(
       'systemSchedulesPanel',
       renderScheduleViewer,
-      () => { _state.scheduleCodeMirror = null; },
-      state._scheduleTab === 'edit' ? initScheduleCodeMirror : null,
-      () => state._scheduleTab === 'edit' ? getEditorValue(_state.scheduleCodeMirror, null) : null,
-      (val) => { if (val !== null && _state.scheduleCodeMirror) setEditorValue(_state.scheduleCodeMirror, val); }
+      () => { _state.scheduleEditor = null; },
+      state._scheduleTab === 'raw' ? initScheduleEditor : null,
+      () => state._scheduleTab === 'raw' ? getEditorValue(_state.scheduleEditor, null) : null,
+      (val) => { if (val !== null && _state.scheduleEditor) setEditorValue(_state.scheduleEditor, val); }
     );
-  } else if (scheduleRawChanged && state._scheduleTab === 'edit' && _state.scheduleCodeMirror) {
+  } else if (scheduleRawChanged && state._scheduleTab === 'raw' && _state.scheduleEditor) {
     _state.lastScheduleRaw = state._scheduleRaw;
-    setEditorValue(_state.scheduleCodeMirror, state._scheduleRaw);
+    setEditorValue(_state.scheduleEditor, state._scheduleRaw);
   }
 }
 
