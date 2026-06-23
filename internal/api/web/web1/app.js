@@ -2853,8 +2853,8 @@ function renderLogViewer() {
           <button class="btn btn-ghost btn-sm" data-action="logRefresh">刷新</button>
           <button class="btn btn-ghost btn-sm" data-action="logExport">导出</button>
           <label class="form-checkbox" style="font-size:12px;white-space:nowrap">
-            <input type="checkbox" id="log-live-toggle" checked data-action="toggleLogLive">
-            实时
+            <input type="checkbox" id="log-auto-scroll-toggle" checked data-action="toggleLogAutoScroll">
+            自动滚动
           </label>
         </div>
       </div>
@@ -2901,13 +2901,13 @@ function renderLogFilterButtons(level, stats) {
     '</div>';
 }
 
-let logLive = true;
+let logAutoScroll = true;
 let logSSESource = null;
 let _logReconnectAttempts = 0;
 let _logIntentionalDisconnect = false;
 
-function toggleLogLive() {
-  logLive = document.getElementById('log-live-toggle')?.checked ?? true;
+function toggleLogAutoScroll() {
+  logAutoScroll = document.getElementById('log-auto-scroll-toggle')?.checked ?? true;
 }
 
 function exportLogs() { window.open('/api/v1/logs/export'); }
@@ -4174,10 +4174,8 @@ function connectLogSSE() {
   logSSESource = new EventSource(url);
 
   logSSESource.addEventListener('log', (e) => {
-    if (!logLive) return;
     const stream = document.getElementById('log-stream');
     if (!stream) return;
-    const autoScroll = stream.scrollTop + stream.clientHeight >= stream.scrollHeight - 20;
     const el = document.createElement('div');
     el.className = 'log-entry';
     const clean = stripAnsi(e.data);
@@ -4189,10 +4187,10 @@ function connectLogSSE() {
     // 移除 loading 占位
     const hint = document.getElementById('log-empty-hint');
     if (hint) hint.style.display = 'none';
-    if (autoScroll) {
+    if (logAutoScroll) {
       stream.scrollTop = stream.scrollHeight;
     } else {
-      // 用户已向上滚动，显示「新日志已到达」按钮
+      // 用户关闭了自动滚动，显示「新日志已到达」按钮
       const btn = document.getElementById('log-new-arrived-btn');
       if (btn) btn.style.display = 'flex';
     }
@@ -5021,7 +5019,7 @@ document.getElementById('app').addEventListener('click', (e) => {
     case 'logRefresh':        refreshLogs(); break;
     case 'logExport':         exportLogs(); break;
     case 'logScrollToBottom': scrollLogToBottom(); break;
-    case 'toggleLogLive':     toggleLogLive(); break;
+    case 'toggleLogAutoScroll':     toggleLogAutoScroll(); break;
 
     // Server
     case 'shutdownServer':        shutdownServer(); break;
