@@ -318,3 +318,13 @@ func (rl *authRateLimiter) cleanupExpired() {
 		}
 	}
 }
+
+// startCleanupLoop runs a background goroutine that periodically removes expired entries.
+func (rl *authRateLimiter) startCleanupLoop() {
+	go func() {
+		for {
+			time.Sleep(5 * time.Minute)
+			rl.cleanupExpired()
+		}
+	}()
+}

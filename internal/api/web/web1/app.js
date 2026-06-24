@@ -3992,7 +3992,11 @@ async function saveConfigForm() {
   const inputs = document.querySelectorAll('.config-input:not(.cookie-input)[name]');
   const fields = {};
   for (const el of inputs) {
-    if (el.type === 'password' && el.value.trim() === '') { fields[el.name] = '__KEEP_OLD__'; continue; }
+    if (el.type === 'password' && el.value.trim() === '') {
+      // api_key 是唯一可安全清空的可选密码字段（清空 = 关闭认证）
+      fields[el.name] = el.name === 'api_key' ? '__CLEAR__' : '__KEEP_OLD__';
+      continue;
+    }
     if (el.type === 'number') {
       const val = parseInt(el.value, 10);
       const min = el.min !== '' ? parseInt(el.min, 10) : 1;
