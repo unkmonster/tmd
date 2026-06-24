@@ -1476,81 +1476,69 @@ function renderDBTable(type, data, sort) {
 
 function renderDBMobileCards(type, data) {
   if (!data || data.length === 0) return '';
-
-  const cards = data.map(item => {
-    if (type === 'users') {
-      return `
-        <div class="mobile-card">
-          <div class="mobile-card-title">@${escapeHtml(item.screen_name)}</div>
-          <div class="mobile-card-meta">${escapeHtml(item.name)}</div>
-          <div style="display: flex; gap: var(--space-4); font-size: var(--text-sm); margin-bottom: var(--space-2);">
-            <span>${item.protected ? '🔒 Protected' : '🔓 Public'}</span>
-            <span>${item.is_accessible ? '✅ Accessible' : '❌ Not Accessible'}</span>
-          </div>
-          <div style="font-size: var(--text-sm); margin-bottom: var(--space-2);">Friends: ${escapeHtml(item.friends_count)}</div>
-          <div>${renderActionButtons(type, item)}</div>
+  const renderers = {
+    users: item => `
+      <div class="mobile-card">
+        <div class="mobile-card-title">@${escapeHtml(item.screen_name)}</div>
+        <div class="mobile-card-meta">${escapeHtml(item.name)}</div>
+        <div style="display: flex; gap: var(--space-4); font-size: var(--text-sm); margin-bottom: var(--space-2);">
+          <span>${item.protected ? '🔒 Protected' : '🔓 Public'}</span>
+          <span>${item.is_accessible ? '✅ Accessible' : '❌ Not Accessible'}</span>
         </div>
-      `;
-    } else if (type === 'lists') {
-      return `
-        <div class="mobile-card">
-          <div class="mobile-card-title">${escapeHtml(item.name)}</div>
-          <div class="mobile-card-meta">
-            <div>ID: ${escapeHtml(item.id)}</div>
-            <div>Owner: ${escapeHtml(item.owner_user_id)}</div>
-          </div>
-          <div>${renderActionButtons(type, item)}</div>
+        <div style="font-size: var(--text-sm); margin-bottom: var(--space-2);">Friends: ${escapeHtml(item.friends_count)}</div>
+        <div>${renderActionButtons(type, item)}</div>
+      </div>`,
+    lists: item => `
+      <div class="mobile-card">
+        <div class="mobile-card-title">${escapeHtml(item.name)}</div>
+        <div class="mobile-card-meta">
+          <div>ID: ${escapeHtml(item.id)}</div>
+          <div>Owner: ${escapeHtml(item.owner_user_id)}</div>
         </div>
-      `;
-    } else if (type === 'entities') {
-      return `
-        <div class="mobile-card">
-          <div class="mobile-card-title">${escapeHtml(item.name)}</div>
-          <div class="mobile-card-meta">
-            <div>ID: ${escapeHtml(item.id)}</div>
-            <div>User ID: ${escapeHtml(item.user_id)}</div>
-            <div>Media: ${escapeHtml(item.media_count || 0)}</div>
-          </div>
-          <div>${renderActionButtons(type, item)}</div>
+        <div>${renderActionButtons(type, item)}</div>
+      </div>`,
+    entities: item => `
+      <div class="mobile-card">
+        <div class="mobile-card-title">${escapeHtml(item.name)}</div>
+        <div class="mobile-card-meta">
+          <div>ID: ${escapeHtml(item.id)}</div>
+          <div>User ID: ${escapeHtml(item.user_id)}</div>
+          <div>Media: ${escapeHtml(item.media_count || 0)}</div>
         </div>
-      `;
-    } else if (type === 'listEntities') {
-      return `
-        <div class="mobile-card">
-          <div class="mobile-card-title">${escapeHtml(item.name)}</div>
-          <div class="mobile-card-meta">
-            <div>ID: ${escapeHtml(item.id)}</div>
-            <div>List ID: ${escapeHtml(item.lst_id)}</div>
-            <div>Dir: ${escapeHtml(item.parent_dir)}</div>
-          </div>
-          <div>${renderActionButtons(type, item)}</div>
+        <div>${renderActionButtons(type, item)}</div>
+      </div>`,
+    listEntities: item => `
+      <div class="mobile-card">
+        <div class="mobile-card-title">${escapeHtml(item.name)}</div>
+        <div class="mobile-card-meta">
+          <div>ID: ${escapeHtml(item.id)}</div>
+          <div>List ID: ${escapeHtml(item.lst_id)}</div>
+          <div>Dir: ${escapeHtml(item.parent_dir)}</div>
         </div>
-      `;
-    } else if (type === 'previousNames') {
-      const currentLabel = item.current_screen_name ? `@${item.current_screen_name}` : (item.user_id || '');
+        <div>${renderActionButtons(type, item)}</div>
+      </div>`,
+    previousNames: item => {
+      const label = item.current_screen_name ? `@${item.current_screen_name}` : (item.user_id || '');
       return `
-        <div class="mobile-card">
-          <div class="mobile-card-title">${escapeHtml(currentLabel)}</div>
-          <div class="mobile-card-meta">
-            <div>Previous: @${escapeHtml(item.screen_name || '')} (${escapeHtml(item.name || '')})</div>
-            <div>Date: ${escapeHtml(item.record_date || '-')}</div>
-          </div>
+      <div class="mobile-card">
+        <div class="mobile-card-title">${escapeHtml(label)}</div>
+        <div class="mobile-card-meta">
+          <div>Previous: @${escapeHtml(item.screen_name || '')} (${escapeHtml(item.name || '')})</div>
+          <div>Date: ${escapeHtml(item.record_date || '-')}</div>
         </div>
-      `;
-    } else {
-      return `
-        <div class="mobile-card">
-          <div class="mobile-card-title">${escapeHtml(item.name)}</div>
-          <div class="mobile-card-meta">
-            <div>ID: ${escapeHtml(item.id)}</div>
-            <div>User ID: ${escapeHtml(item.user_id)}</div>
-            <div>Entity: ${escapeHtml(item.parent_lst_entity_id)}</div>
-          </div>
-        </div>
-      `;
-    }
-  }).join('');
-
+      </div>`;
+    },
+  };
+  const render = renderers[type] || (item => `
+    <div class="mobile-card">
+      <div class="mobile-card-title">${escapeHtml(item.name)}</div>
+      <div class="mobile-card-meta">
+        <div>ID: ${escapeHtml(item.id)}</div>
+        <div>User ID: ${escapeHtml(item.user_id)}</div>
+        <div>Entity: ${escapeHtml(item.parent_lst_entity_id)}</div>
+      </div>
+    </div>`);
+  const cards = data.map(render).join('');
   return `<div class="mobile-card-list">${cards}</div>`;
 }
 
@@ -1726,26 +1714,9 @@ function filterPreviousNamesByUser(userId) {
 
 async function editDBItem(type, id) {
   try {
-    let item;
-    switch (type) {
-      case 'users':
-        item = await api.getDBUser(id);
-        break;
-      case 'lists':
-        item = await api.getDBList(id);
-        break;
-      case 'entities':
-        item = await api.getDBUserEntity(id);
-        break;
-      case 'listEntities':
-        item = await api.getDBListEntity(id);
-        break;
-      case 'userLinks':
-        item = await api.getDBUserLink(id);
-        break;
-      default:
-        throw new Error('Unknown type: ' + type);
-    }
+    const getFn = dbGetFns[type];
+    if (!getFn) return toast.show('Unknown type: ' + type, 'error');
+    const item = await getFn(id);
 
     if (!item) {
       throw new Error('Failed to load item data');
@@ -1893,27 +1864,8 @@ async function saveDBItem(type, id) {
       if (!data.name) return toast.show('Name is required', 'error');
       break;
   }
-
   try {
-    switch (type) {
-      case 'users':
-        await api.updateDBUser(id, data);
-        break;
-      case 'lists':
-        await api.updateDBList(id, data);
-        break;
-      case 'entities':
-        await api.updateDBUserEntity(id, data);
-        break;
-      case 'listEntities':
-        await api.updateDBListEntity(id, data);
-        break;
-      case 'userLinks':
-        await api.updateDBUserLink(id, data);
-        break;
-      default:
-        throw new Error('Unknown type: ' + type);
-    }
+    await dbUpdateFns[type](id, data);
     drawer.close();
     toast.show('保存成功');
     refreshDBData();
@@ -1922,66 +1874,41 @@ async function saveDBItem(type, id) {
   }
 }
 
+const dbDeleteFns = {
+  users: id => api.deleteDBUser(id),
+  lists: id => api.deleteDBList(id),
+  entities: id => api.deleteDBUserEntity(id),
+  listEntities: id => api.deleteDBListEntity(id),
+  userLinks: id => api.deleteDBUserLink(id),
+};
+
 async function deleteDBItem(type, id) {
   if (!confirm(`确定要删除这个${type}记录吗？此操作不可恢复。`)) return;
-
+  const delFn = dbDeleteFns[type];
+  if (!delFn) return toast.show('Unknown type: ' + type, 'error');
   try {
-    switch (type) {
-      case 'users':
-        await api.deleteDBUser(id);
-        break;
-      case 'lists':
-        await api.deleteDBList(id);
-        break;
-      case 'entities':
-        await api.deleteDBUserEntity(id);
-        break;
-      case 'listEntities':
-        await api.deleteDBListEntity(id);
-        break;
-      case 'userLinks':
-        await api.deleteDBUserLink(id);
-        break;
-      default:
-        throw new Error('Unknown type: ' + type);
-    }
+    await delFn(id);
     toast.show('删除成功');
-    // 删除操作可能使当前页越界（删除最后一页的最后一条），
-    // 先请求一次获取最新数据再刷新
     const { dataSubPage, dbPagination } = store.state;
     const current = dbPagination[dataSubPage];
     const checkParams = new URLSearchParams();
     checkParams.append('page', '1');
     checkParams.append('pageSize', current.pageSize);
     const dataSubPageMap = {
-      users: api.getDBUsers,
-      lists: api.getDBLists,
-      entities: api.getDBUserEntities,
-      listEntities: api.getDBListEntities,
-      userLinks: api.getDBUserLinks,
-      previousNames: api.getDBPreviousNames,
+      users: api.getDBUsers, lists: api.getDBLists, entities: api.getDBUserEntities,
+      listEntities: api.getDBListEntities, userLinks: api.getDBUserLinks, previousNames: api.getDBPreviousNames,
     };
     const fetcher = dataSubPageMap[dataSubPage];
     if (fetcher) {
       const resp = await fetcher(checkParams.toString());
       const total = (resp || {}).total || 0;
       const totalPages = Math.max(1, Math.ceil(total / (current.pageSize || 200)));
-      // 当前页超出总页数时回到最后一页
-      if (current.page > totalPages) {
-        store.setState({
-          dbPagination: {
-            ...dbPagination,
-            [dataSubPage]: { ...current, page: totalPages, totalPages }
-          }
-        });
-      } else {
-        store.setState({
-          dbPagination: {
-            ...dbPagination,
-            [dataSubPage]: { ...current, totalPages }
-          }
-        });
-      }
+      store.setState({
+        dbPagination: {
+          ...dbPagination,
+          [dataSubPage]: { ...current, page: Math.min(current.page, totalPages), totalPages }
+        }
+      });
     }
     refreshDBData();
   } catch (err) {
