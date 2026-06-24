@@ -111,7 +111,7 @@ func (s *Server) handleUserDownload(w http.ResponseWriter, r *http.Request, scre
 
 	runFunc, err := s.buildTaskRunFunc(task)
 	if err != nil {
-		log.Errorf("Failed to build task run func: %v", err)
+		log.Errorf("[tasks] Failed to build task run func: %v", err)
 		s.writeError(w, http.StatusInternalServerError, "Failed to create task")
 		return
 	}
@@ -138,7 +138,7 @@ func (s *Server) handleUserProfile(w http.ResponseWriter, _ *http.Request, scree
 
 	runFunc, err := s.buildTaskRunFunc(task)
 	if err != nil {
-		log.Errorf("Failed to build task run func: %v", err)
+		log.Errorf("[tasks] Failed to build task run func: %v", err)
 		s.writeError(w, http.StatusInternalServerError, "Failed to create task")
 		return
 	}
@@ -166,7 +166,7 @@ func (s *Server) handleUserMark(w http.ResponseWriter, r *http.Request, screenNa
 
 	runFunc, err := s.buildTaskRunFunc(task)
 	if err != nil {
-		log.Errorf("Failed to build task run func: %v", err)
+		log.Errorf("[tasks] Failed to build task run func: %v", err)
 		s.writeError(w, http.StatusInternalServerError, "Failed to create task")
 		return
 	}
@@ -195,7 +195,7 @@ func (s *Server) handleListMark(w http.ResponseWriter, r *http.Request, listID u
 
 	runFunc, err := s.buildTaskRunFunc(task)
 	if err != nil {
-		log.Errorf("Failed to build task run func: %v", err)
+		log.Errorf("[tasks] Failed to build task run func: %v", err)
 		s.writeError(w, http.StatusInternalServerError, "Failed to create task")
 		return
 	}
@@ -224,7 +224,7 @@ func (s *Server) handleFollowingMark(w http.ResponseWriter, r *http.Request, scr
 
 	runFunc, err := s.buildTaskRunFunc(task)
 	if err != nil {
-		log.Errorf("Failed to build task run func: %v", err)
+		log.Errorf("[tasks] Failed to build task run func: %v", err)
 		s.writeError(w, http.StatusInternalServerError, "Failed to create task")
 		return
 	}
@@ -253,7 +253,7 @@ func (s *Server) handleFollowingDownload(w http.ResponseWriter, r *http.Request,
 
 	runFunc, err := s.buildTaskRunFunc(task)
 	if err != nil {
-		log.Errorf("Failed to build task run func: %v", err)
+		log.Errorf("[tasks] Failed to build task run func: %v", err)
 		s.writeError(w, http.StatusInternalServerError, "Failed to create task")
 		return
 	}
@@ -325,7 +325,7 @@ func (s *Server) handleListDownload(w http.ResponseWriter, r *http.Request, list
 
 	runFunc, err := s.buildTaskRunFunc(task)
 	if err != nil {
-		log.Errorf("Failed to build task run func: %v", err)
+		log.Errorf("[tasks] Failed to build task run func: %v", err)
 		s.writeError(w, http.StatusInternalServerError, "Failed to create task")
 		return
 	}
@@ -352,7 +352,7 @@ func (s *Server) handleListProfile(w http.ResponseWriter, _ *http.Request, listI
 
 	runFunc, err := s.buildTaskRunFunc(task)
 	if err != nil {
-		log.Errorf("Failed to build task run func: %v", err)
+		log.Errorf("[tasks] Failed to build task run func: %v", err)
 		s.writeError(w, http.StatusInternalServerError, "Failed to create task")
 		return
 	}
@@ -388,7 +388,7 @@ func (s *Server) handleJsonFileDownload(w http.ResponseWriter, r *http.Request) 
 	status := task.Status
 	runFunc, err := s.buildTaskRunFunc(task)
 	if err != nil {
-		log.Errorf("Failed to build task run func: %v", err)
+		log.Errorf("[tasks] Failed to build task run func: %v", err)
 		s.writeError(w, http.StatusInternalServerError, "Failed to create task")
 		return
 	}
@@ -425,7 +425,7 @@ func (s *Server) handleJsonFolderDownload(w http.ResponseWriter, r *http.Request
 	status := task.Status
 	runFunc, err := s.buildTaskRunFunc(task)
 	if err != nil {
-		log.Errorf("Failed to build task run func: %v", err)
+		log.Errorf("[tasks] Failed to build task run func: %v", err)
 		s.writeError(w, http.StatusInternalServerError, "Failed to create task")
 		return
 	}
@@ -448,7 +448,7 @@ func (s *Server) handleJsonFileUpload(w http.ResponseWriter, r *http.Request) {
 		if uploadDir != "" {
 			_ = os.RemoveAll(uploadDir)
 		}
-		log.Errorf("[upload] failed to save JSON files: %v", err)
+		log.Errorf("[upload] Failed to save JSON files: %v", err)
 		var maxBytesErr *http.MaxBytesError
 		if errors.As(err, &maxBytesErr) {
 			s.writeError(w, http.StatusRequestEntityTooLarge, "Upload too large")
@@ -474,7 +474,7 @@ func (s *Server) handleJsonFileUpload(w http.ResponseWriter, r *http.Request) {
 	runFunc, err := s.buildTaskRunFunc(task)
 	if err != nil {
 		_ = os.RemoveAll(uploadDir)
-		log.Errorf("Failed to build task run func: %v", err)
+		log.Errorf("[tasks] Failed to build task run func: %v", err)
 		s.writeError(w, http.StatusInternalServerError, "Failed to create task")
 		return
 	}
@@ -497,7 +497,7 @@ func (s *Server) handleJsonFolderUpload(w http.ResponseWriter, r *http.Request) 
 		if uploadDir != "" {
 			_ = os.RemoveAll(uploadDir)
 		}
-		log.Errorf("[upload] failed to save loongtweet files: %v", err)
+		log.Errorf("[upload] Failed to save loongtweet files: %v", err)
 		var maxBytesErr *http.MaxBytesError
 		if errors.As(err, &maxBytesErr) {
 			s.writeError(w, http.StatusRequestEntityTooLarge, "Upload too large")
@@ -523,7 +523,7 @@ func (s *Server) handleJsonFolderUpload(w http.ResponseWriter, r *http.Request) 
 	runFunc, err := s.buildTaskRunFunc(task)
 	if err != nil {
 		_ = os.RemoveAll(uploadDir)
-		log.Errorf("Failed to build task run func: %v", err)
+		log.Errorf("[tasks] Failed to build task run func: %v", err)
 		s.writeError(w, http.StatusInternalServerError, "Failed to create task")
 		return
 	}
@@ -756,7 +756,7 @@ func (s *Server) handleBatchDownload(w http.ResponseWriter, r *http.Request) {
 
 	runFunc, err := s.buildTaskRunFunc(task)
 	if err != nil {
-		log.Errorf("Failed to build task run func: %v", err)
+		log.Errorf("[tasks] Failed to build task run func: %v", err)
 		s.writeError(w, http.StatusInternalServerError, "Failed to create task")
 		return
 	}
@@ -815,7 +815,7 @@ func (s *Server) handleBatchMark(w http.ResponseWriter, r *http.Request) {
 
 	runFunc, err := s.buildTaskRunFunc(task)
 	if err != nil {
-		log.Errorf("Failed to build task run func: %v", err)
+		log.Errorf("[tasks] Failed to build task run func: %v", err)
 		s.writeError(w, http.StatusInternalServerError, "Failed to create task")
 		return
 	}
@@ -929,7 +929,7 @@ func (s *Server) handleRetryTask(w http.ResponseWriter, r *http.Request) {
 
 	runFunc, err := s.buildTaskRunFunc(original)
 	if err != nil {
-		log.Errorf("Failed to build task run func: %v", err)
+		log.Errorf("[tasks] Failed to build task run func: %v", err)
 		s.writeError(w, http.StatusBadRequest, "Invalid task type")
 		return
 	}

@@ -48,7 +48,7 @@ func (s *Server) decodeBody(w http.ResponseWriter, r *http.Request, dest interfa
 //	}
 func requireResource[T any](resource *T, err error, resourceName string, writeError func(int, string)) bool {
 	if err != nil {
-		log.Errorf("Failed to get %s: %v", resourceName, err)
+		log.Errorf("[db] Failed to get %s: %v", resourceName, err)
 		writeError(http.StatusInternalServerError, "Failed to get "+resourceName)
 		return false
 	}
@@ -77,7 +77,7 @@ func (s *Server) writeResourceDeleted(w http.ResponseWriter, resourceName string
 func (s *Server) countWithError(w http.ResponseWriter, table string, where string, args []interface{}) (int, bool) {
 	total, err := database.Count(s.db, table, &database.QueryOptions{Where: where, Args: args})
 	if err != nil {
-		log.Errorf("Failed to count %s: %v", table, err)
+		log.Errorf("[db] Failed to count %s: %v", table, err)
 		s.writeError(w, http.StatusInternalServerError, "Failed to query database")
 		return 0, false
 	}
@@ -162,13 +162,13 @@ type userCascadeCount struct {
 func (s *Server) countUserCascade(id uint64) userCascadeCount {
 	var c userCascadeCount
 	if err := s.db.Get(&c.linkCount, "SELECT COUNT(*) FROM user_links WHERE user_id = ?", id); err != nil {
-		log.Warnf("failed to count user_links for user %d: %v", id, err)
+		log.Warnf("[db] failed to count user_links for user %d: %v", id, err)
 	}
 	if err := s.db.Get(&c.entityCount, "SELECT COUNT(*) FROM user_entities WHERE user_id = ?", id); err != nil {
-		log.Warnf("failed to count user_entities for user %d: %v", id, err)
+		log.Warnf("[db] failed to count user_entities for user %d: %v", id, err)
 	}
 	if err := s.db.Get(&c.nameCount, "SELECT COUNT(*) FROM user_previous_names WHERE user_id = ?", id); err != nil {
-		log.Warnf("failed to count user_previous_names for user %d: %v", id, err)
+		log.Warnf("[db] failed to count user_previous_names for user %d: %v", id, err)
 	}
 	return c
 }

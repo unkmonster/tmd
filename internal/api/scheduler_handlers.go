@@ -449,7 +449,7 @@ func (s *Server) readScheduleConfigLocked(schedulesPath string) (scheduler.Sched
 func (s *Server) writeScheduleConfigLocked(schedulesPath string, cfg scheduler.ScheduleConfig) (string, error) {
 	backupName, err := config.CreateBackup(schedulesPath)
 	if err != nil {
-		log.Warnf("Failed to create schedules backup: %v", err)
+		log.Warnf("[schedules] Failed to create schedules backup: %v", err)
 	}
 
 	data, err := yaml.Marshal(cfg)

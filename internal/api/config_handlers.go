@@ -86,7 +86,7 @@ func (s *Server) handleUpdateConfigRaw(w http.ResponseWriter, r *http.Request) {
 
 	backupName, err := config.CreateBackup(confPath)
 	if err != nil {
-		log.Warnf("Failed to create config backup: %v", err)
+		log.Warnf("[config] Failed to create config backup: %v", err)
 	}
 
 	if err := config.WriteConf(confPath, testConf); err != nil {
@@ -104,7 +104,7 @@ func (s *Server) handleUpdateConfigRaw(w http.ResponseWriter, r *http.Request) {
 
 	yamlPreview, err := config.MarshalConf(testConf)
 	if err != nil {
-		log.Warnf("Failed to marshal yaml preview: %v", err)
+		log.Warnf("[config] Failed to marshal yaml preview: %v", err)
 	}
 
 	message := "Configuration saved successfully. Please restart TMD manually for changes to take effect."
@@ -275,7 +275,7 @@ func (s *Server) handleSaveConfigFields(w http.ResponseWriter, r *http.Request) 
 
 	backupName, err := config.CreateBackup(confPath)
 	if err != nil {
-		log.Warnf("Failed to create config backup: %v", err)
+		log.Warnf("[config] Failed to create config backup: %v", err)
 	}
 
 	if err := config.WriteConf(confPath, newConf); err != nil {
@@ -294,7 +294,7 @@ func (s *Server) handleSaveConfigFields(w http.ResponseWriter, r *http.Request) 
 
 	yamlPreview, err := config.MarshalConf(newConf)
 	if err != nil {
-		log.Warnf("Failed to marshal yaml preview: %v", err)
+		log.Warnf("[config] Failed to marshal yaml preview: %v", err)
 	}
 
 	message := "Configuration saved successfully. Please restart TMD manually for changes to take effect."
