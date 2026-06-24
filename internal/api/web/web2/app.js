@@ -450,6 +450,18 @@ function sseJWT() {
   return localStorage.getItem('tmd_jwt_token') || '';
 }
 
+// 统一 JWT 预刷新：当 JWT 即将过期时先刷新再执行回调，否则直接回调
+function tryRefreshJWT(label, done) {
+  const token = localStorage.getItem('tmd_jwt_token');
+  if (!token) { done(false); return; }
+  const expiry = localStorage.getItem('tmd_jwt_expiry');
+  if (!expiry || new Date(expiry) - new Date() >= 2 * 60 * 1000) { done(false); return; }
+  API._tryRefreshJWT().then(refreshed => {
+    if (refreshed) console.log(`[${label}] JWT refreshed before reconnect`);
+    done(refreshed);
+  });
+}
+
 // Debounce rapid SSE updates to avoid excessive re-renders
 const debouncedTasksUpdate = debounce(function(tasks) {
   pageTasks = tasks;
@@ -525,22 +537,10 @@ function connectSSE() {
     sseConnected = false;
     document.querySelector('.health-dot') && (document.querySelector('.health-dot').style.background = 'var(--red)');
     sseSource.close();
-
-    // 有 JWT 时检查是否即将过期，先刷新再重连（对齐 web1 行为）
-    const jwtToken = sseJWT();
-    if (jwtToken) {
-      const expiry = localStorage.getItem('tmd_jwt_expiry');
-      if (expiry && new Date(expiry) - new Date() < 2 * 60 * 1000) {
-        API._tryRefreshJWT().then(() => {
-          sseReconnectDelay = Math.min(sseReconnectDelay * 2, 30000);
-          sseReconnectTimer = setTimeout(connectSSE, sseReconnectDelay);
-        });
-        return;
-      }
-    }
-
-    sseReconnectDelay = Math.min(sseReconnectDelay * 2, 30000);
-    sseReconnectTimer = setTimeout(connectSSE, sseReconnectDelay);
+    tryRefreshJWT('SSE', () => {
+      sseReconnectDelay = Math.min(sseReconnectDelay * 2, 30000);
+      sseReconnectTimer = setTimeout(connectSSE, sseReconnectDelay);
+    });
   };
 }
 
@@ -2097,6 +2097,7 @@ let logSSESource = null;
 let logAutoScroll = true;
 let _logReconnectAttempts = 0;
 let _logIntentionalDisconnect = false;
+let _logSSETimer = null;
 let _logPage = 1;
 let _logTotalPages = 1;
 let _logLoadingMore = false;
@@ -2202,7 +2203,7 @@ async function loadLogStats() {
 
 function connectLogSSE() {
   if (logSSESource) { logSSESource.close(); logSSESource = null; }
-  if (window._logSSETimer) { clearTimeout(window._logSSETimer); window._logSSETimer = null; }
+  if (_logSSETimer) { clearTimeout(_logSSETimer); _logSSETimer = null; }
   _logIntentionalDisconnect = false;
   const level = document.getElementById('log-level') ? document.getElementById('log-level').value.trim() : '';
   const q = document.getElementById('log-search-input') ? document.getElementById('log-search-input').value.trim() : '';
@@ -2250,14 +2251,14 @@ function connectLogSSE() {
       return;
     }
     const delay = Math.min(2000 * Math.pow(1.5, _logReconnectAttempts - 1), 30000);
-    window._logSSETimer = setTimeout(connectLogSSE, delay);
+    tryRefreshJWT('LogSSE', () => { _logSSETimer = setTimeout(connectLogSSE, delay); });
   };
 }
 
 function disconnectLogSSE() {
   _logIntentionalDisconnect = true;
   if (logSSESource) { logSSESource.close(); logSSESource = null; }
-  if (window._logSSETimer) { clearTimeout(window._logSSETimer); window._logSSETimer = null; }
+  if (_logSSETimer) { clearTimeout(_logSSETimer); _logSSETimer = null; }
   _logReconnectAttempts = 0;
 }
 

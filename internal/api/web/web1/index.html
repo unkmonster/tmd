@@ -105,16 +105,16 @@
   </nav>
 
   <!-- Sidebar Overlay (mobile) -->
-  <div class="sidebar-overlay" id="sidebarOverlay"></div>
+  <div class="sidebar-overlay" id="sidebarOverlay" data-action="closeSidebar"></div>
 
   <!-- Drawer Overlay -->
-  <div class="drawer-overlay" id="drawerOverlay"></div>
+  <div class="drawer-overlay" id="drawerOverlay" data-action="closeDrawer"></div>
 
   <!-- Drawer -->
   <aside class="drawer" id="drawer">
     <div class="drawer-header">
       <h3 class="drawer-title" id="drawerTitle">任务详情</h3>
-      <button class="btn btn-ghost btn-icon" id="drawerClose">✕</button>
+      <button class="btn btn-ghost btn-icon" id="drawerClose" data-action="closeDrawer">✕</button>
     </div>
     <div class="drawer-body" id="drawerBody">
       <!-- Drawer content -->
@@ -128,7 +128,7 @@
   <div class="toast-container" id="toastContainer"></div>
 
   <!-- Auth Modal (hidden by default, shown on 401) -->
-  <div class="auth-overlay" id="authOverlay" style="display:none">
+  <div class="auth-overlay" id="authOverlay">
     <div class="auth-modal">
       <div class="auth-modal-header">
         <div class="auth-modal-icon">🔐</div>

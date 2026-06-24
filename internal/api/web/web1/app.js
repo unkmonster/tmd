@@ -230,11 +230,9 @@ const api = {
     };
     
     // 注入 Authorization 头（使用 JWT 会话令牌）
-    if (!extra.skipAuthInject) {
-      const jwt = localStorage.getItem('tmd_jwt_token');
-      if (jwt) {
-        options.headers = { ...options.headers, 'Authorization': 'Bearer ' + jwt };
-      }
+    const jwt = localStorage.getItem('tmd_jwt_token');
+    if (jwt) {
+      options.headers = { ...options.headers, 'Authorization': 'Bearer ' + jwt };
     }
     
     if (extra.isFormData) {
@@ -451,10 +449,11 @@ const sseManager = {
   reconnectAttempts: 0,
   reconnectDisabled: false,
   _everConnected: false, // 首次成功连接前不显示"断开"状态
-
   _tokenParam() {
-    const jwt = localStorage.getItem('tmd_jwt_token');
-    return jwt ? '?token=' + encodeURIComponent(jwt) : '';
+    const p = new URLSearchParams();
+    appendJWTToken(p);
+    const qs = p.toString();
+    return qs ? '?' + qs : '';
   },
 
   connect() {
@@ -551,32 +550,17 @@ const sseManager = {
           console.warn('[SSE] 健康检查失败:', e.message, '- 继续重试...');
         });
       }
-      // 有 JWT 时检查是否过期，尝试刷新后再重连
-      if (localStorage.getItem('tmd_jwt_token')) {
-        const expiry = localStorage.getItem('tmd_jwt_expiry');
-        if (expiry && new Date(expiry) - new Date() < 2 * 60 * 1000) {
-          // JWT 即将或已经过期，先刷新
-          api._tryRefreshJWT().then(refreshed => {
-            if (refreshed) {
-              console.log('[SSE] JWT refreshed before reconnect');
-            }
-            this._scheduleReconnect();
-          });
-          return; // 刷新完成后 _scheduleReconnect
-        }
-      }
-      this._scheduleReconnect();
+      tryRefreshJWT('SSE', () => this._scheduleReconnect());
     };
 
-    // 提取为独立方法以便 JWT 刷新后调用
-    this._scheduleReconnect = () => {
-      const delay = Math.min(this.baseReconnectDelay * Math.pow(2, this.reconnectAttempts - 1), this.maxReconnectDelay);
-      console.warn(`[SSE] 连接断开，${delay / 1000}s 后重试（第 ${this.reconnectAttempts} 次）`);
-      this.reconnectTimer = setTimeout(() => {
-        this.reconnectTimer = null;
-        this.connect();
-      }, delay);
-    };
+  },
+  _scheduleReconnect() {
+    const delay = Math.min(this.baseReconnectDelay * Math.pow(2, this.reconnectAttempts - 1), this.maxReconnectDelay);
+    console.warn(`[SSE] 连接断开，${delay / 1000}s 后重试（第 ${this.reconnectAttempts} 次）`);
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      this.connect();
+    }, delay);
   },
   
   disconnect() {
@@ -642,6 +626,24 @@ const sseManager = {
     }
   }
 };
+
+// 统一 JWT 预刷新：当 JWT 即将过期时先刷新再执行回调，否则直接回调
+function tryRefreshJWT(label, done) {
+  const token = localStorage.getItem('tmd_jwt_token');
+  if (!token) { done(false); return; }
+  const expiry = localStorage.getItem('tmd_jwt_expiry');
+  if (!expiry || new Date(expiry) - new Date() >= 2 * 60 * 1000) { done(false); return; }
+  api._tryRefreshJWT().then(refreshed => {
+    if (refreshed) console.log(`[${label}] JWT refreshed before reconnect`);
+    done(refreshed);
+  });
+}
+
+// 统一 token 参数追加（JWT），避免各处重复构建
+function appendJWTToken(params) {
+  const jwt = localStorage.getItem('tmd_jwt_token');
+  if (jwt) params.append('token', jwt);
+}
 
 // ============================================
 // Toast Notifications
@@ -716,9 +718,6 @@ const drawer = {
     document.body.style.overflow = '';
   }
 };
-
-document.getElementById('drawerClose').onclick = () => drawer.close();
-document.getElementById('drawerOverlay').onclick = () => drawer.close();
 
 // ============================================
 // Page Renderers
@@ -1218,20 +1217,7 @@ function renderTaskForm(type) {
         <label class="form-label">Screen Name</label>
         <input type="text" class="form-input" id="userScreenName" placeholder="例如: elonmusk">
       </div>
-      <div class="form-group">
-        <label class="form-checkbox">
-          <input type="checkbox" id="userAutoFollow"> 自动申请受保护账号
-        </label>
-        <label class="form-checkbox">
-          <input type="checkbox" id="userFollowMembers"> 下载时关注目标/成员
-        </label>
-        <label class="form-checkbox">
-          <input type="checkbox" id="userSkipProfile"> SkipProfile
-        </label>
-        <label class="form-checkbox">
-          <input type="checkbox" id="userNoRetry"> NoRetry
-        </label>
-      </div>
+      ${renderCheckboxes('user')}
       <div class="flex gap-3">
         <button class="btn btn-primary" data-action="createUserTask">创建下载任务</button>
         <button class="btn btn-secondary" data-action="createProfileTask">仅下载 Profile</button>
@@ -1242,20 +1228,7 @@ function renderTaskForm(type) {
         <label class="form-label">List ID</label>
         <input type="text" inputmode="numeric" pattern="[0-9]*" class="form-input" id="listId" placeholder="例如: 123456789">
       </div>
-      <div class="form-group">
-        <label class="form-checkbox">
-          <input type="checkbox" id="listAutoFollow"> 自动申请受保护账号
-        </label>
-        <label class="form-checkbox">
-          <input type="checkbox" id="listFollowMembers"> 下载时关注目标/成员
-        </label>
-        <label class="form-checkbox">
-          <input type="checkbox" id="listSkipProfile"> SkipProfile
-        </label>
-        <label class="form-checkbox">
-          <input type="checkbox" id="listNoRetry"> NoRetry
-        </label>
-      </div>
+      ${renderCheckboxes('list')}
       <div class="flex gap-3">
         <button class="btn btn-primary" data-action="createListTask">创建下载任务</button>
         <button class="btn btn-secondary" data-action="createListProfileTask">仅下载 Profile</button>
@@ -1266,20 +1239,7 @@ function renderTaskForm(type) {
         <label class="form-label">Screen Name</label>
         <input type="text" class="form-input" id="followingScreenName" placeholder="例如: elonmusk">
       </div>
-      <div class="form-group">
-        <label class="form-checkbox">
-          <input type="checkbox" id="followingAutoFollow"> 自动申请受保护账号
-        </label>
-        <label class="form-checkbox">
-          <input type="checkbox" id="followingFollowMembers"> 下载时关注目标/成员
-        </label>
-        <label class="form-checkbox">
-          <input type="checkbox" id="followingSkipProfile"> SkipProfile
-        </label>
-        <label class="form-checkbox">
-          <input type="checkbox" id="followingNoRetry"> NoRetry
-        </label>
-      </div>
+      ${renderCheckboxes('following')}
       <div class="flex gap-3">
         <button class="btn btn-primary" data-action="createFollowingTask">创建关注下载任务</button>
       </div>
@@ -1318,20 +1278,7 @@ function renderTaskForm(type) {
         <textarea class="form-textarea" id="batchFollowingNames" placeholder="user_a\nuser_b" rows="2"></textarea>
         <div class="text-sm text-tertiary mt-2">将这些用户的 Following 加入批量下载目标</div>
       </div>
-      <div class="form-group">
-        <label class="form-checkbox">
-          <input type="checkbox" id="batchAutoFollow"> 自动申请受保护账号
-        </label>
-        <label class="form-checkbox">
-          <input type="checkbox" id="batchFollowMembers"> 下载时关注目标/成员
-        </label>
-        <label class="form-checkbox">
-          <input type="checkbox" id="batchSkipProfile"> SkipProfile
-        </label>
-        <label class="form-checkbox">
-          <input type="checkbox" id="batchNoRetry"> NoRetry
-        </label>
-      </div>
+      ${renderCheckboxes('batch')}
       <button class="btn btn-primary" data-action="createBatchTask">创建批量任务</button>
     `,
     jsonfile: `
@@ -1383,6 +1330,25 @@ jsonfolder: `
 }
 
 // Shared helpers for database table rendering
+
+// 共享的 checkbox 模板：auto_follow / follow_members / skip_profile / no_retry
+function renderCheckboxes(prefix) {
+  return `
+      <div class="form-group">
+        <label class="form-checkbox">
+          <input type="checkbox" id="${prefix}AutoFollow"> 自动申请受保护账号
+        </label>
+        <label class="form-checkbox">
+          <input type="checkbox" id="${prefix}FollowMembers"> 下载时关注目标/成员
+        </label>
+        <label class="form-checkbox">
+          <input type="checkbox" id="${prefix}SkipProfile"> SkipProfile
+        </label>
+        <label class="form-checkbox">
+          <input type="checkbox" id="${prefix}NoRetry"> NoRetry
+        </label>
+      </div>`;
+}
 function sortIcon(sort, field) {
   if (sort.sortBy !== field) return '<span class="sort-icon">↕</span>';
   return sort.sortOrder === 'asc'
@@ -1408,153 +1374,81 @@ function renderActionButtons(type, item) {
   `;
 }
 
+// 通用数据库表格渲染器：基于列定义数组生成 <table>
+// columns: [{ key, label, sortable, sortBy, render(item) }]
+//   key = 数据字段名，label = 表头显示文字，sortable = 是否可排序（默认 true）
+//   sortBy = 排序字段名（默认 key），render = 自定义单元格渲染（返回 innerHTML，不含 <td>）
+function renderTable(columns, data, sort) {
+  const rows = data.map(item => `<tr>${columns.map(col => `<td>${col.render ? col.render(item) : escapeHtml(item[col.key] || '')}</td>`).join('')}</tr>`).join('');
+  const thead = columns.map(col => {
+    if (col.sortable === false) return `<th>${escapeHtml(col.label)}</th>`;
+    return sortableHeader(sort, col.sortBy || col.key, col.label);
+  }).join('');
+  return `<table class="data-table"><thead><tr>${thead}</tr></thead><tbody>${rows}</tbody></table>`;
+}
+
 function renderDBUsersTable(type, data, sort) {
-  const rows = data.map(item => `<tr>
-    <td>${escapeHtml(item.id)}</td>
-    <td>@${escapeHtml(item.screen_name)}</td>
-    <td>${escapeHtml(item.name)}</td>
-    <td>${item.protected ? '🔒' : '🔓'}</td>
-    <td>${item.is_accessible ? '✅' : '❌'}</td>
-    <td>${escapeHtml(item.friends_count)}</td>
-    <td>${renderActionButtons(type, item)}</td>
-  </tr>`).join('');
-  return `
-    <table class="data-table">
-      <thead>
-        <tr>
-          ${sortableHeader(sort, 'id', 'ID')}
-          ${sortableHeader(sort, 'screen_name', 'Screen Name')}
-          ${sortableHeader(sort, 'name', 'Name')}
-          <th>Protected</th>
-          <th>Accessible</th>
-          ${sortableHeader(sort, 'friends_count', 'Friends')}
-          <th>Actions</th>
-        </tr>
-      </thead>
-      <tbody>${rows}</tbody>
-    </table>
-  `;
+  return renderTable([
+    { key: 'id', label: 'ID', sortable: true },
+    { key: 'screen_name', label: 'Screen Name', sortable: true, render: i => `@${escapeHtml(i.screen_name)}` },
+    { key: 'name', label: 'Name', sortable: true },
+    { key: 'protected_str', label: 'Protected', sortable: false, render: i => i.protected ? '🔒' : '🔓' },
+    { key: 'is_accessible', label: 'Accessible', sortable: false, render: i => i.is_accessible ? '✅' : '❌' },
+    { key: 'friends_count', label: 'Friends', sortable: true },
+    { label: 'Actions', sortable: false, render: i => renderActionButtons(type, i) },
+  ], data, sort);
 }
 
 function renderDBListsTable(type, data, sort) {
-  const rows = data.map(item => `<tr>
-    <td>${escapeHtml(item.id)}</td>
-    <td>${escapeHtml(item.name)}</td>
-    <td>${escapeHtml(item.owner_user_id)}</td>
-    <td>${renderActionButtons(type, item)}</td>
-  </tr>`).join('');
-  return `
-    <table class="data-table">
-      <thead>
-        <tr>
-          ${sortableHeader(sort, 'id', 'ID')}
-          ${sortableHeader(sort, 'name', 'Name')}
-          ${sortableHeader(sort, 'owner_id', 'Owner ID')}
-          <th>Actions</th>
-        </tr>
-      </thead>
-      <tbody>${rows}</tbody>
-    </table>
-  `;
+  return renderTable([
+    { key: 'id', label: 'ID', sortable: true },
+    { key: 'name', label: 'Name', sortable: true },
+    { key: 'owner_user_id', label: 'Owner ID', sortable: true, sortBy: 'owner_id' },
+    { label: 'Actions', sortable: false, render: i => renderActionButtons(type, i) },
+  ], data, sort);
 }
 
 function renderDBEntitiesTable(type, data, sort) {
-  const rows = data.map(item => `<tr>
-    <td>${escapeHtml(item.id)}</td>
-    <td>${escapeHtml(item.user_id)}</td>
-    <td>${escapeHtml(item.name)}</td>
-    <td>${escapeHtml(item.latest_release_time || '-')}</td>
-    <td>${escapeHtml(item.media_count || '-')}</td>
-    <td>${renderActionButtons(type, item)}</td>
-  </tr>`).join('');
-  return `
-    <table class="data-table">
-      <thead>
-        <tr>
-          ${sortableHeader(sort, 'id', 'ID')}
-          ${sortableHeader(sort, 'user_id', 'User ID')}
-          ${sortableHeader(sort, 'name', 'Name')}
-          ${sortableHeader(sort, 'latest_release_time', 'Latest Release')}
-          ${sortableHeader(sort, 'media_count', 'Media Count')}
-          <th>Actions</th>
-        </tr>
-      </thead>
-      <tbody>${rows}</tbody>
-    </table>
-  `;
+  return renderTable([
+    { key: 'id', label: 'ID', sortable: true },
+    { key: 'user_id', label: 'User ID', sortable: true },
+    { key: 'name', label: 'Name', sortable: true },
+    { key: 'latest_release_time', label: 'Latest Release', sortable: true, render: i => escapeHtml(i.latest_release_time || '-') },
+    { key: 'media_count', label: 'Media Count', sortable: true, render: i => escapeHtml(i.media_count || '-') },
+    { label: 'Actions', sortable: false, render: i => renderActionButtons(type, i) },
+  ], data, sort);
 }
 
 function renderDBListEntitiesTable(type, data, sort) {
-  const rows = data.map(item => `<tr>
-    <td>${escapeHtml(item.id)}</td>
-    <td>${escapeHtml(item.lst_id)}</td>
-    <td>${escapeHtml(item.name)}</td>
-    <td>${escapeHtml(item.parent_dir)}</td>
-    <td>${renderActionButtons(type, item)}</td>
-  </tr>`).join('');
-  return `
-    <table class="data-table">
-      <thead>
-        <tr>
-          ${sortableHeader(sort, 'id', 'ID')}
-          ${sortableHeader(sort, 'lst_id', 'List ID')}
-          ${sortableHeader(sort, 'name', 'Name')}
-          <th>Parent Dir</th>
-          <th>Actions</th>
-        </tr>
-      </thead>
-      <tbody>${rows}</tbody>
-    </table>
-  `;
+  return renderTable([
+    { key: 'id', label: 'ID', sortable: true },
+    { key: 'lst_id', label: 'List ID', sortable: true },
+    { key: 'name', label: 'Name', sortable: true },
+    { key: 'parent_dir', label: 'Parent Dir', sortable: false },
+    { label: 'Actions', sortable: false, render: i => renderActionButtons(type, i) },
+  ], data, sort);
 }
 
 function renderDBPreviousNamesTable(type, data, sort) {
-  const rows = data.map(item => {
-    const currentLabel = item.current_screen_name ? `@${escapeHtml(item.current_screen_name)}` : escapeHtml(item.user_id || '');
-    return `<tr>
-      <td><a href="javascript:void(0)" data-action="filterPreviousNamesByUser" data-user-id="${escapeAttr(item.user_id || '')}">${currentLabel}</a></td>
-      <td>@${escapeHtml(item.screen_name)}</td>
-      <td>${escapeHtml(item.name)}</td>
-      <td>${escapeHtml(item.record_date || '-')}</td>
-    </tr>`;
-  }).join('');
-  return `
-    <table class="data-table">
-      <thead>
-        <tr>
-          ${sortableHeader(sort, 'current_screen_name', 'Current User')}
-          ${sortableHeader(sort, 'screen_name', 'Previous @Handle')}
-          ${sortableHeader(sort, 'name', 'Previous Name')}
-          ${sortableHeader(sort, 'record_date', 'Date')}
-        </tr>
-      </thead>
-      <tbody>${rows}</tbody>
-    </table>
-  `;
+  return renderTable([
+    { key: 'current_screen_name', label: 'Current User', sortable: true, render: i => {
+      const label = i.current_screen_name ? `@${escapeHtml(i.current_screen_name)}` : escapeHtml(i.user_id || '');
+      return `<a href="javascript:void(0)" data-action="filterPreviousNamesByUser" data-user-id="${escapeAttr(i.user_id || '')}">${label}</a>`;
+    }},
+    { key: 'screen_name', label: 'Previous @Handle', sortable: true, render: i => `@${escapeHtml(i.screen_name)}` },
+    { key: 'name', label: 'Previous Name', sortable: true },
+    { key: 'record_date', label: 'Date', sortable: true, render: i => escapeHtml(i.record_date || '-') },
+  ], data, sort);
 }
 
 function renderDBDefaultTable(type, data, sort) {
-  const rows = data.map(item => `<tr>
-    <td>${escapeHtml(item.id)}</td>
-    <td>${escapeHtml(item.user_id)}</td>
-    <td>${escapeHtml(item.name)}</td>
-    <td>${escapeHtml(item.parent_lst_entity_id)}</td>
-    <td>${renderActionButtons(type, item)}</td>
-  </tr>`).join('');
-  return `
-    <table class="data-table">
-      <thead>
-        <tr>
-          ${sortableHeader(sort, 'id', 'ID')}
-          ${sortableHeader(sort, 'user_id', 'User ID')}
-          ${sortableHeader(sort, 'name', 'Name')}
-          <th>Parent Entity</th>
-          <th>Actions</th>
-        </tr>
-      </thead>
-      <tbody>${rows}</tbody>
-    </table>
-  `;
+  return renderTable([
+    { key: 'id', label: 'ID', sortable: true },
+    { key: 'user_id', label: 'User ID', sortable: true },
+    { key: 'name', label: 'Name', sortable: true },
+    { key: 'parent_lst_entity_id', label: 'Parent Entity', sortable: false },
+    { label: 'Actions', sortable: false, render: i => renderActionButtons(type, i) },
+  ], data, sort);
 }
 
 // Database Table Renderer with sorting and actions
@@ -1569,14 +1463,15 @@ function renderDBTable(type, data, sort) {
     `;
   }
 
-  switch (type) {
-    case 'users': return renderDBUsersTable(type, data, sort);
-    case 'lists': return renderDBListsTable(type, data, sort);
-    case 'entities': return renderDBEntitiesTable(type, data, sort);
-    case 'listEntities': return renderDBListEntitiesTable(type, data, sort);
-    case 'previousNames': return renderDBPreviousNamesTable(type, data, sort);
-    default: return renderDBDefaultTable(type, data, sort);
-  }
+  const tableRenderers = {
+    users: renderDBUsersTable,
+    lists: renderDBListsTable,
+    entities: renderDBEntitiesTable,
+    listEntities: renderDBListEntitiesTable,
+    previousNames: renderDBPreviousNamesTable,
+  };
+  const fn = tableRenderers[type] || renderDBDefaultTable;
+  return fn(type, data, sort);
 }
 
 function renderDBMobileCards(type, data) {
@@ -2156,83 +2051,73 @@ async function handleQuickDownload() {
 }
 
 async function createUserTask() {
-  const screenName = document.getElementById('userScreenName').value.trim();
-  if (!screenName) return toast.show('请输入 Screen Name', 'error');
-  
-  try {
-    await api.createUserDownload(screenName, {
-      auto_follow: document.getElementById('userAutoFollow').checked,
-      follow_members: document.getElementById('userFollowMembers').checked,
-      skip_profile: document.getElementById('userSkipProfile').checked,
-      no_retry: document.getElementById('userNoRetry').checked
-    });
-    toast.show('用户下载任务已创建');
-    document.getElementById('userScreenName').value = '';
-  } catch (err) {
-    toast.show(err.message, 'error');
-  }
+  const name = document.getElementById('userScreenName').value.trim();
+  if (!name) return toast.show('请输入 Screen Name', 'error');
+  const ok = await apiTask(
+    () => api.createUserDownload(name, getCheckedOptions('user')),
+    '用户下载任务已创建'
+  );
+  if (ok) document.getElementById('userScreenName').value = '';
 }
 
 async function createProfileTask() {
-  const screenName = document.getElementById('userScreenName').value.trim();
-  if (!screenName) return toast.show('请输入 Screen Name', 'error');
+  const name = document.getElementById('userScreenName').value.trim();
+  if (!name) return toast.show('请输入 Screen Name', 'error');
+  const ok = await apiTask(
+    () => api.createProfileDownload(name),
+    'Profile 下载任务已创建'
+  );
+  if (ok) document.getElementById('userScreenName').value = '';
+}
 
+async function apiTask(apiCall, successMsg) {
   try {
-    await api.createProfileDownload(screenName);
-    toast.show('Profile 下载任务已创建');
-    document.getElementById('userScreenName').value = '';
+    await apiCall();
+    toast.show(successMsg);
+    return true;
   } catch (err) {
     toast.show(err.message, 'error');
   }
+}
+
+// 读取标准 checkbox 选项组 (auto_follow / follow_members / skip_profile / no_retry)
+function getCheckedOptions(prefix) {
+  return {
+    auto_follow: document.getElementById(prefix + 'AutoFollow')?.checked ?? false,
+    follow_members: document.getElementById(prefix + 'FollowMembers')?.checked ?? false,
+    skip_profile: document.getElementById(prefix + 'SkipProfile')?.checked ?? false,
+    no_retry: document.getElementById(prefix + 'NoRetry')?.checked ?? false,
+  };
 }
 
 async function createListTask() {
-  const listId = document.getElementById('listId').value.trim();
-  if (!listId) return toast.show('请输入 List ID', 'error');
-
-  try {
-    await api.createListDownload(listId, {
-      auto_follow: document.getElementById('listAutoFollow').checked,
-      follow_members: document.getElementById('listFollowMembers').checked,
-      skip_profile: document.getElementById('listSkipProfile').checked,
-      no_retry: document.getElementById('listNoRetry').checked
-    });
-    toast.show('列表下载任务已创建');
-    document.getElementById('listId').value = '';
-  } catch (err) {
-    toast.show(err.message, 'error');
-  }
+  const id = document.getElementById('listId').value.trim();
+  if (!id) return toast.show('请输入 List ID', 'error');
+  const ok = await apiTask(
+    () => api.createListDownload(id, getCheckedOptions('list')),
+    '列表下载任务已创建'
+  );
+  if (ok) document.getElementById('listId').value = '';
 }
 
 async function createListProfileTask() {
-  const listId = document.getElementById('listId').value.trim();
-  if (!listId) return toast.show('请输入 List ID', 'error');
-
-  try {
-    await api.createListProfile(listId);
-    toast.show('列表 Profile 任务已创建');
-    document.getElementById('listId').value = '';
-  } catch (err) {
-    toast.show(err.message, 'error');
-  }
+  const id = document.getElementById('listId').value.trim();
+  if (!id) return toast.show('请输入 List ID', 'error');
+  const ok = await apiTask(
+    () => api.createListProfile(id),
+    '列表 Profile 任务已创建'
+  );
+  if (ok) document.getElementById('listId').value = '';
 }
 
 async function createFollowingTask() {
-  const screenName = document.getElementById('followingScreenName').value.trim();
-  if (!screenName) return toast.show('请输入 Screen Name', 'error');
-
-  try {
-    await api.createFollowingDownload(screenName, {
-      auto_follow: document.getElementById('followingAutoFollow').checked,
-      follow_members: document.getElementById('followingFollowMembers').checked,
-      skip_profile: document.getElementById('followingSkipProfile').checked,
-      no_retry: document.getElementById('followingNoRetry').checked
-    });
-    toast.show('关注下载任务已创建');
-    document.getElementById('followingScreenName').value = '';
-  } catch (err) {
-    toast.show(err.message, 'error');
-  }
+  const name = document.getElementById('followingScreenName').value.trim();
+  if (!name) return toast.show('请输入 Screen Name', 'error');
+  const ok = await apiTask(
+    () => api.createFollowingDownload(name, getCheckedOptions('following')),
+    '关注下载任务已创建'
+  );
+  if (ok) document.getElementById('followingScreenName').value = '';
 }
 
 async function createMarkTask() {
@@ -2439,25 +2324,7 @@ async function showTaskDetail(id) {
     cancelled: '已取消'
   };
 
-  const statusColors = {
-    queued: '#8b949e',
-    running: '#58a6ff',
-    completed: '#3fb950',
-    failed: '#f85149',
-    cancelled: '#6e7681'
-  };
-
-  const bgColors = {
-    queued: 'rgba(139,148,158,0.1)',
-    running: 'rgba(88,166,255,0.1)',
-    completed: 'rgba(63,185,80,0.1)',
-    failed: 'rgba(248,81,73,0.1)',
-    cancelled: 'rgba(110,118,129,0.1)'
-  };
-
   const statusText = statusMap[task.status] || escapeHtml(task.status);
-  const statusColor = statusColors[task.status] || '#8b949e';
-  const bgColor = bgColors[task.status] || 'rgba(139,148,158,0.1)';
   const pct = getTaskProgressPercent(task);
   const stageText = task.progress?.stage ? escapeHtml(getStageText(task.progress.stage)) : '';
   const currentText = task.progress?.current ? ` · ${escapeHtml(task.progress.current)}` : '';
@@ -2565,7 +2432,7 @@ async function showTaskDetail(id) {
 
   // Build content
   const content = `
-    <div class="task-detail-header" style="background:${bgColor}">
+    <div class="task-detail-header status-${task.status}">
       <div class="task-detail-header-info">
         <div class="task-detail-header-title">${target || '未知目标'}</div>
         <div class="task-detail-header-sub">${escapeHtml(task.task_id)}</div>
@@ -2580,7 +2447,7 @@ async function showTaskDetail(id) {
           <div class="task-detail-label">类型</div>
           <div class="task-detail-value">${escapeHtml(task.type)}</div>
           <div class="task-detail-label">状态</div>
-          <div class="task-detail-value" style="color:${statusColor}">${statusText}</div>
+          <div class="task-detail-value status-${task.status}">${statusText}</div>
         </div>
       </div>
     </div>
@@ -2995,6 +2862,7 @@ let logAutoScroll = true;
 let logSSESource = null;
 let _logReconnectAttempts = 0;
 let _logIntentionalDisconnect = false;
+let _logSSETimer = null;
 
 function toggleLogAutoScroll() {
   logAutoScroll = document.getElementById('log-auto-scroll-toggle')?.checked ?? true;
@@ -4317,14 +4185,13 @@ function destroyAllEditors() {
 
 function connectLogSSE() {
   if (logSSESource) { logSSESource.close(); logSSESource = null; }
-  if (window._logSSETimer) { clearTimeout(window._logSSETimer); window._logSSETimer = null; }
+  if (_logSSETimer) { clearTimeout(_logSSETimer); _logSSETimer = null; }
   _logIntentionalDisconnect = false;
   const { logLevel, logSearch } = store.state;
   const params = new URLSearchParams();
   if (logLevel !== 'all') params.append('level', logLevel);
   if (logSearch) params.append('q', logSearch);
-  const jwtToken = localStorage.getItem('tmd_jwt_token');
-  if (jwtToken) params.append('token', jwtToken);
+  appendJWTToken(params);
   const qs = params.toString();
   const url = '/api/v1/logs/stream' + (qs ? '?' + qs : '');
   logSSESource = new EventSource(url);
@@ -4369,25 +4236,14 @@ function connectLogSSE() {
       return; // 放弃重连
     }
     const delay = Math.min(2000 * Math.pow(1.5, _logReconnectAttempts - 1), 30000);
-    // 有 JWT 时检查是否过期，尝试刷新后再重连
-    if (localStorage.getItem('tmd_jwt_token')) {
-      const expiry = localStorage.getItem('tmd_jwt_expiry');
-      if (expiry && new Date(expiry) - new Date() < 2 * 60 * 1000) {
-        api._tryRefreshJWT().then(refreshed => {
-          if (refreshed) console.log('[LogSSE] JWT refreshed before reconnect');
-          window._logSSETimer = setTimeout(connectLogSSE, delay);
-        });
-        return;
-      }
-    }
-    window._logSSETimer = setTimeout(connectLogSSE, delay);
+    tryRefreshJWT('LogSSE', () => { _logSSETimer = setTimeout(connectLogSSE, delay); });
   };
 }
 
 function disconnectLogSSE() {
   _logIntentionalDisconnect = true;
   if (logSSESource) { logSSESource.close(); logSSESource = null; }
-  if (window._logSSETimer) { clearTimeout(window._logSSETimer); window._logSSETimer = null; }
+  if (_logSSETimer) { clearTimeout(_logSSETimer); _logSSETimer = null; }
   _logReconnectAttempts = 0;
 }
 
@@ -4723,7 +4579,6 @@ function showAuthDialog() {
   const overlay = document.getElementById('authOverlay');
   if (!overlay) return;
   if (overlay.classList.contains('open')) return; // 已在显示中，防重复触发
-  overlay.style.display = '';
   requestAnimationFrame(() => overlay.classList.add('open'));
   const input = document.getElementById('authDialogKey');
   if (input) {
@@ -4735,15 +4590,6 @@ function hideAuthDialog() {
   const overlay = document.getElementById('authOverlay');
   if (!overlay) return;
   overlay.classList.remove('open');
-  // 监听 CSS transition 完成后再隐藏，避免硬编码值与 --duration-normal 不一致
-  const onTransitionEnd = (e) => {
-    if (e.propertyName !== 'opacity') return;
-    overlay.removeEventListener('transitionend', onTransitionEnd);
-    if (!overlay.classList.contains('open')) {
-      overlay.style.display = 'none';
-    }
-  };
-  overlay.addEventListener('transitionend', onTransitionEnd);
 }
 
 async function submitAuthKey() {
@@ -4800,10 +4646,6 @@ document.getElementById('sidebarOverlay').onclick = () => {
 };
 
 document.querySelectorAll('.nav-item').forEach(el => {
-  el.onclick = () => navigateTo(el.dataset.page);
-});
-
-document.querySelectorAll('.mobile-nav-item').forEach(el => {
   el.onclick = () => navigateTo(el.dataset.page);
 });
 
@@ -5244,7 +5086,7 @@ document.getElementById('contentContainer').addEventListener('click', (e) => {
 // ============================================
 // Universal action dispatch (replaces inline onclick)
 // ============================================
-document.getElementById('app').addEventListener('click', (e) => {
+document.addEventListener('click', (e) => {
   const el = e.target.closest('[data-action]');
   if (!el) return;
 
@@ -5252,7 +5094,6 @@ document.getElementById('app').addEventListener('click', (e) => {
   const inDrawer = !!el.closest('#drawer');
 
   switch (action) {
-    // Navigation
     case 'navigateTo':            navigateTo(el.dataset.page); break;
     case 'setSystemTab':          setSystemTab(el.dataset.tab); break;
     case 'setDataSubPage':        setDataSubPage(el.dataset.subpage); break;
@@ -5327,7 +5168,10 @@ document.getElementById('app').addEventListener('click', (e) => {
     case 'deleteTask':            deleteTask(el.dataset.taskId); break;
     case 'showTaskDetail':        showTaskDetail(el.dataset.taskId); break;
 
-    default: return;
+    case 'closeSidebar':
+      document.getElementById('sidebar').classList.remove('open');
+      document.getElementById('sidebarOverlay').classList.remove('open');
+      break;
   }
 
   // Actions triggered from inside the drawer close it afterwards

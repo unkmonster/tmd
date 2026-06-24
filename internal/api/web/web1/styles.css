@@ -599,6 +599,19 @@ ul, ol {
   color: var(--warning);
 }
 
+/* Task detail header background 和状态文字颜色（配合 tag-* 色板） */
+.task-detail-header.status-queued { background: var(--bg-tertiary); }
+.task-detail-header.status-running { background: var(--info-bg); }
+.task-detail-header.status-completed { background: var(--success-bg); }
+.task-detail-header.status-failed { background: var(--danger-bg); }
+.task-detail-header.status-cancelled { background: var(--warning-bg); }
+
+.task-detail-value.status-queued { color: var(--text-secondary); }
+.task-detail-value.status-running { color: var(--info); }
+.task-detail-value.status-completed { color: var(--success); }
+.task-detail-value.status-failed { color: var(--danger); }
+.task-detail-value.status-cancelled { color: var(--warning); }
+
 .tag-info {
   background: var(--info-bg);
   color: var(--info);
@@ -1947,7 +1960,7 @@ ul, ol {
   padding: 6px 16px;
   font-size: 12px;
   background: var(--accent-primary);
-  color: #fff;
+  color: white;
   border: none;
   border-radius: 20px;
   cursor: pointer;
@@ -2248,9 +2261,14 @@ ul, ol {
 
 @media (prefers-reduced-motion: reduce) {
   .auth-overlay,
-  .auth-modal {
+  .auth-modal,
+  .sidebar-overlay,
+  .drawer-overlay,
+  .drawer {
     transition-duration: 0s !important;
     animation-duration: 0.01ms !important;
+  }
+}
     animation-iteration-count: 1 !important;
   }
   .auth-modal {
