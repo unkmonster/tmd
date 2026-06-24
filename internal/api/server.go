@@ -329,6 +329,9 @@ func (s *Server) writeError(w http.ResponseWriter, status int, message string) {
 	s.writeJSON(w, status, NewErrorResponse(message))
 }
 
+func (s *Server) writeErrorDetail(w http.ResponseWriter, status int, message string, detail string) {
+	s.writeJSON(w, status, NewErrorResponseWithDetail(message, detail))
+}
 func (s *Server) handleServerShutdown(w http.ResponseWriter, _ *http.Request) {
 	s.writeJSON(w, http.StatusOK, NewSuccessResponse(map[string]interface{}{
 		"message": "Server shutting down...",

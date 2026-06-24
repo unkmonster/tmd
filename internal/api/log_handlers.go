@@ -9,6 +9,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	log "github.com/sirupsen/logrus"
 )
 
 const (
@@ -114,7 +116,8 @@ func (s *Server) handleLogExport(w http.ResponseWriter, r *http.Request) {
 	logPath := filepath.Join(s.appRootPath, "tmd2.log")
 	f, err := os.Open(logPath)
 	if err != nil {
-		s.writeError(w, http.StatusInternalServerError, "Failed to open log file: "+err.Error())
+		log.Errorf("[logs] Failed to open log file: %v", err)
+		s.writeError(w, http.StatusInternalServerError, "Failed to open log file")
 		return
 	}
 	defer f.Close()

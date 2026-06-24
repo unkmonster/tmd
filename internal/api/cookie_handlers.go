@@ -26,7 +26,8 @@ func (s *Server) handleGetCookiesRaw(w http.ResponseWriter, _ *http.Request) {
 			}))
 			return
 		}
-		s.writeError(w, http.StatusInternalServerError, "Failed to read cookies: "+err.Error())
+		log.Errorf("[cookies] Failed to read cookies: %v", err)
+		s.writeErrorDetail(w, http.StatusInternalServerError, "Failed to read cookies", err.Error())
 		return
 	}
 
@@ -40,7 +41,8 @@ func (s *Server) handleGetCookiesRaw(w http.ResponseWriter, _ *http.Request) {
 func (s *Server) handleUpdateCookiesRaw(w http.ResponseWriter, r *http.Request) {
 	var req ConfigUpdateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		s.writeError(w, http.StatusBadRequest, "Invalid request body: "+err.Error())
+		log.Errorf("[cookies] Invalid request body: %v", err)
+		s.writeErrorDetail(w, http.StatusBadRequest, "Invalid request body", err.Error())
 		return
 	}
 
@@ -51,7 +53,8 @@ func (s *Server) handleUpdateCookiesRaw(w http.ResponseWriter, r *http.Request) 
 
 	var testCookies []*config.Cookie
 	if err := yaml.Unmarshal([]byte(req.Content), &testCookies); err != nil {
-		s.writeError(w, http.StatusBadRequest, "Invalid YAML format: "+err.Error())
+		log.Errorf("[cookies] Invalid YAML format: %v", err)
+		s.writeErrorDetail(w, http.StatusBadRequest, "Invalid YAML format", err.Error())
 		return
 	}
 	for i, c := range testCookies {
@@ -73,7 +76,8 @@ func (s *Server) handleUpdateCookiesRaw(w http.ResponseWriter, r *http.Request) 
 	}
 
 	if err := config.WriteAdditionalCookies(cookiesPath, testCookies); err != nil {
-		s.writeError(w, http.StatusInternalServerError, "Failed to write cookies: "+err.Error())
+		log.Errorf("[cookies] Failed to write cookies: %v", err)
+		s.writeErrorDetail(w, http.StatusInternalServerError, "Failed to write cookies", err.Error())
 		return
 	}
 
@@ -95,7 +99,8 @@ func (s *Server) handleGetCookies(w http.ResponseWriter, _ *http.Request) {
 
 	cookies, err := config.ReadAdditionalCookies(cookiesPath)
 	if err != nil {
-		s.writeError(w, http.StatusInternalServerError, "Failed to read cookies: "+err.Error())
+		log.Errorf("[cookies] Failed to read cookies: %v", err)
+		s.writeErrorDetail(w, http.StatusInternalServerError, "Failed to read cookies", err.Error())
 		return
 	}
 
@@ -117,7 +122,8 @@ func (s *Server) handleGetCookies(w http.ResponseWriter, _ *http.Request) {
 func (s *Server) handleSaveCookies(w http.ResponseWriter, r *http.Request) {
 	var req CookiesSaveRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		s.writeError(w, http.StatusBadRequest, "Invalid request body: "+err.Error())
+		log.Errorf("[cookies] Invalid request body: %v", err)
+		s.writeErrorDetail(w, http.StatusBadRequest, "Invalid request body", err.Error())
 		return
 	}
 
@@ -125,7 +131,8 @@ func (s *Server) handleSaveCookies(w http.ResponseWriter, r *http.Request) {
 
 	existingCookies, err := config.ReadAdditionalCookies(cookiesPath)
 	if err != nil {
-		s.writeError(w, http.StatusInternalServerError, "Failed to read existing cookies: "+err.Error())
+		log.Errorf("[cookies] Failed to read existing cookies: %v", err)
+		s.writeErrorDetail(w, http.StatusInternalServerError, "Failed to read existing cookies", err.Error())
 		return
 	}
 
@@ -140,14 +147,16 @@ func (s *Server) handleSaveCookies(w http.ResponseWriter, r *http.Request) {
 			return cookie.AuthToken
 		})
 		if err != nil {
-			s.writeError(w, http.StatusBadRequest, fmt.Sprintf("Account #%d Auth Token: %s", i+1, err.Error()))
+			log.Errorf("[cookies] Account #%d Auth Token: %v", i+1, err)
+			s.writeError(w, http.StatusBadRequest, fmt.Sprintf("Account #%d: Invalid Auth Token", i+1))
 			return
 		}
 		ct0, err := resolveCookieSaveValue(c.Ct0, existingCookies, sourceIndex, func(cookie *config.Cookie) string {
 			return cookie.Ct0
 		})
 		if err != nil {
-			s.writeError(w, http.StatusBadRequest, fmt.Sprintf("Account #%d CT0: %s", i+1, err.Error()))
+			log.Errorf("[cookies] Account #%d CT0: %v", i+1, err)
+			s.writeError(w, http.StatusBadRequest, fmt.Sprintf("Account #%d: Invalid CT0", i+1))
 			return
 		}
 
@@ -168,7 +177,8 @@ func (s *Server) handleSaveCookies(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := config.WriteAdditionalCookies(cookiesPath, cookies); err != nil {
-		s.writeError(w, http.StatusInternalServerError, "Failed to save cookies: "+err.Error())
+		log.Errorf("[cookies] Failed to save cookies: %v", err)
+		s.writeErrorDetail(w, http.StatusInternalServerError, "Failed to save cookies", err.Error())
 		return
 	}
 

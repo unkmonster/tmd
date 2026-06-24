@@ -48,7 +48,8 @@ func (s *Server) decodeBody(w http.ResponseWriter, r *http.Request, dest interfa
 //	}
 func requireResource[T any](resource *T, err error, resourceName string, writeError func(int, string)) bool {
 	if err != nil {
-		writeError(http.StatusInternalServerError, err.Error())
+		log.Errorf("Failed to get %s: %v", resourceName, err)
+		writeError(http.StatusInternalServerError, "Failed to get "+resourceName)
 		return false
 	}
 	if resource == nil {
@@ -73,13 +74,11 @@ func (s *Server) writeResourceDeleted(w http.ResponseWriter, resourceName string
 }
 
 // ============ 安全 COUNT 查询 ============
-
-// countWithError 执行 COUNT 查询，失败时自动写入 500 并返回是否成功。
-// table 参数支持表表达式，如 "users" 或 "user_previous_names pn LEFT JOIN users u"。
 func (s *Server) countWithError(w http.ResponseWriter, table string, where string, args []interface{}) (int, bool) {
 	total, err := database.Count(s.db, table, &database.QueryOptions{Where: where, Args: args})
 	if err != nil {
-		s.writeError(w, http.StatusInternalServerError, err.Error())
+		log.Errorf("Failed to count %s: %v", table, err)
+		s.writeError(w, http.StatusInternalServerError, "Failed to query database")
 		return 0, false
 	}
 	return total, true

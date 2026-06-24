@@ -100,6 +100,7 @@ type APIResponse struct {
 	Success bool        `json:"success"`
 	Data    interface{} `json:"data,omitempty"`
 	Error   string      `json:"error,omitempty"`
+	Detail  string      `json:"detail,omitempty"`
 }
 
 // NewSuccessResponse 创建成功响应
@@ -110,11 +111,21 @@ func NewSuccessResponse(data interface{}) APIResponse {
 	}
 }
 
-// NewErrorResponse 创建错误响应
+// NewErrorResponse 创建错误响应（用户安全信息）
 func NewErrorResponse(err string) APIResponse {
 	return APIResponse{
 		Success: false,
 		Error:   err,
+	}
+}
+
+// NewErrorResponseWithDetail 创建带调试细节的错误响应
+// Error 为面向用户的通用消息，Detail 携带调试信息（不暴露给最终用户 UI）
+func NewErrorResponseWithDetail(err string, detail string) APIResponse {
+	return APIResponse{
+		Success: false,
+		Error:   err,
+		Detail:  detail,
 	}
 }
 

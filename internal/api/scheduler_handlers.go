@@ -66,7 +66,8 @@ func (s *Server) handleGetSchedulesRaw(w http.ResponseWriter, _ *http.Request) {
 			}))
 			return
 		}
-		s.writeError(w, http.StatusInternalServerError, "Failed to read schedules: "+err.Error())
+		log.Errorf("[schedules] Failed to read schedules: %v", err)
+		s.writeErrorDetail(w, http.StatusInternalServerError, "Failed to read schedules", err.Error())
 		return
 	}
 
@@ -80,7 +81,8 @@ func (s *Server) handleGetSchedulesRaw(w http.ResponseWriter, _ *http.Request) {
 func (s *Server) handleCreateSchedule(w http.ResponseWriter, r *http.Request) {
 	var entry scheduler.ScheduleEntry
 	if err := json.NewDecoder(r.Body).Decode(&entry); err != nil {
-		s.writeError(w, http.StatusBadRequest, "Invalid request body: "+err.Error())
+		log.Errorf("[schedules] Invalid request body: %v", err)
+		s.writeErrorDetail(w, http.StatusBadRequest, "Invalid request body", err.Error())
 		return
 	}
 
@@ -90,7 +92,8 @@ func (s *Server) handleCreateSchedule(w http.ResponseWriter, r *http.Request) {
 
 	cfg, err := s.readScheduleConfigLocked(schedulesPath)
 	if err != nil {
-		s.writeError(w, http.StatusInternalServerError, "Failed to read schedules: "+err.Error())
+		log.Errorf("[schedules] Failed to read schedules: %v", err)
+		s.writeErrorDetail(w, http.StatusInternalServerError, "Failed to read schedules", err.Error())
 		return
 	}
 	if strings.TrimSpace(entry.ID) == "" {
@@ -99,13 +102,15 @@ func (s *Server) handleCreateSchedule(w http.ResponseWriter, r *http.Request) {
 	cfg.Schedules = append(cfg.Schedules, entry)
 	cfg, err = normalizeAndValidateScheduleConfig(cfg)
 	if err != nil {
-		s.writeError(w, http.StatusBadRequest, err.Error())
+		log.Errorf("[schedules] Invalid schedule configuration: %v", err)
+		s.writeErrorDetail(w, http.StatusBadRequest, "Invalid schedule configuration", err.Error())
 		return
 	}
 
 	backupName, err := s.writeScheduleConfigLocked(schedulesPath, cfg)
 	if err != nil {
-		s.writeError(w, http.StatusInternalServerError, err.Error())
+		log.Errorf("[schedules] Failed to save schedule configuration: %v", err)
+		s.writeErrorDetail(w, http.StatusInternalServerError, "Failed to save schedule configuration", err.Error())
 		return
 	}
 	if err := s.reloadSchedulesLocked(schedulesPath); err != nil {
@@ -127,13 +132,15 @@ func (s *Server) handleCreateSchedule(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleReplaceSchedules(w http.ResponseWriter, r *http.Request) {
 	var req SchedulesReplaceRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		s.writeError(w, http.StatusBadRequest, "Invalid request body: "+err.Error())
+		log.Errorf("[schedules] Invalid request body: %v", err)
+		s.writeErrorDetail(w, http.StatusBadRequest, "Invalid request body", err.Error())
 		return
 	}
 
 	cfg, err := normalizeAndValidateScheduleConfig(scheduler.ScheduleConfig{Schedules: req.Entries})
 	if err != nil {
-		s.writeError(w, http.StatusBadRequest, err.Error())
+		log.Errorf("[schedules] Invalid schedule configuration: %v", err)
+		s.writeErrorDetail(w, http.StatusBadRequest, "Invalid schedule configuration", err.Error())
 		return
 	}
 
@@ -143,7 +150,8 @@ func (s *Server) handleReplaceSchedules(w http.ResponseWriter, r *http.Request) 
 
 	backupName, err := s.writeScheduleConfigLocked(schedulesPath, cfg)
 	if err != nil {
-		s.writeError(w, http.StatusInternalServerError, err.Error())
+		log.Errorf("[schedules] Failed to save schedule configuration: %v", err)
+		s.writeErrorDetail(w, http.StatusInternalServerError, "Failed to save schedule configuration", err.Error())
 		return
 	}
 	if err := s.reloadSchedulesLocked(schedulesPath); err != nil {
@@ -165,7 +173,8 @@ func (s *Server) handleReplaceSchedules(w http.ResponseWriter, r *http.Request) 
 func (s *Server) handleUpdateSchedulesRaw(w http.ResponseWriter, r *http.Request) {
 	var req ConfigUpdateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		s.writeError(w, http.StatusBadRequest, "Invalid request body: "+err.Error())
+		log.Errorf("[schedules] Invalid request body: %v", err)
+		s.writeErrorDetail(w, http.StatusBadRequest, "Invalid request body", err.Error())
 		return
 	}
 
@@ -176,12 +185,14 @@ func (s *Server) handleUpdateSchedulesRaw(w http.ResponseWriter, r *http.Request
 
 	var testConf scheduler.ScheduleConfig
 	if err := yaml.Unmarshal([]byte(req.Content), &testConf); err != nil {
-		s.writeError(w, http.StatusBadRequest, "Invalid YAML format: "+err.Error())
+		log.Errorf("[schedules] Invalid YAML format: %v", err)
+		s.writeErrorDetail(w, http.StatusBadRequest, "Invalid YAML format", err.Error())
 		return
 	}
 	testConf, err := normalizeAndValidateScheduleConfig(testConf)
 	if err != nil {
-		s.writeError(w, http.StatusBadRequest, err.Error())
+		log.Errorf("[schedules] Invalid schedule configuration: %v", err)
+		s.writeErrorDetail(w, http.StatusBadRequest, "Invalid schedule configuration", err.Error())
 		return
 	}
 
@@ -192,7 +203,8 @@ func (s *Server) handleUpdateSchedulesRaw(w http.ResponseWriter, r *http.Request
 
 	backupName, err := s.writeScheduleConfigLocked(schedulesPath, testConf)
 	if err != nil {
-		s.writeError(w, http.StatusInternalServerError, err.Error())
+		log.Errorf("[schedules] Failed to save schedule configuration: %v", err)
+		s.writeErrorDetail(w, http.StatusInternalServerError, "Failed to save schedule configuration", err.Error())
 		return
 	}
 
@@ -216,7 +228,8 @@ func (s *Server) handleUpdateSchedule(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	var entry scheduler.ScheduleEntry
 	if err := json.NewDecoder(r.Body).Decode(&entry); err != nil {
-		s.writeError(w, http.StatusBadRequest, "Invalid request body: "+err.Error())
+		log.Errorf("[schedules] Invalid request body: %v", err)
+		s.writeErrorDetail(w, http.StatusBadRequest, "Invalid request body", err.Error())
 		return
 	}
 	if entry.ID != "" && entry.ID != id {
@@ -235,7 +248,8 @@ func (s *Server) handleUpdateSchedule(w http.ResponseWriter, r *http.Request) {
 	}
 	cfg, err := s.readScheduleConfigLocked(schedulesPath)
 	if err != nil {
-		s.writeError(w, http.StatusInternalServerError, "Failed to read schedules: "+err.Error())
+		log.Errorf("[schedules] Failed to read schedules: %v", err)
+		s.writeErrorDetail(w, http.StatusInternalServerError, "Failed to read schedules", err.Error())
 		return
 	}
 	idx := findScheduleIndex(cfg.Schedules, id)
@@ -246,13 +260,15 @@ func (s *Server) handleUpdateSchedule(w http.ResponseWriter, r *http.Request) {
 	cfg.Schedules[idx] = entry
 	cfg, err = normalizeAndValidateScheduleConfig(cfg)
 	if err != nil {
-		s.writeError(w, http.StatusBadRequest, err.Error())
+		log.Errorf("[schedules] Invalid schedule configuration: %v", err)
+		s.writeErrorDetail(w, http.StatusBadRequest, "Invalid schedule configuration", err.Error())
 		return
 	}
 
 	backupName, err := s.writeScheduleConfigLocked(schedulesPath, cfg)
 	if err != nil {
-		s.writeError(w, http.StatusInternalServerError, err.Error())
+		log.Errorf("[schedules] Failed to save schedule configuration: %v", err)
+		s.writeErrorDetail(w, http.StatusInternalServerError, "Failed to save schedule configuration", err.Error())
 		return
 	}
 	if err := s.reloadSchedulesLocked(schedulesPath); err != nil {
@@ -284,7 +300,8 @@ func (s *Server) handleDeleteSchedule(w http.ResponseWriter, r *http.Request) {
 	}
 	cfg, err := s.readScheduleConfigLocked(schedulesPath)
 	if err != nil {
-		s.writeError(w, http.StatusInternalServerError, "Failed to read schedules: "+err.Error())
+		log.Errorf("[schedules] Failed to read schedules: %v", err)
+		s.writeErrorDetail(w, http.StatusInternalServerError, "Failed to read schedules", err.Error())
 		return
 	}
 	idx := findScheduleIndex(cfg.Schedules, id)
@@ -294,13 +311,15 @@ func (s *Server) handleDeleteSchedule(w http.ResponseWriter, r *http.Request) {
 	}
 	cfg.Schedules = append(cfg.Schedules[:idx], cfg.Schedules[idx+1:]...)
 	if err := validateScheduleConfig(cfg); err != nil {
-		s.writeError(w, http.StatusBadRequest, err.Error())
+		log.Errorf("[schedules] Invalid schedule configuration: %v", err)
+		s.writeErrorDetail(w, http.StatusBadRequest, "Invalid schedule configuration", err.Error())
 		return
 	}
 
 	backupName, err := s.writeScheduleConfigLocked(schedulesPath, cfg)
 	if err != nil {
-		s.writeError(w, http.StatusInternalServerError, err.Error())
+		log.Errorf("[schedules] Failed to save schedule configuration: %v", err)
+		s.writeErrorDetail(w, http.StatusInternalServerError, "Failed to save schedule configuration", err.Error())
 		return
 	}
 	if err := s.reloadSchedulesLocked(schedulesPath); err != nil {
@@ -321,7 +340,8 @@ func (s *Server) handleSetScheduleEnabled(w http.ResponseWriter, r *http.Request
 	id := r.PathValue("id")
 	var req ScheduleEnabledRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		s.writeError(w, http.StatusBadRequest, "Invalid request body: "+err.Error())
+		log.Errorf("[schedules] Invalid request body: %v", err)
+		s.writeErrorDetail(w, http.StatusBadRequest, "Invalid request body", err.Error())
 		return
 	}
 
@@ -335,7 +355,8 @@ func (s *Server) handleSetScheduleEnabled(w http.ResponseWriter, r *http.Request
 	}
 	cfg, err := s.readScheduleConfigLocked(schedulesPath)
 	if err != nil {
-		s.writeError(w, http.StatusInternalServerError, "Failed to read schedules: "+err.Error())
+		log.Errorf("[schedules] Failed to read schedules: %v", err)
+		s.writeErrorDetail(w, http.StatusInternalServerError, "Failed to read schedules", err.Error())
 		return
 	}
 	idx := findScheduleIndex(cfg.Schedules, id)
@@ -345,13 +366,15 @@ func (s *Server) handleSetScheduleEnabled(w http.ResponseWriter, r *http.Request
 	}
 	cfg.Schedules[idx].Enabled = req.Enabled
 	if err := validateScheduleConfig(cfg); err != nil {
-		s.writeError(w, http.StatusBadRequest, err.Error())
+		log.Errorf("[schedules] Invalid schedule configuration: %v", err)
+		s.writeErrorDetail(w, http.StatusBadRequest, "Invalid schedule configuration", err.Error())
 		return
 	}
 
 	backupName, err := s.writeScheduleConfigLocked(schedulesPath, cfg)
 	if err != nil {
-		s.writeError(w, http.StatusInternalServerError, err.Error())
+		log.Errorf("[schedules] Failed to save schedule configuration: %v", err)
+		s.writeErrorDetail(w, http.StatusInternalServerError, "Failed to save schedule configuration", err.Error())
 		return
 	}
 	if err := s.reloadSchedulesLocked(schedulesPath); err != nil {
@@ -375,7 +398,8 @@ func (s *Server) handleReloadSchedules(w http.ResponseWriter, _ *http.Request) {
 	defer s.schedulesMu.Unlock()
 
 	if err := s.reloadSchedulesLocked(filepath.Join(s.appRootPath, "schedules.yaml")); err != nil {
-		s.writeError(w, http.StatusInternalServerError, "Failed to reload schedules: "+err.Error())
+		log.Errorf("[schedules] Failed to reload schedules: %v", err)
+		s.writeErrorDetail(w, http.StatusInternalServerError, "Failed to reload schedules", err.Error())
 		return
 	}
 
@@ -395,7 +419,8 @@ func (s *Server) handleTriggerSchedule(w http.ResponseWriter, r *http.Request) {
 
 	taskID, err := sched.TriggerByID(id)
 	if err != nil {
-		s.writeError(w, http.StatusBadRequest, err.Error())
+		log.Errorf("[schedules] Failed to trigger schedule: %v", err)
+		s.writeErrorDetail(w, http.StatusBadRequest, "Failed to trigger schedule", err.Error())
 		return
 	}
 
@@ -548,7 +573,8 @@ func usedScheduleIDs(entries []scheduler.ScheduleEntry) map[string]struct{} {
 func (s *Server) handleValidateSchedule(w http.ResponseWriter, r *http.Request) {
 	var req ScheduleValidateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		s.writeError(w, http.StatusBadRequest, "Invalid request body: "+err.Error())
+		log.Errorf("[schedules] Invalid request body: %v", err)
+		s.writeErrorDetail(w, http.StatusBadRequest, "Invalid request body", err.Error())
 		return
 	}
 

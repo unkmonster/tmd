@@ -36,7 +36,8 @@ func (s *Server) handleGetConfigRaw(w http.ResponseWriter, _ *http.Request) {
 			defaultConf := config.Config{}
 			yamlData, err := config.MarshalConf(&defaultConf)
 			if err != nil {
-				s.writeError(w, http.StatusInternalServerError, "Failed to marshal default config: "+err.Error())
+				log.Errorf("[config] Failed to marshal default config: %v", err)
+				s.writeErrorDetail(w, http.StatusInternalServerError, "Failed to marshal default config", err.Error())
 				return
 			}
 			s.writeJSON(w, http.StatusOK, NewSuccessResponse(ConfigRawResponse{
@@ -46,7 +47,8 @@ func (s *Server) handleGetConfigRaw(w http.ResponseWriter, _ *http.Request) {
 			}))
 			return
 		}
-		s.writeError(w, http.StatusInternalServerError, "Failed to read config: "+err.Error())
+		log.Errorf("[config] Failed to read config: %v", err)
+		s.writeErrorDetail(w, http.StatusInternalServerError, "Failed to read config", err.Error())
 		return
 	}
 
@@ -60,7 +62,8 @@ func (s *Server) handleGetConfigRaw(w http.ResponseWriter, _ *http.Request) {
 func (s *Server) handleUpdateConfigRaw(w http.ResponseWriter, r *http.Request) {
 	var req ConfigUpdateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		s.writeError(w, http.StatusBadRequest, "Invalid request body: "+err.Error())
+		log.Errorf("[config] Invalid request body: %v", err)
+		s.writeErrorDetail(w, http.StatusBadRequest, "Invalid request body", err.Error())
 		return
 	}
 
@@ -71,7 +74,8 @@ func (s *Server) handleUpdateConfigRaw(w http.ResponseWriter, r *http.Request) {
 
 	testConf, err := config.ParseConfYAML([]byte(req.Content))
 	if err != nil {
-		s.writeError(w, http.StatusBadRequest, "Invalid config: "+err.Error())
+		log.Errorf("[config] Invalid config: %v", err)
+		s.writeErrorDetail(w, http.StatusBadRequest, "Invalid config", err.Error())
 		return
 	}
 
@@ -86,7 +90,8 @@ func (s *Server) handleUpdateConfigRaw(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := config.WriteConf(confPath, testConf); err != nil {
-		s.writeError(w, http.StatusInternalServerError, "Failed to write config: "+err.Error())
+		log.Errorf("[config] Failed to write config: %v", err)
+		s.writeErrorDetail(w, http.StatusInternalServerError, "Failed to write config", err.Error())
 		return
 	}
 
@@ -208,7 +213,8 @@ func (s *Server) handleGetConfigFields(w http.ResponseWriter, _ *http.Request) {
 			if os.IsNotExist(err) {
 				currentConf = &config.Config{}
 			} else {
-				s.writeError(w, http.StatusInternalServerError, "Failed to read config: "+err.Error())
+				log.Errorf("[config] Failed to read config: %v", err)
+				s.writeErrorDetail(w, http.StatusInternalServerError, "Failed to read config", err.Error())
 				return
 			}
 		}
@@ -223,7 +229,8 @@ func (s *Server) handleGetConfigFields(w http.ResponseWriter, _ *http.Request) {
 func (s *Server) handleSaveConfigFields(w http.ResponseWriter, r *http.Request) {
 	var req ConfigFieldsRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		s.writeError(w, http.StatusBadRequest, "Invalid request body: "+err.Error())
+		log.Errorf("[config] Invalid request body: %v", err)
+		s.writeErrorDetail(w, http.StatusBadRequest, "Invalid request body", err.Error())
 		return
 	}
 
@@ -258,8 +265,8 @@ func (s *Server) handleSaveConfigFields(w http.ResponseWriter, r *http.Request) 
 		}
 
 		if err := fd.Setter(newConf, userVal); err != nil {
-			s.writeError(w, http.StatusBadRequest,
-				fmt.Sprintf("Invalid field %s: %s", fd.Name, err.Error()))
+			log.Errorf("[config] Invalid field %s: %v", fd.Name, err)
+			s.writeError(w, http.StatusBadRequest, "Invalid field "+fd.Name)
 			return
 		}
 	}
@@ -272,7 +279,8 @@ func (s *Server) handleSaveConfigFields(w http.ResponseWriter, r *http.Request) 
 	}
 
 	if err := config.WriteConf(confPath, newConf); err != nil {
-		s.writeError(w, http.StatusInternalServerError, "Failed to save config: "+err.Error())
+		log.Errorf("[config] Failed to save config: %v", err)
+		s.writeErrorDetail(w, http.StatusInternalServerError, "Failed to save config", err.Error())
 		return
 	}
 

@@ -281,8 +281,9 @@ function closeModal() {
 /* ---- Global State ---- */
 let pageTasks = [];
 let sseConnected = false;
+let _sseAuthChecked = false;
 let pageRenderers = {};
-let currentPage = 'tasks';
+let _lastSchedulesData = null;
 
 // Debounce utility to batch rapid updates
 function debounce(fn, delay) {
@@ -470,7 +471,7 @@ const debouncedTasksUpdate = debounce(function(tasks) {
   }
 }, 100);
 const debouncedSchedulesUpdate = debounce(function(data) {
-  window._lastSchedulesData = data;
+  _lastSchedulesData = data;
   if (currentPage === 'schedules' && pageRenderers.schedules) {
     try { updateSchedulesView(); } catch(err) { /* ignore */ }
   }
@@ -481,8 +482,8 @@ function connectSSE() {
   if (sseSource) { sseSource.close(); sseSource = null; }
   const key = sseJWT();
   // 首次加载时若无 JWT，推迟连接，等 checkAuth 确认无需认证或完成后重连
-  if (!key && !window._sseAuthChecked) {
-    window._sseAuthChecked = true;
+  if (!key && !_sseAuthChecked) {
+    _sseAuthChecked = true;
     return;
   }
   sseSource = new EventSource(apiBase() + '/api/v1/sse/tasks' + (key ? '?token=' + encodeURIComponent(key) : ''));
@@ -582,8 +583,7 @@ function renderTasksPage(container) {
         <span id="errors-panel-title">Failed Records</span>
         <span id="errors-panel-badge" style="margin-left:auto"></span>
         <span id="errors-panel-arrow" style="margin-left:8px;transition:transform .2s">▶</span>
-      </div>
-      <div class="card-body" id="errors-panel-body" style="display:none">
+      <div class="card-body hidden" id="errors-panel-body">
         <div id="errors-panel-content"><div class="loading"><div class="spinner"></div> Loading...</div></div>
       </div>
     </div>
@@ -1399,13 +1399,13 @@ function renderSchedulesPage(container) {
 async function loadSchedules() {
   try {
     const r = await ENDPOINTS.schedules();
-    window._lastSchedulesData = { scheduler_running: r.scheduler_running, entries: r.entries || [] };
+    _lastSchedulesData = { scheduler_running: r.scheduler_running, entries: r.entries || [] };
     updateSchedulesView();
   } catch(e) { toast(e.message, 'error'); }
 }
 
 function updateSchedulesView() {
-  const d = window._lastSchedulesData;
+  const d = _lastSchedulesData;
   if (!d) return;
 
   const entries = d.entries || [];
@@ -1604,7 +1604,7 @@ async function reloadSchedules() {
 }
 
 async function editSchedule(id) {
-  const d = window._lastSchedulesData;
+  const d = _lastSchedulesData;
   const entry = d && d.entries ? d.entries.find(e => (e.entry && e.entry.id === id) || e.id === id) : null;
   if (!entry) return toast('Schedule not found', 'error');
   const ent = entry.entry || entry;
@@ -1719,7 +1719,6 @@ function renderSystemPage(container) {
         </div>
       </div>
     </div>
-
     `;
 
   pageRenderers.system = renderSystemPage;
@@ -2283,13 +2282,12 @@ function toggleSidebar() {
 
 /* ---- Errors ---- */
 let _errorsData = null;
-
 function toggleErrorsPanel() {
   const body = document.getElementById('errors-panel-body');
   const arrow = document.getElementById('errors-panel-arrow');
   if (!body) return;
-  const isOpen = body.style.display !== 'none';
-  body.style.display = isOpen ? 'none' : '';
+  const isOpen = !body.classList.contains('hidden');
+  body.classList.toggle('hidden', isOpen);
   if (arrow) arrow.style.transform = isOpen ? 'rotate(0deg)' : 'rotate(90deg)';
   if (!isOpen && _errorsData) updateErrorsPanel();
 }
@@ -2321,9 +2319,7 @@ function updateErrorsPanel() {
     badge.textContent = total > 0 ? '\u26A0\uFE0F' : '';
     badge.style.display = total > 0 ? '' : 'none';
   }
-
-  if (total === 0) {
-    if (body) body.style.display = 'none';
+    if (body) body.classList.add('hidden');
     content.innerHTML = '';
     return;
   }
