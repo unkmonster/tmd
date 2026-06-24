@@ -100,6 +100,7 @@ func (s *Server) handleFollowingMarkRoute(w http.ResponseWriter, r *http.Request
 func (s *Server) handleUserDownload(w http.ResponseWriter, r *http.Request, screenName string) {
 	var req UserDownloadTaskData
 	if err := decodeOptionalJSON(r, &req); err != nil {
+		log.Debugf("[download] Invalid request body: %v", err)
 		s.writeError(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
@@ -155,6 +156,7 @@ func (s *Server) handleUserProfile(w http.ResponseWriter, _ *http.Request, scree
 func (s *Server) handleUserMark(w http.ResponseWriter, r *http.Request, screenName string) {
 	var req MarkDownloadedTaskData
 	if err := decodeOptionalJSON(r, &req); err != nil {
+		log.Debugf("[download] Invalid request body: %v", err)
 		s.writeError(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
@@ -184,6 +186,7 @@ func (s *Server) handleUserMark(w http.ResponseWriter, r *http.Request, screenNa
 func (s *Server) handleListMark(w http.ResponseWriter, r *http.Request, listID uint64) {
 	var req ListMarkDownloadedTaskData
 	if err := decodeOptionalJSON(r, &req); err != nil {
+		log.Debugf("[download] Invalid request body: %v", err)
 		s.writeError(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
@@ -213,6 +216,7 @@ func (s *Server) handleListMark(w http.ResponseWriter, r *http.Request, listID u
 func (s *Server) handleFollowingMark(w http.ResponseWriter, r *http.Request, screenName string) {
 	var req FollowingMarkDownloadedTaskData
 	if err := decodeOptionalJSON(r, &req); err != nil {
+		log.Debugf("[download] Invalid request body: %v", err)
 		s.writeError(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
@@ -242,6 +246,7 @@ func (s *Server) handleFollowingMark(w http.ResponseWriter, r *http.Request, scr
 func (s *Server) handleFollowingDownload(w http.ResponseWriter, r *http.Request, screenName string) {
 	var req FollowingDownloadTaskData
 	if err := decodeOptionalJSON(r, &req); err != nil {
+		log.Debugf("[download] Invalid request body: %v", err)
 		s.writeError(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
@@ -274,6 +279,7 @@ func (s *Server) handleFollowingDownload(w http.ResponseWriter, r *http.Request,
 func (s *Server) listIDFromPath(w http.ResponseWriter, r *http.Request) (uint64, bool) {
 	listID, err := strconv.ParseUint(r.PathValue("list_id"), 10, 64)
 	if err != nil {
+		log.Debugf("[download] Invalid list ID: %v", err)
 		s.writeError(w, http.StatusBadRequest, "Invalid list ID")
 		return 0, false
 	}
@@ -314,6 +320,7 @@ func (s *Server) handleListMarkRoute(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleListDownload(w http.ResponseWriter, r *http.Request, listID uint64) {
 	var req ListDownloadTaskData
 	if err := decodeOptionalJSON(r, &req); err != nil {
+		log.Debugf("[download] Invalid request body: %v", err)
 		s.writeError(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
@@ -374,6 +381,7 @@ func (s *Server) handleJsonFileDownload(w http.ResponseWriter, r *http.Request) 
 
 	var req JsonFileDownloadTaskData
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		log.Debugf("[download] Invalid request body: %v", err)
 		s.writeError(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
@@ -411,6 +419,7 @@ func (s *Server) handleJsonFolderDownload(w http.ResponseWriter, r *http.Request
 
 	var req JsonFolderDownloadTaskData
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		log.Debugf("[download] Invalid request body: %v", err)
 		s.writeError(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
@@ -734,21 +743,25 @@ func (s *Server) handleBatchDownload(w http.ResponseWriter, r *http.Request) {
 
 	users, err := normalizeBatchScreenNames(req.Users)
 	if err != nil {
+		log.Debugf("[download] Invalid screen names: %v", err)
 		s.writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	followingNames, err := normalizeBatchScreenNames(req.FollowingNames)
 	if err != nil {
+		log.Debugf("[download] Invalid following names: %v", err)
 		s.writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	_, err = validateBatchListIDs(req.Lists)
 	if err != nil {
+		log.Debugf("[download] Invalid list IDs: %v", err)
 		s.writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	req.Users = users
 	req.FollowingNames = followingNames
+
 
 	task := s.taskManager.CreateTask(TaskTypeBatchDownload, &req)
 	taskID := task.ID
@@ -793,21 +806,25 @@ func (s *Server) handleBatchMark(w http.ResponseWriter, r *http.Request) {
 
 	users, err := normalizeBatchScreenNames(req.Users)
 	if err != nil {
+		log.Debugf("[download] Invalid screen names: %v", err)
 		s.writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	followingNames, err := normalizeBatchScreenNames(req.FollowingNames)
 	if err != nil {
+		log.Debugf("[download] Invalid following names: %v", err)
 		s.writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	_, err = validateBatchListIDs(req.Lists)
 	if err != nil {
+		log.Debugf("[download] Invalid list IDs: %v", err)
 		s.writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	req.Users = users
 	req.FollowingNames = followingNames
+
 
 	task := s.taskManager.CreateTask(TaskTypeMarkDownloaded, &req)
 	taskID := task.ID
@@ -1108,7 +1125,8 @@ func (s *Server) handleRetryAllFailed(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleClearErrors(w http.ResponseWriter, r *http.Request) {
 	if err := s.downloadService.ClearErrors(); err != nil {
-		s.writeError(w, http.StatusInternalServerError, err.Error())
+		log.Errorf("[download] Failed to clear errors: %v", err)
+		s.writeError(w, http.StatusInternalServerError, "Failed to clear errors")
 		return
 	}
 	s.writeJSON(w, http.StatusOK, NewSuccessResponse(map[string]interface{}{

@@ -18,6 +18,7 @@ func (s *Server) handleLogStream(w http.ResponseWriter, r *http.Request) {
 
 	levelStr := r.URL.Query().Get("level")
 	if levelStr != "" && !isValidLogLevel(levelStr) {
+		log.Debugf("[SSE] Invalid log level requested: %q", levelStr)
 		s.writeError(w, http.StatusBadRequest, "Invalid log level: "+levelStr)
 		return
 	}

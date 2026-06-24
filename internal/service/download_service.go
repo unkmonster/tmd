@@ -502,6 +502,7 @@ func (s *downloadServiceImpl) ProfileDownload(ctx context.Context, taskID string
 	}
 	users := s.resolveUsers(ctx, unique)
 	if len(unique) > 0 && len(users) == 0 {
+		log.Warnf("[download] All profile users failed to resolve")
 		return fmt.Errorf("all profile users failed to resolve")
 	}
 
@@ -533,9 +534,9 @@ func (s *downloadServiceImpl) ListProfileDownload(ctx context.Context, taskID st
 
 	pathHelper, err := path.NewStorePath(s.deps.Config.RootPath)
 	if err != nil {
+		log.Errorf("[download] Failed to create store path: %v", err)
 		return err
 	}
-
 	versionManager, fileWriter, dwn := s.initDownloader()
 
 	users := dedupeProfileUsers(membersResult.Users)
@@ -561,6 +562,7 @@ func (s *downloadServiceImpl) MarkDownloaded(ctx context.Context, taskID string,
 	lists = append(lists, s.resolveFollowings(ctx, followingNames)...)
 
 	if len(users) == 0 && len(lists) == 0 {
+		log.Warnf("[download] No users or lists to mark (all failed to resolve)")
 		return fmt.Errorf("no users or lists to mark (all failed to resolve)")
 	}
 
@@ -576,10 +578,11 @@ func (s *downloadServiceImpl) MarkDownloaded(ctx context.Context, taskID string,
 	// 注意：MarkUsersAsDownloaded 内部会自动获取列表成员并标记
 	pathHelper, err := path.NewStorePath(s.deps.Config.RootPath)
 	if err != nil {
+		log.Errorf("[download] Failed to create store path: %v", err)
 		return err
 	}
-	results, err := downloading.MarkUsersAsDownloaded(ctx, s.deps.Client, s.deps.DB, lists, users, pathHelper.Users, markTimeStr, s.maxFileNameLen())
 
+	results, err := downloading.MarkUsersAsDownloaded(ctx, s.deps.Client, s.deps.DB, lists, users, pathHelper.Users, markTimeStr, s.maxFileNameLen())
 	if err != nil {
 		return err
 	}
@@ -598,9 +601,9 @@ func (s *downloadServiceImpl) JsonFileDownload(ctx context.Context, taskID strin
 
 	pathHelper, err := path.NewStorePath(s.deps.Config.RootPath)
 	if err != nil {
+		log.Errorf("[download] Failed to create store path: %v", err)
 		return err
 	}
-
 	_, fileWriter, dwn := s.initDownloader()
 
 	jsonDumper := downloading.NewJsonDumper()
@@ -653,9 +656,9 @@ func (s *downloadServiceImpl) JsonFolderDownload(ctx context.Context, taskID str
 
 	pathHelper, err := path.NewStorePath(s.deps.Config.RootPath)
 	if err != nil {
+		log.Errorf("[download] Failed to create store path: %v", err)
 		return err
 	}
-
 	_, fileWriter, dwn := s.initDownloader()
 
 	jsonDumper := downloading.NewJsonDumper()
@@ -716,6 +719,7 @@ func (s *downloadServiceImpl) BatchDownload(ctx context.Context, taskID string, 
 			lists := s.resolveLists(ctx, listIDs)
 			lists = append(lists, s.resolveFollowings(ctx, followingNames)...)
 			if len(users) == 0 && len(lists) == 0 {
+				log.Warnf("[download] All users and lists failed to resolve")
 				return nil, nil, fmt.Errorf("all users and lists failed to resolve")
 			}
 			return users, lists, nil
@@ -762,6 +766,7 @@ func (s *downloadServiceImpl) RetryAllFailed(ctx context.Context, taskID string,
 	s.dumperMu.Unlock()
 	if regDumper.Count() > 0 {
 		if _, err := downloading.RetryFailedTweets(ctx, regDumper, s.deps.DB, s.deps.Client, dwn, fileWriter, runtimeOptions, nil); err != nil {
+			log.Errorf("[download] Failed to retry regular tweets: %v", err)
 			return fmt.Errorf("retry regular failed tweets: %w", err)
 		}
 		s.saveDumper(regDumper, pathHelper.ErrorsPath)
@@ -774,6 +779,7 @@ func (s *downloadServiceImpl) RetryAllFailed(ctx context.Context, taskID string,
 	s.dumperMu.Unlock()
 	if jsonDumper.Count() > 0 {
 		if _, err := downloading.RetryFailedJsonTweets(ctx, jsonDumper, s.deps.Client, dwn, fileWriter, runtimeOptions, nil); err != nil {
+			log.Errorf("[download] Failed to retry JSON tweets: %v", err)
 			return fmt.Errorf("retry JSON failed tweets: %w", err)
 		}
 		s.saveJsonDumper(jsonDumper, pathHelper.JSONErrorsPath)

@@ -18,6 +18,7 @@ import (
 func (s *Server) resolvePathID(w http.ResponseWriter, r *http.Request, paramName, resourceName string) (uint64, bool) {
 	id, err := strconv.ParseUint(r.PathValue(paramName), 10, 64)
 	if err != nil {
+		log.Debugf("[db] Invalid %s ID: %v", resourceName, err)
 		s.writeError(w, http.StatusBadRequest, "Invalid "+resourceName+" ID")
 		return 0, false
 	}
@@ -27,9 +28,9 @@ func (s *Server) resolvePathID(w http.ResponseWriter, r *http.Request, paramName
 // ============ JSON 请求体解析 ============
 
 // decodeBody 解析 JSON 请求体，解析失败时自动写入 400 响应。
-// 与 download_handlers.go 中已有的 decodeOptionalJSON 不同，此函数要求非空请求体。
 func (s *Server) decodeBody(w http.ResponseWriter, r *http.Request, dest interface{}) bool {
 	if err := json.NewDecoder(r.Body).Decode(dest); err != nil {
+		log.Debugf("[db] Invalid request body: %v", err)
 		s.writeError(w, http.StatusBadRequest, "Invalid request body")
 		return false
 	}

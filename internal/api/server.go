@@ -271,11 +271,13 @@ func (s *Server) handleSetTheme(w http.ResponseWriter, r *http.Request) {
 		Theme string `json:"theme"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		log.Debugf("[theme] Invalid request body: %v", err)
 		s.writeError(w, http.StatusBadRequest, "Invalid JSON body")
 		return
 	}
 
 	if !setFrontendTheme(req.Theme) {
+		log.Warnf("[theme] Invalid theme directory: %q", req.Theme)
 		s.writeError(w, http.StatusBadRequest, "Invalid theme: directory not found or missing index.html")
 		return
 	}
@@ -289,6 +291,7 @@ func (s *Server) handleSetTheme(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleGetThemes(w http.ResponseWriter, r *http.Request) {
 	themes := listThemes()
 	if themes == nil {
+		log.Errorf("[theme] Failed to list themes")
 		s.writeError(w, http.StatusInternalServerError, "Failed to list themes")
 		return
 	}

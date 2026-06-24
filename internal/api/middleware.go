@@ -148,6 +148,7 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 		}
 
 		if token == "" {
+			log.Debugf("[auth] Missing token for %s %s", r.Method, r.URL.Path)
 			writeAuth401(w, "missing")
 			return
 		}
@@ -157,11 +158,10 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 		// （客户端需要 refresh 端点来续期，需要 check 端点来查询状态）
 		if isAuthManagementPath(r.URL.Path) {
 			if _, err := validateSessionToken(token, apiKey); err == nil || isJWTExpiredError(err) {
-				// JWT 签名有效（允许过期）→ 放行给 handler 处理
 				next.ServeHTTP(w, r)
 				return
 			}
-			// JWT 完全无效（签名错误/格式错误）→ 401
+			log.Debugf("[auth] Invalid token on management path %s", r.URL.Path)
 			writeAuth401(w, "invalid")
 			return
 		}
@@ -194,11 +194,10 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 		} else {
 			w.Header().Set("X-Token-Type", "invalid")
 		}
+		log.Debugf("[auth] Authentication failed for %s %s: X-Token-Type=%s", r.Method, r.URL.Path, w.Header().Get("X-Token-Type"))
 		writeAuth401(w, "invalid")
 	})
 }
-
-// isAuthManagementPath 判断是否为认证管理端点（refresh/check）。
 // 这些端点即使收到过期 JWT 也需要处理，因此 middleware 放行签名有效（允许过期）的 token。
 func isAuthManagementPath(path string) bool {
 	return path == "/api/v1/auth/refresh" || path == "/api/v1/auth/check"
