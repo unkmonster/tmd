@@ -294,6 +294,7 @@ func isJWTExpiredError(err error) bool {
 type authRateLimiter struct {
 	mu       sync.Mutex
 	attempts map[string]*rateLimitEntry
+	stopCh   chan struct{}
 }
 
 type rateLimitEntry struct {
@@ -308,6 +309,7 @@ const (
 
 var defaultAuthRateLimiter = &authRateLimiter{
 	attempts: make(map[string]*rateLimitEntry),
+	stopCh:   make(chan struct{}),
 }
 
 func (rl *authRateLimiter) Allow(addr string) bool {
@@ -353,12 +355,30 @@ func (rl *authRateLimiter) cleanupExpired() {
 	}
 }
 
+// Stop stops the background cleanup goroutine. Safe to call multiple times.
+func (rl *authRateLimiter) Stop() {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+	select {
+	case <-rl.stopCh:
+		// already closed
+	default:
+		close(rl.stopCh)
+	}
+}
+
 // startCleanupLoop runs a background goroutine that periodically removes expired entries.
 func (rl *authRateLimiter) startCleanupLoop() {
 	go func() {
+		ticker := time.NewTicker(5 * time.Minute)
+		defer ticker.Stop()
 		for {
-			time.Sleep(5 * time.Minute)
-			rl.cleanupExpired()
+			select {
+			case <-ticker.C:
+				rl.cleanupExpired()
+			case <-rl.stopCh:
+				return
+			}
 		}
 	}()
 }

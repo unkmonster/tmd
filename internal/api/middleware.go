@@ -190,12 +190,6 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-// isJWTFormat checks if a token string looks like a JWT (three dot-separated base64 segments).
-func isJWTFormat(token string) bool {
-	parts := strings.Split(token, ".")
-	return len(parts) == 3
-}
-
 // isAuthManagementPath 判断是否为认证管理端点（refresh/check）。
 // 这些端点即使收到过期 JWT 也需要处理，因此 middleware 放行签名有效（允许过期）的 token。
 func isAuthManagementPath(path string) bool {

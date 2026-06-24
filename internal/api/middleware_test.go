@@ -757,15 +757,6 @@ func TestGenerateAndValidateJWT(t *testing.T) {
 	assert.Error(t, err)
 }
 
-func TestIsJWTFormat(t *testing.T) {
-	assert.True(t, isJWTFormat("header.payload.signature"))
-	assert.True(t, isJWTFormat("eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ0ZXN0In0.signature"))
-	assert.False(t, isJWTFormat(""))
-	assert.False(t, isJWTFormat("just-a-string"))
-	assert.False(t, isJWTFormat("two.parts"))
-	assert.False(t, isJWTFormat("four.parts.extra.here"))
-}
-
 func TestAuthMiddleware_JWT_Succeeds(t *testing.T) {
 	server, db := setupTestServer(t)
 	defer db.Close()

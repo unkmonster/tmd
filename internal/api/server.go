@@ -378,6 +378,10 @@ func (s *Server) GracefulShutdown(reason string) {
 			s.logHub.Close()
 		}
 
+		if s.authRateLimit != nil {
+			s.authRateLimit.Stop()
+		}
+
 		if s.httpServer != nil {
 			shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer shutdownCancel()
