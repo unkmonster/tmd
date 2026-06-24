@@ -279,8 +279,8 @@ func (s *Server) handleSaveConfigFields(w http.ResponseWriter, r *http.Request) 
 	log.Infoln("[WebUI] config saved via structured form")
 
 	// 检测 api_key 是否被修改，以确定生效消息
-	apiKeyUserVal, apiKeySubmitted := req.Fields["api_key"]
-	apiKeyChanged := apiKeySubmitted && apiKeyUserVal != "__KEEP_OLD__"
+	// 使用生效值比较而非原始表单值，避免 web2 空字符串误判为变更
+	apiKeyChanged := newConf.APIKey != s.config.APIKey
 
 	*s.config = *newConf
 

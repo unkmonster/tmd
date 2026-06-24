@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"sync"
 	"time"
@@ -97,9 +98,10 @@ func (s *Server) handleAuthLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Rate limit check
-	if !s.authRateLimit.Allow(r.RemoteAddr) {
-		log.Warnf("[auth] rate limit exceeded for %s", r.RemoteAddr)
+	// Rate limit check (基于纯 IP，排除端口)
+	clientAddr := clientIP(r.RemoteAddr)
+	if !s.authRateLimit.Allow(clientAddr) {
+		log.Warnf("[auth] rate limit exceeded for %s", clientAddr)
 		s.writeError(w, http.StatusTooManyRequests, "too many requests")
 		return
 	}
@@ -116,8 +118,8 @@ func (s *Server) handleAuthLogin(w http.ResponseWriter, r *http.Request) {
 
 	// Validate
 	if token != apiKey {
-		s.authRateLimit.Fail(r.RemoteAddr)
-		log.Warnf("[auth] failed login attempt from %s", r.RemoteAddr)
+		s.authRateLimit.Fail(clientAddr)
+		log.Warnf("[auth] failed login attempt from %s", clientAddr)
 		s.writeJSON(w, http.StatusUnauthorized, NewErrorResponse("unauthorized"))
 		return
 	}
@@ -161,24 +163,24 @@ func (s *Server) handleAuthRefresh(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Rate limit check
+	clientAddr := clientIP(r.RemoteAddr)
+	if !s.authRateLimit.Allow(clientAddr) {
+		log.Warnf("[auth] refresh rate limit exceeded for %s", clientAddr)
+		s.writeError(w, http.StatusTooManyRequests, "too many requests")
+		return
+	}
+
 	// Validate the JWT — accept expired tokens too (the client is trying to refresh them)
-	token, err := validateSessionToken(tokenStr, apiKey)
+	_, err := validateSessionToken(tokenStr, apiKey)
 	if err != nil && !isJWTExpiredError(err) {
 		// Token is invalid (bad signature, wrong format, etc.)
 		w.Header().Set("X-Token-Type", "invalid")
-		log.Debugf("[auth] refresh rejected: %v", err)
+		log.Warnf("[auth] refresh rejected from %s: %v", clientIP(r.RemoteAddr), err)
 		s.writeJSON(w, http.StatusUnauthorized, NewErrorResponse("unauthorized"))
 		return
 	}
 	// Expired JWT with valid signature is acceptable for refresh
-	if token == nil && err != nil {
-		// Only expired tokens reach here; validate claims manually for expiry
-		if !isJWTExpiredError(err) {
-			w.Header().Set("X-Token-Type", "invalid")
-			s.writeJSON(w, http.StatusUnauthorized, NewErrorResponse("unauthorized"))
-			return
-		}
-	}
 
 	// Generate new JWT
 	jwtToken, err := generateSessionToken(apiKey)
@@ -215,6 +217,18 @@ func (s *Server) handleAuthCheck(w http.ResponseWriter, r *http.Request) {
 	apiKey := s.config.APIKey
 	s.configMu.RUnlock()
 
+	// Rate limit check
+	clientAddr := clientIP(r.RemoteAddr)
+	if !s.authRateLimit.Allow(clientAddr) {
+		log.Warnf("[auth] check rate limit exceeded for %s", clientAddr)
+		s.writeJSON(w, http.StatusOK, NewSuccessResponse(map[string]interface{}{
+			"authenticated": false,
+			"valid":         false,
+			"error":         "too many requests",
+		}))
+		return
+	}
+
 	if apiKey == "" {
 		s.writeJSON(w, http.StatusOK, NewSuccessResponse(map[string]interface{}{
 			"authenticated": false,
@@ -225,16 +239,26 @@ func (s *Server) handleAuthCheck(w http.ResponseWriter, r *http.Request) {
 	token, err := validateSessionToken(tokenStr, apiKey)
 	if err != nil {
 		isExpired := isJWTExpiredError(err)
+		errMsg := "token invalid"
+		if isExpired {
+			errMsg = "token expired"
+		}
+		log.Debugf("[auth] check: %v", err)
 		s.writeJSON(w, http.StatusOK, NewSuccessResponse(map[string]interface{}{
 			"authenticated": false,
 			"valid":         false,
 			"expired":       isExpired,
-			"error":         err.Error(),
+			"error":         errMsg,
 		}))
 		return
 	}
 
-	claims := token.Claims.(*jwtClaims)
+	claims, ok := token.Claims.(*jwtClaims)
+	if !ok {
+		log.Errorf("[auth] check: unexpected claims type %T", token.Claims)
+		s.writeJSON(w, http.StatusInternalServerError, NewErrorResponse("internal error"))
+		return
+	}
 	exp := claims.ExpiresAt.Time
 	remaining := time.Until(exp)
 
@@ -248,6 +272,16 @@ func (s *Server) handleAuthCheck(w http.ResponseWriter, r *http.Request) {
 }
 
 // ---- Helpers ----
+
+// clientIP 从 RemoteAddr（格式 "host:port"）中提取纯 IP 地址。
+// 如果解析失败，返回原始字符串作为 fallback。
+func clientIP(remoteAddr string) string {
+	host, _, err := net.SplitHostPort(remoteAddr)
+	if err != nil {
+		return remoteAddr
+	}
+	return host
+}
 
 // isJWTExpiredError returns true if the error is due to token expiration.
 func isJWTExpiredError(err error) bool {

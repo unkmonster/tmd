@@ -79,8 +79,6 @@ const authBearerPrefix = "Bearer "
 var publicPathPrefixes = []string{
 	"/api/v1/health",
 	"/api/v1/auth/login", // login 端点需要在没有 JWT 时也能被调用
-	"/api/v1/auth/refresh", // refresh 需要接收过期 JWT，让 handler 自行验证
-	"/api/v1/auth/check", // check 端点公开，handler 无 token 时返回未认证状态
 	"/api/v1/config/theme", // theme 切换器由内联 JS 调用，不经过 api 对象
 	"/static/",
 }
@@ -154,6 +152,20 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
+		// Auth 管理端点（refresh/check）：允许过期 JWT 通过
+		// 普通端点要求 JWT 完全有效（未过期）；auth 管理端点在 JWT 过期时也需要能处理
+		// （客户端需要 refresh 端点来续期，需要 check 端点来查询状态）
+		if isAuthManagementPath(r.URL.Path) {
+			if _, err := validateSessionToken(token, apiKey); err == nil || isJWTExpiredError(err) {
+				// JWT 签名有效（允许过期）→ 放行给 handler 处理
+				next.ServeHTTP(w, r)
+				return
+			}
+			// JWT 完全无效（签名错误/格式错误）→ 401
+			writeAuth401(w, "invalid")
+			return
+		}
+
 		// 方式一：尝试 JWT 验证（首选）
 		jwtToken, jwtErr := validateSessionToken(token, apiKey)
 		if jwtErr == nil && jwtToken != nil && jwtToken.Valid {
@@ -171,8 +183,6 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 		// 检测 token 类型以辅助前端判断
 		if isJWTExpiredError(jwtErr) {
 			w.Header().Set("X-Token-Type", "expired")
-		} else if isJWTFormat(token) {
-			w.Header().Set("X-Token-Type", "invalid")
 		} else {
 			w.Header().Set("X-Token-Type", "invalid")
 		}
@@ -184,6 +194,12 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 func isJWTFormat(token string) bool {
 	parts := strings.Split(token, ".")
 	return len(parts) == 3
+}
+
+// isAuthManagementPath 判断是否为认证管理端点（refresh/check）。
+// 这些端点即使收到过期 JWT 也需要处理，因此 middleware 放行签名有效（允许过期）的 token。
+func isAuthManagementPath(path string) bool {
+	return path == "/api/v1/auth/refresh" || path == "/api/v1/auth/check"
 }
 
 // writeAuth401 writes a standard 401 Unauthorized response.

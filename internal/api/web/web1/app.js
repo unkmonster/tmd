@@ -288,10 +288,14 @@ const api = {
     const oldJWT = localStorage.getItem('tmd_jwt_token');
     if (!oldJWT) return false;
     try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 30000);
       const res = await fetch(this.base + '/api/v1/auth/refresh', {
         method: 'POST',
-        headers: { 'Authorization': 'Bearer ' + oldJWT }
+        headers: { 'Authorization': 'Bearer ' + oldJWT },
+        signal: controller.signal
       });
+      clearTimeout(timer);
       if (!res.ok) return false;
       const json = await res.json();
       if (!json.success || !json.data || !json.data.token) return false;
@@ -537,6 +541,25 @@ const sseManager = {
           console.warn('[SSE] 健康检查失败:', e.message, '- 继续重试...');
         });
       }
+      // 有 JWT 时检查是否过期，尝试刷新后再重连
+      if (localStorage.getItem('tmd_jwt_token')) {
+        const expiry = localStorage.getItem('tmd_jwt_expiry');
+        if (expiry && new Date(expiry) - new Date() < 2 * 60 * 1000) {
+          // JWT 即将或已经过期，先刷新
+          api._tryRefreshJWT().then(refreshed => {
+            if (refreshed) {
+              console.log('[SSE] JWT refreshed before reconnect');
+            }
+            this._scheduleReconnect();
+          });
+          return; // 刷新完成后 _scheduleReconnect
+        }
+      }
+      this._scheduleReconnect();
+    };
+
+    // 提取为独立方法以便 JWT 刷新后调用
+    this._scheduleReconnect = () => {
       const delay = Math.min(this.baseReconnectDelay * Math.pow(2, this.reconnectAttempts - 1), this.maxReconnectDelay);
       console.warn(`[SSE] 连接断开，${delay / 1000}s 后重试（第 ${this.reconnectAttempts} 次）`);
       this.reconnectTimer = setTimeout(() => {
@@ -4285,8 +4308,8 @@ function connectLogSSE() {
   const params = new URLSearchParams();
   if (logLevel !== 'all') params.append('level', logLevel);
   if (logSearch) params.append('q', logSearch);
-  const apiKey = localStorage.getItem('tmd_jwt_token');
-  if (apiKey) params.append('token', apiKey);
+  const jwtToken = localStorage.getItem('tmd_jwt_token');
+  if (jwtToken) params.append('token', jwtToken);
   const qs = params.toString();
   const url = '/api/v1/logs/stream' + (qs ? '?' + qs : '');
   logSSESource = new EventSource(url);
@@ -4616,21 +4639,18 @@ async function init() {
   _state.lastPage = page;
   updateNavigationUI(page);
 
-  // Proactive JWT refresh: 如果 JWT 即将过期（剩余 < 10min），提前刷新
-  const jwtExpiry = localStorage.getItem('tmd_jwt_expiry');
-  if (jwtExpiry) {
-    const remaining = new Date(jwtExpiry) - new Date();
-    if (remaining > 0 && remaining < 10 * 60 * 1000) {
-      // 剩余不足 10 分钟，静默刷新
-      api._tryRefreshJWT().then(r => {
-        if (!r) { /* refresh 失败，下次请求会触发 401 → 自动处理 */ }
-      });
-    }
-  }
   // 定时刷新：每 45 分钟尝试刷新一次 JWT
+  // 首次刷新由第一个 API 请求的 401 处理逻辑自动触发，无需提前检查
   setInterval(() => {
     const jwt = localStorage.getItem('tmd_jwt_token');
-    if (jwt) api._tryRefreshJWT();
+    if (!jwt) return;
+    // 仅在 JWT 剩余不足 30 分钟时才刷新，避免无谓的网络请求
+    const expiry = localStorage.getItem('tmd_jwt_expiry');
+    if (expiry) {
+      const remaining = new Date(expiry) - new Date();
+      if (remaining > 30 * 60 * 1000) return; // 剩余充足，跳过
+    }
+    api._tryRefreshJWT();
   }, 45 * 60 * 1000);
 
   sseManager.connect();

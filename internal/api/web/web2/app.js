@@ -439,7 +439,7 @@ let sseSource = null;
 let sseReconnectTimer = null;
 let sseReconnectDelay = 1000;
 
-function sseApiKey() {
+function sseJWT() {
   return localStorage.getItem('tmd_jwt_token') || '';
 }
 
@@ -460,7 +460,7 @@ const debouncedSchedulesUpdate = debounce(function(data) {
 function connectSSE() {
   if (sseReconnectTimer) { clearTimeout(sseReconnectTimer); sseReconnectTimer = null; }
   if (sseSource) { sseSource.close(); sseSource = null; }
-  const key = sseApiKey();
+  const key = sseJWT();
   sseSource = new EventSource(apiBase() + '/api/v1/sse/tasks' + (key ? '?token=' + encodeURIComponent(key) : ''));
 
   sseSource.addEventListener('tasks', (e) => {
@@ -1757,7 +1757,9 @@ async function renderConfigFields(content) {
           <label>${esc(f.label || f.name)}</label>
           ${f.type === 'number'
             ? `<input type="number" id="cf-${esc(f.name)}" value="${esc(f.value||f.default||'')}" placeholder="${esc(f.placeholder||'')}">`
-            : `<input type="text" id="cf-${esc(f.name)}" value="${esc(f.value||f.default||'')}" placeholder="${esc(f.placeholder||'')}">`
+            : f.type === 'password'
+              ? `<input type="password" id="cf-${esc(f.name)}" value="" placeholder="${esc(f.value||'')}">`
+              : `<input type="text" id="cf-${esc(f.name)}" value="${esc(f.value||f.default||'')}" placeholder="${esc(f.placeholder||'')}">`
           }
           ${f.prompt ? '<div class="hint">' + esc(f.prompt) + '</div>' : ''}
         </div>`).join('')}
@@ -1774,11 +1776,17 @@ async function saveConfigFields() {
     const data = {};
     fields.forEach(f => {
       const el = document.getElementById('cf-' + f.name);
-      if (el) data[f.name] = el.value;
+      if (!el) return;
+      // 空密码字段使用 sentinel 值：api_key 可安全清空，其他密码字段保留旧值
+      if (f.type === 'password' && el.value.trim() === '') {
+        data[f.name] = f.name === 'api_key' ? '__CLEAR__' : '__KEEP_OLD__';
+        return;
+      }
+      data[f.name] = el.value;
     });
     await ENDPOINTS.saveConfigFields(data);
     // 如果 api_key 变更，清除过期 JWT
-    if (data['api_key'] && data['api_key'] !== '__KEEP_OLD__') {
+    if ('api_key' in data && data['api_key'] !== '__KEEP_OLD__') {
       localStorage.removeItem('tmd_jwt_token');
       localStorage.removeItem('tmd_jwt_expiry');
     }
@@ -2173,7 +2181,7 @@ function connectLogSSE() {
   const params = new URLSearchParams();
   if (level) params.append('level', level);
   if (q) params.append('q', q);
-  const key = sseApiKey();
+  const key = sseJWT();
   if (key) params.append('token', key);
   const qs = params.toString();
   logSSESource = new EventSource(apiBase() + '/api/v1/logs/stream' + (qs ? '?' + qs : ''));
@@ -2341,7 +2349,7 @@ function showAuthDialog() {
   }
 }
 
-function submitAuthKey() {
+async function submitAuthKey() {
   const input = document.getElementById('authDialogKey');
   const status = document.getElementById('authDialogStatus');
   const btn = document.getElementById('authSubmitBtn');
@@ -2355,25 +2363,25 @@ function submitAuthKey() {
   btn.disabled = true;
   btn.textContent = 'Verifying...';
   if (status) status.textContent = '';
-  // Call login endpoint to get JWT
-  fetch(apiBase() + '/api/v1/auth/login', {
-    method: 'POST',
-    headers: { 'Authorization': 'Bearer ' + key }
-  })
-  .then(r => r.json())
-  .then(json => {
+  // Call login endpoint to get JWT (async/await 避免 Promise 链 + setTimeout 竞态)
+  try {
+    const res = await fetch(apiBase() + '/api/v1/auth/login', {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + key }
+    });
+    const json = await res.json();
     if (!json.success || !json.data || !json.data.token) {
       throw new Error(json.error || 'Login failed');
     }
     localStorage.setItem('tmd_jwt_token', json.data.token);
     if (json.data.expires_at) localStorage.setItem('tmd_jwt_expiry', json.data.expires_at);
-    setTimeout(() => { window.location.reload(); }, 300);
-  })
-  .catch(e => {
+    // setItem 是同步操作，写入完成后再 reload
+    window.location.reload();
+  } catch (e) {
     btn.disabled = false;
     btn.textContent = 'Confirm';
     if (status) { status.textContent = '❌ ' + e.message; status.style.color = 'var(--danger)'; }
-  });
+  }
 }
 
 // Proactive auth check: if the server requires auth and no key is stored,
@@ -2409,13 +2417,8 @@ document.addEventListener('DOMContentLoaded', () => {
   currentPage = path;
 
   // Proactive JWT refresh
-  const jwtExpiry = localStorage.getItem('tmd_jwt_expiry');
-  if (jwtExpiry) {
-    const remaining = new Date(jwtExpiry) - new Date();
-    if (remaining > 0 && remaining < 10 * 60 * 1000) {
-      API._tryRefreshJWT();
-    }
-  }
+  // 定时刷新：每 45 分钟尝试刷新一次 JWT
+  // 首次刷新由第一个 API 请求的 401 处理逻辑自动触发
   setInterval(() => {
     if (localStorage.getItem('tmd_jwt_token')) API._tryRefreshJWT();
   }, 45 * 60 * 1000);
