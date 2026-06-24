@@ -4640,14 +4640,7 @@ document.getElementById('menuToggle').onclick = () => {
   document.getElementById('menuToggle').setAttribute('aria-expanded', sb.classList.contains('open'));
 };
 
-document.getElementById('sidebarOverlay').onclick = () => {
-  document.getElementById('sidebar').classList.remove('open');
-  document.getElementById('sidebarOverlay').classList.remove('open');
-};
 
-document.querySelectorAll('.nav-item').forEach(el => {
-  el.onclick = () => navigateTo(el.dataset.page);
-});
 
 document.getElementById('sseIndicator').onclick = () => {
   const page = store.state.currentPage;
