@@ -314,13 +314,20 @@ a:hover { text-decoration: underline; }
   grid-template-columns: 1fr 1fr;
   gap: 16px;
 }
+/* form-row 的 flex 变体：用于动态添加的 cookie 行等需要水平布局的场景 */
+.form-row-flex {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
 .form-actions {
   display: flex;
   gap: 8px;
   margin-top: 16px;
 }
 
-input[type="text"], input[type="url"], input[type="number"], textarea, select {
+input[type="text"], input[type="url"], input[type="number"], input[type="password"], textarea, select {
   width: 100%;
   padding: 8px 12px;
   font-size: 13px;

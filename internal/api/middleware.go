@@ -180,7 +180,15 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 		}
 
 		// 两者都失败 → 401
-		// 检测 token 类型以辅助前端判断
+		//
+		// X-Token-Type 帮助前端区分处理策略：
+		//   "expired" → JWT 签名有效但已过期 —— 客户端应调用 /auth/refresh 续期
+		//   "invalid" → JWT 完全无效或 API Key 错误 —— 客户端应弹登录框重新认证
+		//
+		// jwtErr 来自 validateSessionToken，isJWTExpiredError 识别过期。
+		// 当一个签名有效的 JWT 过期后，token == apiKey 必然为 false
+		//（JWT 字符串 != 短字符串 api_key），此时返回 "expired" 是安全的：
+		// 前端先尝试 refresh，成功后恢复；若 refresh 也失败则 fallback 到登录。
 		if isJWTExpiredError(jwtErr) {
 			w.Header().Set("X-Token-Type", "expired")
 		} else {

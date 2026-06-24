@@ -25,6 +25,8 @@ if not exist "%TMD_EXE%" (
         echo Build failed.
         exit /b %errorlevel%
     )
+    REM 编译完成后设置 TMD_DEV=1 使二进制使用本地 web 目录热重载前端。
+    REM 注意：TMD_DEV 仅在此次会话中有效。后续直接运行已编译的 tmd.exe 不会启用。
     set "TMD_DEV=1"
 )
 

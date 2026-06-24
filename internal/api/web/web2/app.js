@@ -18,6 +18,7 @@ function fetchWithTimeout(url, options) {
 }
 
 const API = {
+  _refreshPromise: null, // _tryRefreshJWT 去重锁
   async _fetch(url, options) {
     const jwt = localStorage.getItem('tmd_jwt_token');
     if (jwt) {
@@ -57,6 +58,12 @@ const API = {
   },
   // Try to refresh the JWT token. Returns true on success.
   async _tryRefreshJWT() {
+    // Deduplicate concurrent refresh attempts
+    if (this._refreshPromise) return this._refreshPromise;
+    this._refreshPromise = this._doRefreshJWT().finally(() => { this._refreshPromise = null; });
+    return this._refreshPromise;
+  },
+  async _doRefreshJWT() {
     const oldJWT = localStorage.getItem('tmd_jwt_token');
     if (!oldJWT) return false;
     try {
@@ -461,6 +468,11 @@ function connectSSE() {
   if (sseReconnectTimer) { clearTimeout(sseReconnectTimer); sseReconnectTimer = null; }
   if (sseSource) { sseSource.close(); sseSource = null; }
   const key = sseJWT();
+  // 首次加载时若无 JWT，推迟连接，等 checkAuth 确认无需认证或完成后重连
+  if (!key && !window._sseAuthChecked) {
+    window._sseAuthChecked = true;
+    return;
+  }
   sseSource = new EventSource(apiBase() + '/api/v1/sse/tasks' + (key ? '?token=' + encodeURIComponent(key) : ''));
 
   sseSource.addEventListener('tasks', (e) => {
@@ -513,6 +525,20 @@ function connectSSE() {
     sseConnected = false;
     document.querySelector('.health-dot') && (document.querySelector('.health-dot').style.background = 'var(--red)');
     sseSource.close();
+
+    // 有 JWT 时检查是否即将过期，先刷新再重连（对齐 web1 行为）
+    const jwtToken = sseJWT();
+    if (jwtToken) {
+      const expiry = localStorage.getItem('tmd_jwt_expiry');
+      if (expiry && new Date(expiry) - new Date() < 2 * 60 * 1000) {
+        API._tryRefreshJWT().then(() => {
+          sseReconnectDelay = Math.min(sseReconnectDelay * 2, 30000);
+          sseReconnectTimer = setTimeout(connectSSE, sseReconnectDelay);
+        });
+        return;
+      }
+    }
+
     sseReconnectDelay = Math.min(sseReconnectDelay * 2, 30000);
     sseReconnectTimer = setTimeout(connectSSE, sseReconnectDelay);
   };
@@ -1850,12 +1876,8 @@ function addCookieRow() {
   const existing = form.querySelectorAll('[id^="cookie-at-"]');
   const idx = existing.length;
   const row = document.createElement('div');
-  row.className = 'form-row';
+  row.className = 'form-row-flex';
   row.style.marginBottom = '8px';
-  row.style.display = 'flex';
-  row.style.gap = '8px';
-  row.style.alignItems = 'center';
-  row.style.flexWrap = 'wrap';
   row.innerHTML = '<input type="text" id="cookie-at-' + idx + '" value="" placeholder="auth_token" style="font-family:var(--font-mono);font-size:12px">' +
     '<input type="text" id="cookie-ct0-' + idx + '" value="" placeholder="ct0" style="font-family:var(--font-mono);font-size:12px">';
   const actions = form.querySelector('.form-actions');
@@ -1891,9 +1913,9 @@ function renderSecurityEditor(content) {
     const remaining = new Date(jwtExpiry) - new Date();
     if (remaining > 0) {
       const mins = Math.round(remaining / 60000);
-      jwtStatus = `<span style="color:var(--green);font-size:12px">✅ JWT active (expires in ~${mins} min)</span>`;
+      jwtStatus = `<span class="text-sm" style="color:var(--green)">✅ JWT active (expires in ~${mins} min)</span>`;
     } else {
-      jwtStatus = `<span style="color:var(--danger);font-size:12px">❌ JWT expired — re-login required</span>`;
+      jwtStatus = `<span class="text-sm" style="color:var(--danger)">❌ JWT expired — re-login required</span>`;
     }
   }
   content.innerHTML = `
@@ -1917,7 +1939,7 @@ function renderSecurityEditor(content) {
         <button class="btn btn-ghost btn-sm" onclick="clearSecKey()">Clear</button>
         ${jwt ? '<button class="btn btn-ghost btn-sm" onclick="refreshSecJWT()">Refresh Session</button>' : ''}
       </div>
-      <div id="sec-status" style="margin-top:8px;font-size:13px"></div>
+      <div id="sec-status" class="mt-2"></div>
     </div>`;
 }
 
@@ -1926,7 +1948,25 @@ function updateSecStatus(msg, color) {
   if (st) { st.textContent = msg; st.style.color = color || 'var(--text)'; }
 }
 
-function saveSecKey() {
+// Shared helper: call /api/v1/auth/login with a raw API key.
+// Stores JWT and expiry in localStorage on success.
+// Returns the parsed JSON response.
+// Throws on failure (network, non-ok status, missing token).
+async function loginWithApiKey(key) {
+  const res = await fetch(apiBase() + '/api/v1/auth/login', {
+    method: 'POST',
+    headers: { 'Authorization': 'Bearer ' + key }
+  });
+  const json = await res.json();
+  if (!json.success || !json.data || !json.data.token) {
+    throw new Error(json.error || 'Login failed');
+  }
+  localStorage.setItem('tmd_jwt_token', json.data.token);
+  if (json.data.expires_at) localStorage.setItem('tmd_jwt_expiry', json.data.expires_at);
+  return json;
+}
+
+async function saveSecKey() {
   const el = document.getElementById('sec-api-key');
   if (!el) return;
   const key = el.value.trim();
@@ -1939,35 +1979,23 @@ function saveSecKey() {
     return;
   }
   updateSecStatus('⏳ Logging in...');
-  // Call login endpoint to get JWT
-  fetch(apiBase() + '/api/v1/auth/login', {
-    method: 'POST',
-    headers: { 'Authorization': 'Bearer ' + key }
-  })
-  .then(r => r.json())
-  .then(json => {
-    if (!json.success || !json.data || !json.data.token) {
-      throw new Error(json.error || 'Login failed');
-    }
-    localStorage.setItem('tmd_jwt_token', json.data.token);
-    if (json.data.expires_at) localStorage.setItem('tmd_jwt_expiry', json.data.expires_at);
+  try {
+    const json = await loginWithApiKey(key);
     updateSecStatus('✅ Login successful, JWT session started');
-  })
-  .catch(e => {
+  } catch(e) {
     updateSecStatus('❌ Login failed: ' + e.message);
-  });
+  }
 }
 
-function refreshSecJWT() {
-  API._tryRefreshJWT().then(ok => {
-    if (ok) {
-      const expiry = localStorage.getItem('tmd_jwt_expiry');
-      const remaining = expiry ? Math.round((new Date(expiry) - new Date()) / 60000) : '?';
-      updateSecStatus(`✅ Session refreshed (expires in ~${remaining} min)`);
-    } else {
-      updateSecStatus('❌ Session refresh failed, please re-login');
-    }
-  });
+async function refreshSecJWT() {
+  const ok = await API._tryRefreshJWT();
+  if (ok) {
+    const expiry = localStorage.getItem('tmd_jwt_expiry');
+    const remaining = expiry ? Math.round((new Date(expiry) - new Date()) / 60000) : '?';
+    updateSecStatus(`✅ Session refreshed (expires in ~${remaining} min)`);
+  } else {
+    updateSecStatus('❌ Session refresh failed, please re-login');
+  }
 }
 
 function clearSecKey() {
@@ -2328,12 +2356,12 @@ function showAuthDialog() {
         <h2>Authentication Required</h2>
       </div>
       <div class="modal-body">
-        <p style="font-size:13px;color:var(--text-secondary);line-height:1.5;margin-bottom:14px">
+        <p class="text-muted" style="font-size:13px;line-height:1.5;margin-bottom:14px">
           This server requires an API Key. Enter your key below, or configure one in System settings.
         </p>
         <input type="password" id="authDialogKey" style="width:100%;padding:9px 12px;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:14px;outline:none;box-sizing:border-box"
           placeholder="Enter API Key" autocomplete="off" />
-        <div id="authDialogStatus" style="margin-top:8px;font-size:13px;min-height:20px"></div>
+        <div id="authDialogStatus" class="mt-2" style="font-size:13px;min-height:20px"></div>
       </div>
       <div class="modal-footer">
         <button class="btn btn-ghost btn-sm" onclick="closeModal()">Cancel</button>
@@ -2363,18 +2391,9 @@ async function submitAuthKey() {
   btn.disabled = true;
   btn.textContent = 'Verifying...';
   if (status) status.textContent = '';
-  // Call login endpoint to get JWT (async/await 避免 Promise 链 + setTimeout 竞态)
+  // Call login endpoint to get JWT via shared helper
   try {
-    const res = await fetch(apiBase() + '/api/v1/auth/login', {
-      method: 'POST',
-      headers: { 'Authorization': 'Bearer ' + key }
-    });
-    const json = await res.json();
-    if (!json.success || !json.data || !json.data.token) {
-      throw new Error(json.error || 'Login failed');
-    }
-    localStorage.setItem('tmd_jwt_token', json.data.token);
-    if (json.data.expires_at) localStorage.setItem('tmd_jwt_expiry', json.data.expires_at);
+    await loginWithApiKey(key);
     // setItem 是同步操作，写入完成后再 reload
     window.location.reload();
   } catch (e) {
@@ -2391,6 +2410,8 @@ async function checkAuth() {
   if (localStorage.getItem('tmd_jwt_token')) return;
   try {
     await ENDPOINTS.tasks();
+    // 无需认证或 JWT 有效，建立推迟的 SSE 连接
+    connectSSE();
   } catch(e) {
     if (e.status === 401 || e.message === 'unauthorized') {
       showAuthDialog();

@@ -204,6 +204,7 @@ store.subscribe((state) => {
 const api = {
   base: '',
   _abortControllers: new Set(),
+  _refreshPromise: null, // _tryRefreshJWT 去重锁
 
   abortAll() {
     const controllers = this._abortControllers;
@@ -285,15 +286,22 @@ const api = {
 
   // 尝试刷新 JWT token。成功返回 true，失败返回 false（不清除旧 token，留给 auth dialog 处理）
   async _tryRefreshJWT() {
+    // 使用 _refreshPromise 去重：多个并发 401 共享同一个刷新请求，
+    // 避免第一个重试拿到被覆写的旧 JWT 引发再次失败
+    if (this._refreshPromise) return this._refreshPromise;
+    this._refreshPromise = this._doRefreshJWT().finally(() => { this._refreshPromise = null; });
+    return this._refreshPromise;
+  },
+  async _doRefreshJWT() {
     const oldJWT = localStorage.getItem('tmd_jwt_token');
     if (!oldJWT) return false;
+    const { signal, controller } = this._getAbortSignal();
     try {
-      const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), 30000);
       const res = await fetch(this.base + '/api/v1/auth/refresh', {
         method: 'POST',
         headers: { 'Authorization': 'Bearer ' + oldJWT },
-        signal: controller.signal
+        signal
       });
       clearTimeout(timer);
       if (!res.ok) return false;
@@ -306,6 +314,8 @@ const api = {
       return true;
     } catch(e) {
       return false;
+    } finally {
+      this._cleanupAbortController(controller);
     }
   },
 
@@ -4067,6 +4077,11 @@ async function saveConfig() {
       configRaw: data.yaml_preview || content
     });
     showManualRestartNotice('配置');
+    // Raw YAML 中存在非注释的 api_key 字段 → 可能已变更 → 清除旧 JWT
+    if (/^api_key:\s*\S/m.test(content)) {
+      localStorage.removeItem('tmd_jwt_token');
+      localStorage.removeItem('tmd_jwt_expiry');
+    }
   } catch (e) {
     toast.show('❌ 保存失败: ' + e.message, 'error');
     store.setState({ configSaving: false });
@@ -4354,6 +4369,17 @@ function connectLogSSE() {
       return; // 放弃重连
     }
     const delay = Math.min(2000 * Math.pow(1.5, _logReconnectAttempts - 1), 30000);
+    // 有 JWT 时检查是否过期，尝试刷新后再重连
+    if (localStorage.getItem('tmd_jwt_token')) {
+      const expiry = localStorage.getItem('tmd_jwt_expiry');
+      if (expiry && new Date(expiry) - new Date() < 2 * 60 * 1000) {
+        api._tryRefreshJWT().then(refreshed => {
+          if (refreshed) console.log('[LogSSE] JWT refreshed before reconnect');
+          window._logSSETimer = setTimeout(connectLogSSE, delay);
+        });
+        return;
+      }
+    }
     window._logSSETimer = setTimeout(connectLogSSE, delay);
   };
 }
@@ -4696,6 +4722,7 @@ async function init() {
 function showAuthDialog() {
   const overlay = document.getElementById('authOverlay');
   if (!overlay) return;
+  if (overlay.classList.contains('open')) return; // 已在显示中，防重复触发
   overlay.style.display = '';
   requestAnimationFrame(() => overlay.classList.add('open'));
   const input = document.getElementById('authDialogKey');
@@ -4708,8 +4735,15 @@ function hideAuthDialog() {
   const overlay = document.getElementById('authOverlay');
   if (!overlay) return;
   overlay.classList.remove('open');
-  // Wait for CSS transition before hiding
-  setTimeout(() => { overlay.style.display = 'none'; }, 200);
+  // 监听 CSS transition 完成后再隐藏，避免硬编码值与 --duration-normal 不一致
+  const onTransitionEnd = (e) => {
+    if (e.propertyName !== 'opacity') return;
+    overlay.removeEventListener('transitionend', onTransitionEnd);
+    if (!overlay.classList.contains('open')) {
+      overlay.style.display = 'none';
+    }
+  };
+  overlay.addEventListener('transitionend', onTransitionEnd);
 }
 
 async function submitAuthKey() {
