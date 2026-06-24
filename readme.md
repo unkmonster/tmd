@@ -3,7 +3,6 @@
 [![Go Version](https://img.shields.io/badge/Go-1.25.0-blue.svg)](https://go.dev/)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](./LICENSE)
 [![CI/CD](https://github.com/unkmonster/tmd/actions/workflows/go.yml/badge.svg)](.github/workflows/go.yml)
-[Release](https://github.com/unkmonster/tmd/releases/latest)
 
 > **版本**: 3.4.19 | **状态**: 活跃维护 | **许可证**: GPL-3.0
 
@@ -42,6 +41,7 @@
 - **文件写入**：小文件 Buffer / 大文件流式(≥10MB)，原子写入，MD5 跳过未变化文件，版本备份
 - **标记已下载**：`-mark-downloaded` 指定时间戳，跳过历史推文
 - **Web 管理界面**：内置 HTTP API + SSE 实时推送 + 任务队列 + 定时调度 + 数据库管理
+- **API Key 认证**：内置 Bearer Token 认证层，支持 conf.yaml/环境变量/Web UI 三种配置方式，Web UI 免认证访问（详见[安全章节](#api-server-安全)）
 - **调度自动化**：支持 `interval` / `daily` 两种模式，`user` / `list` / `following` / `mixed` 四种目标
 
 ***
@@ -168,6 +168,7 @@ mkdir -p config data
 ```env
 TMD_AUTH_TOKEN=your_auth_token
 TMD_CT0=your_ct0
+TMD_API_KEY=your-api-key          # 可选：开启 API Key 认证
 TMD_PROXY_URL=
 TMD_MAX_DOWNLOAD_ROUTINE=8
 TMD_MAX_FILE_NAME_LEN=158
@@ -203,6 +204,7 @@ services:
       TMD_AUTH_TOKEN: ${TMD_AUTH_TOKEN}
       TMD_CT0: ${TMD_CT0}
       TMD_PORT: 25556
+      TMD_API_KEY: ${TMD_API_KEY:-}
       TMD_PROXY_URL: ${TMD_PROXY_URL:-}
       TMD_MAX_DOWNLOAD_ROUTINE: ${TMD_MAX_DOWNLOAD_ROUTINE:-8}
       TMD_MAX_FILE_NAME_LEN: ${TMD_MAX_FILE_NAME_LEN:-158}
@@ -232,6 +234,7 @@ docker run -d \
   -e TMD_AUTH_TOKEN=your_auth_token \
   -e TMD_CT0=your_ct0 \
   -e TMD_PORT=25556 \
+  -e TMD_API_KEY=your-api-key \
   -e TMD_PROXY_URL= \
   -e TMD_MAX_DOWNLOAD_ROUTINE=8 \
   -e TMD_MAX_FILE_NAME_LEN=158 \
@@ -254,6 +257,7 @@ http://localhost:25556/api/v1/health
 - `/config`：配置、额外 cookies、调度文件、日志目录
 - `/data`：下载数据目录，包含 `users/` 和 `.data/foo.db`
 - `TMD_AUTH_TOKEN`、`TMD_CT0`：必填
+- `TMD_API_KEY`：可选，开启 API Key 认证（详见[API Server 安全](#api-server-安全)）
 - `TMD_PROXY_URL`：可选，使用代理时设置，例如 `http://host.docker.internal:7897`
 - `TMD_MAX_DOWNLOAD_ROUTINE`：可选，默认 `8`
 - `TMD_MAX_FILE_NAME_LEN`：可选，默认 `158`
@@ -297,15 +301,6 @@ http://localhost:25556/api/v1/health
 
 `auth_token` 和 `ct0` 相当于你的 **Twitter 登录凭证**，请务必妥善保管！
 
-**安全建议：**
-
-- ❌ **不要**将配置文件提交到公开 Git 仓库（已在 `.gitignore` 排除）
-- ❌ **不要**分享包含真实 Cookie 的配置文件或截图
-- ❌ **不要**在日志或调试信息中暴露完整 Cookie
-- ✅ 定期更新 Cookie（Twitter 可能会使其失效或定期轮换）
-- ✅ 使用 `tmd -conf` 安全更新配置，避免手动编辑出错
-- ✅ 仅在可信设备上运行程序
-
 **Cookie 存储位置：**
 
 | 平台 | 路径 | 权限 |
@@ -320,7 +315,7 @@ http://localhost:25556/api/v1/health
 | **Windows** | 管理员权限 | 创建符号链接需要 SeCreateSymbolicLinkPrivilege |
 | **Linux/macOS** | 文件系统写入权限 | 写入存储目录和数据库文件 |
 
-> 💡 **提示**: Windows 用户可以右键点击 `tmd.exe` → "以管理员身份运行"，或在管理员 PowerShell 中执行。
+> 💡 **提示**: Windows 用户可以在管理员 PowerShell/cmd 中执行。
 
 ### 数据隐私
 
@@ -342,39 +337,87 @@ http://localhost:25556/api/v1/health
 **数据保护建议：**
 - 定期备份 `{存储目录}` 和 `.data/foo.db`
 - 敏感数据（如受保护用户的推文）注意访问控制
-- 删除用户数据时同时清理数据库记录
 
 ### API Server 安全
 
-当前版本 API Server **无需认证**，适用于本地使用：
+TMD Server 模式内置 **Bearer Token 认证**，通过 `api_key` 配置项控制。开启后所有 API 请求需要携带 `Authorization: Bearer <key>` 头，Web UI 页面本身不受影响（公开路径免认证）。
 
-**生产环境安全加固方案：**
+#### 快速开启
+
+```yaml
+# conf.yaml
+api_key: "your-secret-api-key"
+```
+
+或通过环境变量设置（优先级更高）：
+
+```bash
+# Docker
+docker run -e TMD_API_KEY="your-secret-api-key" ...
+
+# 本地
+export TMD_API_KEY="your-secret-api-key"
+tmd -server
+```
+
+`api_key` 为空时认证层完全跳过，向后兼容。
+
+#### 认证流程
+
+```
+客户端                                 TMD Server
+  │                                          │
+  │ GET /api/v1/tasks                        │
+  │ Authorization: Bearer <jwt or key>       │
+  │─────────────────────────────────────────►│  authMiddleware 校验 token
+  │                                          │  ① 先尝试 JWT 验证
+  │                                          │  ② 回退到原始 Key 比较
+  │ HTTP 200 + JSON                          │
+  │◄─────────────────────────────────────────│
+```
+
+- **双模式认证**：支持 JWT 会话令牌（首选）和原始 API Key（向后兼容）。通过 `POST /api/v1/auth/login` 用 API Key 换取 1 小时有效的 JWT
+- **认证失败**：返回 `HTTP 401` + `{"success":false,"error":"unauthorized"}` + `WWW-Authenticate` 头，附带 `X-Token-Type` 区分过期/无效
+- **SSE 端点**：`EventSource` 无法设置自定义头，通过 `?token=` 查询参数认证
+- **公开路径**：健康检查、Web UI 页面、静态文件、主题切换免认证
+- **Web UI 自动弹窗**：浏览器遇到 401 时自动弹出认证对话框，输入 Key 后保存并刷新页面
+
+#### Web UI 配置
+
+进入系统设置 → **Security** 标签页，支持输入/保存/测试/清除 API Key。
+
+#### 生产环境加固
+
+开启内置认证后，建议配合以下措施使用：
+
+1. **绑定 localhost**：仅允许本地访问（默认行为）
+2. **HTTPS 加密**：使用 Nginx/Caddy 反向代理终止 TLS
+3. **速率限制**：外层 Nginx 配置 `limit_req`
+4. **IP 白名单**：防火墙限制访问来源
+
+**Nginx 反向代理 + HTTPS 示例（仅供参考）：**
 
 ```nginx
-# Nginx 反向代理示例 - 添加 Basic Auth
 server {
-    listen 8080;
-    
-    location /api/v1/ {
-        auth_basic "TMD API";
-        auth_basic_user_file /etc/nginx/.htpasswd;
-        
+    listen 443 ssl;
+    server_name tmd.example.com;
+
+    ssl_certificate /etc/nginx/certs/fullchain.pem;
+    ssl_certificate_key /etc/nginx/certs/privkey.pem;
+
+    location / {
         proxy_pass http://127.0.0.1:25556;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
-        
-        # 限制请求速率
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+
+        # 可选：外层再加一层速率限制
         limit_req zone=api burst=20 nodelay;
     }
 }
 ```
 
-**推荐安全措施：**
-1. **网络隔离**: 仅绑定到 localhost (`127.0.0.1:25556`)
-2. **反向代理**: 使用 Nginx/Caddy 添加认证层
-3. **IP 白名单**: 防火墙限制访问来源 IP
-4. **HTTPS**: 公网部署时强制 TLS 加密
-5. **速率限制**: 防止 API 滥用
+> 详细设计文档见 [`doc/tmd-api-auth-layer.md`](doc/tmd-api-auth-layer.md)，完整 API 文档见 [`doc/API_DOCUMENTATION.md`](doc/API_DOCUMENTATION.md)。
 
 ***
 
@@ -665,89 +708,95 @@ tmd -server -port 8080
 
 ### API 端点速查
 
+> 🔓 = 公开（免认证） | 🔒 = 需要 Bearer Token（详见[API Server 安全](#api-server-安全)）
+
 | 方法 | 端点 | 说明 | 认证 |
-|------|------|------|------|
-| **GET** | `/api/v1/health` | 健康检查 | ❌ |
-| **POST** | `/api/v1/users/{screen_name}/download` | 下载用户推文 | ❌ |
-| **POST** | `/api/v1/users/{screen_name}/profile` | 下载用户 Profile | ❌ |
-| **POST** | `/api/v1/users/{screen_name}/following/download` | 下载关注列表 | ❌ |
-| **POST** | `/api/v1/users/{screen_name}/following/mark` | 标记关注列表已下载 | ❌ |
-| **POST** | `/api/v1/users/{screen_name}/mark` | 标记用户已下载 | ❌ |
-| **POST** | `/api/v1/lists/{list_id}/download` | 下载列表推文 | ❌ |
-| **POST** | `/api/v1/lists/{list_id}/profile` | 下载列表 Profile | ❌ |
-| **POST** | `/api/v1/lists/{list_id}/mark` | 标记列表已下载 | ❌ |
-| **POST** | `/api/v1/json/file/download` | JSON 文件导入下载（支持路径列表/文件上传） | ❌ |
-| **POST** | `/api/v1/json/folder/download` | LoongTweet 文件夹下载（支持路径列表/文件上传） | ❌ |
-| **POST** | `/api/v1/batch/download` | 批量下载（多用户/列表） | ❌ |
-| **POST** | `/api/v1/batch/mark` | 批量标记下载（多用户/列表/关注） | ❌ |
-| **GET** | `/api/v1/tasks` | 任务列表 | ❌ |
-| **GET** | `/api/v1/tasks/stats` | 任务统计（按状态计数） | ❌ |
-| **GET** | `/api/v1/tasks/{task_id}` | 任务详情 | ❌ |
-| **POST** | `/api/v1/tasks/{task_id}/cancel` | 取消任务 | ❌ |
-| **POST** | `/api/v1/tasks/cancel-queued` | 取消所有排队中的任务 | ❌ |
-| **POST** | `/api/v1/tasks/{task_id}/retry` | 重试失败/取消的任务 | ❌ |
-| **DELETE** | `/api/v1/tasks/{task_id}` | 删除终端状态任务 | ❌ |
-| **GET** | `/api/v1/sse/tasks` | SSE 实时任务推送 | ❌ |
-| **GET** | `/api/v1/db/users` | 用户列表（分页） | ❌ |
-| **GET** | `/api/v1/db/users/{id}` | 用户详情 | ❌ |
-| **PATCH** | `/api/v1/db/users/{id}` | 部分更新用户 | ❌ |
-| **DELETE** | `/api/v1/db/users/{id}` | 删除用户 | ❌ |
-| **GET** | `/api/v1/db/users/{id}/previous-names` | 用户历史名称 | ❌ |
-| **GET** | `/api/v1/db/users/{id}/entities` | 获取用户的所有实体 | ❌ |
-| **GET** | `/api/v1/db/users/{id}/links` | 获取用户的所有链接 | ❌ |
-| **GET** | `/api/v1/db/user-previous-names` | 全局历史名称查询（含当前名称） | ❌ |
-| **GET** | `/api/v1/db/lists` | 列表列表（分页） | ❌ |
-| **GET** | `/api/v1/db/lists/{id}` | 列表详情 | ❌ |
-| **PATCH** | `/api/v1/db/lists/{id}` | 部分更新列表 | ❌ |
-| **DELETE** | `/api/v1/db/lists/{id}` | 删除列表 | ❌ |
-| **GET** | `/api/v1/db/lists/{id}/entities` | 获取列表的所有实体 | ❌ |
-| **GET** | `/api/v1/db/user-entities` | 用户实体列表（分页） | ❌ |
-| **GET** | `/api/v1/db/user-entities/{id}` | 用户实体详情 | ❌ |
-| **PATCH** | `/api/v1/db/user-entities/{id}` | 部分更新用户实体 | ❌ |
-| **DELETE** | `/api/v1/db/user-entities/{id}` | 删除用户实体 | ❌ |
-| **GET** | `/api/v1/db/list-entities` | 列表实体列表（分页） | ❌ |
-| **GET** | `/api/v1/db/list-entities/{id}` | 列表实体详情 | ❌ |
-| **PATCH** | `/api/v1/db/list-entities/{id}` | 部分更新列表实体 | ❌ |
-| **DELETE** | `/api/v1/db/list-entities/{id}` | 删除列表实体 | ❌ |
-| **GET** | `/api/v1/db/user-links` | 用户链接查询 | ❌ |
-| **GET** | `/api/v1/db/user-links/{id}` | 用户链接详情 | ❌ |
-| **PATCH** | `/api/v1/db/user-links/{id}` | 部分更新用户链接 | ❌ |
-| **DELETE** | `/api/v1/db/user-links/{id}` | 删除用户链接 | ❌ |
-| **GET** | `/api/v1/db/stats` | 数据库各表记录数统计 | ❌ |
-| **GET** | `/api/v1/config` | 系统配置（脱敏） | ❌ |
-| **GET** | `/api/v1/config/raw` | 获取原始配置文件内容 | ❌ |
-| **PUT** | `/api/v1/config/raw` | 更新原始配置文件 (YAML) | ❌ |
-| **GET** | `/api/v1/config/fields` | 获取结构化配置字段列表 | ❌ |
-| **PUT** | `/api/v1/config/fields` | 保存结构化配置字段 | ❌ |
-| **GET** | `/api/v1/config/theme` | 获取当前前端主题 | ❌ |
-| **POST** | `/api/v1/config/theme` | 切换前端主题 | ❌ |
-| **GET** | `/api/v1/config/themes` | 获取可用主题列表 | ❌ |
-| **GET** | `/api/v1/cookies` | 获取备用 Cookie 列表（脱敏） | ❌ |
-| **PUT** | `/api/v1/cookies` | 保存备用 Cookie（表单） | ❌ |
-| **GET** | `/api/v1/cookies/raw` | 获取原始 Cookie 文件内容 | ❌ |
-| **PUT** | `/api/v1/cookies/raw` | 更新原始 Cookie 文件 (YAML) | ❌ |
-| **POST** | `/api/v1/server/shutdown` | 优雅关闭服务器 | ❌ |
-| **GET** | `/api/v1/logs` | 获取系统日志（支持筛选/分页） | ❌ |
-| **GET** | `/api/v1/logs/stream` | SSE 实时日志流 | ❌ |
-| **GET** | `/api/v1/logs/stats` | 日志级别统计计数 | ❌ |
-| **GET** | `/api/v1/logs/export` | 导出完整日志文件 | ❌ |
-| **GET** | `/api/v1/schedules` | 定时任务管理（详见[调度器API](#调度器-api)） | ❌ |
-| **GET** | `/api/v1/errors` | 失败推文摘要（含常规+JSON来源） | ❌ |
-| **POST** | `/api/v1/errors/retry` | 重试所有历史失败推文 | ❌ |
-| **DELETE** | `/api/v1/errors` | 清除所有失败推文记录 | ❌ |
-| **GET** | `/api/v1/queue/status` | 下载队列状态（待处理/活跃/分离） | ❌ |
-| **GET** | `/` | Web 管理界面 - 仪表盘 | ❌ |
-| **GET** | `/tasks` | Web 管理界面 - 任务 | ❌ |
-| **GET** | `/data` | Web 管理界面 - 数据 | ❌ |
-| **GET** | `/schedules` | Web 管理界面 - 调度 | ❌ |
-| **GET** | `/system` | Web 管理界面 - 系统 | ❌ |
-| **GET** | `/logs` | Web 管理界面 - 日志 | ❌ |
-| **GET** | `/static/{$}` | 静态资源文件（精确匹配） | ❌ |
-| **GET** | `/static/{path...}` | 静态资源文件（路径匹配） | ❌ |
+|------|------|------|:----:|
+| **GET** | `/api/v1/health` | 健康检查 | 🔓 |
+| **POST** | `/api/v1/auth/login` | API Key 换取 JWT 会话令牌 | 🔓 |
+| **POST** | `/api/v1/auth/refresh` | 刷新 JWT 令牌 | 🔒 |
+| **GET** | `/api/v1/auth/check` | 检查 JWT 有效性 | 🔒 |
+| **POST** | `/api/v1/users/{screen_name}/download` | 下载用户推文 | 🔒 |
+| **POST** | `/api/v1/users/{screen_name}/profile` | 下载用户 Profile | 🔒 |
+| **POST** | `/api/v1/users/{screen_name}/following/download` | 下载关注列表 | 🔒 |
+| **POST** | `/api/v1/users/{screen_name}/following/mark` | 标记关注列表已下载 | 🔒 |
+| **POST** | `/api/v1/users/{screen_name}/mark` | 标记用户已下载 | 🔒 |
+| **POST** | `/api/v1/lists/{list_id}/download` | 下载列表推文 | 🔒 |
+| **POST** | `/api/v1/lists/{list_id}/profile` | 下载列表 Profile | 🔒 |
+| **POST** | `/api/v1/lists/{list_id}/mark` | 标记列表已下载 | 🔒 |
+| **POST** | `/api/v1/json/file/download` | JSON 文件导入下载（支持路径列表/文件上传） | 🔒 |
+| **POST** | `/api/v1/json/folder/download` | LoongTweet 文件夹下载（支持路径列表/文件上传） | 🔒 |
+| **POST** | `/api/v1/batch/download` | 批量下载（多用户/列表） | 🔒 |
+| **POST** | `/api/v1/batch/mark` | 批量标记下载（多用户/列表/关注） | 🔒 |
+| **GET** | `/api/v1/tasks` | 任务列表 | 🔒 |
+| **GET** | `/api/v1/tasks/stats` | 任务统计（按状态计数） | 🔒 |
+| **GET** | `/api/v1/tasks/{task_id}` | 任务详情 | 🔒 |
+| **POST** | `/api/v1/tasks/{task_id}/cancel` | 取消任务 | 🔒 |
+| **POST** | `/api/v1/tasks/cancel-queued` | 取消所有排队中的任务 | 🔒 |
+| **POST** | `/api/v1/tasks/{task_id}/retry` | 重试失败/取消的任务 | 🔒 |
+| **DELETE** | `/api/v1/tasks/{task_id}` | 删除终端状态任务 | 🔒 |
+| **GET** | `/api/v1/sse/tasks` | SSE 实时任务推送 | 🔒 |
+| **GET** | `/api/v1/db/users` | 用户列表（分页） | 🔒 |
+| **GET** | `/api/v1/db/users/{id}` | 用户详情 | 🔒 |
+| **PATCH** | `/api/v1/db/users/{id}` | 部分更新用户 | 🔒 |
+| **DELETE** | `/api/v1/db/users/{id}` | 删除用户 | 🔒 |
+| **GET** | `/api/v1/db/users/{id}/previous-names` | 用户历史名称 | 🔒 |
+| **GET** | `/api/v1/db/users/{id}/entities` | 获取用户的所有实体 | 🔒 |
+| **GET** | `/api/v1/db/users/{id}/links` | 获取用户的所有链接 | 🔒 |
+| **GET** | `/api/v1/db/user-previous-names` | 全局历史名称查询（含当前名称） | 🔒 |
+| **GET** | `/api/v1/db/lists` | 列表列表（分页） | 🔒 |
+| **GET** | `/api/v1/db/lists/{id}` | 列表详情 | 🔒 |
+| **PATCH** | `/api/v1/db/lists/{id}` | 部分更新列表 | 🔒 |
+| **DELETE** | `/api/v1/db/lists/{id}` | 删除列表 | 🔒 |
+| **GET** | `/api/v1/db/lists/{id}/entities` | 获取列表的所有实体 | 🔒 |
+| **GET** | `/api/v1/db/user-entities` | 用户实体列表（分页） | 🔒 |
+| **GET** | `/api/v1/db/user-entities/{id}` | 用户实体详情 | 🔒 |
+| **PATCH** | `/api/v1/db/user-entities/{id}` | 部分更新用户实体 | 🔒 |
+| **DELETE** | `/api/v1/db/user-entities/{id}` | 删除用户实体 | 🔒 |
+| **GET** | `/api/v1/db/list-entities` | 列表实体列表（分页） | 🔒 |
+| **GET** | `/api/v1/db/list-entities/{id}` | 列表实体详情 | 🔒 |
+| **PATCH** | `/api/v1/db/list-entities/{id}` | 部分更新列表实体 | 🔒 |
+| **DELETE** | `/api/v1/db/list-entities/{id}` | 删除列表实体 | 🔒 |
+| **GET** | `/api/v1/db/user-links` | 用户链接查询 | 🔒 |
+| **GET** | `/api/v1/db/user-links/{id}` | 用户链接详情 | 🔒 |
+| **PATCH** | `/api/v1/db/user-links/{id}` | 部分更新用户链接 | 🔒 |
+| **DELETE** | `/api/v1/db/user-links/{id}` | 删除用户链接 | 🔒 |
+| **GET** | `/api/v1/db/stats` | 数据库各表记录数统计 | 🔒 |
+| **GET** | `/api/v1/config` | 系统配置（脱敏） | 🔒 |
+| **GET** | `/api/v1/config/raw` | 获取原始配置文件内容 | 🔒 |
+| **PUT** | `/api/v1/config/raw` | 更新原始配置文件 (YAML) | 🔒 |
+| **GET** | `/api/v1/config/fields` | 获取结构化配置字段列表 | 🔒 |
+| **PUT** | `/api/v1/config/fields` | 保存结构化配置字段 | 🔒 |
+| **GET** | `/api/v1/config/theme` | 获取当前前端主题 | 🔓 |
+| **POST** | `/api/v1/config/theme` | 切换前端主题 | 🔓 |
+| **GET** | `/api/v1/config/themes` | 获取可用主题列表 | 🔓 |
+| **GET** | `/api/v1/cookies` | 获取备用 Cookie 列表（脱敏） | 🔒 |
+| **PUT** | `/api/v1/cookies` | 保存备用 Cookie（表单） | 🔒 |
+| **GET** | `/api/v1/cookies/raw` | 获取原始 Cookie 文件内容 | 🔒 |
+| **PUT** | `/api/v1/cookies/raw` | 更新原始 Cookie 文件 (YAML) | 🔒 |
+| **POST** | `/api/v1/server/shutdown` | 优雅关闭服务器 | 🔒 |
+| **GET** | `/api/v1/logs` | 获取系统日志（支持筛选/分页） | 🔒 |
+| **GET** | `/api/v1/logs/stream` | SSE 实时日志流 | 🔒 |
+| **GET** | `/api/v1/logs/stats` | 日志级别统计计数 | 🔒 |
+| **GET** | `/api/v1/logs/export` | 导出完整日志文件 | 🔒 |
+| **GET** | `/api/v1/schedules` | 定时任务管理（详见[调度器API](#调度器-api)） | 🔒 |
+| **GET** | `/api/v1/errors` | 失败推文摘要（含常规+JSON来源） | 🔒 |
+| **POST** | `/api/v1/errors/retry` | 重试所有历史失败推文 | 🔒 |
+| **DELETE** | `/api/v1/errors` | 清除所有失败推文记录 | 🔒 |
+| **GET** | `/api/v1/queue/status` | 下载队列状态（待处理/活跃/分离） | 🔒 |
+| **GET** | `/` | Web 管理界面 - 仪表盘 | 🔓 |
+| **GET** | `/favicon.ico` | 浏览器图标（SPA 入口时自动请求） | 🔓 |
+| **GET** | `/tasks` | Web 管理界面 - 任务 | 🔓 |
+| **GET** | `/data` | Web 管理界面 - 数据 | 🔓 |
+| **GET** | `/schedules` | Web 管理界面 - 调度 | 🔓 |
+| **GET** | `/system` | Web 管理界面 - 系统 | 🔓 |
+| **GET** | `/logs` | Web 管理界面 - 日志 | 🔓 |
+| **GET** | `/static/{$}` | 静态资源文件（精确匹配） | 🔓 |
+| **GET** | `/static/{path...}` | 静态资源文件（路径匹配） | 🔓 |
 
 > API JSON 中的 Twitter list ID 使用十进制字符串传输（例如 `"2033436439346905439"`），避免 JavaScript Number 对 64 位 ID 产生精度丢失；URL 路径参数仍直接使用同一个十进制 ID。
 
-> ⚠️ **安全提示**: 当前版本 API 无需认证，仅建议在本地或可信网络使用。生产环境请配合反向代理（Nginx/Caddy）添加 Basic Auth 或 IP 白名单。
+> ⚠️ **认证说明**: 上表中 🔓 标为公开的路径始终免认证（用于 Web UI 加载、健康检查和主题切换）；🔒 标为需要认证的路径在 `api_key` 配置为空时同样免认证（向后兼容），设置 `api_key` 后必须携带 `Authorization: Bearer <key>` 头。详见 [API Server 安全](#api-server-安全)。
 
 ### JSON 导入 API 详细说明
 
@@ -786,12 +835,14 @@ JSON 导入端点（`/api/v1/json/file/download` 和 `/api/v1/json/folder/downlo
 
 - 任务状态变更时通过事件总线实时推送（全量推送，非增量），心跳间隔 25 秒
 - 客户端断开时服务端通过 `context.Done()` 自动感知
+- 开启 API Key 认证后需通过 `?token=` 查询参数传递 Key（`EventSource` 无法设置自定义 HTTP 头）：`/api/v1/sse/tasks?token=your-key`
 
 **实时日志流** - `GET /api/v1/logs/stream`：
 
 - 基于控制台日志捕获（`consolelog.Hub`），实时推送新日志行
 - 支持 `level` 和 `q` 查询参数进行服务端筛选
 - 客户端断开时自动取消订阅
+- 开启 API Key 认证后同样需通过 `?token=` 查询参数：`/api/v1/logs/stream?token=your-key`
 
 ### 任务自动清理
 
@@ -836,7 +887,7 @@ http://localhost:25556/
   - 原始编辑：支持 YAML 格式批量编辑
 - **系统管理**
   - **配置编辑**（双模式）：
-    - 📝 **简易模式**：结构化表单，按分组显示字段（基础设置/Cookie认证/高级选项）
+    - 📝 **简易模式**：结构化表单，按分组显示字段（基础设置/Cookie认证/安全认证/高级选项）
     - 🔧 **高级模式**：原始 YAML 编辑器，适合高级用户
     - 自动备份、实时验证、敏感信息脱敏显示
   - **Cookie 管理**：
@@ -869,9 +920,15 @@ http://localhost:25556/
 
 ### 快速示例
 
+> 以下示例默认不携带认证头。如果启用了 API Key 认证（`api_key` 非空），建议先获取 JWT 再调用 API。详见[API Server 安全](#api-server-安全)。
+
 ```bash
 # 1. 启动 Server
 tmd -server
+
+# (可选) 如已启用 API Key，先获取 JWT 会话令牌，后续请求用 $TOKEN 替代 API Key
+#   TOKEN=$(curl -s -X POST -H "Authorization: Bearer your-key" \
+#     http://localhost:25556/api/v1/auth/login | jq -r '.data.token')
 
 # 2. 创建下载任务
 curl -X POST http://localhost:25556/api/v1/users/elonmusk/download

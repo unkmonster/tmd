@@ -19,17 +19,31 @@ function fetchWithTimeout(url, options) {
 
 const API = {
   async _fetch(url, options) {
-    const apiKey = localStorage.getItem('tmd_api_key');
-    if (apiKey) {
+    const jwt = localStorage.getItem('tmd_jwt_token');
+    if (jwt) {
       if (!options) options = {};
       if (!options.headers) options.headers = {};
-      options.headers['Authorization'] = 'Bearer ' + apiKey;
+      options.headers['Authorization'] = 'Bearer ' + jwt;
     }
     
     try {
       const r = await fetchWithTimeout(url, { ...options });
       
       if (r.status === 401) {
+        // 有 JWT 时尝试 refresh
+        if (jwt) {
+          const refreshed = await API._tryRefreshJWT();
+          if (refreshed) {
+            // 用新 token 重试
+            const newToken = localStorage.getItem('tmd_jwt_token');
+            const retryOpts = { ...options };
+            if (retryOpts.headers) {
+              retryOpts.headers['Authorization'] = 'Bearer ' + newToken;
+            }
+            const r2 = await fetchWithTimeout(url, retryOpts);
+            if (r2.status !== 401) return r2;
+          }
+        }
         const authErr = new Error('unauthorized');
         authErr.status = 401;
         throw authErr;
@@ -40,6 +54,23 @@ const API = {
       if (e.name === 'AbortError') throw new Error('Request timed out');
       throw e;
     }
+  },
+  // Try to refresh the JWT token. Returns true on success.
+  async _tryRefreshJWT() {
+    const oldJWT = localStorage.getItem('tmd_jwt_token');
+    if (!oldJWT) return false;
+    try {
+      const r = await fetchWithTimeout(apiBase() + '/api/v1/auth/refresh', {
+        method: 'POST',
+        headers: { 'Authorization': 'Bearer ' + oldJWT }
+      });
+      if (!r.ok) return false;
+      const j = await r.json();
+      if (!j.success || !j.data || !j.data.token) return false;
+      localStorage.setItem('tmd_jwt_token', j.data.token);
+      if (j.data.expires_at) localStorage.setItem('tmd_jwt_expiry', j.data.expires_at);
+      return true;
+    } catch(e) { return false; }
   },
   get: async (url) => {
     const r = await API._fetch(apiBase() + url);
@@ -409,7 +440,7 @@ let sseReconnectTimer = null;
 let sseReconnectDelay = 1000;
 
 function sseApiKey() {
-  return localStorage.getItem('tmd_api_key') || '';
+  return localStorage.getItem('tmd_jwt_token') || '';
 }
 
 // Debounce rapid SSE updates to avoid excessive re-renders
@@ -1746,6 +1777,11 @@ async function saveConfigFields() {
       if (el) data[f.name] = el.value;
     });
     await ENDPOINTS.saveConfigFields(data);
+    // 如果 api_key 变更，清除过期 JWT
+    if (data['api_key'] && data['api_key'] !== '__KEEP_OLD__') {
+      localStorage.removeItem('tmd_jwt_token');
+      localStorage.removeItem('tmd_jwt_expiry');
+    }
     toast('Configuration saved (restart to apply)', 'success');
   } catch(e) { toast(e.message, 'error'); }
 }
@@ -1840,27 +1876,38 @@ async function saveCookiesRaw() {
 }
 
 function renderSecurityEditor(content) {
-  const savedKey = localStorage.getItem('tmd_api_key') || '';
+  const jwt = localStorage.getItem('tmd_jwt_token');
+  const jwtExpiry = localStorage.getItem('tmd_jwt_expiry');
+  let jwtStatus = '';
+  if (jwt && jwtExpiry) {
+    const remaining = new Date(jwtExpiry) - new Date();
+    if (remaining > 0) {
+      const mins = Math.round(remaining / 60000);
+      jwtStatus = `<span style="color:var(--green);font-size:12px">✅ JWT active (expires in ~${mins} min)</span>`;
+    } else {
+      jwtStatus = `<span style="color:var(--danger);font-size:12px">❌ JWT expired — re-login required</span>`;
+    }
+  }
   content.innerHTML = `
     <div class="form-group">
       <h3>API Authentication</h3>
       <p class="hint" style="margin-bottom:12px">
-        Set an API Key to require <code>Authorization: Bearer &lt;key&gt;</code> on all HTTP API requests.
-        SSE connections automatically use <code>?token=</code> parameter.
-        Leave empty to disable authentication.
+        All API requests use a JWT session token obtained by logging in with your API Key.
       </p>
+      <div id="sec-jwt-status" style="margin-bottom:12px">${jwtStatus}</div>
       <p class="hint text-sm text-muted" style="margin-bottom:12px">
-        💡 The same key can also be set via <strong>Configuration → Fields</strong> tab (persisted to server config).
-        This panel stores it locally in your browser for convenience.
+        💡 The API Key is set via <strong>Configuration → Fields</strong> tab or <code>conf.yaml</code>.
+        Enter it below to start a session.
       </p>
       <div class="flex gap-2 items-center" style="flex-wrap:wrap">
         <input type="text" id="sec-api-key" style="flex:1;min-width:200px"
-          placeholder="Enter API Key (leave empty to disable)" value="${esc(savedKey)}" />
+          placeholder="Enter API Key" />
       </div>
       <div class="flex gap-2 mt-2">
-        <button class="btn btn-primary btn-sm" onclick="saveSecKey()">Save to Local</button>
+        <button class="btn btn-primary btn-sm" onclick="saveSecKey()">Login &amp; Save</button>
         <button class="btn btn-ghost btn-sm" onclick="testSecKey()">Test Connection</button>
         <button class="btn btn-ghost btn-sm" onclick="clearSecKey()">Clear</button>
+        ${jwt ? '<button class="btn btn-ghost btn-sm" onclick="refreshSecJWT()">Refresh Session</button>' : ''}
       </div>
       <div id="sec-status" style="margin-top:8px;font-size:13px"></div>
     </div>`;
@@ -1875,15 +1922,52 @@ function saveSecKey() {
   const el = document.getElementById('sec-api-key');
   if (!el) return;
   const key = el.value.trim();
-  localStorage.setItem('tmd_api_key', key);
-  updateSecStatus(key ? '✅ API Key saved locally' : '✅ API Key cleared');
+  if (!key) {
+    // Clear all tokens
+    localStorage.removeItem('tmd_api_key');
+    localStorage.removeItem('tmd_jwt_token');
+    localStorage.removeItem('tmd_jwt_expiry');
+    updateSecStatus('✅ Authentication cleared');
+    return;
+  }
+  updateSecStatus('⏳ Logging in...');
+  // Call login endpoint to get JWT
+  fetch(apiBase() + '/api/v1/auth/login', {
+    method: 'POST',
+    headers: { 'Authorization': 'Bearer ' + key }
+  })
+  .then(r => r.json())
+  .then(json => {
+    if (!json.success || !json.data || !json.data.token) {
+      throw new Error(json.error || 'Login failed');
+    }
+    localStorage.setItem('tmd_jwt_token', json.data.token);
+    if (json.data.expires_at) localStorage.setItem('tmd_jwt_expiry', json.data.expires_at);
+    updateSecStatus('✅ Login successful, JWT session started');
+  })
+  .catch(e => {
+    updateSecStatus('❌ Login failed: ' + e.message);
+  });
+}
+
+function refreshSecJWT() {
+  API._tryRefreshJWT().then(ok => {
+    if (ok) {
+      const expiry = localStorage.getItem('tmd_jwt_expiry');
+      const remaining = expiry ? Math.round((new Date(expiry) - new Date()) / 60000) : '?';
+      updateSecStatus(`✅ Session refreshed (expires in ~${remaining} min)`);
+    } else {
+      updateSecStatus('❌ Session refresh failed, please re-login');
+    }
+  });
 }
 
 function clearSecKey() {
-  localStorage.removeItem('tmd_api_key');
+  localStorage.removeItem('tmd_jwt_token');
+  localStorage.removeItem('tmd_jwt_expiry');
   const el = document.getElementById('sec-api-key');
   if (el) el.value = '';
-  updateSecStatus('✅ Local API Key cleared');
+  updateSecStatus('✅ Authentication cleared');
 }
 
 async function testSecKey() {
@@ -2231,7 +2315,6 @@ async function clearAllErrors() {
 
 /* ---- Auth Dialog ---- */
 function showAuthDialog() {
-  const saved = localStorage.getItem('tmd_api_key') || '';
   openModal(`
       <div class="modal-header">
         <h2>Authentication Required</h2>
@@ -2241,7 +2324,7 @@ function showAuthDialog() {
           This server requires an API Key. Enter your key below, or configure one in System settings.
         </p>
         <input type="password" id="authDialogKey" style="width:100%;padding:9px 12px;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:14px;outline:none;box-sizing:border-box"
-          placeholder="Enter API Key" autocomplete="off" value="${esc(saved)}" />
+          placeholder="Enter API Key" autocomplete="off" />
         <div id="authDialogStatus" style="margin-top:8px;font-size:13px;min-height:20px"></div>
       </div>
       <div class="modal-footer">
@@ -2272,15 +2355,32 @@ function submitAuthKey() {
   btn.disabled = true;
   btn.textContent = 'Verifying...';
   if (status) status.textContent = '';
-  localStorage.setItem('tmd_api_key', key);
-  setTimeout(() => { window.location.reload(); }, 300);
+  // Call login endpoint to get JWT
+  fetch(apiBase() + '/api/v1/auth/login', {
+    method: 'POST',
+    headers: { 'Authorization': 'Bearer ' + key }
+  })
+  .then(r => r.json())
+  .then(json => {
+    if (!json.success || !json.data || !json.data.token) {
+      throw new Error(json.error || 'Login failed');
+    }
+    localStorage.setItem('tmd_jwt_token', json.data.token);
+    if (json.data.expires_at) localStorage.setItem('tmd_jwt_expiry', json.data.expires_at);
+    setTimeout(() => { window.location.reload(); }, 300);
+  })
+  .catch(e => {
+    btn.disabled = false;
+    btn.textContent = 'Confirm';
+    if (status) { status.textContent = '❌ ' + e.message; status.style.color = 'var(--danger)'; }
+  });
 }
 
 // Proactive auth check: if the server requires auth and no key is stored,
 // show the auth dialog. Called from DOMContentLoaded.
 async function checkAuth() {
-  const key = localStorage.getItem('tmd_api_key');
-  if (key) return;
+  // If JWT already exists and is valid, this will succeed silently
+  if (localStorage.getItem('tmd_jwt_token')) return;
   try {
     await ENDPOINTS.tasks();
   } catch(e) {
@@ -2294,13 +2394,31 @@ async function checkAuth() {
 window.addEventListener('unhandledrejection', (e) => {
   console.error('[Global] Unhandled promise rejection:', e.reason);
   if (e.reason && (e.reason.status === 401 || e.reason.message === 'unauthorized')) {
-    showAuthDialog();
+    if (localStorage.getItem('tmd_jwt_token')) {
+      API._tryRefreshJWT().then(refreshed => {
+        if (!refreshed) showAuthDialog();
+      });
+    } else {
+      showAuthDialog();
+    }
   }
 });
 document.addEventListener('DOMContentLoaded', () => {
   // Determine initial page
   const path = location.pathname.replace(/^\//, '') || 'tasks';
   currentPage = path;
+
+  // Proactive JWT refresh
+  const jwtExpiry = localStorage.getItem('tmd_jwt_expiry');
+  if (jwtExpiry) {
+    const remaining = new Date(jwtExpiry) - new Date();
+    if (remaining > 0 && remaining < 10 * 60 * 1000) {
+      API._tryRefreshJWT();
+    }
+  }
+  setInterval(() => {
+    if (localStorage.getItem('tmd_jwt_token')) API._tryRefreshJWT();
+  }, 45 * 60 * 1000);
 
   // Highlight sidebar
   document.querySelectorAll('.nav-item').forEach(el => {

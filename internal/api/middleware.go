@@ -78,6 +78,9 @@ const authBearerPrefix = "Bearer "
 // Web UI 页面必须公开（否则用户看不到登录界面），静态资源和健康检查同理。
 var publicPathPrefixes = []string{
 	"/api/v1/health",
+	"/api/v1/auth/login", // login 端点需要在没有 JWT 时也能被调用
+	"/api/v1/auth/refresh", // refresh 需要接收过期 JWT，让 handler 自行验证
+	"/api/v1/auth/check", // check 端点公开，handler 无 token 时返回未认证状态
 	"/api/v1/config/theme", // theme 切换器由内联 JS 调用，不经过 api 对象
 	"/static/",
 }
@@ -115,9 +118,10 @@ func extractBearerToken(r *http.Request) string {
 
 // authMiddleware 认证中间件。
 // 当 conf.api_key 为空时放行所有请求（向后兼容）。
-// 当 conf.api_key 非空时检查 Authorization: Bearer <token> 头，
-// SSE 端点可回退到 ?token= 查询参数。
-// 公开路径（健康检查、Web UI 页面、静态文件）免认证。
+// 当 conf.api_key 非空时，仅接受 JWT 会话令牌（通过 validateSessionToken 验证）。
+// 获取 JWT 请调用 POST /api/v1/auth/login（公开路径）。
+// 认证方式优先级：Authorization: Bearer <token> 头 > ?token= 查询参数（SSE 回退）
+// 公开路径（健康检查、Web UI 页面、静态文件、auth 端点）免认证。
 func (s *Server) authMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// 公开路径直接放行
@@ -144,14 +148,33 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 			token = r.URL.Query().Get("token")
 		}
 
-		if token != apiKey {
-			w.Header().Set("WWW-Authenticate", `Bearer realm="TMD API"`)
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusUnauthorized)
-			json.NewEncoder(w).Encode(NewErrorResponse("unauthorized"))
+		if token == "" {
+			writeAuth401(w, "missing")
 			return
 		}
 
-		next.ServeHTTP(w, r)
+		// 唯一认证方式：JWT 验证（通过 POST /api/v1/auth/login 获取）
+		_, jwtErr := validateSessionToken(token, apiKey)
+		if jwtErr == nil {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		// JWT 验证失败 → 401
+		if isJWTExpiredError(jwtErr) {
+			w.Header().Set("X-Token-Type", "expired")
+		} else {
+			w.Header().Set("X-Token-Type", "invalid")
+		}
+		writeAuth401(w, "invalid")
 	})
+}
+
+
+// writeAuth401 writes a standard 401 Unauthorized response.
+func writeAuth401(w http.ResponseWriter, tokenType string) {
+	w.Header().Set("WWW-Authenticate", `Bearer realm="TMD API"`)
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusUnauthorized)
+	json.NewEncoder(w).Encode(NewErrorResponse("unauthorized"))
 }

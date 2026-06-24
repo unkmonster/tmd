@@ -42,6 +42,7 @@ type Server struct {
 	schedulerMu       sync.RWMutex
 	scheduler         *scheduler.Scheduler
 	eventBus          *EventBus
+	authRateLimit     *authRateLimiter
 }
 
 func NewServer(client *resty.Client, additionalClients []*resty.Client, db *sqlx.DB, config *config.Config, appRootPath string, logWriter io.Closer) *Server {
@@ -66,6 +67,7 @@ func NewServerWithConsoleLogHub(client *resty.Client, additionalClients []*resty
 		taskManager:       NewTaskManager(eventBus),
 		shutdownDone:      make(chan struct{}),
 		eventBus:          eventBus,
+		authRateLimit:     defaultAuthRateLimiter,
 	}
 
 	// 配置副本：使 service.Dependencies 持有独立的 Config 副本，
@@ -108,6 +110,9 @@ func (s *Server) buildHandler() http.Handler {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /api/v1/health", s.handleHealth)
+	mux.HandleFunc("POST /api/v1/auth/login", s.handleAuthLogin)
+	mux.HandleFunc("POST /api/v1/auth/refresh", s.handleAuthRefresh)
+	mux.HandleFunc("GET /api/v1/auth/check", s.handleAuthCheck)
 	mux.HandleFunc("POST /api/v1/users/{screen_name}/download", s.handleUserDownloadRoute)
 	mux.HandleFunc("POST /api/v1/users/{screen_name}/profile", s.handleUserProfileRoute)
 	mux.HandleFunc("POST /api/v1/users/{screen_name}/mark", s.handleUserMarkRoute)

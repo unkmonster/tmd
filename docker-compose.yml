@@ -21,6 +21,8 @@ services:
       TMD_CT0: ${TMD_CT0}
       # 容器内服务监听端口。通常和 ports 右边保持一致
       TMD_PORT: 25556
+      # 可选：API Key 认证。设置后将开启 Bearer Token 认证，留空不启用
+      TMD_API_KEY: ${TMD_API_KEY:-}
       # 可选：代理地址。不使用代理可留空
       TMD_PROXY_URL: ${TMD_PROXY_URL:-}
       # 可选：下载并发数。机器较弱可调低，带宽较高可适当调高

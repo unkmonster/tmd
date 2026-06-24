@@ -228,11 +228,11 @@ const api = {
       signal
     };
     
-    // 注入 Authorization 头（如果 localStorage 中有 API Key），skipAuthInject 可跳过
+    // 注入 Authorization 头（使用 JWT 会话令牌）
     if (!extra.skipAuthInject) {
-      const apiKey = localStorage.getItem('tmd_api_key');
-      if (apiKey) {
-        options.headers = { ...options.headers, 'Authorization': 'Bearer ' + apiKey };
+      const jwt = localStorage.getItem('tmd_jwt_token');
+      if (jwt) {
+        options.headers = { ...options.headers, 'Authorization': 'Bearer ' + jwt };
       }
     }
     
@@ -262,8 +262,17 @@ const api = {
     }
     this._cleanupAbortController(controller);
     
-    // 401 未认证 → 触发登录对话框
+    // 401 → 尝试 JWT 刷新，否则触发认证对话框
     if (res.status === 401) {
+      const haveJWT = !!localStorage.getItem('tmd_jwt_token');
+      if (haveJWT) {
+        // 有 JWT 但 401，说明 JWT 过期/失效 → 尝试 refresh
+        const refreshed = await this._tryRefreshJWT();
+        if (refreshed) {
+          // refresh 成功 → 重试原请求（不跳过 auth 注入，重新从 localStorage 读取新 JWT）
+          return this.request(method, path, body, extra);
+        }
+      }
       const authErr = new Error('unauthorized');
       authErr.status = 401;
       authErr._isUnauthorized = true;
@@ -273,7 +282,29 @@ const api = {
     if (!res.ok || !json.success) throw new Error(json.error || '服务器错误 (HTTP ' + res.status + ')');
     return json.data;
   },
-  
+
+  // 尝试刷新 JWT token。成功返回 true，失败返回 false（不清除旧 token，留给 auth dialog 处理）
+  async _tryRefreshJWT() {
+    const oldJWT = localStorage.getItem('tmd_jwt_token');
+    if (!oldJWT) return false;
+    try {
+      const res = await fetch(this.base + '/api/v1/auth/refresh', {
+        method: 'POST',
+        headers: { 'Authorization': 'Bearer ' + oldJWT }
+      });
+      if (!res.ok) return false;
+      const json = await res.json();
+      if (!json.success || !json.data || !json.data.token) return false;
+      localStorage.setItem('tmd_jwt_token', json.data.token);
+      if (json.data.expires_at) {
+        localStorage.setItem('tmd_jwt_expiry', json.data.expires_at);
+      }
+      return true;
+    } catch(e) {
+      return false;
+    }
+  },
+
   get(path) { return this.request('GET', path); },
   post(path, body) { return this.request('POST', path, body); },
   
@@ -408,8 +439,8 @@ const sseManager = {
   _everConnected: false, // 首次成功连接前不显示"断开"状态
 
   _tokenParam() {
-    const key = localStorage.getItem('tmd_api_key');
-    return key ? '?token=' + encodeURIComponent(key) : '';
+    const jwt = localStorage.getItem('tmd_jwt_token');
+    return jwt ? '?token=' + encodeURIComponent(jwt) : '';
   },
 
   connect() {
@@ -3983,9 +4014,11 @@ async function saveConfigForm() {
       configRaw: data.yaml_preview || store.state.configRaw
     });
     showManualRestartNotice('配置');
-    // 若 api_key 字段有实际值，同步到 localStorage（防止密码表单 __KEEP_OLD__ 覆盖）
+    // 若 api_key 字段有实际值且发生变更，清除过期 JWT
     if (fields['api_key'] && fields['api_key'] !== '__KEEP_OLD__') {
-      localStorage.setItem('tmd_api_key', fields['api_key']);
+      // API Key 变更 → 旧的 JWT 已失效 → 清除
+      localStorage.removeItem('tmd_jwt_token');
+      localStorage.removeItem('tmd_jwt_expiry');
     }
     // 保存后重载数据，刷新脱敏显示
     loadConfigFields();
@@ -4248,7 +4281,7 @@ function connectLogSSE() {
   const params = new URLSearchParams();
   if (logLevel !== 'all') params.append('level', logLevel);
   if (logSearch) params.append('q', logSearch);
-  const apiKey = localStorage.getItem('tmd_api_key');
+  const apiKey = localStorage.getItem('tmd_jwt_token');
   if (apiKey) params.append('token', apiKey);
   const qs = params.toString();
   const url = '/api/v1/logs/stream' + (qs ? '?' + qs : '');
@@ -4558,7 +4591,14 @@ window.onerror = function (msg, url, line, col, error) {
 window.addEventListener('unhandledrejection', function (e) {
   console.error('[Global] 未处理的 Promise 拒绝:', e.reason);
   if (e.reason && (e.reason.status === 401 || e.reason._isUnauthorized)) {
-    showAuthDialog();
+    // 有 JWT 时先尝试 refresh
+    if (localStorage.getItem('tmd_jwt_token')) {
+      api._tryRefreshJWT().then(refreshed => {
+        if (!refreshed) showAuthDialog();
+      });
+    } else {
+      showAuthDialog();
+    }
   }
   e.preventDefault();
 });
@@ -4571,6 +4611,23 @@ async function init() {
   const { page, dataSubPage } = parseRoute();
   _state.lastPage = page;
   updateNavigationUI(page);
+
+  // Proactive JWT refresh: 如果 JWT 即将过期（剩余 < 10min），提前刷新
+  const jwtExpiry = localStorage.getItem('tmd_jwt_expiry');
+  if (jwtExpiry) {
+    const remaining = new Date(jwtExpiry) - new Date();
+    if (remaining > 0 && remaining < 10 * 60 * 1000) {
+      // 剩余不足 10 分钟，静默刷新
+      api._tryRefreshJWT().then(r => {
+        if (!r) { /* refresh 失败，下次请求会触发 401 → 自动处理 */ }
+      });
+    }
+  }
+  // 定时刷新：每 45 分钟尝试刷新一次 JWT
+  setInterval(() => {
+    const jwt = localStorage.getItem('tmd_jwt_token');
+    if (jwt) api._tryRefreshJWT();
+  }, 45 * 60 * 1000);
 
   sseManager.connect();
 
@@ -4619,8 +4676,6 @@ function showAuthDialog() {
   requestAnimationFrame(() => overlay.classList.add('open'));
   const input = document.getElementById('authDialogKey');
   if (input) {
-    const saved = localStorage.getItem('tmd_api_key');
-    if (saved) input.value = saved;
     setTimeout(() => input.focus(), 100);
   }
 }
@@ -4648,20 +4703,27 @@ async function submitAuthKey() {
   btn.disabled = true;
   btn.textContent = '验证中...';
   if (status) status.textContent = '';
-  // 先写 localStorage 确保 API 请求携带认证头，失败时回滚
-  const oldKey = localStorage.getItem('tmd_api_key');
-  localStorage.setItem('tmd_api_key', key);
 
   try {
-    await api.saveConfigFields({ api_key: key });
+    // 调用 login 端点获取 JWT
+    const res = await fetch('/api/v1/auth/login', {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + key }
+    });
+    const json = await res.json();
+    if (!res.ok || !json.success || !json.data || !json.data.token) {
+      throw new Error(json.error || '认证失败');
+    }
+    // 存储 JWT
+    localStorage.setItem('tmd_jwt_token', json.data.token);
+    if (json.data.expires_at) {
+      localStorage.setItem('tmd_jwt_expiry', json.data.expires_at);
+    }
     setTimeout(() => { window.location.reload(); }, 300);
   } catch (e) {
-    // 回滚 localStorage
-    if (oldKey) localStorage.setItem('tmd_api_key', oldKey);
-    else localStorage.removeItem('tmd_api_key');
     btn.disabled = false;
     btn.textContent = '确认';
-    if (status) { status.textContent = '❌ 保存失败: ' + e.message; status.style.color = 'var(--danger)'; }
+    if (status) { status.textContent = '❌ 登录失败: ' + e.message; status.style.color = 'var(--danger)'; }
   }
 }
 
