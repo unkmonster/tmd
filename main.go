@@ -195,7 +195,7 @@ func main() {
 	go func() {
 		sig, ok := <-sigChan
 		if ok {
-			log.Warnln("[listener] caught signal:", sig)
+			log.Warnln("[listener] Caught signal:", sig)
 			cancel()
 		}
 	}()
@@ -384,7 +384,7 @@ func runServer(conf *config.Config, appRootPath string, port int, loginOpts twit
 func startServerSignalHandler(sigChan <-chan os.Signal, shutdown func(string)) {
 	go func() {
 		sig := <-sigChan
-		log.Warnln("[server] caught signal:", sig)
+		log.Warnln("[server] Caught signal:", sig)
 		// SIGKILL 无法捕获；这里只处理可拦截的退出信号，确保数据库等资源优雅关闭。
 		shutdown("signal:" + sig.String())
 	}()

@@ -576,7 +576,7 @@ func SelectClientMFQ(ctx context.Context, master *resty.Client, additional []*re
 
 		// 本轮全部失败，指数退避等待
 		log.Debugf(
-			"[MFQ] all clients blocked for path %s: rate_limited=%d, errors=%d, total=%d, backoff=%v",
+			"[MFQ] All clients blocked for path %s: rate_limited=%d, errors=%d, total=%d, backoff=%v",
 			path,
 			rateLimited,
 			errs,

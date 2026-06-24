@@ -112,6 +112,7 @@ func (s *Server) handleAuthLogin(w http.ResponseWriter, r *http.Request) {
 	s.configMu.RUnlock()
 
 	if apiKey == "" {
+		log.Errorf("[auth] API key is not configured")
 		s.writeError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
@@ -159,6 +160,7 @@ func (s *Server) handleAuthRefresh(w http.ResponseWriter, r *http.Request) {
 	s.configMu.RUnlock()
 
 	if apiKey == "" {
+		log.Errorf("[auth] API key is not configured")
 		s.writeError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}

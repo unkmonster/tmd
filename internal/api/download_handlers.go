@@ -732,6 +732,7 @@ func parseScheduledListIDs(values []string) ([]StringUint64, error) {
 func (s *Server) handleBatchDownload(w http.ResponseWriter, r *http.Request) {
 	var req BatchDownloadTaskData
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		log.Debugf("[download] Invalid request body: %v", err)
 		s.writeError(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
@@ -795,6 +796,7 @@ func (s *Server) handleBatchDownload(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleBatchMark(w http.ResponseWriter, r *http.Request) {
 	var req BatchMarkDownloadedTaskData
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		log.Debugf("[download] Invalid request body: %v", err)
 		s.writeError(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}

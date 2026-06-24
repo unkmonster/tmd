@@ -147,16 +147,16 @@ func (s *Server) handleSaveCookies(w http.ResponseWriter, r *http.Request) {
 			return cookie.AuthToken
 		})
 		if err != nil {
-			log.Errorf("[cookies] Account #%d Auth Token: %v", i+1, err)
-			s.writeError(w, http.StatusBadRequest, fmt.Sprintf("Account #%d: Invalid Auth Token", i+1))
+			log.Debugf("[cookies] Account #%d Auth Token: %v", i+1, err)
+			s.writeErrorDetail(w, http.StatusBadRequest, fmt.Sprintf("Account #%d: Invalid Auth Token", i+1), err.Error())
 			return
 		}
 		ct0, err := resolveCookieSaveValue(c.Ct0, existingCookies, sourceIndex, func(cookie *config.Cookie) string {
 			return cookie.Ct0
 		})
 		if err != nil {
-			log.Errorf("[cookies] Account #%d CT0: %v", i+1, err)
-			s.writeError(w, http.StatusBadRequest, fmt.Sprintf("Account #%d: Invalid CT0", i+1))
+			log.Debugf("[cookies] Account #%d CT0: %v", i+1, err)
+			s.writeErrorDetail(w, http.StatusBadRequest, fmt.Sprintf("Account #%d: Invalid CT0", i+1), err.Error())
 			return
 		}
 

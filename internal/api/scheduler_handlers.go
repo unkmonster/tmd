@@ -81,7 +81,7 @@ func (s *Server) handleGetSchedulesRaw(w http.ResponseWriter, _ *http.Request) {
 func (s *Server) handleCreateSchedule(w http.ResponseWriter, r *http.Request) {
 	var entry scheduler.ScheduleEntry
 	if err := json.NewDecoder(r.Body).Decode(&entry); err != nil {
-		log.Errorf("[schedules] Invalid request body: %v", err)
+		log.Debugf("[schedules] Invalid request body: %v", err)
 		s.writeErrorDetail(w, http.StatusBadRequest, "Invalid request body", err.Error())
 		return
 	}
@@ -132,7 +132,7 @@ func (s *Server) handleCreateSchedule(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleReplaceSchedules(w http.ResponseWriter, r *http.Request) {
 	var req SchedulesReplaceRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		log.Errorf("[schedules] Invalid request body: %v", err)
+		log.Debugf("[schedules] Invalid request body: %v", err)
 		s.writeErrorDetail(w, http.StatusBadRequest, "Invalid request body", err.Error())
 		return
 	}
@@ -173,7 +173,7 @@ func (s *Server) handleReplaceSchedules(w http.ResponseWriter, r *http.Request) 
 func (s *Server) handleUpdateSchedulesRaw(w http.ResponseWriter, r *http.Request) {
 	var req ConfigUpdateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		log.Errorf("[schedules] Invalid request body: %v", err)
+		log.Debugf("[schedules] Invalid request body: %v", err)
 		s.writeErrorDetail(w, http.StatusBadRequest, "Invalid request body", err.Error())
 		return
 	}
@@ -228,7 +228,7 @@ func (s *Server) handleUpdateSchedule(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	var entry scheduler.ScheduleEntry
 	if err := json.NewDecoder(r.Body).Decode(&entry); err != nil {
-		log.Errorf("[schedules] Invalid request body: %v", err)
+		log.Debugf("[schedules] Invalid request body: %v", err)
 		s.writeErrorDetail(w, http.StatusBadRequest, "Invalid request body", err.Error())
 		return
 	}
@@ -340,7 +340,7 @@ func (s *Server) handleSetScheduleEnabled(w http.ResponseWriter, r *http.Request
 	id := r.PathValue("id")
 	var req ScheduleEnabledRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		log.Errorf("[schedules] Invalid request body: %v", err)
+		log.Debugf("[schedules] Invalid request body: %v", err)
 		s.writeErrorDetail(w, http.StatusBadRequest, "Invalid request body", err.Error())
 		return
 	}
@@ -573,7 +573,7 @@ func usedScheduleIDs(entries []scheduler.ScheduleEntry) map[string]struct{} {
 func (s *Server) handleValidateSchedule(w http.ResponseWriter, r *http.Request) {
 	var req ScheduleValidateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		log.Errorf("[schedules] Invalid request body: %v", err)
+		log.Debugf("[schedules] Invalid request body: %v", err)
 		s.writeErrorDetail(w, http.StatusBadRequest, "Invalid request body", err.Error())
 		return
 	}

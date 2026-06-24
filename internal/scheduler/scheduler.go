@@ -372,7 +372,7 @@ func (sc *Scheduler) triggerEntry(index int, entry ScheduleEntry) (taskID string
 			status.ConsecutiveFailures++
 		})
 		if !released {
-			log.Warnf("[scheduler] triggerEntry[%d]: status update rejected for empty-task_id failure on entry %q", index, entry.Name)
+			log.Warnf("[scheduler] TriggerEntry[%d]: status update rejected for empty-task_id failure on entry %q", index, entry.Name)
 		}
 		log.Warnf("[scheduler] Manual trigger failed [%s]: target=%s name=%q (empty task_id)", entry.Type, entry.Target, entry.Name)
 		return "", fmt.Errorf("download function returned empty task_id")
@@ -387,7 +387,7 @@ func (sc *Scheduler) triggerEntry(index int, entry ScheduleEntry) (taskID string
 		status.ConsecutiveFailures = 0
 	})
 	if !released {
-		log.Warnf("[scheduler] triggerEntry[%d]: status update rejected for successful trigger on entry %q (task_id=%s)", index, entry.Name, taskID)
+		log.Warnf("[scheduler] TriggerEntry[%d]: status update rejected for successful trigger on entry %q (task_id=%s)", index, entry.Name, taskID)
 	}
 
 	log.Infof("[scheduler] Manual trigger [%s]: target=%s name=%q task_id=%s", entry.Type, entry.Target, entry.Name, taskID)

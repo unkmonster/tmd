@@ -163,7 +163,7 @@ func (s *Server) handleDBUserUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.ScreenName != nil {
 		if err := validateScreenName(*req.ScreenName); err != nil {
-			log.Errorf("[db] Invalid screen_name: %v", err)
+			log.Debugf("[db] Invalid screen_name: %v", err)
 			s.writeErrorDetail(w, http.StatusBadRequest, "Invalid screen name", err.Error())
 			return
 		}
@@ -171,7 +171,7 @@ func (s *Server) handleDBUserUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Name != nil {
 		if err := validateFieldName(*req.Name); err != nil {
-			log.Errorf("[db] Invalid name: %v", err)
+			log.Debugf("[db] Invalid name: %v", err)
 			s.writeErrorDetail(w, http.StatusBadRequest, "Invalid name", err.Error())
 			return
 		}
@@ -306,7 +306,7 @@ func (s *Server) handleDBListUpdate(w http.ResponseWriter, r *http.Request) {
 
 	if req.Name != nil {
 		if err := validateFieldName(*req.Name); err != nil {
-			log.Errorf("[db] Invalid name: %v", err)
+			log.Debugf("[db] Invalid name: %v", err)
 			s.writeErrorDetail(w, http.StatusBadRequest, "Invalid name", err.Error())
 			return
 		}
@@ -622,7 +622,7 @@ func (s *Server) handleDBListEntityUpdate(w http.ResponseWriter, r *http.Request
 
 	if req.Name != nil {
 		if err := validateFieldName(*req.Name); err != nil {
-			log.Errorf("[db] Invalid name: %v", err)
+			log.Debugf("[db] Invalid name: %v", err)
 			s.writeErrorDetail(w, http.StatusBadRequest, "Invalid name", err.Error())
 			return
 		}

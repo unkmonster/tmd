@@ -265,8 +265,8 @@ func (s *Server) handleSaveConfigFields(w http.ResponseWriter, r *http.Request) 
 		}
 
 		if err := fd.Setter(newConf, userVal); err != nil {
-			log.Errorf("[config] Invalid field %s: %v", fd.Name, err)
-			s.writeError(w, http.StatusBadRequest, "Invalid field "+fd.Name)
+			log.Debugf("[config] Invalid field %s: %v", fd.Name, err)
+			s.writeErrorDetail(w, http.StatusBadRequest, "Invalid field " + fd.Name, err.Error())
 			return
 		}
 	}
