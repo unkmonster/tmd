@@ -511,17 +511,13 @@ func TestAuthMiddleware_CorrectBearerToken_Succeeds(t *testing.T) {
 	defer db.Close()
 	server.config.APIKey = "my-test-key"
 
-	// 获取 JWT（原始 API Key 不再直接支持，必须用 JWT）
-	tokenStr, err := generateSessionToken("my-test-key")
-	assert.NoError(t, err)
-
 	handler := server.authMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("authenticated"))
 	}))
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/tasks", nil)
-	req.Header.Set("Authorization", "Bearer "+tokenStr)
+	req.Header.Set("Authorization", "Bearer my-test-key")
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
 
@@ -574,17 +570,13 @@ func TestAuthMiddleware_SSEQueryParam_Succeeds(t *testing.T) {
 	defer db.Close()
 	server.config.APIKey = "sse-key"
 
-	// SSE uses ?token= with JWT (raw API Key no longer accepted)
-	tokenStr, err := generateSessionToken("sse-key")
-	assert.NoError(t, err)
-
 	handler := server.authMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("sse-authenticated"))
 	}))
 
-	// SSE 使用 ?token=<jwt> 而非 Authorization 头
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/sse/tasks?token="+tokenStr, nil)
+	// SSE 使用 ?token=xxx 而非 Authorization 头
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/sse/tasks?token=sse-key", nil)
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
 
@@ -710,12 +702,9 @@ func TestAuthMiddleware_BuildHandlerIntegration(t *testing.T) {
 		assert.Equal(t, "unauthorized", resp.Error)
 	})
 
-	t.Run("API 路径带正确 JWT 返回 200", func(t *testing.T) {
-		// 生成 JWT 替代原始 API Key
-		token, err := generateSessionToken("integ-test-key")
-		assert.NoError(t, err)
+	t.Run("API 路径带正确 token 返回 200", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/api/v1/tasks", nil)
-		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("Authorization", "Bearer integ-test-key")
 		rr := httptest.NewRecorder()
 		handler.ServeHTTP(rr, req)
 		assert.Equal(t, http.StatusOK, rr.Code)
@@ -768,6 +757,14 @@ func TestGenerateAndValidateJWT(t *testing.T) {
 	assert.Error(t, err)
 }
 
+func TestIsJWTFormat(t *testing.T) {
+	assert.True(t, isJWTFormat("header.payload.signature"))
+	assert.True(t, isJWTFormat("eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ0ZXN0In0.signature"))
+	assert.False(t, isJWTFormat(""))
+	assert.False(t, isJWTFormat("just-a-string"))
+	assert.False(t, isJWTFormat("two.parts"))
+	assert.False(t, isJWTFormat("four.parts.extra.here"))
+}
 
 func TestAuthMiddleware_JWT_Succeeds(t *testing.T) {
 	server, db := setupTestServer(t)
@@ -835,15 +832,15 @@ func TestAuthMiddleware_JWT_WrongKey_Returns401(t *testing.T) {
 	assert.Equal(t, http.StatusUnauthorized, rr.Code)
 }
 
-func TestAuthMiddleware_RawAPIKey_NowRejected(t *testing.T) {
-	// After JWT-only migration, raw API Key should return 401
+func TestAuthMiddleware_DualMode_OldKeyStillWorks(t *testing.T) {
+	// Verify backward compatibility: raw API Key still authenticates
 	server, db := setupTestServer(t)
 	defer db.Close()
 	server.config.APIKey = "my-test-key"
 
-	called := false
 	handler := server.authMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		called = true
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("authenticated"))
 	}))
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/tasks", nil)
@@ -851,13 +848,8 @@ func TestAuthMiddleware_RawAPIKey_NowRejected(t *testing.T) {
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
 
-	assert.Equal(t, http.StatusUnauthorized, rr.Code, "raw API Key should be rejected after JWT-only migration")
-	assert.False(t, called, "handler should not be called for raw API Key")
-
-	var resp APIResponse
-	json.Unmarshal(rr.Body.Bytes(), &resp)
-	assert.False(t, resp.Success)
-	assert.Equal(t, "unauthorized", resp.Error)
+	assert.Equal(t, http.StatusOK, rr.Code)
+	assert.Equal(t, "authenticated", rr.Body.String())
 }
 
 func TestIsJWTExpiredError(t *testing.T) {
@@ -1070,11 +1062,11 @@ func TestAuthMiddleware_BuildHandler_JWT_Integration(t *testing.T) {
 		assert.Equal(t, "expired", rr.Header().Get("X-Token-Type"))
 	})
 
-	t.Run("原始 API Key 不再可用（纯 JWT 模式）", func(t *testing.T) {
+	t.Run("原始 API Key 仍然可用（向后兼容）", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/api/v1/tasks", nil)
 		req.Header.Set("Authorization", "Bearer integ-jwt-key")
 		rr := httptest.NewRecorder()
 		handler.ServeHTTP(rr, req)
-		assert.Equal(t, http.StatusUnauthorized, rr.Code, "raw API Key should be rejected after JWT-only migration")
+		assert.Equal(t, http.StatusOK, rr.Code)
 	})
 }

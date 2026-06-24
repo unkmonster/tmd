@@ -118,10 +118,11 @@ func extractBearerToken(r *http.Request) string {
 
 // authMiddleware 认证中间件。
 // 当 conf.api_key 为空时放行所有请求（向后兼容）。
-// 当 conf.api_key 非空时，仅接受 JWT 会话令牌（通过 validateSessionToken 验证）。
-// 获取 JWT 请调用 POST /api/v1/auth/login（公开路径）。
+// 当 conf.api_key 非空时，支持两种认证方式：
+//   1. JWT 会话令牌（首选） — 通过 validateSessionToken 验证
+//   2. 原始 API Key（向后兼容） — 直接字符串比较
 // 认证方式优先级：Authorization: Bearer <token> 头 > ?token= 查询参数（SSE 回退）
-// 公开路径（健康检查、Web UI 页面、静态文件、auth 端点）免认证。
+// 公开路径（健康检查、Web UI 页面、静态文件）免认证。
 func (s *Server) authMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// 公开路径直接放行
@@ -153,16 +154,25 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		// 唯一认证方式：JWT 验证（通过 POST /api/v1/auth/login 获取）
-		_, jwtErr := validateSessionToken(token, apiKey)
-		if jwtErr == nil {
+		// 方式一：尝试 JWT 验证（首选）
+		jwtToken, jwtErr := validateSessionToken(token, apiKey)
+		if jwtErr == nil && jwtToken != nil && jwtToken.Valid {
 			next.ServeHTTP(w, r)
 			return
 		}
 
-		// JWT 验证失败 → 401
+		// 方式二：回退到原始 API Key 比较（向后兼容）
+		if token == apiKey {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		// 两者都失败 → 401
+		// 检测 token 类型以辅助前端判断
 		if isJWTExpiredError(jwtErr) {
 			w.Header().Set("X-Token-Type", "expired")
+		} else if isJWTFormat(token) {
+			w.Header().Set("X-Token-Type", "invalid")
 		} else {
 			w.Header().Set("X-Token-Type", "invalid")
 		}
@@ -170,6 +180,11 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 	})
 }
 
+// isJWTFormat checks if a token string looks like a JWT (three dot-separated base64 segments).
+func isJWTFormat(token string) bool {
+	parts := strings.Split(token, ".")
+	return len(parts) == 3
+}
 
 // writeAuth401 writes a standard 401 Unauthorized response.
 func writeAuth401(w http.ResponseWriter, tokenType string) {

@@ -69,7 +69,6 @@ func NewServerWithConsoleLogHub(client *resty.Client, additionalClients []*resty
 		eventBus:          eventBus,
 		authRateLimit:     defaultAuthRateLimiter,
 	}
-	s.authRateLimit.startCleanupLoop()
 
 	// 配置副本：使 service.Dependencies 持有独立的 Config 副本，
 	// 避免与 Server.config 共享同一指针。这样 handleUpdateConfigRaw
