@@ -26,15 +26,15 @@ func writeAuxiliaryTweetFile(fileWriter downloader.FileWriter, writeReq download
 	// the media download result.
 	result, err := fileWriter.Write(writeReq)
 	if err != nil {
-		log.Warnf("failed to write %s: %v", fileType, err)
+		log.Warnf("[download] Failed to write %s: %v", fileType, err)
 		return
 	}
 	if !result.Success {
-		log.Warnf("%s write reported unsuccessful result: %s", fileType, writeReq.Path)
+		log.Warnf("[download] %s write reported unsuccessful result: %s", fileType, writeReq.Path)
 		return
 	}
 	if result.Versioned {
-		log.Debugf("%s write created version backup: %s", fileType, writeReq.Path)
+		log.Debugf("[download] %s write created version backup: %s", fileType, writeReq.Path)
 	}
 }
 
@@ -275,7 +275,7 @@ func downloadTweetMedia(cfg *workerConfig, dir string, tweet *twitter.Tweet, ski
 
 		path, err := tweetNaming.FilePathWithResolver(dir, ext, cfg.pathResolver)
 		if err != nil {
-			log.Warnln("failed to build media path:", u, "-", err)
+			log.Warnln("[download] Failed to build media path:", u, "-", err)
 			tweet.Urls = append(tweet.Urls, u)
 			if firstRetryableErr == nil {
 				firstRetryableErr = err
@@ -296,11 +296,11 @@ func downloadTweetMedia(cfg *workerConfig, dir string, tweet *twitter.Tweet, ski
 		result, err := cfg.downloader.Download(req)
 		if err != nil {
 			if isNonRetriableMediaError(err) {
-				log.Infof("skip non-retriable media: %s - %v", u, err)
+				log.Infof("[download] Skip non-retriable media: %s - %v", u, err)
 				skippedUrls = append(skippedUrls, u)
 				continue
 			}
-			log.Warnln("failed to download media:", u, "-", err)
+			log.Warnln("[download] Failed to download media:", u, "-", err)
 			tweet.Urls = append(tweet.Urls, u)
 			if firstRetryableErr == nil {
 				firstRetryableErr = err
@@ -309,7 +309,7 @@ func downloadTweetMedia(cfg *workerConfig, dir string, tweet *twitter.Tweet, ski
 		}
 		if result == nil {
 			err = fmt.Errorf("download returned nil result")
-			log.Warnln("media download returned nil result:", u)
+			log.Warnln("[download] Media download returned nil result:", u)
 			tweet.Urls = append(tweet.Urls, u)
 			if firstRetryableErr == nil {
 				firstRetryableErr = err
@@ -318,11 +318,11 @@ func downloadTweetMedia(cfg *workerConfig, dir string, tweet *twitter.Tweet, ski
 		}
 		if !result.Success {
 			if result.Error != nil && isNonRetriableMediaError(result.Error) {
-				log.Infof("skip non-retriable media: %s - %v", u, result.Error)
+				log.Infof("[download] Skip non-retriable media: %s - %v", u, result.Error)
 				skippedUrls = append(skippedUrls, u)
 				continue
 			}
-			log.Warnln("media download reported failure:", u, "-", result.Error)
+			log.Warnln("[download] Media download reported failure:", u, "-", result.Error)
 			tweet.Urls = append(tweet.Urls, u)
 			if firstRetryableErr == nil {
 				if result.Error != nil {
@@ -369,7 +369,7 @@ func tweetDownloader(config *workerConfig, errch chan<- PackagedTweet, twech <-c
 	defer func() {
 		if p := recover(); p != nil {
 			config.cancel(fmt.Errorf("%v", p))
-			log.Errorln("✗ [downloading] - panic:", p)
+			log.Errorln("[download] Panic:", p)
 
 			safeSend := func(pt PackagedTweet) {
 				// Recover path only: if the consumer already stopped after cancellation,

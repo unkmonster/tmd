@@ -85,11 +85,11 @@ func parseUserResults(user_results *gjson.Result) (*User, uint64, error) {
 	if result.Get("__typename").String() == "UserUnavailable" {
 		// 返回不可访问用户的 ID，用于标记状态
 		if restId := result.Get("rest_id"); restId.Exists() {
-			log.Debugf("UserUnavailable detected, rest_id: %s", restId.String())
+			log.Debugf("[twitter] UserUnavailable detected, rest_id: %s", restId.String())
 			return nil, restId.Uint(), fmt.Errorf("user unavaiable")
 		}
 		// 尝试从其他字段获取ID
-		log.Debugf("UserUnavailable result: %s", result.String())
+		log.Debugf("[twitter] UserUnavailable result: %s", result.String())
 		return nil, 0, fmt.Errorf("user unavaiable")
 	}
 	legacy := result.Get("legacy")
@@ -167,12 +167,12 @@ func itemContentsToTweets(itemContents []gjson.Result) []*Tweet {
 	for _, itemContent := range itemContents {
 		tweetResults, err := getResults(itemContent, timelineTweet)
 		if err != nil {
-			log.Debugln("getResults failed:", err)
+			log.Debugln("[twitter] GetResults failed:", err)
 			continue
 		}
 		tw, err := parseTweetResults(&tweetResults)
 		if err != nil {
-			log.Debugln("parseTweetResults failed:", err)
+			log.Debugln("[twitter] ParseTweetResults failed:", err)
 			continue
 		}
 		if tw != nil {

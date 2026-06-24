@@ -102,7 +102,7 @@ func (q *DownloadQueue) CloseAndWait(timeout time.Duration) {
 	select {
 	case <-q.workerDone:
 	case <-time.After(timeout):
-		log.Warnf("[download-queue] worker exit timed out after %s", timeout)
+		log.Warnf("[download-queue] Worker exit timed out after %s", timeout)
 	}
 
 	detachedDone := make(chan struct{})
@@ -113,7 +113,7 @@ func (q *DownloadQueue) CloseAndWait(timeout time.Duration) {
 	select {
 	case <-detachedDone:
 	case <-time.After(timeout):
-		log.Warnf("[download-queue] detached runs still active after %s", timeout)
+		log.Warnf("[download-queue] Detached runs still active after %s", timeout)
 	}
 }
 
@@ -202,6 +202,7 @@ func (q *DownloadQueue) executeJob(job *downloadJob) {
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
+				log.Errorf("[download-queue] Task %s panicked: %v", job.taskID, r)
 				done <- fmt.Errorf("download task panic: %v", r)
 			}
 		}()

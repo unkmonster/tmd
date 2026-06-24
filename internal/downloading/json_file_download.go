@@ -78,7 +78,7 @@ func convertToTwitterTweet(entry ThirdPartyTweetEntry) *twitter.Tweet {
 	if converted, err := ConvertThirdPartyTweetJSON(entry.Metadata); err == nil {
 		cleanedMetadata = converted
 	} else {
-		log.Warnf("failed to convert metadata for tweet %s, using original: %v", entry.ID, err)
+		log.Warnf("[jsonfile] Failed to convert metadata for tweet %s, using original: %v", entry.ID, err)
 	}
 
 	return &twitter.Tweet{
@@ -162,7 +162,7 @@ func DownloadThirdPartyTweets(
 				userNaming := naming.NewUserNaming(entries[i].Name, entries[i].ScreenName, opts.normalizedMaxFileNameLen())
 				userDir := filepath.Join(usersDir, userNaming.SanitizedTitle())
 				if err := os.MkdirAll(userDir, 0755); err != nil {
-					log.Warnf("failed to create user dir for tweet %s: %v", entries[i].ID, err)
+					log.Warnf("[jsonfile] Failed to create user dir for tweet %s: %v", entries[i].ID, err)
 				}
 
 				pts = append(pts, JsonPackagedTweet{Tweet: tweet, Dir: userDir})

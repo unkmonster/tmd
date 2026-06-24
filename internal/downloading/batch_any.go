@@ -25,7 +25,7 @@ type BatchDownloadSummary struct {
 }
 
 func BatchDownloadAny(ctx context.Context, client *resty.Client, db *sqlx.DB, lists []twitter.ListBase, users []*twitter.User, dir string, realDir string, autoFollow bool, additional []*resty.Client, dwn downloader.Downloader, fileWriter downloader.FileWriter, opts RuntimeOptions, progress BatchProgressFunc, lsm *ListSyncManager) (failedTweets []*TweetInEntity, listMembers []*twitter.User, summary BatchDownloadSummary, err error) {
-	log.Debugln("start collecting users")
+	log.Debugln("[batch] Start collecting users")
 	packgedUsers := make([]userInListEntity, 0)
 	listMembers = make([]*twitter.User, 0)
 	wg := sync.WaitGroup{}
@@ -42,7 +42,7 @@ func BatchDownloadAny(ctx context.Context, client *resty.Client, db *sqlx.DB, li
 				cancel(e)
 				return
 			}
-			log.Debugf("members of %s: %d", lst.Title(), len(res))
+			log.Debugf("[batch] Members of %s: %d", lst.Title(), len(res))
 			mtx.Lock()
 			defer mtx.Unlock()
 			packgedUsers = append(packgedUsers, res...)
@@ -58,7 +58,7 @@ func BatchDownloadAny(ctx context.Context, client *resty.Client, db *sqlx.DB, li
 		packgedUsers = append(packgedUsers, userInListEntity{user: usr, leid: 0})
 	}
 
-	log.Debugln("collected users:", len(packgedUsers))
+	log.Debugln("[batch] Collected users:", len(packgedUsers))
 	failedTweets, summary, err = BatchUserDownload(ctx, client, db, packgedUsers, realDir, autoFollow, additional, dwn, fileWriter, opts, progress)
 	return failedTweets, listMembers, summary, err
 }

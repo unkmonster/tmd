@@ -147,7 +147,7 @@ func getIntFromMap(m map[string]any, key string) int {
 func parseUint64(s string) uint64 {
 	v, err := strconv.ParseUint(s, 10, 64)
 	if err != nil {
-		log.Debugf("failed to parse uint64 from %q: %v", s, err)
+		log.Debugf("[jsonfile] Failed to parse uint64 from %q: %v", s, err)
 	}
 	return v
 }
@@ -204,13 +204,13 @@ func parseLoongTweetFiles(folderPath string) ([]*twitter.Tweet, []string, error)
 	for _, path := range jsonFiles {
 		data, err := os.ReadFile(path)
 		if err != nil {
-			log.Warnf("failed to read file %s: %v", path, err)
+			log.Warnf("[jsonfile] Failed to read file %s: %v", path, err)
 			continue
 		}
 
 		var entry FormattedTweetEntry
 		if err := json.Unmarshal(data, &entry); err != nil {
-			log.Warnf("failed to parse FormattedTweetEntry from %s: %v", path, err)
+			log.Warnf("[jsonfile] Failed to parse FormattedTweetEntry from %s: %v", path, err)
 			continue
 		}
 
@@ -302,7 +302,7 @@ func DownloadFromLoongTweetFolder(ctx context.Context, client *resty.Client, use
 						userNaming := naming.NewUserNaming(tw.Creator.Name, tw.Creator.ScreenName, opts.normalizedMaxFileNameLen())
 					userDir = filepath.Join(usersDir, userNaming.SanitizedTitle())
 					if err := os.MkdirAll(userDir, 0755); err != nil {
-						log.Warnf("failed to create user dir %s: %v", userDir, err)
+						log.Warnf("[jsonfile] Failed to create user dir %s: %v", userDir, err)
 					}
 				}
 				pts = append(pts, JsonPackagedTweet{Tweet: tw, Dir: userDir})

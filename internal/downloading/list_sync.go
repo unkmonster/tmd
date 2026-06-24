@@ -47,7 +47,7 @@ func (lsm *ListSyncManager) SyncListMembers(ctx context.Context, lstEntityId int
 
 	for _, p := range pathsToRemove {
 		if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
-			log.Warnln("failed to remove symlink:", p, err)
+			log.Warnln("[download] Failed to remove symlink:", p, err)
 		}
 	}
 
@@ -72,7 +72,7 @@ func (lsm *ListSyncManager) syncListMembersInTx(_ context.Context, tx *sqlx.Tx, 
 		if !memberSet[link.UserId] {
 			linkPaths, linkErr := lsm.removeUserLinkInTx(tx, link, lstEntityId)
 			if linkErr != nil {
-				log.Warnln("failed to remove user link:", link.UserId, linkErr)
+				log.Warnln("[download] Failed to remove user link:", link.UserId, linkErr)
 				return nil, linkErr
 			}
 			pathsToRemove = append(pathsToRemove, linkPaths...)
@@ -81,7 +81,7 @@ func (lsm *ListSyncManager) syncListMembersInTx(_ context.Context, tx *sqlx.Tx, 
 	}
 
 	if removedCount > 0 {
-		log.Infoln("Removed", removedCount, "users from list", lstName, "(no longer members)")
+		log.Infoln("[download] Removed", removedCount, "users from list", lstName, "(no longer members)")
 	}
 
 	return pathsToRemove, nil

@@ -94,14 +94,14 @@ func (s *Server) handleAuthLogin(w http.ResponseWriter, r *http.Request) {
 		token = r.URL.Query().Get("token")
 	}
 	if token == "" {
-		s.writeJSON(w, http.StatusUnauthorized, NewErrorResponse("unauthorized"))
+		s.writeError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 
 	// Rate limit check (基于纯 IP，排除端口)
 	clientAddr := clientIP(r.RemoteAddr)
 	if !s.authRateLimit.Allow(clientAddr) {
-		log.Warnf("[auth] rate limit exceeded for %s", clientAddr)
+		log.Warnf("[auth] Rate limit exceeded for %s", clientAddr)
 		s.writeError(w, http.StatusTooManyRequests, "too many requests")
 		return
 	}
@@ -119,13 +119,13 @@ func (s *Server) handleAuthLogin(w http.ResponseWriter, r *http.Request) {
 	// Validate
 	if token != apiKey {
 		s.authRateLimit.Fail(clientAddr)
-		log.Warnf("[auth] failed login attempt from %s", clientAddr)
-		s.writeJSON(w, http.StatusUnauthorized, NewErrorResponse("unauthorized"))
+		log.Warnf("[auth] Failed login attempt from %s", clientAddr)
+		s.writeError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 	jwtToken, err := generateSessionToken(apiKey)
 	if err != nil {
-		log.Errorf("[auth] failed to generate token: %v", err)
+		log.Errorf("[auth] Failed to generate token: %v", err)
 		s.writeError(w, http.StatusInternalServerError, "failed to generate token")
 		return
 	}
@@ -150,7 +150,7 @@ func (s *Server) handleAuthRefresh(w http.ResponseWriter, r *http.Request) {
 		tokenStr = r.URL.Query().Get("token")
 	}
 	if tokenStr == "" {
-		s.writeJSON(w, http.StatusUnauthorized, NewErrorResponse("unauthorized"))
+		s.writeError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 
@@ -166,7 +166,7 @@ func (s *Server) handleAuthRefresh(w http.ResponseWriter, r *http.Request) {
 	// Rate limit check
 	clientAddr := clientIP(r.RemoteAddr)
 	if !s.authRateLimit.Allow(clientAddr) {
-		log.Warnf("[auth] refresh rate limit exceeded for %s", clientAddr)
+		log.Warnf("[auth] Refresh rate limit exceeded for %s", clientAddr)
 		s.writeError(w, http.StatusTooManyRequests, "too many requests")
 		return
 	}
@@ -176,8 +176,8 @@ func (s *Server) handleAuthRefresh(w http.ResponseWriter, r *http.Request) {
 	if err != nil && !isJWTExpiredError(err) {
 		// Token is invalid (bad signature, wrong format, etc.)
 		w.Header().Set("X-Token-Type", "invalid")
-		log.Warnf("[auth] refresh rejected from %s: %v", clientIP(r.RemoteAddr), err)
-		s.writeJSON(w, http.StatusUnauthorized, NewErrorResponse("unauthorized"))
+		log.Warnf("[auth] Refresh rejected from %s: %v", clientIP(r.RemoteAddr), err)
+		s.writeError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 	// Expired JWT with valid signature is acceptable for refresh
@@ -185,7 +185,7 @@ func (s *Server) handleAuthRefresh(w http.ResponseWriter, r *http.Request) {
 	// Generate new JWT
 	jwtToken, err := generateSessionToken(apiKey)
 	if err != nil {
-		log.Errorf("[auth] failed to generate refresh token: %v", err)
+		log.Errorf("[auth] Failed to generate refresh token: %v", err)
 		s.writeError(w, http.StatusInternalServerError, "failed to generate token")
 		return
 	}
@@ -220,7 +220,7 @@ func (s *Server) handleAuthCheck(w http.ResponseWriter, r *http.Request) {
 	// Rate limit check
 	clientAddr := clientIP(r.RemoteAddr)
 	if !s.authRateLimit.Allow(clientAddr) {
-		log.Warnf("[auth] check rate limit exceeded for %s", clientAddr)
+		log.Warnf("[auth] Check rate limit exceeded for %s", clientAddr)
 		s.writeJSON(w, http.StatusOK, NewSuccessResponse(map[string]interface{}{
 			"authenticated": false,
 			"valid":         false,
@@ -243,7 +243,7 @@ func (s *Server) handleAuthCheck(w http.ResponseWriter, r *http.Request) {
 		if isExpired {
 			errMsg = "token expired"
 		}
-		log.Debugf("[auth] check: %v", err)
+		log.Debugf("[auth] Check: %v", err)
 		s.writeJSON(w, http.StatusOK, NewSuccessResponse(map[string]interface{}{
 			"authenticated": false,
 			"valid":         false,
@@ -255,8 +255,8 @@ func (s *Server) handleAuthCheck(w http.ResponseWriter, r *http.Request) {
 
 	claims, ok := token.Claims.(*jwtClaims)
 	if !ok {
-		log.Errorf("[auth] check: unexpected claims type %T", token.Claims)
-		s.writeJSON(w, http.StatusInternalServerError, NewErrorResponse("internal error"))
+		log.Errorf("[auth] Check: unexpected claims type %T", token.Claims)
+		s.writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 	exp := claims.ExpiresAt.Time

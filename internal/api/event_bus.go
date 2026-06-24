@@ -274,7 +274,7 @@ func (b *EventBus) Publish(event string, data interface{}) {
 	}
 	b.mu.Unlock()
 
-	log.Warnf("[SSE] closing %d slow subscriber(s) after %s event queue overflow", len(overflowed), event)
+	log.Warnf("[SSE] Closing %d slow subscriber(s) after %s event queue overflow", len(overflowed), event)
 }
 
 

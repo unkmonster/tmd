@@ -75,7 +75,7 @@ func itemContentsToUsers(itemContents []gjson.Result) MembersResult {
 	for _, ic := range itemContents {
 		user_results, err := getResults(ic, timelineUser)
 		if err != nil {
-			log.Debugln("getResults(timelineUser) failed:", err)
+			log.Debugln("[twitter] GetResults(timelineUser) failed:", err)
 			continue
 		}
 		if user_results.String() == "{}" {
@@ -83,7 +83,7 @@ func itemContentsToUsers(itemContents []gjson.Result) MembersResult {
 		}
 		u, _, err := parseUserResults(&user_results)
 		if err != nil {
-			log.Debugln("parseUserResults failed:", err)
+			log.Debugln("[twitter] ParseUserResults failed:", err)
 			continue
 		}
 		if u != nil {

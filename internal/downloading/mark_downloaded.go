@@ -25,10 +25,10 @@ func MarkUsersAsDownloaded(ctx context.Context, client *resty.Client, db *sqlx.D
 	if markTimeStr == "" {
 		now := time.Now()
 		timestamp = &now
-		log.Infoln("marking users as downloaded, timestamp:", timestamp.Format(time.RFC3339))
+		log.Infoln("[download] Marking users as downloaded, timestamp:", timestamp.Format(time.RFC3339))
 	} else if strings.ToLower(markTimeStr) == "null" || strings.ToLower(markTimeStr) == "nil" {
 		timestamp = nil
-		log.Infoln("marking users as downloaded, timestamp: NULL (full download)")
+		log.Infoln("[download] Marking users as downloaded, timestamp: NULL (full download)")
 	} else {
 		loc, locErr := time.LoadLocation("Local")
 		if locErr != nil {
@@ -39,7 +39,7 @@ func MarkUsersAsDownloaded(ctx context.Context, client *resty.Client, db *sqlx.D
 			return nil, fmt.Errorf("invalid mark-time format '%s', expected: 2006-01-02T15:04:05 (example: 2024-01-15T10:30:00) or 'null' for full download: %v", markTimeStr, err)
 		}
 		timestamp = &parsedTime
-		log.Infoln("marking users as downloaded, timestamp:", timestamp.Format(time.RFC3339))
+		log.Infoln("[download] Marking users as downloaded, timestamp:", timestamp.Format(time.RFC3339))
 	}
 
 	var results []MarkedUserInfo
@@ -61,7 +61,7 @@ func MarkUsersAsDownloaded(ctx context.Context, client *resty.Client, db *sqlx.D
 				strings.Contains(errStr, "unable to get timeline data") {
 				return nil, fmt.Errorf("list %s does not exist or is not accessible", lst.Title())
 			}
-			log.Warnln("✗", lst.Title(), "-", "failed to get list members:", err)
+			log.Warnln("[download] ✗", lst.Title(), "-", "failed to get list members:", err)
 			continue
 		}
 
@@ -102,7 +102,7 @@ func MarkUsersAsDownloaded(ctx context.Context, client *resty.Client, db *sqlx.D
 		}
 	}
 
-	log.Infoln("finished marking users as downloaded, success:", successCount, "failed:", failCount)
+	log.Infoln("[download] Finished marking users as downloaded, success:", successCount, "failed:", failCount)
 	return results, nil
 }
 
@@ -123,28 +123,28 @@ func markSingleUserWithInfo(db *sqlx.DB, user *twitter.User, dir string, timesta
 		if r := recover(); r != nil {
 			info.Success = false
 			info.Error = fmt.Sprintf("panic: %v", r)
-			log.Errorf("[markSingleUserWithInfo] panic recovered: %v", r)
+			log.Errorf("[download] markSingleUserWithInfo: panic recovered: %v", r)
 		}
 	}()
 
 	entity, err := syncUserAndEntity(db, user, dir, maxLen)
 	if err != nil {
 		info.Error = fmt.Sprintf("failed to sync user and entity: %v", err)
-		log.Warnln("✗", user.Title(), "-", "failed to mark user:", err)
+		log.Warnln("[download] ✗", user.Title(), "-", "failed to mark user:", err)
 		return info
 	}
 
 	if timestamp == nil {
 		if err := entity.ClearLatestReleaseTime(); err != nil {
 			info.Error = fmt.Sprintf("failed to clear latest release time: %v", err)
-			log.Warnln("✗", user.Title(), "-", "failed to clear latest release time:", err)
+			log.Warnln("[download] ✗", user.Title(), "-", "failed to clear latest release time:", err)
 			return info
 		}
-		log.Infoln("✓", user.Title(), "-", "cleared latest release time for full download")
+		log.Infoln("[download] ✓", user.Title(), "-", "cleared latest release time for full download")
 	} else {
 		if err := entity.SetLatestReleaseTime(*timestamp); err != nil {
 			info.Error = fmt.Sprintf("failed to set latest release time: %v", err)
-			log.Warnln("✗", user.Title(), "-", "failed to set latest release time:", err)
+			log.Warnln("[download] ✗", user.Title(), "-", "failed to set latest release time:", err)
 			return info
 		}
 	}
@@ -153,10 +153,10 @@ func markSingleUserWithInfo(db *sqlx.DB, user *twitter.User, dir string, timesta
 	eid, err := entity.Id()
 	if err != nil {
 		info.Error = fmt.Sprintf("failed to get entity id: %v", err)
-		log.Warnln("✗", user.Title(), "-", "failed to get entity id:", err)
+		log.Warnln("[download] ✗", user.Title(), "-", "failed to get entity id:", err)
 		return info
 	}
 	info.EntityID = eid
-	log.Infoln("✓", user.Title(), "-", "marked as downloaded")
+	log.Infoln("[download] ✓", user.Title(), "-", "marked as downloaded")
 	return info
 }

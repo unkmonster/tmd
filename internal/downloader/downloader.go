@@ -89,7 +89,7 @@ func (d *DefaultDownloader) Download(req DownloadRequest) (*DownloadResult, erro
 		d.logger.WithFields(log.Fields{
 			"url":   req.URL,
 			"error": err,
-		}).Debug("HEAD request failed, fallback to buffer mode")
+		}).Debug("[downloader] HEAD request failed, fallback to buffer mode")
 		return d.downloadBuffer(req)
 	}
 
@@ -99,14 +99,14 @@ func (d *DefaultDownloader) Download(req DownloadRequest) (*DownloadResult, erro
 		d.logger.WithFields(log.Fields{
 			"url":  req.URL,
 			"size": contentLength,
-		}).Debug("using stream mode for large file")
+		}).Debug("[downloader] Using stream mode for large file")
 		return d.downloadStream(req, contentLength)
 	} else {
 		// 小文件：Buffer 下载（支持 SkipUnchanged）
 		d.logger.WithFields(log.Fields{
 			"url":  req.URL,
 			"size": contentLength,
-		}).Debug("using buffer mode for small file")
+		}).Debug("[downloader] Using buffer mode for small file")
 		return d.downloadBuffer(req)
 	}
 }
@@ -165,7 +165,7 @@ func (d *DefaultDownloader) downloadBuffer(req DownloadRequest) (*DownloadResult
 		d.logger.WithFields(log.Fields{
 			"url":         req.URL,
 			"status_code": resp.StatusCode(),
-		}).Warn("download failed with non-2xx status")
+		}).Warn("[downloader] Download failed with non-2xx status")
 		return result, err
 	}
 
@@ -206,7 +206,7 @@ func (d *DefaultDownloader) downloadStream(req DownloadRequest, contentLength in
 				d.logger.WithFields(log.Fields{
 					"url":     req.URL,
 					"attempt": attempt,
-				}).Info("download succeeded after retry")
+				}).Info("[downloader] Download succeeded after retry")
 			}
 			return result, nil
 		}
@@ -225,7 +225,7 @@ func (d *DefaultDownloader) downloadStream(req DownloadRequest, contentLength in
 					"url":        req.URL,
 					"attempts":   maxDownloadRetries,
 					"last_error": err,
-				}).Warn("stream download failed after max retries, fallback to buffer mode")
+				}).Warn("[downloader] Stream download failed after max retries, fallback to buffer mode")
 				return d.downloadBuffer(req)
 			}
 
@@ -235,7 +235,7 @@ func (d *DefaultDownloader) downloadStream(req DownloadRequest, contentLength in
 				"attempt":     attempt,
 				"max_retries": maxDownloadRetries,
 				"error":       err,
-			}).Warn("download failed, retrying...")
+			}).Warn("[downloader] Download failed, retrying...")
 
 			// 等待一段时间后重试
 			if err := waitRetryDelay(req.Context, retryDelay*time.Duration(attempt)); err != nil {
@@ -282,7 +282,7 @@ func (d *DefaultDownloader) doDownloadStream(req DownloadRequest, contentLength 
 		d.logger.WithFields(log.Fields{
 			"url":         req.URL,
 			"status_code": resp.StatusCode(),
-		}).Warn("download failed with non-2xx status")
+		}).Warn("[downloader] Stream download failed with non-2xx status")
 		return result, err
 	}
 
@@ -312,14 +312,14 @@ func (d *DefaultDownloader) doDownloadStream(req DownloadRequest, contentLength 
 			"url":           req.URL,
 			"expected_size": contentLength,
 			"actual_size":   writeResult.NewSize,
-		}).Warn("download file size mismatch")
+		}).Warn("[downloader] Download file size mismatch")
 
 		// 删除不完整的文件
 		if removeErr := os.Remove(req.Destination); removeErr != nil {
 			d.logger.WithFields(log.Fields{
 				"url":   req.URL,
 				"error": removeErr,
-			}).Warn("failed to remove incomplete file")
+			}).Warn("[downloader] Failed to remove incomplete file")
 		}
 
 		return result, err

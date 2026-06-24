@@ -149,7 +149,7 @@ func (h *Hub) Add(line string) {
 	if len(overflowed) > 0 {
 		h.removeSubscribers(overflowed)
 		for range overflowed {
-			log.Warn("[consolelog] closing slow log subscriber after queue overflow")
+			log.Warn("[consolelog] Closing slow log subscriber after queue overflow")
 		}
 	}
 }

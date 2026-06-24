@@ -58,7 +58,7 @@ func BatchLogin(ctx context.Context, opts BatchLoginOptions, cookies []AccountCo
 	}
 
 	wg.Wait()
-	log.Infoln("loaded additional accounts:", len(clients))
+	log.Infoln("[twitter] Loaded additional accounts:", len(clients))
 	for _, msg := range msgs {
 		fmt.Print(msg)
 	}

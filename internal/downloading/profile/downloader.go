@@ -181,10 +181,10 @@ func (pd *ProfileDownloader) Download(ctx context.Context, req DownloadRequest) 
 		Protected:   req.Protected,
 		CreatedAt:   req.CreatedAt,
 	}
-	log.Debugln("using provided profile data for:", req.ScreenName)
+	log.Debugln("[profile] Using provided profile data for:", req.ScreenName)
 
 	result.Profile = profile
-	log.Debugln("profile fetched:", profile.Name, "(id:", profile.ID, ")")
+	log.Debugln("[profile] Profile fetched:", profile.Name, "(id:", profile.ID, ")")
 
 	userTitle := req.UserTitle
 	if userTitle == "" {
@@ -209,7 +209,7 @@ func (pd *ProfileDownloader) Download(ctx context.Context, req DownloadRequest) 
 		}
 	}
 
-	log.Debugln("directory ready:", userDir)
+	log.Debugln("[profile] Directory ready:", userDir)
 
 	fetchedAt := time.Now()
 
@@ -268,7 +268,7 @@ func (pd *ProfileDownloader) syncUserDirectory(profile *ProfileInfo, userTitle, 
 		if err := database.CreateUserEntity(pd.db, entity); err != nil {
 			return "", err
 		}
-		log.Infoln("new user directory created:", userDir)
+		log.Infoln("[profile] New user directory created:", userDir)
 		return ensureProfileDirs(userDir)
 	}
 
@@ -299,7 +299,7 @@ func (pd *ProfileDownloader) syncUserDirectory(profile *ProfileInfo, userTitle, 
 		return "", err
 	}
 
-	log.Infoln("user directory renamed:", oldUserDir, "->", newUserDir)
+	log.Infoln("[profile] User directory renamed:", oldUserDir, "->", newUserDir)
 	return ensureProfileDirs(newUserDir)
 }
 
@@ -350,7 +350,7 @@ func (pd *ProfileDownloader) profileDownloader(
 	defer wg.Done()
 	defer func() {
 		if p := recover(); p != nil {
-			log.Errorf("[profileDownloader] panic recovered: %v", p)
+			log.Errorf("[profile] Panic recovered: %v", p)
 			cancel(fmt.Errorf("panic: %v", p))
 
 			// 把 channel 中剩余的任务标记为失败
@@ -374,7 +374,7 @@ func (pd *ProfileDownloader) profileDownloader(
 			}
 			result, err := pd.Download(ctx, ir.request)
 			if err != nil {
-				log.Errorln("profile download failed:", ir.request.ScreenName, "-", err)
+				log.Errorln("[profile] Profile download failed:", ir.request.ScreenName, "-", err)
 
 				if errors.Is(err, syscall.ENOSPC) {
 					cancel(err)
@@ -466,7 +466,7 @@ func (pd *ProfileDownloader) downloadFile(ctx context.Context, userTitle, screen
 
 	result, err := pd.downloader.Download(downloadReq)
 	if err != nil {
-		log.Debugln(label+" download failed:", screenName, "-", err)
+		log.Debugln("[profile]", label, "download failed:", screenName, "-", err)
 		return FileResult{FileType: fileType, FilePath: filePath, Status: StatusFailed, Error: err}
 	}
 
@@ -483,7 +483,7 @@ func (pd *ProfileDownloader) downloadFile(ctx context.Context, userTitle, screen
 func (pd *ProfileDownloader) saveProfileJSON(userTitle, screenName string, profile *ProfileInfo, fetchedAt time.Time) FileResult {
 	data, err := ProfileToJSON(profile)
 	if err != nil {
-		log.Errorln("profile JSON serialize failed:", screenName, "-", err)
+		log.Errorln("[profile] Profile JSON serialize failed:", screenName, "-", err)
 		filePath := pd.storage.GetFilePath(userTitle, FileTypeProfile)
 		return FileResult{FileType: FileTypeProfile, FilePath: filePath, Status: StatusFailed, Error: err}
 	}

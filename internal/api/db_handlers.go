@@ -239,6 +239,7 @@ func (s *Server) handleDBLists(w http.ResponseWriter, r *http.Request) {
 	if ownerID := r.URL.Query().Get("ownerId"); ownerID != "" {
 		ownerUID, err := strconv.ParseUint(ownerID, 10, 64)
 		if err != nil {
+			log.Debugf("[db] Invalid owner ID: %v", err)
 			s.writeError(w, http.StatusBadRequest, "Invalid owner ID")
 			return
 		}
@@ -314,6 +315,7 @@ func (s *Server) handleDBListUpdate(w http.ResponseWriter, r *http.Request) {
 	if req.OwnerID != nil {
 		ownerID, err := strconv.ParseUint(*req.OwnerID, 10, 64)
 		if err != nil {
+			log.Debugf("[db] Invalid owner ID: %v", err)
 			s.writeError(w, http.StatusBadRequest, "Invalid owner ID")
 			return
 		}
@@ -364,6 +366,7 @@ func (s *Server) handleDBUserEntities(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if userID, ok, err := optionalUint64Query(r, "userId"); err != nil {
+		log.Debugf("[db] Invalid user ID: %v", err)
 		s.writeError(w, http.StatusBadRequest, "Invalid user ID")
 		return
 	} else if ok {
@@ -456,6 +459,7 @@ func (s *Server) handleDBUserEntityUpdate(w http.ResponseWriter, r *http.Request
 		} else {
 			t, err := time.Parse(time.RFC3339, *req.LatestReleaseTime)
 			if err != nil {
+				log.Debugf("[db] Invalid latest_release_time: %v", err)
 				s.writeError(w, http.StatusBadRequest, "Invalid latest_release_time format, use RFC 3339 (e.g. 2024-12-18T15:30:00Z)")
 				return
 			}
@@ -536,6 +540,7 @@ func (s *Server) handleDBListEntities(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if listID, ok, err := optionalUint64Query(r, "listId"); err != nil {
+		log.Debugf("[db] Invalid list ID: %v", err)
 		s.writeError(w, http.StatusBadRequest, "Invalid list ID")
 		return
 	} else if ok {
@@ -667,6 +672,7 @@ func (s *Server) handleDBUserLinks(w http.ResponseWriter, r *http.Request) {
 	var args []interface{}
 
 	if userID, ok, err := optionalUint64Query(r, "userId"); err != nil {
+		log.Debugf("[db] Invalid user ID: %v", err)
 		s.writeError(w, http.StatusBadRequest, "Invalid user ID")
 		return
 	} else if ok {
@@ -675,6 +681,7 @@ func (s *Server) handleDBUserLinks(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if listEntityID, ok, err := optionalUint64Query(r, "listEntityId"); err != nil {
+		log.Debugf("[db] Invalid list entity ID: %v", err)
 		s.writeError(w, http.StatusBadRequest, "Invalid list entity ID")
 		return
 	} else if ok {
@@ -982,6 +989,7 @@ func (s *Server) handleDBPreviousNames(w http.ResponseWriter, r *http.Request) {
 
 	// 可选：按 user_id 筛选
 	if userID, ok, err := optionalUint64Query(r, "userId"); err != nil {
+		log.Debugf("[db] Invalid user ID: %v", err)
 		s.writeError(w, http.StatusBadRequest, "Invalid user ID")
 		return
 	} else if ok {

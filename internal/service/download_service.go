@@ -166,7 +166,7 @@ func (s *downloadServiceImpl) resolveUsers(ctx context.Context, screenNames []st
 		user, uid, err := twitter.GetUserByScreenName(ctx, s.deps.Client, name)
 		if err != nil {
 			database.MarkUserInaccessible(s.deps.DB, uid, name)
-			log.Warnf("Failed to get user %s: %v", name, err)
+			log.Warnf("[download] Failed to get user %s: %v", name, err)
 			continue
 		}
 		users = append(users, user)
@@ -179,7 +179,7 @@ func (s *downloadServiceImpl) resolveLists(ctx context.Context, listIDs []uint64
 	for _, id := range listIDs {
 		list, err := twitter.GetLst(ctx, s.deps.Client, id)
 		if err != nil {
-			log.Warnf("Failed to get list %d: %v", id, err)
+			log.Warnf("[download] Failed to get list %d: %v", id, err)
 			continue
 		}
 		lists = append(lists, list)
@@ -193,7 +193,7 @@ func (s *downloadServiceImpl) resolveFollowings(ctx context.Context, screenNames
 		user, uid, err := twitter.GetUserByScreenName(ctx, s.deps.Client, name)
 		if err != nil {
 			database.MarkUserInaccessible(s.deps.DB, uid, name)
-			log.Warnf("Failed to get user %s for following list: %v", name, err)
+			log.Warnf("[download] Failed to get user %s for following list: %v", name, err)
 			continue
 		}
 		lists = append(lists, user.Following())
@@ -233,7 +233,7 @@ func (s *downloadServiceImpl) followMembersIfNeeded(ctx context.Context, users [
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 				return err
 			}
-			log.Warnf("Follow member failed for @%s (%d): %v", user.ScreenName, user.Id, err)
+			log.Warnf("[download] Follow member failed for @%s (%d): %v", user.ScreenName, user.Id, err)
 			continue
 		}
 	}
@@ -318,13 +318,14 @@ func (s *downloadServiceImpl) executeDownloadTemplate(ctx context.Context, confi
 
 	pathHelper, err := path.NewStorePath(s.deps.Config.RootPath)
 	if err != nil {
+		log.Errorf("[download] Failed to make store dir: %v", err)
 		return fmt.Errorf("failed to make store dir: %w", err)
 	}
 
 	dumper := downloading.NewDumper()
 	s.dumperMu.Lock()
 	if err := dumper.Load(pathHelper.ErrorsPath); err != nil {
-		log.Warnf("Failed to load dumper: %v", err)
+		log.Warnf("[download] Failed to load dumper: %v", err)
 	}
 	s.dumperMu.Unlock()
 	defer s.saveDumper(dumper, pathHelper.ErrorsPath)
@@ -364,7 +365,7 @@ func (s *downloadServiceImpl) executeDownloadTemplate(ctx context.Context, confi
 		if _, err := downloading.RetryFailedTweets(
 			ctx, dumper, s.deps.DB, s.deps.Client, dwn, fileWriter, runtimeOptions, retryProgress,
 		); err != nil {
-			log.Warnf("Retry failed tweets error: %v", err)
+			log.Warnf("[download] Retry failed tweets error: %v", err)
 		}
 	}
 
@@ -379,7 +380,7 @@ func (s *downloadServiceImpl) executeDownloadTemplate(ctx context.Context, confi
 			pathHelper, versionManager, fileWriter, dwn, reporter,
 		)
 		if err != nil {
-			log.Warnf("Profile download failed for %s: %v", config.ProfileIdentifier, err)
+			log.Warnf("[download] Profile download failed for %s: %v", config.ProfileIdentifier, err)
 			reporter.OnProgress(config.TaskID, Progress{
 				Stage:   "profile_warning",
 				Current: fmt.Sprintf("profile failed for %s: %v", config.ProfileIdentifier, err),
@@ -605,7 +606,7 @@ func (s *downloadServiceImpl) JsonFileDownload(ctx context.Context, taskID strin
 	jsonDumper := downloading.NewJsonDumper()
 	s.dumperMu.Lock()
 	if err := jsonDumper.Load(pathHelper.JSONErrorsPath); err != nil {
-		log.Warnf("Failed to load JSON dumper: %v", err)
+		log.Warnf("[download] Failed to load JSON dumper: %v", err)
 	}
 	s.dumperMu.Unlock()
 	defer s.saveJsonDumper(jsonDumper, pathHelper.JSONErrorsPath)
@@ -619,7 +620,7 @@ func (s *downloadServiceImpl) JsonFileDownload(ctx context.Context, taskID strin
 
 	if !noRetry {
 		if _, err := downloading.RetryFailedJsonTweets(ctx, jsonDumper, s.deps.Client, dwn, fileWriter, runtimeOptions, retryProgress); err != nil {
-			log.Warnf("Retry failed JSON tweets error: %v", err)
+			log.Warnf("[download] Retry failed JSON tweets error: %v", err)
 		}
 	}
 
@@ -660,7 +661,7 @@ func (s *downloadServiceImpl) JsonFolderDownload(ctx context.Context, taskID str
 	jsonDumper := downloading.NewJsonDumper()
 	s.dumperMu.Lock()
 	if err := jsonDumper.Load(pathHelper.JSONErrorsPath); err != nil {
-		log.Warnf("Failed to load JSON dumper: %v", err)
+		log.Warnf("[download] Failed to load JSON dumper: %v", err)
 	}
 	s.dumperMu.Unlock()
 	defer s.saveJsonDumper(jsonDumper, pathHelper.JSONErrorsPath)
@@ -674,7 +675,7 @@ func (s *downloadServiceImpl) JsonFolderDownload(ctx context.Context, taskID str
 
 	if !noRetry {
 		if _, err := downloading.RetryFailedJsonTweets(ctx, jsonDumper, s.deps.Client, dwn, fileWriter, runtimeOptions, retryProgress); err != nil {
-			log.Warnf("Retry failed JSON tweets error: %v", err)
+			log.Warnf("[download] Retry failed JSON tweets error: %v", err)
 		}
 	}
 
@@ -734,9 +735,9 @@ func (s *downloadServiceImpl) saveDumper(dumper *downloading.TweetDumper, path s
 
 	if dumper.Count() > 0 {
 		if err := dumper.Dump(path); err != nil {
-			log.Warnf("Failed to save dumper: %v", err)
+			log.Warnf("[download] Failed to save dumper: %v", err)
 		} else {
-			log.Infof("%d tweets have been dumped", dumper.Count())
+			log.Infof("[download] %d tweets have been dumped", dumper.Count())
 		}
 		return
 	}
@@ -747,6 +748,7 @@ func (s *downloadServiceImpl) saveDumper(dumper *downloading.TweetDumper, path s
 func (s *downloadServiceImpl) RetryAllFailed(ctx context.Context, taskID string, reporter ProgressReporter) error {
 	pathHelper, err := path.NewStorePath(s.deps.Config.RootPath)
 	if err != nil {
+		log.Errorf("[download] Failed to create store path: %v", err)
 		return fmt.Errorf("failed to create store path: %w", err)
 	}
 
@@ -785,6 +787,7 @@ func (s *downloadServiceImpl) RetryAllFailed(ctx context.Context, taskID string,
 func (s *downloadServiceImpl) ClearErrors() error {
 	pathHelper, err := path.NewStorePath(s.deps.Config.RootPath)
 	if err != nil {
+		log.Errorf("[download] Failed to create store path: %v", err)
 		return fmt.Errorf("failed to create store path: %w", err)
 	}
 
@@ -823,9 +826,9 @@ func (s *downloadServiceImpl) saveJsonDumper(dumper *downloading.JsonTweetDumper
 
 	if dumper.Count() > 0 {
 		if err := dumper.Dump(path); err != nil {
-			log.Warnf("Failed to save JSON dumper: %v", err)
+			log.Warnf("[download] Failed to save JSON dumper: %v", err)
 		} else {
-			log.Infof("%d JSON tweets have been dumped", dumper.Count())
+			log.Infof("[download] %d JSON tweets have been dumped", dumper.Count())
 		}
 		return
 	}
@@ -844,7 +847,7 @@ func (s *downloadServiceImpl) downloadProfile(ctx context.Context, taskID string
 	// 创建 storage manager
 	storage, err := profile.NewFileStorageManager(pathHelper.Users)
 	if err != nil {
-		log.Errorf("Failed to create file storage manager: %v", err)
+		log.Errorf("[download] Failed to create file storage manager: %v", err)
 		return nil, fmt.Errorf("failed to create profile storage: %w", err)
 	}
 	storage.SetVersionManager(versionManager)
@@ -944,7 +947,7 @@ func (s *downloadServiceImpl) downloadProfile(ctx context.Context, taskID string
 		if bannerFailed > 0 {
 			parts = append(parts, fmt.Sprintf("%d banners", bannerFailed))
 		}
-		log.Errorln("profile download:", strings.Join(parts, ", "), "failed")
+		log.Errorf("[download] Profile download: %s failed", strings.Join(parts, ", "))
 	}
 
 	if successCount == 0 && failCount > 0 {

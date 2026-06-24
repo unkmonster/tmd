@@ -58,7 +58,7 @@ func (fw *DefaultFileWriter) Write(req WriteRequest) (WriteResult, error) {
 			if fileInfo.Size() == result.NewSize {
 				oldHash, hashErr := fw.computeFileHash(req.Path)
 				if hashErr != nil {
-					log.Warnf("failed to compute file hash for SkipUnchanged check: %v, path: %s", hashErr, req.Path)
+				log.Warnf("[downloader] Failed to compute file hash for SkipUnchanged check: %v, path: %s", hashErr, req.Path)
 					return result, hashErr
 				}
 				newHash := fw.computeDataHash(req.Data)
@@ -92,7 +92,7 @@ func (fw *DefaultFileWriter) Write(req WriteRequest) (WriteResult, error) {
 	// 4. 设置修改时间
 	if req.Options.ModTime != nil {
 		if err := os.Chtimes(req.Path, time.Time{}, *req.Options.ModTime); err != nil {
-			log.Warnf("failed to set modification time for %s: %v", req.Path, err)
+			log.Warnf("[downloader] Failed to set modification time for %s: %v", req.Path, err)
 		}
 	}
 
@@ -146,7 +146,7 @@ func (fw *DefaultFileWriter) writeStream(path string, reader io.Reader, size int
 	// 设置修改时间
 	if options.ModTime != nil {
 		if err := os.Chtimes(path, time.Time{}, *options.ModTime); err != nil {
-			log.Warnf("failed to set modification time for %s: %v", path, err)
+			log.Warnf("[downloader] Failed to set modification time for %s: %v", path, err)
 		}
 	}
 
@@ -179,7 +179,7 @@ func (fw *DefaultFileWriter) atomicWriteFromReader(path string, reader io.Reader
 		return 0, fmt.Errorf("failed to close temp file: %w", err)
 	}
 
-	log.Debugf("atomicWriteFromReader: written %d bytes to %s", written, path)
+	log.Debugf("[downloader] Atomic write: written %d bytes to %s", written, path)
 
 	if err := os.Rename(tempPath, path); err != nil {
 		return 0, fmt.Errorf("failed to rename temp file: %w", err)

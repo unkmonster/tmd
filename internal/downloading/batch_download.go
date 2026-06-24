@@ -95,15 +95,15 @@ func BatchUserDownload(ctx context.Context, client *resty.Client, db *sqlx.DB, u
 		}
 	}
 	if len(protectedUnfollowedUsers) > 0 {
-		log.Infof("未关注且受保护的账户 (%d，无法下载内容):", len(protectedUnfollowedUsers))
+		log.Infof("[batch] 未关注且受保护的账户 (%d，无法下载内容):", len(protectedUnfollowedUsers))
 		for _, u := range protectedUnfollowedUsers {
-			log.Infof("  - %s(@%s)", u.Name, u.ScreenName)
+			log.Infof("[batch]   - %s(@%s)", u.Name, u.ScreenName)
 		}
 	}
 
 	func() {
 		defer panicHandler()
-		log.Infoln("start pre processing users")
+		log.Infoln("[batch] Start pre processing users")
 
 		for _, userInLST := range users {
 			var pathEntity *entity.UserEntity
@@ -119,7 +119,7 @@ func BatchUserDownload(ctx context.Context, client *resty.Client, db *sqlx.DB, u
 			if !loaded {
 				pathEntity, err = syncUserAndEntity(db, user, dir, opts.normalizedMaxFileNameLen())
 				if err != nil {
-					log.Warnln("✗", user.Title(), "-", "failed to update user or entity", err)
+					log.Warnln("[batch] ✗", user.Title(), "-", "failed to update user or entity", err)
 					continue
 				}
 				syncState.storeUser(user.Id, pathEntity)
@@ -127,14 +127,14 @@ func BatchUserDownload(ctx context.Context, client *resty.Client, db *sqlx.DB, u
 				upath, _ := pathEntity.Path()
 				linkds, err := database.GetUserLinks(db, user.Id)
 				if err != nil {
-					log.Warnln("✗", user.Title(), "-", "failed to get links to user:", err)
+					log.Warnln("[batch] ✗", user.Title(), "-", "failed to get links to user:", err)
 				}
 				for _, linkd := range linkds {
 					if err = updateUserLink(linkd, db, upath); err != nil {
 						symlinkWarnMu.Lock()
 						symlinkWarnCount++
 						if symlinkWarnCount == 1 {
-							log.Warnln("✗", user.Title(), "-", "symlink permission denied (suppressing further warnings)")
+							log.Warnln("[batch] ✗", user.Title(), "-", "symlink permission denied (suppressing further warnings)")
 						}
 						symlinkWarnMu.Unlock()
 					}
@@ -153,9 +153,9 @@ func BatchUserDownload(ctx context.Context, client *resty.Client, db *sqlx.DB, u
 
 				if user.IsProtected && user.Followstate == twitter.FS_UNFOLLOW && autoFollow {
 					if err := twitter.FollowUser(ctx, client, user); err != nil {
-						log.Warnln("✗", user.Title(), "-", "failed to follow user:", err)
+						log.Warnln("[batch] ✗", user.Title(), "-", "failed to follow user:", err)
 					} else {
-						log.Debugln("✓", user.Title(), "-", "follow request has been sent")
+						log.Debugln("[batch] ✓", user.Title(), "-", "follow request has been sent")
 					}
 				}
 			}
@@ -170,7 +170,7 @@ func BatchUserDownload(ctx context.Context, client *resty.Client, db *sqlx.DB, u
 			upath, _ := pathEntity.Path()
 			linkname, err := pathEntity.Name()
 			if err != nil {
-				log.Warnln("✗", user.Title(), "-", "failed to get entity name:", err)
+				log.Warnln("[batch] ✗", user.Title(), "-", "failed to get entity name:", err)
 				continue
 			}
 
@@ -194,7 +194,7 @@ func BatchUserDownload(ctx context.Context, client *resty.Client, db *sqlx.DB, u
 				symlinkWarnMu.Lock()
 				symlinkWarnCount++
 				if symlinkWarnCount == 1 {
-					log.Warnln("✗", user.Title(), "-", "symlink permission denied (suppressing further warnings)")
+					log.Warnln("[batch] ✗", user.Title(), "-", "symlink permission denied (suppressing further warnings)")
 				}
 				symlinkWarnMu.Unlock()
 			}
@@ -204,11 +204,11 @@ func BatchUserDownload(ctx context.Context, client *resty.Client, db *sqlx.DB, u
 	if userEntityHeap.Empty() {
 		return nil, BatchDownloadSummary{}, nil
 	}
-	log.Debugln("preprocessing finish, elapsed:", time.Since(start))
-	log.Debugln("real members:", userEntityHeap.Size())
-	log.Debugln("missing tweets:", missingTweets)
+	log.Debugln("[batch] Preprocessing finish, elapsed:", time.Since(start))
+	log.Debugln("[batch] Real members:", userEntityHeap.Size())
+	log.Debugln("[batch] Missing tweets:", missingTweets)
 	if symlinkWarnCount > 0 {
-		log.Warnf("symlink permission denied: %d errors suppressed (run as admin to enable symlinks)", symlinkWarnCount)
+		log.Warnf("[batch] Symlink permission denied: %d errors suppressed (run as admin to enable symlinks)", symlinkWarnCount)
 	}
 
 	totalUsers := userEntityHeap.Size()
@@ -246,14 +246,14 @@ func BatchUserDownload(ctx context.Context, client *resty.Client, db *sqlx.DB, u
 
 		user := uidToUser[ent.UserId()]
 		if user == nil {
-			log.Warnln("✗", fmt.Sprintf("(uid:%d)", ent.UserId()), "-", "user not found in uidToUser, skipping")
+			log.Warnln("[batch] ✗", fmt.Sprintf("(uid:%d)", ent.UserId()), "-", "user not found in uidToUser, skipping")
 			markUserDone("")
 			return
 		}
 
 		entityName, nameErr := ent.Name()
 		if nameErr != nil {
-			log.Warnln("✗", user.Title(), "-", "failed to get entity name:", nameErr)
+			log.Warnln("[batch] ✗", user.Title(), "-", "failed to get entity name:", nameErr)
 			markUserDone(user.ScreenName)
 			return
 		}
@@ -271,7 +271,7 @@ func BatchUserDownload(ctx context.Context, client *resty.Client, db *sqlx.DB, u
 
 		minTime, err := ent.LatestReleaseTime()
 		if err != nil {
-			log.Warnln("✗", entityName, "-", "failed to get latest release time:", err)
+			log.Warnln("[batch] ✗", entityName, "-", "failed to get latest release time:", err)
 			markUserDone(user.ScreenName)
 			return
 		}
@@ -298,21 +298,21 @@ func BatchUserDownload(ctx context.Context, client *resty.Client, db *sqlx.DB, u
 			return
 		}
 		if err != nil {
-			log.Warnln("✗", entityName, "-", "failed to get user medias:", err)
+			log.Warnln("[batch] ✗", entityName, "-", "failed to get user medias:", err)
 			markUserDone(user.ScreenName)
 			return
 		}
 
 		eid, idErr := ent.Id()
 		if idErr != nil {
-			log.Warnln("✗", entityName, "-", "failed to get entity id:", idErr)
+			log.Warnln("[batch] ✗", entityName, "-", "failed to get entity id:", idErr)
 			markUserDone(user.ScreenName)
 			return
 		}
 
 		if len(tweets) == 0 {
 			if err := database.UpdateUserEntityMediCount(db, eid, user.MediaCount); err != nil {
-				log.Errorln("✗", entityName, "-", "failed to update user medias count:", err)
+				log.Errorln("[batch] ✗", entityName, "-", "failed to update user medias count:", err)
 			}
 			markUserDone(user.ScreenName)
 			return
@@ -332,7 +332,7 @@ func BatchUserDownload(ctx context.Context, client *resty.Client, db *sqlx.DB, u
 		}
 
 		if err := database.UpdateUserEntityTweetStat(db, eid, tweets[0].CreatedAt, user.MediaCount); err != nil {
-			log.Errorln("✗", entityName, "-", "failed to update user tweets stat:", err)
+			log.Errorln("[batch] ✗", entityName, "-", "failed to update user tweets stat:", err)
 		}
 	}
 
@@ -422,11 +422,11 @@ func BatchUserDownload(ctx context.Context, client *resty.Client, db *sqlx.DB, u
 
 				count += depth
 			}
-			log.Debugln(selected)
+			log.Debugln("[batch] Depths:", selected)
 			prodwg.Wait()
 		}
 		close(tweetChan)
-		log.Debugf("getting tweets completed, elapsed time: %v", time.Since(start))
+		log.Debugf("[batch] Getting tweets completed, elapsed time: %v", time.Since(start))
 
 		conswg.Wait()
 		close(errChan)
@@ -436,7 +436,7 @@ func BatchUserDownload(ctx context.Context, client *resty.Client, db *sqlx.DB, u
 	for pt := range errChan {
 		fails = append(fails, pt.(*TweetInEntity))
 	}
-	log.Debugf("%d users unable to start", userEntityHeap.Size())
+	log.Debugf("[batch] %d users unable to start", userEntityHeap.Size())
 	return fails, summary, context.Cause(ctx)
 }
 
@@ -458,7 +458,7 @@ func popNextBatchEntity(
 		if nameErr != nil {
 			entityName = fmt.Sprintf("(uid:%d)", next.UserId())
 		}
-		log.Warnln("user depth exceeds limit:", entityName, "- depth:", depth)
+		log.Warnln("[batch] User depth exceeds limit:", entityName, "- depth:", depth)
 		userEntityHeap.Pop()
 		markUserDone(entityName)
 		return nil, 0, true

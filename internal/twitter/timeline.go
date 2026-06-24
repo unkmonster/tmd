@@ -132,7 +132,7 @@ func getTimelineItemContents(ctx context.Context, api timelineApi, client *resty
 			if entry.Get("content.entryType").String() != "TimelineTimelineCursor" {
 				contents, err := getItemContentsFromEntry(entry)
 				if err != nil {
-					log.Debugln("getItemContentsFromEntry failed:", err)
+					log.Debugln("[twitter] GetItemContentsFromEntry failed:", err)
 					continue
 				}
 				itemContents = append(itemContents, contents...)
@@ -143,7 +143,7 @@ func getTimelineItemContents(ctx context.Context, api timelineApi, client *resty
 		for _, moduleItem := range moduleItems.Array() {
 			content, err := getItemContentFromModuleItem(moduleItem)
 			if err != nil {
-				log.Debugln("getItemContentFromModuleItem failed:", err)
+				log.Debugln("[twitter] GetItemContentFromModuleItem failed:", err)
 				continue
 			}
 			itemContents = append(itemContents, content)

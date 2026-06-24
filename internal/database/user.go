@@ -116,13 +116,13 @@ func MarkUserInaccessible(db *sqlx.DB, uid uint64, screenName string) {
 	if uid > 0 {
 		if markErr := SetUserAccessible(db, uid, false); markErr != nil {
 			if !errors.Is(markErr, ErrUserNotFound) {
-				log.Warnln("failed to mark user as inaccessible:", uid, markErr)
+				log.Warnln("[db] Failed to mark user as inaccessible:", uid, markErr)
 			}
 		}
 	} else if screenName != "" {
 		if markErr := SetUserAccessibleByScreenName(db, screenName, false); markErr != nil {
 			if !errors.Is(markErr, ErrUserNotFound) {
-				log.Warnln("failed to mark user as inaccessible by screen_name:", screenName, markErr)
+				log.Warnln("[db] Failed to mark user as inaccessible by screen_name:", screenName, markErr)
 			}
 		}
 	}

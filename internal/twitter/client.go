@@ -180,7 +180,7 @@ func (rl *xRateLimit) preRequest(ctx context.Context, nonBlocking bool) error {
 	}
 
 	if time.Now().After(rl.ResetTime) {
-		log.Debugln("[RateLimiter] rate limit expired - path:", rl.Url)
+		log.Debugln("[RateLimiter] Rate limit expired - path:", rl.Url)
 		rl.Ready = false // 后续的请求等待本次请求完成更新速率限制
 		return nil
 	}
@@ -194,14 +194,14 @@ func (rl *xRateLimit) preRequest(ctx context.Context, nonBlocking bool) error {
 		}
 
 		insurance := 5 * time.Second
-		log.Warnln("[RateLimiter] sleeping until:", rl.ResetTime.Add(insurance), "- path:", rl.Url)
+		log.Warnln("[RateLimiter] Sleeping until:", rl.ResetTime.Add(insurance), "- path:", rl.Url)
 
 		origin, err := utils.GetConsoleTitle()
 		if err == nil {
 			utils.SetConsoleTitle(fmt.Sprintf("idle - sleeping until %v", rl.ResetTime.Add(insurance).Format(time.TimeOnly)))
 			defer utils.SetConsoleTitle(origin)
 		} else {
-			log.Warnln("failed to set console title:", err)
+			log.Warnln("[RateLimiter] Failed to set console title:", err)
 		}
 
 		select {
@@ -420,7 +420,7 @@ func EnableRequestCounting(client *resty.Client) {
 func ReportRequestCount() {
 	apiCounts.Range(func(key, value any) bool {
 		if counter, ok := value.(*atomic.Int32); ok {
-			log.Debugf("* %s request count: %d", key, counter.Load())
+			log.Debugf("[RateLimiter] * %s request count: %d", key, counter.Load())
 		}
 		return true
 	})
@@ -467,7 +467,7 @@ func GetClientError(cli *resty.Client) error {
 func SetClientError(cli *resty.Client, err error) {
 	clientErrors.Store(cli, err)
 	if err != nil {
-		log.Debugln("✗", GetClientScreenName(cli), "-", "client is no longer available:", err)
+		log.Debugln("[RateLimiter] Client no longer available:", GetClientScreenName(cli), "-", err)
 	}
 }
 
@@ -504,13 +504,13 @@ func SelectClient(ctx context.Context, clients []*resty.Client, path string) *re
 		default:
 		case showStateToken <- struct{}{}:
 			defer func() { <-showStateToken }()
-			log.Warnln("waiting for any client to wake up")
+			log.Warnln("[RateLimiter] Waiting for any client to wake up")
 			origin, err := utils.GetConsoleTitle()
 			if err == nil {
 				defer utils.SetConsoleTitle(origin)
 				utils.SetConsoleTitle("waiting for any client to wake up")
 			} else {
-				log.Debugln("failed to get console title:", err)
+				log.Debugln("[RateLimiter] Failed to get console title:", err)
 			}
 		}
 

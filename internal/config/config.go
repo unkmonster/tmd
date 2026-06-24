@@ -392,7 +392,7 @@ func PromptConfig(saveto string) (*Config, error) {
 	}
 
 	if _, err := CreateBackup(saveto); err != nil {
-		log.Warnf("Failed to backup config: %v", err)
+		log.Warnf("[config] Failed to backup config: %v", err)
 	}
 
 	return conf, WriteConf(saveto, conf)

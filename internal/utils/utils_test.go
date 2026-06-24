@@ -960,7 +960,7 @@ func TestRecoverWithLog(t *testing.T) {
 		}()
 		// 如果能执行到这里，说明panic被恢复了
 		assert.True(t, executed)
-		assert.Contains(t, logBuf.String(), "[test] panic recovered: test panic")
+		assert.Contains(t, logBuf.String(), "[test] Panic recovered: test panic")
 		assert.Contains(t, logBuf.String(), "goroutine ")
 	})
 

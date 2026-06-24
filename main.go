@@ -46,7 +46,7 @@ func initLogger(dbg bool, logFile io.Writer, logHub *consolelog.Hub) {
 	}
 
 	if err := consolelog.StartCapture(logHub); err != nil {
-		log.Warnf("failed to start console log capture: %v", err)
+		log.Warnf("[startup] Failed to start console log capture: %v", err)
 	} else {
 		log.SetOutput(os.Stderr)
 	}
@@ -87,7 +87,7 @@ func main() {
 	cliLogPath := filepath.Join(appRootPath, "client.log")
 	logPath := filepath.Join(appRootPath, "tmd2.log")
 	if err = os.MkdirAll(appRootPath, 0755); err != nil {
-		log.Fatalln("failed to make app dir", err)
+		log.Fatalln("[startup] Failed to make app dir", err)
 	}
 
 	logWriter := &lumberjack.Logger{
@@ -109,7 +109,7 @@ func main() {
 
 	loadResult, err := config.LoadStartupConfig(confPath, bootstrap.confArg, os.Stderr)
 	if err != nil {
-		log.Fatalln("config failure with", err)
+		log.Fatalln("[startup] Config failure with", err)
 	}
 	conf := loadResult.Config
 	if loadResult.UsedEnvFallback {
@@ -119,24 +119,24 @@ func main() {
 		log.Infoln("TMD_* environment configuration applied")
 	}
 	if bootstrap.confArg {
-		log.Println("config done")
+		log.Infoln("[config] Config done")
 		return
 	}
 	if err := config.Validate(conf); err != nil {
-		log.Fatalln("invalid config:", err)
+		log.Fatalln("[startup] Invalid config:", err)
 	}
-	log.Infoln("config is loaded")
-	log.Infoln("download path:", conf.RootPath)
+	log.Infoln("[startup] Config is loaded")
+	log.Infoln("[startup] Download path:", conf.RootPath)
 	maxDownloadRoutine := conf.MaxDownloadRoutine
 	if maxDownloadRoutine <= 0 {
 		maxDownloadRoutine = config.DefaultMaxDownloadRoutine()
 	}
-	log.Infoln("max download routine set to:", maxDownloadRoutine)
+	log.Infoln("[startup] Max download routine set to:", maxDownloadRoutine)
 	maxFileNameLen := conf.MaxFileNameLen
 	if maxFileNameLen <= 0 {
 		maxFileNameLen = utils.DefaultMaxFileNameLen
 	}
-	log.Infoln("max file name length set to:", maxFileNameLen)
+	log.Infoln("[startup] Max file name length set to:", maxFileNameLen)
 
 	if conf.ProxyURL != "" {
 		os.Setenv("HTTP_PROXY", conf.ProxyURL)
@@ -172,14 +172,14 @@ func main() {
 	// CLI 模式
 	client, additional, _, db := initializeClients(ctx, conf, appRootPath, loginOpts, bootstrap.dbg)
 	if client == nil || db == nil {
-		log.Fatalln("failed to initialize clients or database")
+		log.Fatalln("[startup] Failed to initialize clients or database")
 	}
 	defer db.Close()
 
 	// 设置客户端日志
 	cliLogFile, err := os.OpenFile(cliLogPath, os.O_TRUNC|os.O_WRONLY|os.O_CREATE, 0644)
 	if err != nil {
-		log.Fatalln("failed to create log file:", err)
+		log.Fatalln("[startup] Failed to create log file:", err)
 	}
 	defer cliLogFile.Close()
 	cli.SetClientLogger(client, cliLogFile)
@@ -213,7 +213,7 @@ func main() {
 
 	// 将 cli 参数传递给 Execute
 	if err := cli.Execute(ctx, bootstrap.cliArgs, deps); err != nil {
-		log.Fatalln("execute failed:", err)
+		log.Fatalln("[startup] Execute failed:", err)
 	}
 }
 
@@ -300,21 +300,21 @@ func initializeClients(
 	// 登录主账户
 	client, screenName, err := twitter.LoginWithOptions(ctx, conf.Cookie.AuthToken, conf.Cookie.Ct0, loginOpts)
 	if err != nil {
-		log.Fatalln("failed to login:", err)
+		log.Fatalln("[startup] Failed to login:", err)
 	}
 	twitter.EnableRateLimit(client)
 	if enableRequestCounting {
 		twitter.EnableRequestCounting(client)
 	}
-	log.Infoln("signed in as:", color.FgLightBlue.Render(screenName))
+	log.Infoln("[startup] Signed in as:", color.FgLightBlue.Render(screenName))
 
 	// 加载额外 cookies
 	additionalCookiesPath := filepath.Join(appRootPath, "additional_cookies.yaml")
 	cookies, err := config.ReadAdditionalCookies(additionalCookiesPath)
 	if err != nil {
-		log.Warnln("failed to load additional cookies:", err)
+		log.Warnln("[startup] Failed to load additional cookies:", err)
 	}
-	log.Debugln("loaded additional cookies:", len(cookies))
+	log.Debugln("[startup] Loaded additional cookies:", len(cookies))
 
 	twitterCookies := make([]twitter.AccountCookie, len(cookies))
 	for i, c := range cookies {
@@ -327,15 +327,15 @@ func initializeClients(
 	// 初始化路径和数据库
 	pathHelper, err := path.NewStorePath(conf.RootPath)
 	if err != nil {
-		log.Warnln("failed to make store dir:", err)
+		log.Warnln("[startup] Failed to make store dir:", err)
 		return nil, nil, nil, nil
 	}
 
 	db, err := database.Connect(pathHelper.DB)
 	if err != nil {
-		log.Fatalln("failed to connect to database:", err)
+		log.Fatalln("[startup] Failed to connect to database:", err)
 	}
-	log.Infoln("database is connected")
+	log.Infoln("[startup] Database is connected")
 
 	return client, additional, pathHelper, db
 }
@@ -354,7 +354,7 @@ func runServer(conf *config.Config, appRootPath string, port int, loginOpts twit
 	// 注意：Server 模式下通常长久运行，这里使用 O_APPEND 追加模式，而不是 O_TRUNC 截断
 	cliLogFile, err := os.OpenFile(cliLogPath, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0644)
 	if err != nil {
-		log.Fatalln("failed to create log file:", err)
+		log.Fatalln("[startup] Failed to create log file:", err)
 	}
 	// 在目前的简单实现中，我们把它交给 resty 管理，它会在应用退出时随进程关闭。
 	cli.SetClientLogger(client, cliLogFile)
@@ -374,7 +374,7 @@ func runServer(conf *config.Config, appRootPath string, port int, loginOpts twit
 
 	err = server.Start(port)
 	if err != nil && err != http.ErrServerClosed {
-		log.Fatalln("failed to start server:", err)
+		log.Fatalln("[startup] Failed to start server:", err)
 	}
 	if err == http.ErrServerClosed {
 		server.WaitForShutdown()

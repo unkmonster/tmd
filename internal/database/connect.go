@@ -39,7 +39,7 @@ func Connect(path string) (*sqlx.DB, error) {
 	}
 
 	if !exists {
-		log.Debugln("created new db file", path)
+		log.Debugln("[db] Created new db file", path)
 	}
 	return db, nil
 }

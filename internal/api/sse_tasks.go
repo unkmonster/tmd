@@ -61,6 +61,7 @@ func writeSSEFrame(w http.ResponseWriter, flusher http.Flusher, write func() err
 func (s *Server) handleSSETasks(w http.ResponseWriter, r *http.Request) {
 	flusher, err := setupSSE(w)
 	if err != nil {
+		log.Errorf("[SSE] setup failed: %v", err)
 		s.writeError(w, http.StatusInternalServerError, "Streaming unsupported")
 		return
 	}

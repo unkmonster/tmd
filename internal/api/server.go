@@ -85,7 +85,7 @@ func NewServerWithConsoleLogHub(client *resty.Client, additionalClients []*resty
 		ListSyncManager:   downloading.NewListSyncManager(db),
 	})
 	if err != nil {
-		log.Fatalf("failed to create download service: %v", err)
+		log.Fatalf("[server] Failed to create download service: %v", err)
 	}
 	s.downloadService = downloadService
 	s.downloadQueue = NewDownloadQueue(s)
@@ -280,7 +280,7 @@ func (s *Server) handleSetTheme(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Infof("[theme] switched to %s", req.Theme)
+	log.Infof("[theme] Switched to %s", req.Theme)
 	s.writeJSON(w, http.StatusOK, NewSuccessResponse(map[string]string{
 		"theme": getFrontendTheme(),
 	}))
@@ -338,7 +338,7 @@ func (s *Server) handleServerShutdown(w http.ResponseWriter, _ *http.Request) {
 		"action":  "shutdown",
 	}))
 
-	log.Infoln("[server] received shutdown request, performing graceful shutdown...")
+	log.Infoln("[server] Received shutdown request, performing graceful shutdown...")
 
 	go func() {
 		time.Sleep(500 * time.Millisecond)
@@ -357,12 +357,12 @@ func (s *Server) GracefulShutdown(reason string) {
 			time.Sleep(100 * time.Millisecond)
 		}
 
-		log.Infof("[server] graceful shutdown started (reason: %s)", reason)
+		log.Infof("[server] Graceful shutdown started (reason: %s)", reason)
 
 		if s.taskManager != nil {
 			s.taskManager.CancelAllTasks()
 			s.taskManager.Close()
-			log.Infoln("[server] all running tasks cancelled")
+			log.Infoln("[server] All running tasks cancelled")
 			time.Sleep(1 * time.Second)
 		}
 		if s.downloadQueue != nil {
@@ -390,30 +390,30 @@ func (s *Server) GracefulShutdown(reason string) {
 			defer shutdownCancel()
 
 			if err := s.httpServer.Shutdown(shutdownCtx); err != nil {
-				log.Warnf("[server] http server shutdown error: %v", err)
+				log.Warnf("[server] HTTP server shutdown error: %v", err)
 			} else {
-				log.Infoln("[server] http server stopped gracefully")
+				log.Infoln("[server] HTTP server stopped gracefully")
 			}
 		}
 
 		if s.logWriter != nil {
 			if err := s.logWriter.Close(); err != nil {
-				log.Warnf("[server] failed to close log writer: %v", err)
+				log.Warnf("[server] Failed to close log writer: %v", err)
 			} else {
-				log.Infoln("[server] log writer closed")
+				log.Infoln("[server] Log writer closed")
 			}
 		}
 
 		if s.db != nil {
 			if err := s.db.Close(); err != nil {
-				log.Warnf("[server] failed to close database: %v", err)
+				log.Warnf("[server] Failed to close database: %v", err)
 			} else {
-				log.Infoln("[server] database connection closed")
+				log.Infoln("[server] Database connection closed")
 			}
 		}
 
 		time.Sleep(100 * time.Millisecond)
-		log.Infoln("[server] shutdown complete")
+		log.Infoln("[server] Shutdown complete")
 		close(s.shutdownDone)
 	})
 }

@@ -61,11 +61,11 @@ func syncListAndGetMembers(ctx context.Context, client *resty.Client, db *sqlx.D
 
 	memberIDs := utils.ExtractIDs(members, func(u *twitter.User) uint64 { return u.Id })
 	if err := database.MarkListMembersAccessibleByIDs(db, memberIDs); err != nil {
-		log.Warnln("failed to mark list members accessible for", lst.Title(), ":", err)
+		log.Warnln("[download] Failed to mark list members accessible for", lst.Title(), ":", err)
 	}
 	if lsm != nil {
 		if err = lsm.SyncListMembers(ctx, eid, lst.Title(), memberIDs); err != nil {
-			log.Warnln("failed to sync list members for", lst.Title(), ":", err)
+			log.Warnln("[download] Failed to sync list members for", lst.Title(), ":", err)
 		}
 	}
 

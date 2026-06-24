@@ -12,6 +12,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	log "github.com/sirupsen/logrus"
 )
 
 //go:embed web/*
@@ -106,6 +107,7 @@ func listThemes() []string {
 func (s *Server) handleWeb(w http.ResponseWriter, r *http.Request) {
 	data, err := readFrontendFile("index.html")
 	if err != nil {
+		log.Errorf("[web] Failed to load index.html: %v", err)
 		s.writeError(w, http.StatusInternalServerError, "Failed to load web page")
 		return
 	}

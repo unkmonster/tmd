@@ -5,11 +5,13 @@ import (
 	"net/http"
 	"strings"
 	"time"
-)
 
+	log "github.com/sirupsen/logrus"
+)
 func (s *Server) handleLogStream(w http.ResponseWriter, r *http.Request) {
 	flusher, err := setupSSE(w)
 	if err != nil {
+		log.Errorf("[SSE] Log stream setup failed: %v", err)
 		s.writeError(w, http.StatusInternalServerError, "Streaming not supported")
 		return
 	}

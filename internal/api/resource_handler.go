@@ -162,13 +162,13 @@ type userCascadeCount struct {
 func (s *Server) countUserCascade(id uint64) userCascadeCount {
 	var c userCascadeCount
 	if err := s.db.Get(&c.linkCount, "SELECT COUNT(*) FROM user_links WHERE user_id = ?", id); err != nil {
-		log.Warnf("[db] failed to count user_links for user %d: %v", id, err)
+		log.Warnf("[db] Failed to count user_links for user %d: %v", id, err)
 	}
 	if err := s.db.Get(&c.entityCount, "SELECT COUNT(*) FROM user_entities WHERE user_id = ?", id); err != nil {
-		log.Warnf("[db] failed to count user_entities for user %d: %v", id, err)
+		log.Warnf("[db] Failed to count user_entities for user %d: %v", id, err)
 	}
 	if err := s.db.Get(&c.nameCount, "SELECT COUNT(*) FROM user_previous_names WHERE user_id = ?", id); err != nil {
-		log.Warnf("[db] failed to count user_previous_names for user %d: %v", id, err)
+		log.Warnf("[db] Failed to count user_previous_names for user %d: %v", id, err)
 	}
 	return c
 }

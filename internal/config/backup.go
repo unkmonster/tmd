@@ -50,7 +50,7 @@ func CreateBackup(filePath string) (string, error) {
 func pruneConfigBackups(backupDir string) {
 	entries, err := os.ReadDir(backupDir)
 	if err != nil {
-		log.Warnf("Failed to list backup directory %q: %v", backupDir, err)
+		log.Warnf("[config] Failed to list backup directory %q: %v", backupDir, err)
 		return
 	}
 
@@ -78,7 +78,7 @@ func pruneConfigBackups(backupDir string) {
 		})
 		for _, entry := range backups[:len(backups)-maxConfigBackupCount] {
 			if err := os.Remove(filepath.Join(backupDir, entry.Name())); err != nil && !os.IsNotExist(err) {
-				log.Warnf("Failed to remove stale backup %q: %v", entry.Name(), err)
+			log.Warnf("[config] Failed to remove stale backup %q: %v", entry.Name(), err)
 			}
 		}
 	}
